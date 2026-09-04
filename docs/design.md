@@ -360,7 +360,8 @@ into a text-only one.
 
 `@path` remains text because source files and directories are references for model
 tools, not image bytes. `/image` is deliberately explicit, and registered commands
-receive its drafts only when their Harness descriptor declares `input.images`.
+receive its drafts only when their Harness descriptor declares
+`input.attachments`.
 Model names are never used as a vision allowlist: an explicit text-only modality
 refuses before I/O, while absent metadata remains unknown and is left to Harness.
 

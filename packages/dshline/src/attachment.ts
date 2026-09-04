@@ -48,7 +48,7 @@ import { Composer, escapeControls, paint, SPINNER_INTERVAL_MS } from '@dshline/r
 import { CARD_DETAIL_CYCLE, ToolCards } from './cards.ts'
 import { chooseDelivery } from './delivery.ts'
 import { BUSY_ENTER_CHOICES, runEnterCommand } from './enter.ts'
-import { modelPhaseAfter, primaryActivity } from './activity.ts'
+import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from './activity.ts'
 import type { ModelPhase } from './activity.ts'
 import { installApprovalAnswerer } from './approval.ts'
 import { createCompletion } from './completion.ts'
@@ -1090,20 +1090,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
    * replayed session has to read exactly like the one that was watched happen, and
    * two projections would drift the first time either changed. The live path
    * commits each return immediately; the replay concatenates them and commits once.
+   *
+   * Streaming deltas are deliberately absent. They are transient frames on
+   * `agent/assistant-stream` rather than log events, so there is nothing for the
+   * replay to feed here — see the frame listener below.
    * @param event - the committed event.
    * @param columns - the terminal's current width.
    * @returns lines to write into scrollback.
    */
   const project = (event: SessionEvent, columns: number): string[] => {
-    if (event.type === 'assistant/chunk') {
-      const { chunk } = event.data
-      // Reasoning is streamed as well as answered text. Dropping it left the
-      // screen showing nothing but a spinner for as long as a reasoning model
-      // thought, which reads as a hung process rather than a working one.
-      if (chunk.type === 'text-delta') return stream.push('text', chunk.text, columns)
-      if (chunk.type === 'reasoning-delta') return stream.push('reasoning', chunk.text, columns)
-      return []
-    }
     // Logged only when the route or its capacity changes, and always before the
     // requests it applies to — so following it here attributes each message's
     // usage to the model that actually produced it, on the live path and on the
@@ -1218,10 +1213,31 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     if (event.type === 'tool/call' && cards.inFlight() === undefined) phase = 'waiting'
     phase = modelPhaseAfter(phase, event)
     commit(project(event, columns))
-    // Fed from the LIVE feed and not from `project`, which the replay also runs:
-    // the replay carries no `assistant/chunk` events — they are the streamed form
-    // of a message the log also stores assembled — so a timer behind it would
-    // measure every reopened turn as though the model had thought for no time.
+    draw()
+  }))
+
+  // The transient half of the same fold, and the ONLY source of streamed text
+  // now that Harness persists one settled `assistant/message` per attempt
+  // instead of a per-delta log event. It is deliberately not routed through
+  // `project`: the resume replay runs that function too, and a log holds no
+  // frames to give it, so a timer or a buffer fed from there would measure
+  // every reopened turn as though the model had thought for no time.
+  //
+  // A frame's durable settlement is appended BEFORE its `end` frame is
+  // published (`AssistantStreamAttempt.settle`), so the `assistant/message`
+  // above still settles this buffer in the order it always did.
+  scope.own(ctx.on('agent/assistant-stream', ({ agent: subject, frame }) => {
+    if (subject !== agent) return
+    timer.observeFrame(frame)
+    phase = modelPhaseAfterFrame(phase, frame)
+    if (frame.type === 'chunk') {
+      const columns = terminal.columns()
+      // Reasoning is streamed as well as answered text. Dropping it left the
+      // screen showing nothing but a spinner for as long as a reasoning model
+      // thought, which reads as a hung process rather than a working one.
+      if (frame.chunk.type === 'text-delta') commit(stream.push('text', frame.chunk.text, columns))
+      else if (frame.chunk.type === 'reasoning-delta') commit(stream.push('reasoning', frame.chunk.text, columns))
+    }
     draw()
   }))
 
@@ -1321,7 +1337,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     const registeredCommand = parsed === undefined
       ? undefined
       : ctx.commands.list(agent).find(command => command.name === parsed.name)
-    if (imageDrafts.size > 0 && registeredCommand !== undefined && registeredCommand.input?.images !== true) {
+    if (imageDrafts.size > 0 && registeredCommand !== undefined && registeredCommand.input?.attachments !== true) {
       commit([paint(`✗ /${parsed?.name ?? 'command'} does not accept image attachments; drafts were kept`, 'error')])
       draw()
       return
@@ -1331,7 +1347,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     let admission: AbortController | undefined
     try {
       let commandImages: Parameters<typeof ctx.commands.execute>[2] = []
-      if (imageDrafts.size > 0 && registeredCommand?.input?.images === true) {
+      if (imageDrafts.size > 0 && registeredCommand?.input?.attachments === true) {
         const attachments = ctx.get('attachments')
         const fs = ctx.get('fs')
         if (attachments === undefined || fs === undefined) {

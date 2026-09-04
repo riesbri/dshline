@@ -3,8 +3,8 @@
  *
  * A live in-process subagent exposes a real child Agent, so its activity can be
  * folded with the exact vocabulary the main status line uses: the model phase
- * from its session events and the tool activity from its pending calls'
- * presentations. A remote run without a local Agent exposes neither, and the
+ * from its session events and its transient assistant stream, and the tool
+ * activity from its pending calls' presentations. A remote run without a local Agent exposes neither, and the
  * observer simply never attaches — the row then shows no invented activity.
  * @module dshline/work/activity
  */
@@ -14,7 +14,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { modelPhaseAfter, primaryActivity } from '../activity.ts'
+import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from '../activity.ts'
 import type { ActivityWord, ModelPhase } from '../activity.ts'
 import { PendingToolCalls } from '../tool-pending.ts'
 
@@ -113,15 +113,28 @@ export class ChildActivityObserver {
     this.status = child.status
     // Establish one correct starting snapshot from the CURRENT turn only, then
     // switch to live folding. One redraw covers the whole reconstruction; no
-    // historical event gets its own callback. `assistant/chunk` streaming and
-    // tool calls already in the session therefore appear immediately instead of
-    // being replayed event by event.
+    // historical event gets its own callback, so tool calls already in the
+    // session appear immediately instead of being replayed event by event.
+    //
+    // An attempt already streaming when this attaches contributes nothing to
+    // the seed, and cannot: streaming leaves no durable record until it
+    // settles. The row reads `waiting` for the rest of that attempt, which is
+    // narrower than the truth but never wrong about a tool.
     const currentTurn = openTurnSuffix(child.session)
     for (const event of currentTurn) this.foldEvent(event)
     this.disposers.push(ctx.on('session/event', (session, event: SessionEvent) => {
       if (session !== child.session) return
       if (this.disposed) return
       this.foldEvent(event)
+      onChange()
+    }))
+    // The transient half of the same fold, filtered by the same exact identity.
+    // Without it a streaming child would sit at `waiting` for its whole reply,
+    // because the durable log no longer carries a per-delta event to fold.
+    this.disposers.push(ctx.on('agent/assistant-stream', (payload) => {
+      if (payload.agent !== child) return
+      if (this.disposed) return
+      this.phase = modelPhaseAfterFrame(this.phase, payload.frame)
       onChange()
     }))
     this.disposers.push(ctx.on('agent/status', (payload: { agent: Agent; status: AgentStatus }) => {

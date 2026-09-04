@@ -245,7 +245,7 @@ describe('image attachment submission', () => {
 
   it('forwards transient bytes only to a command that explicitly accepts images', async () => {
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', images: true } } as never],
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } } as never],
       commandResult: { commandId: 'c-1', result: { kind: 'success' } },
     })
     submit(f.dispatch(), '/image one.png')
@@ -255,7 +255,9 @@ describe('image attachment submission', () => {
     expect(f.commands.execute).toHaveBeenCalledWith(
       expect.anything(),
       '/vision inspect this',
-      [{ mediaType: 'image/png', data: 'AQID', name: 'one.png' }],
+      // `type: 'image'` is the registry's submission discriminant; its other
+      // arm is a staged file receipt, which dshline never produces.
+      [{ type: 'image', mediaType: 'image/png', data: 'AQID', name: 'one.png' }],
       expect.any(AbortSignal),
     )
     // The command registry, not dshline, owns durable admission on this path.
@@ -265,7 +267,7 @@ describe('image attachment submission', () => {
 
   it('retains drafts when an accepting command reports an error', async () => {
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', images: true } } as never],
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } } as never],
       commandResult: { commandId: 'c-1', result: { kind: 'error', text: 'not now' } },
     })
     submit(f.dispatch(), '/image one.png')
@@ -399,7 +401,7 @@ describe('image attachment submission', () => {
       signal.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
     })
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { images: true } } as never],
+      commands: [{ name: 'vision', description: 'inspect', input: { attachments: true } } as never],
       execute,
     })
     submit(f.dispatch(), '/image one.png')
@@ -417,7 +419,7 @@ describe('image attachment submission', () => {
   it('does not let a late image-command settlement redraw or alter the old session', async () => {
     let finish: ((value: unknown) => void) | undefined
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { images: true } } as never],
+      commands: [{ name: 'vision', description: 'inspect', input: { attachments: true } } as never],
       execute: () => new Promise(resolve => { finish = resolve }),
     })
     submit(f.dispatch(), '/image one.png')

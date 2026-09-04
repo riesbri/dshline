@@ -241,19 +241,24 @@ describe('the usage inspection', () => {
     const session: Session = ctx.sessions.create()
     const usage = new SessionUsage(pricingFrom(undefined), [])
 
-    // The adopted generation's `tokenUsage` fold: a usage CHUNK is a sample for
-    // the attempt, `llm/retry-started` closes the replacement slot, and the
-    // retried attempt's finalized message then ADDS rather than replaces. The
+    // The adopted generation's `tokenUsage` fold: a failed attempt settles as
+    // `assistant/attempt` and contributes the last usage sample embedded in its
+    // stream, `llm/retry-started` closes the replacement slot, and the retried
+    // attempt's finalized message then ADDS rather than replaces. The
     // attachment's pricing fold observes `assistant/message` only, because it
     // needs the route and the moment beside the tokens — so the failed attempt's
     // 100 prompt tokens are Harness's alone.
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('assistant/chunk', {
+    session.append('assistant/attempt', {
       turn: 1, step: 1,
-      chunk: {
-        type: 'usage',
-        usage: { inputTokens: 10, outputTokens: 1, cacheReadTokens: 90, cacheWriteTokens: 0 },
-      },
+      stream: [{
+        type: 'chunk',
+        time: 1_760_000_000_000,
+        chunk: {
+          type: 'usage',
+          usage: { inputTokens: 10, outputTokens: 1, cacheReadTokens: 90, cacheWriteTokens: 0 },
+        },
+      }],
     } as never)
     session.append('llm/retry-started', { turn: 1, step: 1 } as never)
     const reported = { inputTokens: 100, outputTokens: 5, cacheReadTokens: 900, cacheWriteTokens: 0 }

@@ -23,6 +23,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { stripAnsi, type Key } from '@dshline/renderer'
@@ -85,6 +86,8 @@ async function fixture(options: {
   resolveRead: (events?: SessionEvent[]) => void
   commits: string[][]
   frames: Array<{ lines: string[] }>
+  /** Publish one assistant-stream frame, by default from the attached agent. */
+  stream: (frame: unknown, from?: unknown) => void
 }> {
   const ctx = new RealContext()
   await ctx.plugin(TuiSlots)
@@ -156,6 +159,9 @@ async function fixture(options: {
     resolveRead: events => read.resolve({ events: events ?? REPLAYED_EVENTS }),
     commits,
     frames,
+    stream: (frame, from) => {
+      ctx.emit('agent/assistant-stream', { agent: (from ?? agent) as never, frame: frame as AssistantStreamFrame })
+    },
   }
 }
 
@@ -304,5 +310,42 @@ describe('the replay input gate', () => {
     press(dispatch(), { kind: 'key', name: 'up' })
     expect(latest(frames)).toContain(PAST_PROMPT)
     expect(latest(frames)).not.toContain('quick')
+  })
+
+  it('commits streamed text from the transient stream feed, for this agent only', async () => {
+    // Streaming reaches the frontend as `agent/assistant-stream` frames, never
+    // as log events — which is why the replay above can carry a whole session
+    // and still produce no streamed line. The durable settlement that follows
+    // is what the replay reads, so a chunk delivered here must reach scrollback
+    // through the frame listener or it reaches it nowhere.
+    const { resolveRead, commits, stream } = await fixture()
+    resolveRead([])
+    await flush()
+    const before = commits.length
+
+    stream({ type: 'start', attemptId: 's-1:1', revision: 1, turn: 1, step: 1 })
+    stream({
+      type: 'chunk',
+      attemptId: 's-1:1',
+      revision: 2,
+      index: 0,
+      time: 1,
+      chunk: { type: 'text-delta', index: 0, text: 'streamed answer\n' },
+    })
+    expect(commits.slice(before).flat().map(stripAnsi).join('\n')).toContain('streamed answer')
+
+    // Another agent's attempt is another window's business. The listener is
+    // context-wide, so identity is the only thing keeping two attachments from
+    // writing into each other's scrollback.
+    const after = commits.length
+    stream({
+      type: 'chunk',
+      attemptId: 'other:1',
+      revision: 1,
+      index: 0,
+      time: 2,
+      chunk: { type: 'text-delta', index: 0, text: 'someone else\n' },
+    }, { session: { id: 'other' } })
+    expect(commits.slice(after).flat().map(stripAnsi).join('\n')).not.toContain('someone else')
   })
 })

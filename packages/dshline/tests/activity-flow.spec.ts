@@ -4,17 +4,22 @@
  * `attachSession` itself needs a plugin context, an agent, and a terminal, so
  * the coordination it performs — the 0→1 pending check before the phase
  * reducer, then the card projection — is exercised here with the exact same
- * order and the real `ToolCards`, `modelPhaseAfter`, and `primaryActivity`.
- * The point is to catch bugs in how those parts agree, not to re-test any of
- * them alone.
+ * order and the real `ToolCards`, `modelPhaseAfter`, `modelPhaseAfterFrame`,
+ * and `primaryActivity`. The point is to catch bugs in how those parts agree,
+ * not to re-test any of them alone.
+ *
+ * The runner reads two feeds — durable `session/event` and transient
+ * `agent/assistant-stream` — into ONE phase, so this fold takes either and
+ * routes it exactly as the two listeners do.
  * @module dshline/tests/activity-flow
  */
 
 import { describe, expect, it } from 'vitest'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { modelPhaseAfter, primaryActivity } from '../src/activity.ts'
+import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from '../src/activity.ts'
 import type { ActivityWord, ModelPhase } from '../src/activity.ts'
 import { ToolCards } from '../src/cards.ts'
 
@@ -44,13 +49,21 @@ function lookup(views: Record<string, ToolCallView>): (name: string) => ToolDefi
 }
 
 /**
- * Fold one live event the way attachment.ts's `session/event` listener does:
- * the 0→1 pending check runs BEFORE the call is projected, then the phase
- * reducer, then the card projection pairs the call and its result by id.
+ * Fold one live input the way attachment.ts's two listeners do.
+ *
+ * A durable event runs the 0→1 pending check BEFORE the call is projected,
+ * then the phase reducer, then the card projection pairs the call and its
+ * result by id. A transient stream frame only advances the phase, which is the
+ * whole reason a tool can outrank stream activity that arrived under it.
  * @param flow - the live activity state.
- * @param event - one live session event.
+ * @param input - one live session event, or one assistant-stream frame.
  */
-function fold(flow: Flow, event: SessionEvent): void {
+function fold(flow: Flow, input: SessionEvent | AssistantStreamFrame): void {
+  if ('attemptId' in input) {
+    flow.phase = modelPhaseAfterFrame(flow.phase, input)
+    return
+  }
+  const event = input
   if (event.type === 'tool/call' && flow.cards.inFlight() === undefined) flow.phase = 'waiting'
   flow.phase = modelPhaseAfter(flow.phase, event)
   if (event.type === 'tool/call') flow.cards.call(event.data, COLUMNS)
@@ -97,19 +110,24 @@ function result(id: string): SessionEvent {
   })
 }
 
+/** One transient assistant-stream chunk frame. */
+function fr(chunk: unknown): AssistantStreamFrame {
+  return { type: 'chunk', attemptId: 's:1', revision: 1, index: 0, time: 0, chunk } as unknown as AssistantStreamFrame
+}
+
 /** A reasoning delta chunk. */
-function reasoning(text = 'thinking…'): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text } })
+function reasoning(text = 'thinking…'): AssistantStreamFrame {
+  return fr({ type: 'reasoning-delta', index: 0, text })
 }
 
 /** A reasoning block-start chunk. */
-function reasoningBlockStart(): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } })
+function reasoningBlockStart(): AssistantStreamFrame {
+  return fr({ type: 'block-start', index: 0, blockType: 'reasoning' })
 }
 
 /** A text delta chunk. */
-function text(): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'answer' } })
+function text(): AssistantStreamFrame {
+  return fr({ type: 'text-delta', index: 0, text: 'answer' })
 }
 
 describe('the live activity fold, end to end', () => {

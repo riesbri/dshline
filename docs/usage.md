@@ -75,7 +75,7 @@ Staging reads no file and creates no attachment. On the next prompt, dshline res
 
 The empty composer reports the staged count. Once sent, the transcript shows each durable image's display name, dimensions, and size; the opaque attachment id, bytes, and storage path are never printed. Reopening a session reconstructs those rows from the durable `ImageBlock` references in its log. Unsent drafts are process-local to the attached session and are discarded when you start or reopen another session.
 
-An explicitly text-only selected model is refused before any image is read. When a provider does not declare its input modalities, dshline does not guess from its name: Harness receives the image and remains the authority. Registered slash commands accept staged images only when their command descriptor declares `input.images`; an error keeps both the command text and images for correction or retry.
+An explicitly text-only selected model is refused before any image is read. When a provider does not declare its input modalities, dshline does not guess from its name: Harness receives the image and remains the authority. Registered slash commands accept staged images only when their command descriptor declares `input.attachments`; an error keeps both the command text and images for correction or retry.
 
 `@path` itself remains a textual file reference. It tells the model which workspace path to inspect with its filesystem tools; it never reads or attaches the file. This distinction matters for source files and directories, which are not Harness image attachments.
 
@@ -282,7 +282,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.2-rc.1
+✓ Harness    0.1.3-alpha.1
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -331,10 +331,10 @@ dependency is pinned to, and the version you have is read from the
 and both commands that would bring them together:
 
 ```
-⚠ Harness    0.1.3-alpha.1 installed · dshline targets 0.1.2-rc.1
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.3-alpha.1
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.2-rc.1
-  Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.3-alpha.1
+  Or move to a dshline release that targets 0.1.2-rc.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
 

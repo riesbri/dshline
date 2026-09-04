@@ -400,9 +400,10 @@ export class SessionUsage {
  * publishes.
  *
  * These come from the `tokenUsage` session projection, whose scope is the
- * agent's own model requests: it folds `assistant/chunk` usage samples and
- * `assistant/message` usage across the complete durable log, replacing a
- * repeated sample for one attempt and re-counting after `llm/retry-started`.
+ * agent's own model requests: it folds one usage sample per durable Assistant
+ * settlement — `assistant/message` and the `assistant/attempt` a failed or
+ * cancelled call leaves — across the complete durable log, replacing a repeated
+ * sample for one attempt and re-counting after `llm/retry-started`.
  * Compaction and surface replacement do not erase earlier billing, so a request
  * whose messages were later summarized away is still counted.
  *
@@ -463,10 +464,11 @@ export interface UsageInspection {
  * buckets are therefore reported from Harness and the money from dshline.
  *
  * The two are NOT claimed to share one scope, and on an ordinary session they
- * need not. Harness folds `assistant/chunk` usage samples as well as finalized
- * messages, replacing a repeated sample for one attempt and re-counting after
- * `llm/retry-started`; dshline's pricing fold sees finalized `assistant/message`
- * usage only, because pricing needs the route and the moment beside the tokens.
+ * need not. Harness folds every durable Assistant settlement, the
+ * `assistant/attempt` of a failed or cancelled call included, replacing a
+ * repeated sample for one attempt and re-counting after `llm/retry-started`;
+ * dshline's pricing fold sees finalized `assistant/message` usage only, because
+ * pricing needs the route and the moment beside the tokens.
  * A retried request therefore counts an attempt in the buckets that the money
  * never priced. Each figure is reported as what its own authority says, and
  * neither is divided into the other.

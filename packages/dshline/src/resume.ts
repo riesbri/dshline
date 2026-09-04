@@ -37,10 +37,6 @@ import { paint } from '@dshline/renderer'
  * @returns whether to project it.
  */
 export function isTranscriptEvent(event: SessionEvent): boolean {
-  // Chunks are excluded separately from the surface question: they are the
-  // streamed form of a reply whose assembled form is also in the log, so replaying
-  // both would print it twice.
-  if (event.type === 'assistant/chunk') return false
   if (!isSurfaceEvent(event)) return true
   return isAppendSurfaceEvent(event)
 }

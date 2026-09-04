@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import type { TurnTiming, TurnSpan } from '../src/timing.ts'
@@ -16,9 +17,15 @@ function event(time: number, type: string, data: unknown): SessionEvent {
   return { time, type, data } as unknown as SessionEvent
 }
 
-/** A streamed delta of one kind, at one moment. */
-const delta = (time: number, step: number, type: string): SessionEvent =>
-  event(time, 'assistant/chunk', { turn: 1, step, chunk: { type, text: 'x' } })
+/**
+ * A streamed delta of one kind, at one moment.
+ *
+ * Streaming is transient: it reaches the timer as an `agent/assistant-stream`
+ * frame, never as a log event. One attempt per `step` here, which is what the
+ * loop does — a step holds a second attempt only when the first one failed.
+ */
+const delta = (time: number, step: number, type: string): AssistantStreamFrame =>
+  ({ type: 'chunk', attemptId: `s:${String(step)}`, revision: 1, index: 0, time, chunk: { type, text: 'x' } }) as unknown as AssistantStreamFrame
 
 /** A tool call opening, and the result that closes it. */
 const call = (time: number, callId: string, name: string): SessionEvent =>
@@ -31,14 +38,25 @@ const ends = (time: number, turn = 1): SessionEvent =>
   event(time, 'turn/end', { turn, reason: 'complete' })
 
 /**
- * Feed a whole turn through a fresh timer.
- * @param events - the events, in order.
+ * Feed a whole turn through a fresh timer, routing each input to the feed it
+ * really arrives on.
+ * @param inputs - the events and stream frames, in order.
  * @returns the profile the closing `turn/end` produced, if any.
  */
-function profile(events: readonly SessionEvent[]): TurnTiming | undefined {
+function profile(inputs: readonly (SessionEvent | AssistantStreamFrame)[]): TurnTiming | undefined {
   const timer = new TurnTimer()
-  for (const one of events) timer.observe(one)
+  for (const one of inputs) observe(timer, one)
   return timer.snapshot()
+}
+
+/**
+ * Route one input to the timer method the runner would call for it.
+ * @param timer - the timer under test.
+ * @param input - one log event, or one assistant-stream frame.
+ */
+function observe(timer: TurnTimer, input: SessionEvent | AssistantStreamFrame): void {
+  if ('attemptId' in input) timer.observeFrame(input)
+  else timer.observe(input)
 }
 
 /** The spans of a profile as a plain label-to-milliseconds map. */
@@ -128,8 +146,8 @@ describe('TurnTimer', () => {
     timer.observe(result(5_000, 'a'))
     timer.observe(ends(5_000))
     timer.observe(event(6_000, 'turn/start', { turn: 2 }))
-    timer.observe(delta(6_000, 0, 'text-delta'))
-    timer.observe(delta(8_000, 0, 'text-delta'))
+    timer.observeFrame(delta(6_000, 0, 'text-delta'))
+    timer.observeFrame(delta(8_000, 0, 'text-delta'))
     timer.observe(ends(9_000, 2))
     expect(spans(timer.snapshot())).toEqual({ output: 2_000 })
   })
@@ -166,8 +184,8 @@ describe('TurnTimer', () => {
   it('observes a whole live turn even when presentation is enabled midway through it', () => {
     const timer = new TurnTimer()
     timer.observe(event(1_000, 'turn/start', { turn: 4 }))
-    timer.observe(delta(2_000, 0, 'reasoning-delta'))
-    timer.observe(delta(4_000, 0, 'reasoning-delta'))
+    timer.observeFrame(delta(2_000, 0, 'reasoning-delta'))
+    timer.observeFrame(delta(4_000, 0, 'reasoning-delta'))
     expect(timer.snapshot(5_000)).toMatchObject({ turn: 4, totalMs: 4_000, running: true })
     expect(spans(timer.snapshot(5_000))).toEqual({ reasoning: 2_000 })
   })

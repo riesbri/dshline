@@ -136,10 +136,10 @@ describe('capability: tokenMeter', () => {
     surveyor.read()
     expect(measured).toBe(1)
 
-    // A non-surface event — the shape a streaming reply appends by the hundred —
-    // must not cost a remeasurement.
+    // A non-surface event — the shape a turn appends around every reply — must
+    // not cost a remeasurement.
     session.append('turn/start', { turn: 1 })
-    session.append('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', text: 'hi' } } as never)
+    session.append('assistant/attempt', { turn: 1, step: 1, stream: [] } as never)
     surveyor.read()
     expect(measured).toBe(1)
 

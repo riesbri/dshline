@@ -9,7 +9,8 @@
  */
 
 import { basename, extname } from 'node:path'
-import type { EncodedImageAttachment, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 
 /** A path staged for the current session's next ordinary prompt. */
@@ -178,11 +179,17 @@ export async function readImageDrafts(
  * Base64 exists only at this immediate call boundary; dshline never stores or
  * logs it. The registry decodes, validates, and durably admits the batch before
  * an attachment-authorized command handler runs.
+ *
+ * `type: 'image'` is the discriminant of the registry's submission envelope,
+ * whose other arm is a staged file receipt. dshline reads bytes from the
+ * mounted filesystem and has no upload staging of its own, so it only ever
+ * produces the image arm.
  * @param inputs - bounded bytes read from the mounted filesystem.
  * @returns ordered transient command image envelopes.
  */
-export function encodeCommandImages(inputs: readonly SaveImageAttachment[]): readonly EncodedImageAttachment[] {
+export function encodeCommandImages(inputs: readonly SaveImageAttachment[]): readonly CommandSubmitAttachment[] {
   return inputs.map(input => ({
+    type: 'image' as const,
     mediaType: input.mediaType,
     data: Buffer.from(input.data).toString('base64'),
     ...(input.name === undefined ? {} : { name: input.name }),

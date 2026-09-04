@@ -110,7 +110,7 @@ dshline Todo presentation
 键：Harness 自己的 surface 修订号（节点数加上 `replaceGeneration`），以及生效的定价
 路线——后者读自 `session.requestHeader()`，因为 header 的 provider 与 model 正是选中
 计量所依据的适配器图片定价的东西。因此一个在流式回复期间一直开着的检视器只测量一次，
-而落地的压缩（compaction）或路线变更会在下一次绘制时被采纳；而每来一个 chunk 都会
+而落地的压缩（compaction）或路线变更会在下一次绘制时被采纳；而每落定一次 attempt 才
 变动的日志长度，特意不进入这个键。只有**成功**的测量会被缓存：计量器缺失或拒绝时会
 重试，因为计量器可以在检视器首次读取之后才被挂载，而针对畸形日志抛出的错误也可能被
 之后的追加修复。以上任何一项都不存在定时器。

@@ -130,9 +130,13 @@ describe('capability: subagent telemetry projections', () => {
       vi.setSystemTime(ORIGIN + 50_000)
       child.append('turn/start', { turn: 2 })
       vi.setSystemTime(ORIGIN + 54_000)
-      child.append('assistant/chunk', {
-        turn: 2, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'work' },
-      })
+      child.append('assistant/attempt', {
+        turn: 2,
+        step: 1,
+        stream: [
+          { type: 'chunk', time: ORIGIN + 54_000, chunk: { type: 'reasoning-delta', index: 0, text: 'work' } },
+        ],
+      } as never)
       const timing = projection.snapshot().subagents[0]?.timing
       expect(timing).toEqual({ settledMs: 42_000, active: { since: ORIGIN + 50_000, through: ORIGIN + 54_000 } })
       // Running: the open turn advances with the frame clock.
@@ -186,18 +190,26 @@ describe('capability: subagent telemetry projections', () => {
         mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 1 })
-      child.append('assistant/chunk', {
-        turn: 1, step: 1,
-        chunk: {
-          type: 'usage',
-          // `reasoningTokens` is already inside `outputTokens` by upstream's
-          // contract, which is why the row may sum the buckets at all.
-          usage: {
-            inputTokens: 4_000, outputTokens: 800, cacheReadTokens: 200,
-            cacheWriteTokens: 100, reasoningTokens: 300,
+      // Usage reaches the projection inside a settled attempt's embedded
+      // stream: Harness stores one durable settlement per attempt, and the
+      // per-delta log event it used to be no longer exists.
+      child.append('assistant/attempt', {
+        turn: 1,
+        step: 1,
+        stream: [{
+          type: 'chunk',
+          time: ORIGIN,
+          chunk: {
+            type: 'usage',
+            // `reasoningTokens` is already inside `outputTokens` by upstream's
+            // contract, which is why the row may sum the buckets at all.
+            usage: {
+              inputTokens: 4_000, outputTokens: 800, cacheReadTokens: 200,
+              cacheWriteTokens: 100, reasoningTokens: 300,
+            },
           },
-        },
-      })
+        }],
+      } as never)
       expect(projection.snapshot().subagents[0]?.tokens).toBe(5_100)
       projection.dispose()
     } finally {
@@ -217,10 +229,13 @@ describe('capability: subagent telemetry projections', () => {
       // length (dsh-subagent's `inheritedEventCount = seed.length`).
       const parent = ctx.sessions.create()
       parent.append('turn/start', { turn: 1 })
-      parent.append('assistant/chunk', {
-        turn: 1, step: 1,
-        chunk: { type: 'usage', usage: { inputTokens: 44_000, outputTokens: 1_000 } },
-      })
+      parent.append('assistant/attempt', {
+        turn: 1,
+        step: 1,
+        stream: [{
+          type: 'chunk', time: ORIGIN, chunk: { type: 'usage', usage: { inputTokens: 44_000, outputTokens: 1_000 } },
+        }],
+      } as never)
       parent.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       const seed = parent.snapshotEvents()
       expect(seed).toHaveLength(3)
@@ -239,10 +254,13 @@ describe('capability: subagent telemetry projections', () => {
         mode: 'one-shot', provider: 'fork', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 2 })
-      child.append('assistant/chunk', {
-        turn: 2, step: 1,
-        chunk: { type: 'usage', usage: { inputTokens: 14_000, outputTokens: 1_000 } },
-      })
+      child.append('assistant/attempt', {
+        turn: 2,
+        step: 1,
+        stream: [{
+          type: 'chunk', time: ORIGIN, chunk: { type: 'usage', usage: { inputTokens: 14_000, outputTokens: 1_000 } },
+        }],
+      } as never)
       vi.setSystemTime(ORIGIN + 42_000)
       child.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
 

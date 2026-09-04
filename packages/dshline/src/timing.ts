@@ -14,6 +14,7 @@
  * @module dshline/timing
  */
 
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { displayWidth, escapeControls, formatElapsed, paint, truncateToWidth } from '@dshline/renderer'
 import type { TuiSlotView } from './slots.ts'
@@ -206,7 +207,7 @@ function formatSpan(milliseconds: number): string {
   return `${(value / 1000).toFixed(1)}s`
 }
 
-/** One streamed kind within one model step. */
+/** One streamed kind within one model attempt. */
 interface StreamSpan {
   readonly kind: 'reasoning' | 'output'
   first: number
@@ -222,18 +223,18 @@ interface PendingTool {
 /**
  * Collects timings for the live turn and retains the most recent finished one.
  *
- * Fed from the runner's LIVE event listener rather than from its shared
- * projection, and that is not an oversight. A resumed session's replay has no
- * `assistant/chunk` events at all — they are the streamed form of a message the
- * log also stores assembled, so replaying both would print every reply twice, and
- * the projection drops them. A timer fed from the replay would therefore chart
- * every historical turn as though the model had thought for no time at all.
+ * Fed from the runner's LIVE feeds rather than from its shared projection, and
+ * that is not an oversight. Streaming is transient: the durable log stores one
+ * settled `assistant/message` per attempt and no per-delta record at all, so a
+ * timer fed from a resumed session's replay would chart every historical turn
+ * as though the model had thought for no time. Turn and tool boundaries come
+ * from {@link observe}; the deltas between them come from {@link observeFrame}.
  */
 export class TurnTimer {
   /** When the open turn began, or undefined when no turn is being measured. */
   private startedAt: number | undefined
   private turn = 0
-  /** First and last delta of one kind within one step, keyed `kind:step`. */
+  /** First and last delta of one kind within one attempt, keyed `kind:attemptId`. */
   private readonly streams = new Map<string, StreamSpan>()
   /** Calls awaiting their result, keyed by call id. */
   private readonly pending = new Map<string, PendingTool>()
@@ -267,16 +268,6 @@ export class TurnTimer {
       return
     }
     if (this.startedAt === undefined) return
-    if (event.type === 'assistant/chunk') {
-      const { chunk, step } = event.data
-      const kind = chunk.type === 'reasoning-delta' ? 'reasoning' : chunk.type === 'text-delta' ? 'output' : undefined
-      if (kind === undefined) return
-      const key = `${kind}:${String(step)}`
-      const span = this.streams.get(key)
-      if (span === undefined) this.streams.set(key, { kind, first: event.time, last: event.time })
-      else span.last = event.time
-      return
-    }
     if (event.type === 'tool/call') {
       this.pending.set(event.data.callId, { name: event.data.name, at: event.time })
       return
@@ -294,6 +285,27 @@ export class TurnTimer {
     if (event.type !== 'turn/end') return
     this.finished = this.reading(event.time, false)
     this.resetOpen()
+  }
+
+  /**
+   * Fold one live assistant-stream frame into the current measurement.
+   *
+   * Spans are keyed by ATTEMPT rather than by step, because an attempt is
+   * exactly one contiguous model stream: a step that retried after a stream
+   * error holds two of them, and one span stretched across both would report
+   * the gap between them as time the model spent producing text.
+   * @param frame - one ordered frame from the agent's assistant stream.
+   * @returns nothing; read the current result through {@link snapshot}.
+   */
+  observeFrame(frame: AssistantStreamFrame): void {
+    if (this.startedAt === undefined || frame.type !== 'chunk') return
+    const { chunk } = frame
+    const kind = chunk.type === 'reasoning-delta' ? 'reasoning' : chunk.type === 'text-delta' ? 'output' : undefined
+    if (kind === undefined) return
+    const key = `${kind}:${frame.attemptId}`
+    const span = this.streams.get(key)
+    if (span === undefined) this.streams.set(key, { kind, first: frame.time, last: frame.time })
+    else span.last = frame.time
   }
 
   /**

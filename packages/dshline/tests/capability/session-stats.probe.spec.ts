@@ -78,12 +78,9 @@ function timedStep(session: Session, turn: number, startedAt: number, ttftMs = F
   vi.setSystemTime(startedAt)
   session.append('turn/start', { turn })
   session.append('step/start', { turn, step: 1 })
-  vi.setSystemTime(startedAt + ttftMs)
-  session.append('assistant/chunk', {
-    turn,
-    step: 1,
-    chunk: { type: 'text-delta', index: 0, text: 'a' },
-  } as never)
+  // The first token's moment travels INSIDE the settled message now: Harness
+  // stores one durable settlement per attempt carrying its exact timed stream,
+  // so there is no separate per-delta event left to time the step from.
   vi.setSystemTime(startedAt + ttftMs + DECODE_MS)
   session.append('assistant/message', {
     turn,
@@ -93,6 +90,9 @@ function timedStep(session: Session, turn: number, startedAt: number, ttftMs = F
       content: [{ type: 'text', text: 'answer' }],
       source: { kind: 'model', provider: 'mock', model: 'mock' },
     }),
+    stream: [
+      { type: 'chunk', time: startedAt + ttftMs, chunk: { type: 'text-delta', index: 0, text: 'a' } },
+    ],
     usage: { inputTokens: 10, outputTokens: OUTPUT_TOKENS },
   } as never, { surfaceOp: 'append' })
   session.append('step/end', { turn, step: 1 })
@@ -202,10 +202,15 @@ describe('capability: sessionStats', () => {
     session.append('step/start', { turn: 1, step: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: 'a', name: 'read', arguments: '{}' } as never)
     vi.setSystemTime(CLOCK_ORIGIN + 4_000)
-    session.append('assistant/chunk', {
+    // A cancelled attempt settles as `assistant/attempt` carrying the stream it
+    // did deliver — real streaming, and still no assembled message to time
+    // against, which is exactly what the assertion below is about.
+    session.append('assistant/attempt', {
       turn: 1,
       step: 1,
-      chunk: { type: 'text-delta', index: 0, text: 'partial' },
+      stream: [
+        { type: 'chunk', time: CLOCK_ORIGIN + 4_000, chunk: { type: 'text-delta', index: 0, text: 'partial' } },
+      ],
     } as never)
     vi.setSystemTime(CLOCK_ORIGIN + 10_000)
     session.append('step/end', { turn: 1, step: 1 })

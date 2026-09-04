@@ -40,9 +40,12 @@ describe('what a resumed transcript replays', () => {
     expect(isTranscriptEvent(event('turn/end'))).toBe(true)
   })
 
-  it('skips streamed chunks, whose assembled form is also in the log', () => {
-    // Replaying both would print every reply twice.
-    expect(isTranscriptEvent(event('assistant/chunk'))).toBe(false)
+  it('replays an attempt that committed no message, which draws nothing', () => {
+    // Harness settles a failed, retried, or cancelled model call as
+    // `assistant/attempt`. It is not surface-eligible, so it replays like any
+    // other non-surface event and the projection has nothing to draw for it —
+    // no special case here, and none needed.
+    expect(isTranscriptEvent(event('assistant/attempt'))).toBe(true)
   })
 
   it('replays an event type it has never seen', () => {

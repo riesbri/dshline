@@ -298,10 +298,12 @@ Raster image attachment is now Harness-native:
 - registered commands receive images only when their descriptor opts in, and
   explicit text-only model metadata stops admission before I/O
 
-Still ahead: arbitrary file attachments. Harness `0.1.2-rc.1` exposes durable
-image attachments but no equivalent file-attachment contract. `@path` therefore
-remains the honest textual file-reference gesture rather than implying bytes
-were attached.
+Still ahead: arbitrary file attachments. Harness `0.1.3-alpha.1` now publishes the
+generic half — durable `FileAttachmentRef` references, `admitEncodedFile`
+admission, and a staged file-upload receipt arm on the command submission
+envelope — so what is missing is no longer the contract but a dshline staging
+gesture, and none is built. `@path` therefore remains the honest textual
+file-reference gesture rather than implying bytes were attached.
 
 ### 7. Permissions and approvals
 
