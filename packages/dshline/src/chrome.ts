@@ -5,7 +5,7 @@
 
 import { BOX_CHROME_COLUMNS, displayWidth, frame, paint } from '@dshline/renderer'
 
-/** Widest the chrome will draw, so a maximized terminal keeps readable lines. */
+/** Widest the default readable chrome draws; the composer has its own terminal-following policy. */
 const MAX_COLUMNS = 100
 
 /**
@@ -25,8 +25,13 @@ export const CHROME_MIN_COLUMNS = BOX_CHROME_COLUMNS + 8
 
 /** One rendering of the dshline visual root. */
 export interface RootFrameOptions {
-  /** The terminal's current width; the frame width is derived from it. */
+  /** The terminal's current width; the default frame width is derived from it. */
   readonly columns: number
+  /**
+   * Optional total width for a consumer with a different policy; it must fit the
+   * terminal, and body/footer content must use its corresponding inner width.
+   */
+  readonly width?: number
   /** Right-hand label: already escaped and styled by the caller. It may be truncated. */
   readonly context: string
   /** Body rows: already fitted to the frame's inner width and safe. */
@@ -36,23 +41,36 @@ export interface RootFrameOptions {
 }
 
 /**
- * Chrome width for a terminal of `columns`, leaving a column of breathing room.
- * Every framed element shares it so their edges line up.
+ * Default readable frame width for a terminal of `columns`, leaving a column of
+ * breathing room. Overlays and document-style surfaces use this capped policy.
  * @param columns - the terminal's width.
- * @returns the width every framed element uses.
+ * @returns the default readable frame width.
  */
 export function chromeWidth(columns: number): number {
   return Math.max(CHROME_MIN_COLUMNS, Math.min(columns - 1, MAX_COLUMNS))
 }
 
 /**
+ * Terminal-following width for the composer's frame, leaving breathing space.
+ * Unlike {@link chromeWidth}, the primary input surface intentionally has no
+ * readability cap: its inner width is also used by cursor movement.
+ * @param columns - the terminal's width.
+ * @returns the composer's total frame width.
+ */
+export function composerFrameWidth(columns: number): number {
+  return Math.max(CHROME_MIN_COLUMNS, columns - 1)
+}
+
+/**
  * Draw dshline's shared visual root around already-prepared content.
- * @param options - terminal width, right context, body rows, and optional footer help.
+ * @param options - terminal width, optional total frame width, right context, body
+ *   rows, and optional footer help. A supplied width must fit the terminal and
+ *   the caller must fit body and footer content to that width.
  * @returns the framed rows, including the integrated top and bottom borders.
  */
 export function rootFrame(options: RootFrameOptions): string[] {
   return frame(options.body, {
-    width: chromeWidth(options.columns),
+    width: options.width ?? chromeWidth(options.columns),
     title: paint('dshline', 'banner'),
     rightTitle: options.context,
     // Help inside the bottom border stays muted, as the old external help rows
