@@ -183,6 +183,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 | `/theme` | 选择颜色配色。接受一个名字（`/theme ember`）或打开选择器 |
 | `/work` | 打开活动 Harness 工作流、subagent 与任务的有界实时视图 |
 | `/context` | 打开一个有界视图，显示是什么在占用模型的上下文，以及其中最大的条目 |
+| `/cache` | 打开一个有界只读视图，显示本会话的提供方缓存计量，以及 Harness 记录的最新请求头 |
 | `/new` | 在当前工作区开始一个全新会话；当前激活的 Harness 配置文件提供会话持久化时，上一个会话仍可重新打开 |
 | `/clear` | 清屏并在当前工作区开始一个全新会话，如同 `/new`；当前激活的 Harness 配置文件提供会话持久化时，上一个会话仍可重新打开 |
 | `/sessions` | 不离开窗口浏览、搜索并重新打开过去的会话 |
@@ -667,12 +668,13 @@ When to use    Before approving or merging a meaningful code change
 
 ### Context
 
-四个命令回答四个不同的问题，其中没有哪一个只是另一个的啰嗦说法：
+五个命令回答五个不同的问题，其中没有哪一个只是另一个的啰嗦说法：
 
 | | |
 | --- | --- |
 | `/context` | **此刻**是什么在占用模型的上下文 |
 | `/usage` | 本会话累计**消耗**了什么 |
+| `/cache` | 提示中有多少是提供方**从缓存中提供**的 |
 | `/timing` | **这一轮**的时间花在了哪里 |
 | `/compact` | **缩减**当前上下文 |
 
@@ -755,6 +757,69 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 
 没有会话投影、没有 token 计量器、或者没有压缩后端的配置文件仍然可以打开 `/context`：
 它说明哪一项读数不可用，并显示其余部分。绝不为填补空缺而编造任何东西。
+
+### Cache
+
+`/cache` 回答一个问题：本会话的提示中，有多少是提供方从它的缓存中提供的？
+
+```
+╭─ dshline ─────────────────────────────────────────── Cache ─╮
+│  Cache accounting                                           │
+│  cache read      99.1%                                      │
+│  cached input    1.4M                                       │
+│  uncached input  13k                                        │
+│                                                             │
+│  Request header                                             │
+│  route           deepseek/deepseek-v4-flash                 │
+│  system prompt   present                                    │
+│  tools           26                                         │
+│                                                             │
+│  Latest request header Harness recorded.                    │
+╰─ esc close ─────────────────────────────────────────────────╯
+```
+
+上半部分就是 `/usage` 报告的那份计量——Harness 自己累计的 token 分桶——只是收窄到缓存
+这个问题上。它背后没有第二份统计。它是整个会话、跨其用过的每一条路由的累计值，所以它
+并不归在下方那条路由名下。
+
+下半部分是 `Session.requestHeader()`，即 Harness 自己对请求头的折叠。那个请求头是**对
+话之外**的请求状态：路由、渲染后的系统提示词，以及组装好的工具 schema。它是
+**Harness 记录的最新请求头**，而不是对下一个请求的承诺——某一步会重新组装系统提示词与
+工具列表，也可能直接把它们透传出去，而这些都发生在新的请求头被记录之前。
+
+**只有当提供方报告了缓存读取时，数字才会出现。** Harness 的缓存计数是可选字段，缺失时
+折叠为零，所以适配器不报告缓存读取的路由，与缓存已经变冷的路由无法区分。`/cache` 宁可
+什么都不显示，也不显示一个 `0%`：对前一种情况而言，那会陈述一个没有任何人报告过的提供
+方事实：
+
+```
+╭─ dshline ─────────────────────────────────────────── Cache ─╮
+│  Cache accounting                                           │
+│  This session has no provider-reported cache reads.         │
+│  dshline will show provider cache usage when the active     │
+│  Harness adapter exposes it.                                │
+│                                                             │
+│  Request header                                             │
+│  route           deepseek/deepseek-v4-flash                 │
+│  system prompt   present                                    │
+│  tools           31                                         │
+│                                                             │
+│  Latest request header Harness recorded.                    │
+╰─ esc close ─────────────────────────────────────────────────╯
+```
+
+缓存**写入**并不能改变这一点。写入计数同样是可选的，所以一次正的写入并不能证明它旁边
+的那个零是被报告出来的、而不是缺省填上的。没有会话投影、或者没有 token 计量器的配置文
+件会得到同样的形状，只是各自点明自己的原因，这样就绝不会把未挂载的计量器误当成安静的
+路由。
+
+**它不会告诉你什么。** 它不报告任何历史，也不对请求头有多稳定给出任何判断。Harness 没
+有为此发布稳定性权威，而且记录下一个请求头甚至并不意味着请求头发生了变动——恢复会话时
+会记录一个，压缩之后又会记录一个，而其中什么都没有改变。它同样不声称省下、浪费或错失
+了什么，也不改变任何东西：`/model` 上没有警告，没有护栏，也没有自动路由。
+
+`/cache` 与提供方无关。适配器报告缓存读取的路由只是获得更丰富的上半部分；每条路由都获
+得同样的请求头下半部分，因为请求头是 Harness 的记录，而不属于任何提供方。
 
 ### Compaction
 

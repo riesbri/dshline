@@ -197,6 +197,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | `/theme` | Choose the colour palette. Takes a name (`/theme ember`) or opens a picker |
 | `/work` | Open a bounded live view of active Harness workflows, subagents, and jobs |
 | `/context` | Open a bounded view of what is occupying the model's context, and the largest entries in it |
+| `/cache` | Open a bounded read-only view of this session's provider cache accounting and the latest request header Harness recorded |
 | `/new` | Start a fresh session in the current workspace; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/clear` | Wipe the screen and start a fresh session in the current workspace, as `/new` does; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/sessions` | Browse, search, and reopen past sessions without leaving the window |
@@ -1007,13 +1008,14 @@ complete list stays on screen rather than blinking empty.
 
 ### Context
 
-Four commands answer four different questions, and none of them is a longer way
+Five commands answer five different questions, and none of them is a longer way
 of asking another:
 
 | | |
 | --- | --- |
 | `/context` | What is occupying the model's context **right now** |
 | `/usage` | What this session has **consumed**, cumulatively |
+| `/cache` | How much of the prompt the provider **served from cache** |
 | `/timing` | Where **this turn** spent its time |
 | `/compact` | **Reduce** the current context |
 
@@ -1110,6 +1112,78 @@ really there. The figures refresh once the compaction lands.
 A profile without session projections, without the token meter, or without a
 compaction backend still opens `/context`: it reports which reading is
 unavailable and shows the rest. Nothing is invented to fill a gap.
+
+### Cache
+
+`/cache` answers one question: how much of this session's prompt did the
+provider serve from its cache?
+
+```
+╭─ dshline ─────────────────────────────────────────── Cache ─╮
+│  Cache accounting                                           │
+│  cache read      99.1%                                      │
+│  cached input    1.4M                                       │
+│  uncached input  13k                                        │
+│                                                             │
+│  Request header                                             │
+│  route           deepseek/deepseek-v4-flash                 │
+│  system prompt   present                                    │
+│  tools           26                                         │
+│                                                             │
+│  Latest request header Harness recorded.                    │
+╰─ esc close ─────────────────────────────────────────────────╯
+```
+
+The top half is the same accounting `/usage` reports — Harness's own cumulative
+token buckets — narrowed to the cache question. There is no second count behind
+it. It is cumulative over the whole session and every route it used, which is
+why it is not filed under the route below it.
+
+The bottom half is `Session.requestHeader()`, Harness's own fold of the request
+header. That header is the request state **outside** the conversation: the
+route, the rendered system prompt, and the assembled tool schemas. It is the
+**latest header Harness recorded**, not a promise about the next request — a
+step reassembles the system prompt and the tool list, and may pass them straight
+through, before any new header is logged.
+
+**Figures appear only when the provider reported a cache read.** Harness's cache
+counts are optional fields folded to zero when absent, so a route whose adapter
+reports no cache reads is indistinguishable from one whose cache went cold.
+`/cache` shows nothing rather than a `0%` that would state, of the first, a
+provider fact nobody reported:
+
+```
+╭─ dshline ─────────────────────────────────────────── Cache ─╮
+│  Cache accounting                                           │
+│  This session has no provider-reported cache reads.         │
+│  dshline will show provider cache usage when the active     │
+│  Harness adapter exposes it.                                │
+│                                                             │
+│  Request header                                             │
+│  route           deepseek/deepseek-v4-flash                 │
+│  system prompt   present                                    │
+│  tools           31                                         │
+│                                                             │
+│  Latest request header Harness recorded.                    │
+╰─ esc close ─────────────────────────────────────────────────╯
+```
+
+A cache **write** does not change that. The write count is optional in exactly
+the same way, so a positive write is no evidence that the zero beside it was
+reported rather than defaulted. A profile without session projections, or
+without the token meter, gets the same shape with its own reason named, so an
+unmounted meter is never mistaken for a quiet route.
+
+**What it does not tell you.** It reports no history and no verdict about how
+still the request header has been. Harness publishes no stability authority for
+it, and a logged header does not even mean the header moved — one is recorded on
+resume and again after a compaction with nothing about it changed. It also makes
+no claim that anything was saved, wasted, or missed, and it changes nothing:
+there is no warning on `/model`, no guard, and no automatic routing.
+
+`/cache` is provider-neutral. A route whose adapter reports cache reads simply
+gets a richer top half; every route gets the same header half, because the
+request header is Harness's record rather than any provider's.
 
 ### Compaction
 

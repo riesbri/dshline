@@ -87,6 +87,11 @@ export const CAPABILITY_PROBES = [
     files: ['packages/dshline/tests/capability/authorization.probe.spec.ts'],
     note: 'the sign-in seam `/connect` runs and this bundle now composes as a host row',
   },
+  {
+    name: 'requestHeader',
+    files: ['packages/dshline/tests/cache-inspector.spec.ts'],
+    note: 'the `Session.requestHeader()` fold `/cache` reads the latest recorded route, system prompt, and tool count from',
+  },
 ]
 
 /** Every test file any probe names, for the runner to pass to vitest in one pass. */

@@ -86,6 +86,8 @@ import {
   usageInspection,
 } from './usage.ts'
 import { createUsageOverlay } from './usage-overlay.ts'
+import { cacheInspection, requestHeaderReading } from './cache/model.ts'
+import { createCacheOverlay } from './cache/overlay.ts'
 import { contextPreview, contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
 import { createContextOverlay } from './context/overlay.ts'
 import { compactionNote } from './context/compaction.ts'
@@ -606,6 +608,29 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           inspection: () => usageInspection(projections.snapshot(), usage.reading),
           mode: () => prefs.usageMode,
           chooseDisplay: () => { chooseUsageDisplay() },
+          close: () => dismiss(),
+        })
+        dismiss = ctx.tuiSlots.pushOverlay(overlay)
+      },
+    },
+    {
+      name: 'cache',
+      description: "Inspect how this session's prompt cache is behaving",
+      execute: () => {
+        // Read-only, like `/context` and `/todos`: a cache inspector invites an
+        // optimization gesture, and control over a route is not this overlay's
+        // to offer. One bounded live region, closed with esc, transcript intact.
+        let dismiss = (): void => {}
+        const overlay = createCacheOverlay({
+          // One projection cut per paint, the same one `/usage` reads, so the
+          // two inspectors cannot report different buckets for one moment. The
+          // header beside it is Harness's own accessor, read the same way — no
+          // state of this frontend's own stands behind either figure, and no
+          // fact recorded before the newest header survives into the report.
+          inspection: () => cacheInspection(
+            projections.snapshot(),
+            requestHeaderReading(agent.session),
+          ),
           close: () => dismiss(),
         })
         dismiss = ctx.tuiSlots.pushOverlay(overlay)

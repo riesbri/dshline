@@ -1156,9 +1156,11 @@ seam's real Harness contract — a real `SessionQueryEngine`, a real
 per capability. Coverage today is initial, not exhaustive: `sessionQuery`,
 `jobs`, `subagents`, `sessionProjections`, `workflows`, `userQuestions`,
 `tokenMeter` (the real `TokenMeter` over a real `SessionStore`),
-`compaction` (a real `CompactionEngine` subclass), and `skills` (the real
+`compaction` (a real `CompactionEngine` subclass), `skills` (the real
 scope-layered `SkillRegistry`, plus the real `dsh-tool-skill` pre-step
-boundary that turns a typed `/name` line into an injection), chosen because
+boundary that turns a typed `/name` line into an injection), and
+`requestHeader` (the `Session.requestHeader()` fold `/cache` reads the latest
+recorded route, system prompt, and tool count from), chosen because
 each already has (or could cheaply gain) a test built against the real class
 rather than a hand-typed fake. An upstream change to one of these reads as
 `sessionQuery contract changed` rather than only a generic
