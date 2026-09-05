@@ -50,6 +50,17 @@
  * namespace check plus the schema shapes the rest of this module already
  * depends on. `connect/model.ts` stays generic; it never claims that shape is
  * a declaration contract on its own.
+ *
+ * {@link piAiSignInRoute} is the third, and the one that reaches furthest:
+ * which provider route a given sign-in actually authenticates. `model.ts`
+ * refuses that join in general and is right to — Harness publishes no
+ * contract that a flow's credential scope and a directory entry's namespace
+ * must correspond. But `dsh-llm-pi-ai` publishes it for ITSELF, in prose, on
+ * both sides: `recordKeyFor(providerId)` documents its parameter as "pi-ai's
+ * own provider id, which is also the harness route key", and
+ * `directoryEntries` puts that same id at `providers.<id>` in this namespace.
+ * Reading one adapter family's own documented identity is what this module is
+ * for; asserting it of adapters in general is what `model.ts` refuses.
  * @module dshline/connect/pi-ai
  */
 
@@ -429,4 +440,70 @@ export function piAiDeclarationTarget(
   if (fieldNode(routeNode, MODELS_FIELD) === undefined) return undefined
   if (protocolChoices(descriptor?.schema, sample.settingsPath).length === 0) return undefined
   return { settingsNs: PI_AI_NAMESPACE, parentPath, revision: descriptor?.revision }
+}
+
+/**
+ * The scope of the credential records this adapter family's authorization
+ * flows write.
+ *
+ * Spelled as its own constant even though it is the same string as
+ * {@link PI_AI_NAMESPACE}, because it is a different fact about a different
+ * store. `RECORD_SCOPE` in `dsh-llm-pi-ai`'s `auth.ts` is documented as "the
+ * plugin's registered name", and the plugin's `export const name` happens to
+ * equal the settings namespace it installs. Two facts that agree today are
+ * still two facts: folding them into one constant would quietly turn a
+ * coincidence into an assumption, and the day upstream renames one the join
+ * below should stop matching rather than address the wrong route.
+ */
+export const PI_AI_RECORD_SCOPE = 'llm-pi-ai'
+
+/**
+ * The provider route one `llm-pi-ai` sign-in actually authenticates.
+ *
+ * `connect/model.ts` refuses to join the two row kinds in general, and stays
+ * right to: a flow is addressed by a `CredentialKey` whose scope is its
+ * owning plugin's registered name, a directory entry by `settingsNs` plus a
+ * route key, and Harness publishes no contract that the two must correspond.
+ * That refusal is about the GENERAL case. For the one domain this module
+ * already presents, upstream states the correspondence outright:
+ * `registerPiAiFlows` keys every flow it registers at
+ * `recordKeyFor(providerId)` — `<RECORD_SCOPE>/<providerId>` — where
+ * `recordKeyFor`'s own parameter documentation calls `providerId` "pi-ai's own
+ * provider id, WHICH IS ALSO THE HARNESS ROUTE KEY", and `directoryEntries`
+ * publishes that same id as `provider` at `providers.<providerId>` in this
+ * namespace.
+ *
+ * So this is a reading of one adapter family's documented identity, not an
+ * inference from shape — which is exactly the kind of knowledge this module
+ * exists to hold and `model.ts` exists not to. It is also verified rather
+ * than assumed: a key is only ever resolved against routes the directory
+ * ACTUALLY published, so a scope that stopped naming this namespace, an id
+ * outside it, or a namespace that started addressing its routes somewhere
+ * other than `providers.<id>` all answer undefined and leave the sign-in
+ * standing alone, exactly as it does today.
+ * @param key - the sign-in's `<scope>/<id>` credential record address.
+ * @param providers - every provider row the same reading produced.
+ * @returns the route this sign-in authenticates, or undefined when nothing
+ *   published here can be said to correspond to it.
+ */
+export function piAiSignInRoute(
+  key: string,
+  providers: readonly ConnectProviderRow[],
+): ConnectProviderRow | undefined {
+  // Split at the FIRST separator only: a record id may not contain one, so a
+  // second separator means this is not an address this module can read.
+  const separator = key.indexOf('/')
+  if (separator <= 0) return undefined
+  const scope = key.slice(0, separator)
+  const id = key.slice(separator + 1)
+  if (scope !== PI_AI_RECORD_SCOPE || id === '' || id.includes('/')) return undefined
+  return providers.find(row => row.provider === id
+    && isPiAiNamespace(row.settingsNs)
+    // The address as well as the key. `directoryEntries` publishes
+    // `providers.<id>`, and a namespace that started addressing its routes
+    // anywhere else is one this join has no business claiming to understand —
+    // activating the wrong path would replace a profile that is not this
+    // sign-in's.
+    && row.settingsPath.length > 0
+    && row.settingsPath.at(-1) === id)
 }

@@ -28,11 +28,19 @@ import { promptSelect } from '../select.ts'
 import { promptText } from '../prompt.ts'
 import { activateRoute, clearApiKey, deactivateRoute, forgetSignIn, setApiKey } from './actions.ts'
 import type { ConnectActionOutcome } from './actions.ts'
+import { offerRouteActivation } from './activation.ts'
 import { runAuthorization } from './authorize.ts'
 import { ConnectCatalog, watchAdapters } from './catalog.ts'
 import { connectSeams } from './harness.ts'
 import type { ConnectSeams } from './harness.ts'
-import type { ConnectAction, ConnectCreateRow, ConnectProviderRow, ConnectRow, ConnectSignInRow } from './model.ts'
+import type {
+  ConnectAction,
+  ConnectCreateRow,
+  ConnectProviderRow,
+  ConnectRow,
+  ConnectSignInRow,
+  ConnectState,
+} from './model.ts'
 import { noActionsReason, rowActions } from './model.ts'
 import { createConnectOverlay } from './overlay.ts'
 import type { ConnectOverlay } from './overlay.ts'
@@ -78,6 +86,9 @@ export {
 export { createConnectOverlay } from './overlay.ts'
 export type { ConnectOverlay, ConnectOverlaySpec } from './overlay.ts'
 export { credentialRefFields, profileNode, valueAt } from './schema.ts'
+export { piAiSignInRoute } from './pi-ai.ts'
+export { offerRouteActivation } from './activation.ts'
+export type { ActivationOfferSpec } from './activation.ts'
 
 /**
  * The one action a browser has in flight, and the signal that withdraws it.
@@ -165,7 +176,7 @@ export async function openConnect(spec: ConnectSpec): Promise<void> {
         act: row => {
           if (busy) return
           busy = true
-          void perform(spec, seams, row, attempt)
+          void perform(spec, seams, row, attempt, async () => catalog.reread())
             .then(outcome => {
               // A result that lands after the browser is gone is dropped. The
               // withdrawal was already committed by `settle`, and reporting into
@@ -238,6 +249,7 @@ async function perform(
   seams: ConnectSeams,
   row: ConnectRow,
   attempt: ConnectAttempt,
+  reread: () => Promise<ConnectState>,
 ): Promise<ConnectActionOutcome | undefined> {
   const { ctx } = spec
   if (row.kind === 'create') return createRouteAction(spec, seams, row)
@@ -267,7 +279,7 @@ async function perform(
   if (action === undefined) return undefined
   return row.kind === 'provider'
     ? providerAction(spec, seams, row, action)
-    : signInAction(spec, seams, row, action, attempt)
+    : signInAction(spec, seams, row, action, attempt, reread)
 }
 
 /**
@@ -349,6 +361,7 @@ async function signInAction(
   row: ConnectSignInRow,
   action: ConnectAction,
   attempt: ConnectAttempt,
+  reread: () => Promise<ConnectState>,
 ): Promise<ConnectActionOutcome | undefined> {
   if (action.id === 'sign-out') return forgetSignIn(seams, row)
   if (action.id !== 'sign-in') return undefined
@@ -362,7 +375,7 @@ async function signInAction(
   // reader dismissed withdrew nothing, and saying otherwise on close would
   // report a sign-in that never began.
   attempt.signingIn = row.label
-  return runAuthorization({
+  const outcome = await runAuthorization({
     ctx: spec.ctx,
     authorization,
     key: row.key,
@@ -370,6 +383,19 @@ async function signInAction(
     ...method === undefined ? {} : { method },
     signal: attempt.signal,
     commit: spec.commit,
+  })
+  // A credential is not a route. The seam commits a record and stops there, by
+  // design — activating a provider is a settings write nobody authorized by
+  // signing in — so this is where the reader is asked the question that used to
+  // be left to them to discover.
+  if (outcome.kind !== 'done') return outcome
+  return offerRouteActivation({
+    ctx: spec.ctx,
+    seams,
+    row,
+    outcome,
+    reread,
+    signal: attempt.signal,
   })
 }
 

@@ -216,7 +216,7 @@ The only two legitimate responses are to wait for the promotion, or to migrate
 Each Harness lane runs `node tools/capability-report.mjs`, which reports the
 Harness capability seams dshline consumes (`sessionQuery`, `jobs`,
 `subagents`, `sessionProjections`, `sessionStats`, `workflows`,
-`userQuestions`, `tokenMeter`, `compaction`, `skills` today) by name — see `tools/capability-probes.mjs` and
+`userQuestions`, `tokenMeter`, `compaction`, `skills`, `authorization` today) by name — see `tools/capability-probes.mjs` and
 docs/architecture.md, "Upstream compatibility". No job in this workflow holds
 a write token or a secret.
 

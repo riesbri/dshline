@@ -82,6 +82,11 @@ export const CAPABILITY_PROBES = [
     name: 'skills',
     files: ['packages/dshline/tests/capability/skills.probe.spec.ts'],
   },
+  {
+    name: 'authorization',
+    files: ['packages/dshline/tests/capability/authorization.probe.spec.ts'],
+    note: 'the sign-in seam `/connect` runs and this bundle now composes as a host row',
+  },
 ]
 
 /** Every test file any probe names, for the runner to pass to vitest in one pass. */

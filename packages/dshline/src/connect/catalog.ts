@@ -29,7 +29,7 @@ import type {
   ConnectSignInRow,
   ConnectState,
 } from './model.ts'
-import { piAiDeclarationTarget } from './pi-ai.ts'
+import { piAiDeclarationTarget, piAiSignInRoute } from './pi-ai.ts'
 import { credentialRefFields, profileNode, valueAt } from './schema.ts'
 
 /** What the catalog needs from its owner. */
@@ -72,6 +72,39 @@ export class ConnectCatalog {
       })
   }
 
+  /**
+   * Read every surface once, adopt the result, and hand it back.
+   *
+   * {@link ConnectCatalog.refresh} exists because a browser already on screen
+   * should not blank while a read lands; this exists because ONE caller needs
+   * the reading itself before it may act. After a sign-in commits a credential
+   * record, whether the matching route is dormant — and at which settings
+   * revision — decides whether activation is offered at all, and offering it
+   * from the pre-sign-in snapshot would mean writing an empty profile over a
+   * route something else activated in the meantime. That write replaces a
+   * profile wholesale, so a stale answer is not a cosmetic error.
+   *
+   * Generation-stamped like every other pass, so a reading this supersedes
+   * cannot repaint over it, and a reading superseded BY one cannot either. The
+   * value is still returned to its caller in that case: it is what this caller
+   * asked Harness, and the caller is about to put a question to a human about
+   * it rather than paint it.
+   * @returns the reading this pass produced.
+   */
+  async reread(): Promise<ConnectState> {
+    if (this.disposed) return this.current
+    const generation = ++this.generation
+    try {
+      const next = await this.gather()
+      this.settle(generation, next)
+      return next
+    } catch (error) {
+      const failed: ConnectState = { kind: 'failed', message: messageOf(error) }
+      this.settle(generation, failed)
+      return failed
+    }
+  }
+
   /** Abandon in-flight passes; their results would repaint a closed browser. */
   dispose(): void {
     this.disposed = true
@@ -108,14 +141,22 @@ export class ConnectCatalog {
     const directory = llm.listConfigurableProviders()
     const providers = await Promise.all(directory.map(async entry =>
       this.providerRow(entry, active, descriptors, credentials)))
-    const signIns = await Promise.all((authorization?.list() ?? []).map(async entry => ({
-      kind: 'sign-in' as const,
-      key: entry.key,
-      label: entry.label,
-      methods: entry.methods,
-      inFlight: entry.inFlight,
-      record: await describeRecord(credentials, entry.key),
-    })))
+    const signIns = await Promise.all((authorization?.list() ?? []).map(async entry => {
+      // Resolved against the providers THIS pass produced, never a held copy:
+      // the link carries a route state, and a state read at a different moment
+      // from the rows beside it is how a row comes to contradict the list it
+      // sits in.
+      const linked = piAiSignInRoute(entry.key, providers)
+      return {
+        kind: 'sign-in' as const,
+        key: entry.key,
+        label: entry.label,
+        methods: entry.methods,
+        inFlight: entry.inFlight,
+        record: await describeRecord(credentials, entry.key),
+        route: linked === undefined ? undefined : { provider: linked.provider, state: linked.state },
+      }
+    }))
     // The one namespace this workspace knows how to declare a new route into,
     // when a presentation module has confirmed it can actually service one —
     // never inferred here from schema shape alone.

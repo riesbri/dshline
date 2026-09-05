@@ -187,6 +187,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | --- | --- |
 | `/model` | Change the model. Takes a name (`/model deepseek-v4-pro`) or opens a picker you can type in |
 | `/reasoning` | Change how hard the model thinks. Takes a level (`/reasoning max`) or opens a picker |
+| `/setup` | Check this installation and walk from a provider to a working model. Runs by itself on a launch that would otherwise open a composer with no usable model |
 | `/connect` | Configure and authenticate the providers Harness can talk to. Takes a route name (`/connect openai`) to open filtered on it |
 | `/plugins` | Browse, search, and customize the running agent's Harness preset composition |
 | `/profiles` | Browse Harness profiles and the bundles each one composes; install, update, or remove one |
@@ -241,6 +242,93 @@ The check uses the harness's own rule for what a command line looks like, so the
 >
 > **A goal can also start without you.** The harness gives the model a `create_goal` tool and tells it that it may infer a long-running objective from what you asked, without you saying the word "goal". The status line is how you find out; `/goal` shows it in full and `/goal pause` stops it. See [What the session is about to do](#what-the-session-is-about-to-do).
 
+### Setup
+
+`/setup` is the guided path from an installed dshline to a model that answers.
+It **runs by itself** on a launch that would otherwise reach the composer
+without a model it could send to. Three states count, and all three are read
+from what the window already holds — no adapter is asked anything, so this
+costs no network:
+
+- no adapter has registered any provider route;
+- routes exist, but nothing resolved a model selection;
+- a selection exists, but names a route no adapter has registered — a
+  remembered default whose provider has since left the profile.
+
+Anything else launches straight into the session, and `/setup` still opens the
+flow on demand. The selection is judged by its **provider**, not its model id:
+whether a route still serves one exact model is a question only the picker's
+own listing can answer, and asking it at startup would mean a possible network
+call on every launch.
+
+It writes a reading of your installation into ordinary scrollback, so you can
+scroll back to it and paste it into a bug report:
+
+```
+Setup
+
+· Node       24.4.0
+· dshline    0.17.0
+✓ Harness    0.1.2-rc.1
+✓ Profile    dshline
+✓ Connecting API key · account sign-in
+⚠ Models     no provider route is active, so /model has nothing to offer
+  ChatGPT (Codex) is signed in, but its openai route is not active
+```
+
+Then it offers what the mounted seams would actually accept: **Choose a model**
+first once a route is registered — by then it is the step between you and a
+working session — then **Connect a provider**, then a way out. Backing out at
+any point writes nothing; there is no saved "already set up" flag anywhere,
+because each run re-reads Harness from scratch.
+
+It also takes the obvious step for you rather than describing it. When
+`/connect` closes having produced the first usable route while no model is
+selected, setup opens the model picker directly instead of returning you to a
+checklist that would only say to open it. That happens **only** when the model
+is the missing piece: a selection that already works is never replaced, because
+connecting a second provider is not a request to change models. Dismissing the
+picker returns you to the checklist rather than dropping you at a composer that
+still cannot send.
+
+Three of those rows are worth explaining.
+
+**Node carries no verdict.** dshline is already running on the version it
+prints, so a tick would be circular, and deciding whether it satisfies the
+supported range means evaluating a semver range — a version-compatibility
+engine this project deliberately does not have. The version is what a bug
+report asks for, so it is stated and nothing is claimed about it.
+
+**Harness compares two exact versions.** dshline supports one Harness
+generation at a time: the version it targets is the one every `dsh-*`
+dependency is pinned to, and the version you have is read from the
+`@deepseek-ai/dsh-base` your profile composes. A mismatch is a `⚠` naming both,
+and both commands that would bring them together:
+
+```
+⚠ Harness    0.1.3-alpha.1 installed · dshline targets 0.1.2-rc.1
+  dshline supports one Harness generation at a time.
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.2-rc.1
+  Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
+  does not by itself land on the installed generation, and this report cannot tell you which release would.
+```
+
+Only the first of those is deterministic, and the wording says so. The version
+this build targets is a fact the report already holds; whether any *released*
+dshline targets the version you have installed is not, and establishing it
+would mean resolving releases against their peer pins. So the second direction
+is offered as a condition rather than as a fix. **It never refuses to
+continue.** By the time
+this can be printed, both halves have already booted together far enough to
+draw it; a genuinely incompatible pair fails earlier and much more loudly, in
+Harness's own loader, which is the authority for that diagnosis. Harness
+publishes no runtime version service, so a version either side could not be
+read is marked `·` and nothing is claimed in either direction.
+
+**`Connecting` is about what you can do, not which services are mounted.** It
+names `API key`, `account sign-in`, or both, and warns only when this profile
+mounts nothing that could configure a provider at all.
+
 ### Connect
 
 `/model` chooses among models that already exist. `/connect` is how a model
@@ -281,11 +369,25 @@ adapter has registered the route and `/model` can already offer its models;
 `dormant` means nothing is configured for it yet.
 
 **Sign-ins** are the authorization flows Harness has registered — the logins
-that *obtain* a credential instead of reading one from configuration. They are
-listed separately rather than folded into the provider rows on purpose: Harness
-publishes no correlation between a flow's credential record and a provider
-route, so this interface shows both and leaves the connection to you rather
-than asserting one it cannot verify.
+that *obtain* a credential instead of reading one from configuration. They stay
+separate rows rather than being folded into the provider rows: Harness
+publishes no general contract that a flow's credential record and a provider
+route correspond, so merging them would be this interface inventing a
+relationship.
+
+What it does say, for the one adapter family that documents the correspondence
+itself, is which route a sign-in authenticates. `llm-pi-ai` keys every flow it
+registers at `llm-pi-ai/<route>` and publishes that same route at
+`providers.<route>` in its own settings — so a signed-in account whose route is
+not active reads as exactly that:
+
+```
+Sign-ins
+  ● ChatGPT (Codex)                    signed in · openai route not active
+```
+
+Nothing else is joined. A sign-in from any other plugin is listed alone, as
+before.
 
 The dot in front of a row is deliberately quiet. Green means a named credential
 is confirmed present, red means a named credential is confirmed missing, and
@@ -319,6 +421,32 @@ Closing the browser withdraws a sign-in it started, including one waiting on a
 browser callback with no question on screen. Nothing from a withdrawn attempt
 appears afterwards; the transcript says it was withdrawn and that is the end of
 it.
+
+#### Signing in is not the same as activating a route
+
+This is the one thing about provider setup that catches people out, and it is
+not a bug in either half. A login writes a **credential**; a route is a
+**settings profile**. They are separate stores and separate writes, so a
+successful sign-in on its own leaves `/model` with nothing to offer.
+
+So after a sign-in succeeds, `/connect` asks:
+
+```
+Signed in · ChatGPT (Codex)
+
+  This account is authorized, but the openai model route is not active,
+  so /model still offers nothing from it.
+
+❯ Activate the openai route   Writes a profile in llm-pi-ai so the adapter registers it
+  Not now                     Writes nothing
+```
+
+**Nothing is written unless you choose it.** Authenticating is not consent to
+change your provider configuration, so `Not now`, `esc`, and closing the
+browser all leave your settings exactly as they were — the route stays in the
+list and `Activate this route` is there whenever you want it. The question is
+asked against a fresh reading, so a route something else activated in the
+meantime is reported as active instead of being offered and overwritten.
 
 > [!WARNING]
 > **"Forget this sign-in" is local.** It deletes the stored credential record on

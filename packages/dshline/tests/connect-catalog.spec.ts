@@ -252,10 +252,9 @@ describe('reading sign-ins', () => {
     expect(state.signIns[0]?.record?.configured).toBe(true)
   })
 
-  it('keeps a sign-in separate from the route with the same name', async () => {
-    // Harness publishes no correlation between a flow's credential key and a
-    // directory entry's namespace, so joining them would be this frontend
-    // inventing a relationship — the mistake Work refuses for jobs and subagents.
+  it('keeps a sign-in a separate ROW from the route it authenticates', async () => {
+    // The two are still listed apart, each under the identity Harness gave it.
+    // What the link adds is a stated relation between them, not a merge.
     const state = await read({
       directory: [OPENAI],
       flows: [{ key: 'llm-pi-ai/openai', label: 'OpenAI', methods: [{ id: 'oauth', label: 'OAuth' }], inFlight: false }],
@@ -263,6 +262,50 @@ describe('reading sign-ins', () => {
     if (state.kind !== 'ready') throw new Error('expected a ready reading')
     expect(state.providers).toHaveLength(1)
     expect(state.signIns).toHaveLength(1)
+    expect(state.signIns[0]?.route).toEqual({ provider: 'openai', state: 'dormant' })
+  })
+
+  it('links a sign-in to its route at the state the SAME pass read', async () => {
+    const state = await read({
+      directory: [OPENAI],
+      registered: [{ id: 'openai', name: 'OpenAI' }],
+      descriptors: [{ ns: 'llm-pi-ai', revision: 1, value: { providers: { openai: {} } }, user: {}, schema: PI_AI_SCHEMA }],
+      flows: [{ key: 'llm-pi-ai/openai', label: 'OpenAI', methods: [{ id: 'oauth', label: 'OAuth' }], inFlight: false }],
+    })
+    if (state.kind !== 'ready') throw new Error('expected a ready reading')
+    // A route state read at a different moment from the rows beside it is how
+    // a row comes to contradict the list it sits in.
+    expect(state.signIns[0]?.route).toEqual({ provider: 'openai', state: 'active' })
+  })
+
+  it('links nothing for a record no published route corresponds to', async () => {
+    const state = await read({
+      directory: [OPENAI],
+      flows: [
+        // Another plugin's scope: Harness publishes no correspondence for it,
+        // so none is claimed — the refusal `connect/model.ts` makes in general.
+        { key: 'some-plugin/thing', label: 'Something', methods: [], inFlight: false },
+        // This adapter's scope, but a route the directory does not publish.
+        { key: 'llm-pi-ai/absent', label: 'Absent', methods: [], inFlight: false },
+      ],
+    })
+    if (state.kind !== 'ready') throw new Error('expected a ready reading')
+    expect(state.signIns.map(row => row.route)).toEqual([undefined, undefined])
+  })
+
+  it('re-reads on demand and hands the reading back to the caller', async () => {
+    // What the post-sign-in activation offer is judged from: a pass whose
+    // result the caller receives rather than only paints.
+    // `seamsFor` closes over the fixture, so changing it between passes is how
+    // a test moves the world underneath a browser.
+    const fixture: Fixture = { directory: [OPENAI], registered: [] }
+    const catalog = new ConnectCatalog({ seams: seamsFor(fixture), invalidate: () => {} })
+    const before = await catalog.reread()
+    expect(before.kind === 'ready' && before.providers[0]?.state).toBe('dormant')
+    fixture.registered = [{ id: 'openai', name: 'OpenAI' }]
+    const after = await catalog.reread()
+    expect(after.kind === 'ready' && after.providers[0]?.state).toBe('active')
+    catalog.dispose()
   })
 })
 

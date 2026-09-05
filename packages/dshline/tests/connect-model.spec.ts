@@ -62,6 +62,7 @@ function signIn(overrides: Partial<ConnectSignInRow> = {}): ConnectSignInRow {
     methods: [{ id: 'oauth', label: 'Sign in with ChatGPT' }],
     inFlight: false,
     record: { configured: false, writable: true },
+    route: undefined,
     ...overrides,
   }
 }
@@ -132,6 +133,35 @@ describe('what a row reports', () => {
       .toEqual(['signed in'])
     expect(signInFacts(signIn({ inFlight: true }))).toEqual(['signing in…'])
     expect(signInFacts(signIn({ record: undefined }))).toEqual(['sign-in available'])
+  })
+
+  it('says when an authorized account has no route to reach a model through', () => {
+    const authorized = { configured: true, kind: 'grant', writable: true }
+    // The state a person used to be left to work out for themselves: the
+    // credential is stored, and `/model` still offers nothing.
+    expect(signInFacts(signIn({ record: authorized, route: { provider: 'openai', state: 'dormant' } })))
+      .toEqual(['signed in', 'openai route not active'])
+    expect(signInFacts(signIn({ record: authorized, route: { provider: 'openai', state: 'configured' } })))
+      .toEqual(['signed in', 'openai route not active'])
+    // Nothing extra to say once the route is live.
+    expect(signInFacts(signIn({ record: authorized, route: { provider: 'openai', state: 'active' } })))
+      .toEqual(['signed in'])
+    // No link established: exactly what it reported before the field existed.
+    expect(signInFacts(signIn({ record: authorized, route: undefined }))).toEqual(['signed in'])
+    // And nothing is claimed about a route for an account nobody signed into.
+    expect(signInFacts(signIn({ route: { provider: 'openai', state: 'dormant' } }))).toEqual(['not signed in'])
+  })
+
+  it('matches a sign-in by the route key its row shows', () => {
+    const row = signIn({
+      record: { configured: true, kind: 'grant', writable: true },
+      route: { provider: 'openai', state: 'dormant' },
+    })
+    expect(matchesRow(row, 'openai')).toBe(true)
+    // A row that shows no route key does not match one; the key it IS addressed
+    // by still matches, because that is drawn too.
+    expect(matchesRow(signIn({ key: 'other/thing' }), 'openai')).toBe(false)
+    expect(matchesRow(signIn({ key: 'other/thing' }), 'other/thing')).toBe(true)
   })
 
   it('spells the settings address the stored document uses', () => {

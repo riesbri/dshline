@@ -500,14 +500,76 @@ way round. Neither has a store of its own to disagree from. The
 `<ROUTE>_API_KEY` derivation for a route whose profile names no reference yet is
 shared for exactly that reason.
 
-The one thing `/connect` deliberately does NOT do is join its two sections. A
-configurable-provider entry is addressed by `settingsNs` plus a route key; an
-authorization flow is addressed by a `CredentialKey` whose scope is its owning
-plugin's registered name. Those coincide for the adapter shipped today, but
-Harness publishes no contract that they must, so merging the rows would be the
-frontend inventing a correlation — the same refusal Work makes when it keeps
-jobs and subagents apart. Both are listed, each under the identity Harness gave
-it.
+`/connect` still does NOT merge its two sections. A configurable-provider
+entry is addressed by `settingsNs` plus a route key; an authorization flow is
+addressed by a `CredentialKey` whose scope is its owning plugin's registered
+name. Harness publishes no contract that the two must correspond in general, so
+merging the rows would be the frontend inventing a correlation — the same
+refusal Work makes when it keeps jobs and subagents apart. Both are listed,
+each under the identity Harness gave it.
+
+What did change is the claim, not the refusal. One adapter family documents the
+correspondence for ITSELF, on both sides: `dsh-llm-pi-ai`'s `recordKeyFor`
+builds `llm-pi-ai/<providerId>` and calls that id "pi-ai's own provider id,
+which is also the harness route key", while its `directoryEntries` publishes
+the same id at `providers.<id>` in the same namespace. Reading one family's own
+published identity is what `connect/pi-ai.ts` exists to do — it already holds
+the curated field names and the declaration target for exactly this reason —
+so `piAiSignInRoute` lives there and `connect/model.ts` stays generic, holding
+a `route` field a presentation module may fill and deriving nothing. The link
+is verified rather than assumed: a key resolves only against routes the
+directory actually published, at the address it publishes them at, so a scope
+that stops naming this namespace or a namespace that moves its routes both
+answer "unknown" and leave the sign-in standing alone.
+
+That link exists because the two writes are genuinely separate and both
+required:
+
+```
+ctx.credentials   the RECORD an authorization flow commits   llm-pi-ai/openai
+ctx.settings      the PROFILE that registers a route         llm-pi-ai.providers.openai
+```
+
+`registerPiAiFlows` offers a login for every installed catalog provider
+"independent of the route set", while the adapter registers routes only for the
+profiles settings supply. Both halves are right, and together they produce the
+one failure this frontend most needed to explain: a person signs in, the flow
+reports success, and `/model` still has nothing. `connect/activation.ts` is the
+missing sentence and nothing more — it offers `Activate this route`, the action
+the browser already had, against a FRESH reading, and writes only when a human
+picks it. **A successful authentication is not consent to change provider
+configuration**, so a dismissal, a `Not now`, and a closed browser all leave
+settings untouched; and judging from a stale snapshot would mean writing an
+empty profile over a route something else configured in the meantime.
+
+### The authorization seam is a row dshline composes
+
+At the adopted generation no shipped Harness bundle mounts
+`@deepseek-ai/dsh-authorization` — not `dsh-base`, not `web-app`, not
+`headless`, not `acp-app`, and not the `dsh` app itself. The one package that
+registers flows into it scopes that registration to the seam's presence
+(`ctx.inject(['authorization'], …)`), so a composition without the row has no
+account sign-in for any provider: `/connect`'s Sign-ins section is permanently
+empty and an account-authenticated provider is unreachable from a terminal.
+
+dshline's own `cordis.patch.yml` therefore inserts it, exactly as it inserts
+`session-stats` and for the same stated reason — a host-plane seam this surface
+reads that the base does not carry. That is composition, which is what a bundle
+is for; it is not dshline implementing, wrapping, or installing anything. The
+seam and every flow remain Harness's.
+
+The alternative was considered and rejected. `dsh-authorization` declares no
+`dsh.bundle`, so `dsh plugin add` would install it as a plain dependency that
+composes nothing — the "installed but inert" state `/profiles` already reports
+— and finishing the job would mean dshline writing a composition row into the
+profile's own `cordis.patch.yml`, a patch layer no Harness mutation API owns.
+A first-run installer for a capability a bundle can simply compose is a second
+lifecycle where none is needed.
+
+Because the row is now dshline's to mount, its shape is dshline's compatibility
+problem too: `tests/capability/authorization.probe.spec.ts` mounts the real
+service over a real abstract `CredentialProvider` subclass, and
+`tools/capability-probes.mjs` names it as the `authorization` seam's evidence.
 
 The seam surfaces themselves are written out structurally in
 `connect/harness.ts` rather than depended on as whole services, for the reason
@@ -784,6 +846,93 @@ that one completed, and telling the difference would mean reading dependencies,
 node_modules, or bundle state — the profile health the paragraph above leaves to
 Harness. A lock under `$DSH_HOME` would be the competing lifecycle this document
 forbids.
+
+## Setup: a conductor, not a wizard
+
+Two things stand between installing dshline and sending a turn, and they live
+on opposite sides of one boundary. `bin/dshline.mjs` can create the profile and
+nothing else — it runs before any Host exists, so `ctx.llm`, `ctx.settings`,
+`ctx.credentials`, and `ctx.authorization` are all out of reach, and reaching
+for them would make the wrapper a second reader of Harness state outside
+Harness. Everything past "the profile has a manifest" therefore belongs to the
+plugin, which is where every one of those seams already is.
+
+So `src/setup/` runs inside the composed Host, and `dshline --setup` keeps its
+existing meaning (install this package into the profile). The flow opens
+automatically before the first attachment, and `/setup` opens it on demand.
+
+**The trigger asks whether this launch could send a turn, not whether a route
+exists.** Route registration alone is the wrong question: a registered route is
+only what `/model` offers FROM, and the composer opens on whatever
+`selection.current` resolved to. So `setupReason` reads two things the window
+already holds — `ctx.llm.listProviders()` and the selection ref `/model` writes
+— and names one of three states: nothing registered, nothing selected, or a
+selection whose route no adapter registered (a remembered default whose
+provider has left the profile).
+
+That is two synchronous reads and no I/O. It stops at PROVIDER granularity
+deliberately: whether the route still serves that exact model id is a question
+only `listModels` can answer, and asking it would put a possible network call
+in front of every launch to refine a verdict the picker gives anyway. There is
+no first-run marker anywhere — a stored "already set up" flag is duplicated
+state that can disagree with the configuration it claims to describe, and
+re-asking live state every launch cannot.
+
+What setup contributes is a reading and an ordering, and nothing else. The
+ordering leads with whatever is missing: once a route is registered, `Choose a
+model` goes first, and when `/connect` closes having produced the first usable
+route while the selection is still absent or stale, the conductor opens the
+picker itself rather than returning to a checklist that would only say to open
+it. The conductor does that, never `/connect` — the browser stays a browser and
+knows nothing about setup — and only when the model is the missing piece, since
+connecting a second provider is not a request to change a working selection.
+
+Each step hands off to a browser that is already the authority for what it does
+— `/connect` to configure and authenticate, `/model` to choose — so there is no
+second route editor, no second model catalogue, and no state machine: the loop
+re-reads Harness each pass and offers what is true now, which is why backing
+out halfway leaves nothing behind and running it twice is the same as running
+it once.
+
+The reading is **committed to scrollback rather than drawn in an overlay**,
+which is the terminal model doing real work rather than a style choice. Version
+numbers and the sentence naming why there is no model are the output most worth
+keeping; a bounded live region would scroll them away the moment the next thing
+was drawn, and this is precisely the text a person pastes into a bug report.
+The only live-region surface it uses is `promptSelect`, which is already
+bounded, resize-safe, and tested.
+
+### What a compatibility check may claim
+
+Harness publishes no runtime version service at the adopted generation — no
+`ctx.version`, `dsh-brand` is compile-time branding, and
+`dsh-plugin-package-inventory-deepseek` builds a package list only as request
+metadata for the official API. The evidence is therefore manifests on disk,
+read through the machinery `/profiles` already owns: the adopted generation is
+this package's own `dsh-*` peer pin (which `tools/harness-target.mjs` proves is
+`HARNESS_TARGET.version`), and the installed one is the `@deepseek-ai/dsh-base`
+version the running profile composes.
+
+Three rules follow, and each is a refusal:
+
+- **A mark is a claim, so an unknown gets no mark.** Either side unreadable is
+  `·` and says so — never "incompatible", never "fine".
+- **A mismatch states only the direction it can prove.** Installing the
+  generation this build targets is deterministic, because that version is a
+  fact the report already holds. Moving dshline instead is not its mirror
+  image: `update` fetches whatever the registry serves, and nothing here knows
+  whether any released dshline targets the installed generation. That
+  direction is therefore offered as a condition, not an instruction —
+  establishing it would mean resolving releases against their peer pins.
+- **It never refuses to continue.** By the time dshline can compare
+  generations, both halves have already booted together far enough to draw the
+  comparison; offering "continue anyway" would imply a verdict Harness has
+  already disproved by starting. A genuinely incompatible pair fails earlier
+  and louder in the Loader, and that diagnosis is Harness's to give.
+
+Node is reported without a verdict for the same reason in miniature: this
+process is running on it, so a tick is circular, and turning `engines` into a
+pass or a fail means evaluating a semver range.
 
 ## Observation is not control
 

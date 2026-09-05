@@ -119,6 +119,8 @@ dshline --help             # the flags this interface adds
 dshline                    # a banner, an input line, and a "ready" status line
 ```
 
+**A fresh install has no model yet, and dshline says so rather than leaving you at a prompt that cannot send.** When the launch would otherwise open a composer with no usable model — no route, no selection, or a selection whose route is gone — the session opens on [`/setup`](usage.md#setup): it prints what your installation is — Node, dshline, the Harness generation, the profile, and why there is no model — and then offers to open `/connect`, going straight into `/model` once connecting produces the missing route. Nothing is written unless you choose it, `esc` goes straight to the composer, and `/setup` reopens the flow at any time. Once a route is configured and a model is selected it never appears on its own again.
+
 Inside the session, type `/` to list the commands your profile provides, then press `ctrl-d` to leave.
 
 If a keyboard shortcut does nothing, run `node tools/keyprobe.mjs` from a checkout of this repository. It shows what your terminal sends and how this project reads it, which is what a bug report needs.

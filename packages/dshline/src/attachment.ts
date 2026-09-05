@@ -713,6 +713,29 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       },
     },
     {
+      name: 'setup',
+      description: 'Check this installation and walk from a provider to a working model',
+      execute: async () => {
+        // Window-level, like `/connect` and `/profiles`: nothing it does is a
+        // fact about this session. It is opened from here for the reason every
+        // picker is — the attachment owns the keyboard while a session is up —
+        // and the route it may end on is read by the NEXT step's selection.
+        //
+        // Imported on demand, like the browsers below: its module graph pulls
+        // in the profile reader and the whole Connect catalog, which is startup
+        // a launch that already has a model should not pay for.
+        const { runSetup } = await import('./setup/index.ts')
+        await runSetup({
+          ctx,
+          commit,
+          version: w.version,
+          selection,
+          onModelChanged: () => { w.refreshModelInfo() },
+        })
+        draw()
+      },
+    },
+    {
       name: 'connect',
       description: 'Configure and authenticate Harness providers',
       // Imported on demand, like `/plugins`, `/profiles`, and `/skills` below:

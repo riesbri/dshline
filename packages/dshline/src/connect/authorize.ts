@@ -215,7 +215,12 @@ export async function runAuthorization(spec: AuthorizeSpec): Promise<ConnectActi
     })
     if (retiredByOwner()) return retired(label)
     if (outcome.status === 'authorized') {
-      return { kind: 'done', message: `${label}: signed in · provider routes are activated separately` }
+      // Just the fact this function is responsible for. Activating the route a
+      // credential authenticates is a separate settings write with its own
+      // authority and its own answer, and `connect/activation.ts` appends what
+      // actually became of it — so a tail here saying routes "are activated
+      // separately" would now either duplicate that or contradict it.
+      return { kind: 'done', message: `${label}: signed in` }
     }
     return { kind: 'failed', message: dismissed ? `${label}: sign-in dismissed` : `${label}: sign-in cancelled` }
   } catch (error) {

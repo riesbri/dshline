@@ -172,7 +172,7 @@ describe('running one flow', () => {
     view.answer({ kind: 'text', text: 'sk-1' }, { kind: 'key', name: 'enter' })
     await settle()
     view.answer({ kind: 'key', name: 'enter' })
-    expect(await running).toEqual({ kind: 'done', message: 'ChatGPT: signed in · provider routes are activated separately' })
+    expect(await running).toEqual({ kind: 'done', message: 'ChatGPT: signed in' })
     expect(asked).toEqual(['text', 'secret', 'select'])
     expect(committed[0]).toContain('Continue in your browser')
     expect(committed[1]).toContain('https://auth.example')
@@ -273,7 +273,7 @@ describe('running one flow', () => {
     await settle()
     expect(view.text()).toContain('Waiting for authorization…')
     finish?.()
-    expect(await running).toEqual({ kind: 'done', message: 'ChatGPT: signed in · provider routes are activated separately' })
+    expect(await running).toEqual({ kind: 'done', message: 'ChatGPT: signed in' })
     expect(view.mounted()).toBe(false)
   })
 
@@ -319,7 +319,7 @@ describe('running one flow', () => {
       label: 'ChatGPT',
       commit: () => {},
     })
-    expect(await running).toEqual({ kind: 'done', message: 'ChatGPT: signed in · provider routes are activated separately' })
+    expect(await running).toEqual({ kind: 'done', message: 'ChatGPT: signed in' })
     expect(view.mounted()).toBe(false)
   })
 

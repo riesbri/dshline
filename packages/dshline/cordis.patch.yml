@@ -41,6 +41,40 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
+# The authorization seam (`ctx.authorization`): the flows that OBTAIN a
+# credential by asking a human, which is the half of provider setup no
+# settings document can supply. `/connect` reads it, and reading it is the
+# whole reason this row is here.
+#
+# Host-plane and unconditional, for the same reason `session-stats` is: it is
+# a process-wide registry keyed by credential record rather than anything an
+# agent contributes, and putting it behind an agent preset would make whether
+# a person can sign in a function of which preset a session happens to run.
+#
+# `dsh-base` does not carry this row, and at the adopted generation NO shipped
+# bundle does — not base, not web-app, not headless, not acp-app. The one
+# package that registers flows into it, `@deepseek-ai/dsh-llm-pi-ai`, scopes
+# that registration to the seam's presence (`ctx.inject(['authorization'],
+# …)`), so a composition without this row has no sign-in for any provider at
+# all: `/connect`'s Sign-ins section is permanently empty and an account-
+# authenticated provider is unreachable from the terminal. That is not a
+# capability dshline can add — the seam and every flow are Harness's — it is a
+# row dshline has to COMPOSE, exactly as the Web surface composes the rows its
+# own pages read.
+#
+# Safe to mount unconditionally, on the package's own terms: it ships no flows
+# of its own, so nothing asks anyone to sign in unless a plugin registered a
+# flow, and `AuthorizationService.inject = ['credentials']` leaves the row
+# pending rather than failing on a composition with no credential store. The
+# alternative — installing it at first run and writing a composition row into
+# the profile's `cordis.patch.yml` — was rejected: the package declares no
+# `dsh.bundle`, so `dsh plugin add` would install it as a plain dependency
+# that composes nothing, and finishing the job would mean dshline editing a
+# patch layer no Harness mutation API owns.
+- insert:
+    - id: authorization
+      name: '@deepseek-ai/dsh-authorization'
+
 # ── the agent plane moves behind agent presets ─────────────────────────────
 #
 # Every row below composes what ONE agent contributes to the host registries:

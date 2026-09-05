@@ -46,7 +46,7 @@ import type { DshlineSettings } from './settings.ts'
 import { TuiSlots } from './slots.ts'
 import type { ModelRates, PeakWindow, PricingTable } from './usage.ts'
 import { parsePeakWindows, pricingFrom } from './usage.ts'
-import { attachOptions, chooseTarget, createWindow } from './window.ts'
+import { attachOptions, chooseTarget, createWindow, offerSetup } from './window.ts'
 
 /** Cordis plugin name used by Loader diagnostics. */
 export const name = 'dshline'
@@ -170,6 +170,12 @@ async function run(
   settings: DshlineSettings,
 ): Promise<void> {
   const w = await createWindow(ctx, { pricing, peakHours, version: VERSION, settings })
+  // Before the first target, and before any session exists: a window whose
+  // Harness registers no provider route cannot send a turn, so the useful
+  // thing to open is the flow that fixes that rather than a composer that
+  // will fail on submission. It returns immediately when a route is
+  // registered, which is every ordinary launch.
+  await offerSetup(w)
   // The launch flag decides the FIRST target only. Everything after it is the
   // reader's own choice, made through the session browser or `/new`.
   let target: AttachTarget = w.startup.resume === undefined

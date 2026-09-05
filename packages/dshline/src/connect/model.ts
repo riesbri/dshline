@@ -13,9 +13,15 @@
  * registered name, which is not the directory entry's `settingsNs` by contract
  * — so joining them would be the frontend inventing a relationship, the same
  * mistake Work refuses when it keeps jobs and subagents apart. Both are listed,
- * each addressed by the identity Harness gave it, and the reader can see that
- * `llm-pi-ai/openai` and the `openai` route in `llm-pi-ai` are related without
- * this module asserting it.
+ * each addressed by the identity Harness gave it.
+ *
+ * {@link ConnectSignInLink} is the one thing that narrows, and it narrows the
+ * claim rather than the refusal. This module still derives no link — it holds
+ * a field a presentation module may FILL, for the one adapter family that
+ * documents the correspondence on both sides of it (see
+ * {@link "./pi-ai.ts".piAiSignInRoute}). Every sign-in whose link nobody
+ * established reads exactly as it did before the field existed, which is what
+ * keeps "we do not know" the default rather than a special case.
  * @module dshline/connect/model
  */
 
@@ -75,6 +81,33 @@ export interface ConnectProviderRow {
   readonly revision: number | undefined
 }
 
+/**
+ * The provider route one sign-in authenticates, when a presentation module for
+ * a known configuration domain has established the correspondence.
+ *
+ * A plain data shape, and — like {@link ConnectNewRouteTarget} — not a claim
+ * this module makes. Nothing here derives a link from a key's spelling: the
+ * only producer is a presentation module that read one adapter family's own
+ * documented identity (`pi-ai.ts`'s {@link "./pi-ai.ts".piAiSignInRoute}), and
+ * a sign-in with no such producer keeps `route: undefined` and is presented
+ * exactly as it was before this field existed.
+ *
+ * It exists because the alternative is worse than the refusal it relaxes. A
+ * credential record and a settings profile are separate writes to separate
+ * stores, so a successful sign-in leaves `/model` offering nothing until the
+ * route is ALSO activated — and with the two rows asserting nothing about each
+ * other, the only thing on screen after a successful login was a row that said
+ * "signed in" beside a route that said "not active", with no stated relation
+ * between them. Naming the relation where it is documented is what turns that
+ * into an answerable question.
+ */
+export interface ConnectSignInLink {
+  /** Route key the sign-in's credential authenticates. */
+  readonly provider: string
+  /** Where that route stands with the model registry, at the same reading. */
+  readonly state: ConnectRouteState
+}
+
 /** One registered authorization flow, joined with the record it writes. */
 export interface ConnectSignInRow {
   /** Discriminant, so one list can carry both row kinds. */
@@ -89,6 +122,11 @@ export interface ConnectSignInRow {
   readonly inFlight: boolean
   /** What the credential seam says about the record; undefined when unreadable. */
   readonly record: CredentialRecordInfoRead | undefined
+  /**
+   * The route this sign-in authenticates, when a presentation module
+   * established the link. Undefined is the ordinary case and asserts nothing.
+   */
+  readonly route: ConnectSignInLink | undefined
 }
 
 /**
@@ -239,7 +277,15 @@ export function matchesRow(row: ConnectRow, query: string): boolean {
   const words = row.kind === 'provider'
     ? [row.provider, row.displayName, row.settingsNs, providerStateLabel(row.state)]
     : row.kind === 'sign-in'
-      ? [row.key, row.label, ...row.methods.map(method => method.label)]
+      ? [
+          row.key,
+          row.label,
+          ...row.methods.map(method => method.label),
+          // Drawn by `signInFacts`, so matchable — a reader who can see a route
+          // key on a row and cannot find that row by typing it is being told
+          // the filter is broken.
+          ...row.route === undefined ? [] : [row.route.provider],
+        ]
       : [row.label]
   return normalize(words.join(' ')).includes(needle)
 }
@@ -339,7 +385,14 @@ export function signInDetail(row: ConnectSignInRow): string[] {
 export function signInFacts(row: ConnectSignInRow): string[] {
   if (row.inFlight) return ['signing in…']
   if (row.record === undefined) return ['sign-in available']
-  return [row.record.configured ? 'signed in' : 'not signed in']
+  if (row.record.configured !== true) return ['not signed in']
+  // The one state worth a second fact, and the reason {@link ConnectSignInLink}
+  // exists: a credential this account authorized, against a route no adapter
+  // has registered, is a provider `/model` still offers nothing from. Said only
+  // where the link is known — an unlinked sign-in reports what it always did.
+  const route = row.route
+  if (route === undefined || route.state === 'active') return ['signed in']
+  return ['signed in', `${route.provider} route not active`]
 }
 
 /**
