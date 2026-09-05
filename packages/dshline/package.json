@@ -1,6 +1,6 @@
 {
   "name": "@dshline/dshline",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Terminal-native frontend for the DeepSeek Harness plugin ecosystem",
   "type": "module",
   "license": "MIT",
