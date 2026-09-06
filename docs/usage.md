@@ -1218,6 +1218,15 @@ Three consequences worth knowing, in the order they will affect you:
    turn straight after a compaction is more expensive than its size suggests,
    and cheaper turns follow.
 
+A `/compact` you type runs as a maintenance operation between turns: the agent
+must be idle for it to start, and while the interface is awaiting the command
+the status line shows its own spinner and the word `compacting` instead of
+claiming `ready`. Automatic compaction is different: it happens as part of a
+running turn, where the normal busy presentation is what the status line
+shows. A `/compact` that fails or is refused while you are in `/context` names
+the reason inside the inspector, so a busy session does not wait behind a
+closed overlay to be explained.
+
 Oversized tool output is a separate mechanism: Harness shortens one result in
 place, without touching the conversation around it. That gets no transcript line
 of its own — it changes no exchange you can read — and shows up in `/context` as

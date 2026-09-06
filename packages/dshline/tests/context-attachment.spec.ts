@@ -63,6 +63,8 @@ async function fixture(options: {
   readonly compactRegistered?: boolean
   readonly meter?: boolean
   readonly projections?: boolean
+  readonly executeResult?: { commandId: string; result: { kind: 'error'; text: string } | { kind: 'success' } }
+  readonly execute?: () => Promise<{ commandId: string; result: { kind: 'error'; text: string } | { kind: 'success' } }>
 } = {}): Promise<{
   dispatch: () => ((key: Key) => void) | undefined
   ctx: RealContext
@@ -78,7 +80,9 @@ async function fixture(options: {
   ctx.provide('tools', { get: () => undefined })
   const registered = options.compactRegistered ?? true
   const commands = {
-    execute: vi.fn(async () => ({ commandId: 'c-1', result: { kind: 'success' } })),
+    execute: vi.fn(
+      options.execute ?? (async () => options.executeResult ?? { commandId: 'c-1', result: { kind: 'success' } }),
+    ),
     list: () => registered ? [{ name: 'compact', description: 'Compact older conversation history' }] : [],
   }
   ctx.provide('commands', commands as never)
@@ -285,6 +289,59 @@ describe('/context', () => {
     dispatch()?.({ kind: 'text', text: 'c' })
     await flush()
     expect(commands.execute).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a /compact command error inside the inspector instead of hiding it', async () => {
+    const { dispatch, frames, draw } = await fixture({
+      executeResult: { commandId: 'c-1', result: { kind: 'error', text: 'Already compacting the session.' } },
+    })
+    await flush()
+    submit(dispatch(), '/context')
+    await flush()
+    dispatch()?.({ kind: 'text', text: 'c' })
+    await flush()
+    // The command lifecycle is committed underneath; the overlay re-renders the
+    // classified text so a busy or failed compaction is visible without closing.
+    draw()
+    expect(latest(frames)).toContain('Already compacting the session.')
+  })
+
+  it('keeps reporting compaction until the first dispatch settles, even when a second is refused', async () => {
+    // Two overlapping typed `/compact` runs: the first is accepted and stays
+    // pending while the harness summarizer works; the second is refused `busy`
+    // by Harness and settles first. The in-flight counter must keep the status
+    // on `compacting` until the FIRST settles.
+    let settleFirst!: (execution: { commandId: string; result: { kind: 'success' } }) => void
+    const first = new Promise<{ commandId: string; result: { kind: 'success' } }>(resolve => {
+      settleFirst = resolve
+    })
+    let calls = 0
+    const { dispatch, frames, draw } = await fixture({
+      execute: async () => {
+        calls += 1
+        if (calls === 1) return first
+        return { commandId: 'c-2', result: { kind: 'error', text: 'Already compacting the session.' } }
+      },
+    })
+    await flush()
+    submit(dispatch(), '/compact')
+    await flush()
+    draw()
+    expect(status(frames)).toContain('compacting')
+
+    submit(dispatch(), '/compact')
+    await flush()
+    draw()
+    // The second dispatch settled with `busy`; the first is still in flight.
+    expect(calls).toBe(2)
+    expect(status(frames)).toContain('compacting')
+
+    settleFirst({ commandId: 'c-1', result: { kind: 'success' } })
+    await flush()
+    await flush()
+    draw()
+    expect(status(frames)).not.toContain('compacting')
+    expect(status(frames)).toContain('ready')
   })
 
   it('says what it can when no meter is mounted, and still closes', async () => {

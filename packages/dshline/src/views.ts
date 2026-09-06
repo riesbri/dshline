@@ -48,6 +48,12 @@ export interface StatusState {
    */
   replay: string | undefined
   /**
+   * Whether a model-free maintenance operation is compacting context while the
+   * agent itself remains idle. This is separate from `busy`: it must not change
+   * what ctrl-c means or claim that a model turn is running.
+   */
+  compacting?: boolean
+  /**
    * The tool calls still awaiting results, when any are outstanding: the newest
    * one's presentation title, and how many others are running beside it.
    */
@@ -530,6 +536,13 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
           ? ''
           : paint(` · turn ${formatElapsed(current.elapsedMs)}`, 'subdued')
         facts.push(`${bareStatus}${elapsed}`)
+      } else if (current.compacting === true) {
+        // Compaction is a model-free maintenance call, so it must not enter the
+        // busy branch: ctrl-c still quits an idle agent. It does need a visible
+        // state, though, because a summarizer can take longer than a local
+        // command and the durable start event is intentionally transcript-silent.
+        bareStatus = `${paint(spinnerFrame(current.tick), 'busy')}  ${paint('compacting', 'busy')}`
+        facts.push(bareStatus)
       } else if (current.replay !== undefined) {
         // A resumed session's transcript is still flooding in: `ready` would be
         // a claim the reader has no history to check yet. The replay fact is the
@@ -743,7 +756,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         // context reading, and only the bare word survives to be truncated.
         // The full status was already tried above and cannot fit, so the first
         // candidate below is the elapsed-less form, not the richest one.
-        if (current.busy) {
+        if (current.busy || current.compacting === true) {
           // `bareStatus` is one styled segment, not a list of characters:
           // spreading it would interleave separators between every ANSI byte
           // and make the middle rung absurdly wide, skipping straight to the
