@@ -768,6 +768,8 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 │  cache read      99.1%                                      │
 │  cached input    1.4M                                       │
 │  uncached input  13k                                        │
+│  Session cumulative · includes requests across             │
+│  provider/model changes                                    │
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
@@ -780,7 +782,8 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 
 上半部分就是 `/usage` 报告的那份计量——Harness 自己累计的 token 分桶——只是收窄到缓存
 这个问题上。它背后没有第二份统计。它是整个会话、跨其用过的每一条路由的累计值，所以它
-并不归在下方那条路由名下。
+并不归在下方那条路由名下：提供方/模型的变化是请求的边界，而不是重置的边界，即使会话移
+到另一个模型，总计仍保持总计。数字下方的说明文字用一行说清这个范围。
 
 下半部分是 `Session.requestHeader()`，即 Harness 自己对请求头的折叠。那个请求头是**对
 话之外**的请求状态：路由、渲染后的系统提示词，以及组装好的工具 schema。它是
@@ -798,6 +801,8 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 │  This session has no provider-reported cache reads.         │
 │  dshline will show provider cache usage when the active     │
 │  Harness adapter exposes it.                                │
+│  Session cumulative · includes requests across             │
+│  provider/model changes                                    │
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
@@ -816,7 +821,9 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 **它不会告诉你什么。** 它不报告任何历史，也不对请求头有多稳定给出任何判断。Harness 没
 有为此发布稳定性权威，而且记录下一个请求头甚至并不意味着请求头发生了变动——恢复会话时
 会记录一个，压缩之后又会记录一个，而其中什么都没有改变。它同样不声称省下、浪费或错失
-了什么，也不改变任何东西：`/model` 上没有警告，没有护栏，也没有自动路由。
+了什么，也不改变任何东西。变更的唯一后果在做出变更的地方说明：当开关确实移到不同的提
+供方或模型时，`/model` 会加一行信息性说明——变更后的缓存复用取决于提供方，而 `/cache`
+仍是会话累计值。没有护栏，没有确认，也没有自动路由。
 
 `/cache` 与提供方无关。适配器报告缓存读取的路由只是获得更丰富的上半部分；每条路由都获
 得同样的请求头下半部分，因为请求头是 Harness 的记录，而不属于任何提供方。
@@ -971,6 +978,19 @@ dshline:
 ```
 · model set to deepseek-official / deepseek-v4-pro · also the default for new sessions
 ```
+
+真正切换到不同提供方或模型的开关，会在单独的第二行里说明它可能付出的代价，而且只在这种情况下：
+
+```
+· model set to opencode-go / deepseek-v4-flash · also the default for new sessions
+· cache reuse after a provider/model change is provider-dependent; /cache remains session-cumulative
+```
+
+这句说明是信息性的，不承诺任何一种结果——提供方/模型变更后的缓存复用取决于提供方，本
+界面无权许诺任何提供方会怎么做。它只在能从两个已知的选择证明真实变更时出现：从一个明确
+激活的提供方或模型换成另一个。重新选择当前已激活的模型不会有任何附加说明；第一次选择时
+先前有效的路由未知，证明不了什么；未应用任何选择的挑选也不会有。没有护栏，没有确认，也
+没有自动路由。
 
 两者按那个顺序独立：运行中的会话先切换、绝不回滚，因此如果设置文件写不进去会告诉你，而即将运行的那一轮仍使用你要的模型。
 

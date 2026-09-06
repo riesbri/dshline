@@ -22,8 +22,15 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
-import { cacheInspection, hasCacheReads, requestHeaderReading } from '../src/cache/model.ts'
+import {
+  CACHE_TRANSITION_NOTE,
+  cacheInspection,
+  cacheTransitionNote,
+  hasCacheReads,
+  requestHeaderReading,
+} from '../src/cache/model.ts'
 import type { CacheInspection, RequestHeaderReading } from '../src/cache/model.ts'
 import { createCacheOverlay } from '../src/cache/overlay.ts'
 
@@ -212,6 +219,53 @@ describe('the cache inspection', () => {
     expect(hasCacheReads(inspection)).toBe(true)
   })
 
+  it('keeps one cumulative fold across a provider/model change', async () => {
+    // A provider/model switch is exactly the case the scope caption exists for:
+    // the session's totals must NOT reset at the boundary, because the buckets
+    // are a session bill, not any one route's gauge. The second route below
+    // starts without a cache read, the way a real switch behaves.
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(TokenMeter)
+    const target: Session = ctx.sessions.create()
+    const send = (
+      turn: number,
+      id: string,
+      source: { provider: string; model: string },
+      usage: Record<string, number>,
+    ): void => {
+      target.append('turn/start', { turn })
+      target.append('step/start', { turn, step: 1 })
+      target.append('assistant/message', {
+        turn, step: 1,
+        message: {
+          id, role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }], source: { kind: 'model', ...source },
+        },
+        usage,
+      } as never, { surfaceOp: 'append' })
+      target.append('step/end', { turn, step: 1 })
+      target.append('turn/end', { turn, reason: { kind: 'completed' } })
+    }
+    send(1, 'a-1', { provider: 'openai-codex', model: 'gpt-5.6-terra' },
+      { inputTokens: 12_800, outputTokens: 40, cacheReadTokens: 1_400_000, cacheWriteTokens: 0 })
+    send(2, 'a-2', { provider: 'opencode-go', model: 'deepseek-v4-flash' },
+      { inputTokens: 45_508, outputTokens: 300 })
+
+    const inspection = cacheInspection(ctx.sessionProjections.snapshot(target), reading())
+    // Both routes' billing in one fold: the switch is a request boundary, not
+    // a reset boundary.
+    expect(inspection.buckets).toEqual({
+      uncachedInput: 58_308,
+      cacheRead: 1_400_000,
+      cacheWrite: 0,
+      input: 1_458_308,
+      output: 340,
+    })
+    expect(inspection.cacheReadShare).toBeCloseTo(1_400_000 / 1_458_308, 10)
+  })
+
   it('has no cache read without a registry, without the meter, or with a zero read bucket', () => {
     expect(hasCacheReads(cacheInspection(undefined, reading()))).toBe(false)
     expect(hasCacheReads(cacheInspection(cut(), reading()))).toBe(false)
@@ -312,6 +366,20 @@ describe('the cache report', () => {
     expect(drawn).toContain('31')
   })
 
+  it('says the accounting is session-cumulative across provider/model changes', () => {
+    // The header section below names ONE recorded route; the caption stops the
+    // totals above it from being read as that route's own cache.
+    const drawn = report(cacheInspection(CACHING_ROUTE, reading()))
+    expect(drawn).toContain('Session cumulative')
+    expect(drawn).toContain('includes requests across provider/model changes')
+  })
+
+  it('keeps the scope caption when accounting is unavailable', () => {
+    // The statement is about the session regardless of whether figures exist.
+    expect(prose(cacheInspection(undefined, reading())))
+      .toContain('Session cumulative · includes requests across provider/model changes')
+  })
+
   it('never claims a saving, a waste, or a cause', () => {
     for (const inspection of [
       cacheInspection(CACHING_ROUTE, reading()),
@@ -382,5 +450,43 @@ describe('the cache report', () => {
     })
     overlay.handleKey?.({ kind: 'text', text: 's' } as never)
     expect(closed).toBe(0)
+  })
+})
+
+describe('the model-switch cache note', () => {
+  /** A selection shaped like the ref's current value. */
+  function sel(provider: string, model: string): ModelSelection {
+    return { provider, model }
+  }
+
+  it('notes that cache reuse is provider-dependent when the route actually changes', () => {
+    expect(cacheTransitionNote(sel('openai-codex', 'gpt-5.6-terra'), sel('opencode-go', 'deepseek-v4-flash')))
+      .toBe(CACHE_TRANSITION_NOTE)
+  })
+
+  it('stays silent when the already-active provider/model is selected again', () => {
+    // Re-selecting what is current is not a move, so it earns no note.
+    const current = sel('opencode-go', 'deepseek-v4-flash')
+    expect(cacheTransitionNote(current, current)).toBeUndefined()
+  })
+
+  it('stays silent when either side of the transition is unknown', () => {
+    // `before` undefined means no explicit override existed — Harness may
+    // already be resolving an effective route underneath it, so nothing proves
+    // a change happened. `after` undefined means nothing was applied.
+    expect(cacheTransitionNote(undefined, sel('deepseek-official', 'deepseek-v4-flash')))
+      .toBeUndefined()
+    expect(cacheTransitionNote(sel('deepseek-official', 'deepseek-v4-flash'), undefined))
+      .toBeUndefined()
+    expect(cacheTransitionNote(undefined, undefined)).toBeUndefined()
+  })
+
+  it('states provider dependence and session-cumulative scope, and nothing more', () => {
+    // dshline has no authority to promise either outcome — "the cache is lost"
+    // or "the cache carries over" — only to say what its own metric is. The
+    // wording must therefore commit to neither.
+    expect(CACHE_TRANSITION_NOTE).toContain('provider-dependent')
+    expect(CACHE_TRANSITION_NOTE).toContain('session-cumulative')
+    expect(CACHE_TRANSITION_NOTE).not.toMatch(/will|guaranteed|lost|resend|uncached|carry over/iu)
   })
 })

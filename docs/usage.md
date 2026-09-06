@@ -1124,6 +1124,8 @@ provider serve from its cache?
 │  cache read      99.1%                                      │
 │  cached input    1.4M                                       │
 │  uncached input  13k                                        │
+│  Session cumulative · includes requests across             │
+│  provider/model changes                                    │
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
@@ -1137,7 +1139,10 @@ provider serve from its cache?
 The top half is the same accounting `/usage` reports — Harness's own cumulative
 token buckets — narrowed to the cache question. There is no second count behind
 it. It is cumulative over the whole session and every route it used, which is
-why it is not filed under the route below it.
+why it is not filed under the route below it: a provider/model change is a
+request boundary, not a reset boundary, so the totals stay the totals even after
+the session moves to another model. The caption under the figures says that
+scope in one line.
 
 The bottom half is `Session.requestHeader()`, Harness's own fold of the request
 header. That header is the request state **outside** the conversation: the
@@ -1158,6 +1163,8 @@ provider fact nobody reported:
 │  This session has no provider-reported cache reads.         │
 │  dshline will show provider cache usage when the active     │
 │  Harness adapter exposes it.                                │
+│  Session cumulative · includes requests across             │
+│  provider/model changes                                    │
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
@@ -1178,8 +1185,12 @@ unmounted meter is never mistaken for a quiet route.
 still the request header has been. Harness publishes no stability authority for
 it, and a logged header does not even mean the header moved — one is recorded on
 resume and again after a compaction with nothing about it changed. It also makes
-no claim that anything was saved, wasted, or missed, and it changes nothing:
-there is no warning on `/model`, no guard, and no automatic routing.
+no claim that anything was saved, wasted, or missed, and it changes nothing.
+The one consequence of a change is reported where the change is decided:
+`/model` adds one informational note when the switch actually moves to a
+different provider or model — cache reuse after the change is provider-dependent,
+and `/cache` stays session-cumulative. There is no guard, no confirmation, and
+no automatic routing.
 
 `/cache` is provider-neutral. A route whose adapter reports cache reads simply
 gets a richer top half; every route gets the same header half, because the
@@ -1352,6 +1363,23 @@ This is worth knowing before you use `/model` to try something for one question,
 ```
 · model set to deepseek-official / deepseek-v4-pro · also the default for new sessions
 ```
+
+A switch that actually moves to a different provider or model says what it can
+cost, on its own second line, and only then:
+
+```
+· model set to opencode-go / deepseek-v4-flash · also the default for new sessions
+· cache reuse after a provider/model change is provider-dependent; /cache remains session-cumulative
+```
+
+The note is informational and claims neither outcome — cache reuse after a
+provider/model change is provider-dependent, and this frontend has no authority
+to promise which way any provider decides. It appears only when a real change is
+provable from two known selections: a different provider or model, where one was
+explicitly active. Re-selecting the model that is already active adds nothing,
+a first selection whose previous effective route is unknown proves nothing, and
+a pick that applied nothing adds nothing either. There is no guard, no
+confirmation, and no automatic routing.
 
 The two are independent, in that order: the running session switches first and is never rolled back, so if the settings file cannot be written you are told, and the turn you are about to run still uses the model you asked for.
 

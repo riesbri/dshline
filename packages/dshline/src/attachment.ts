@@ -86,7 +86,7 @@ import {
   usageInspection,
 } from './usage.ts'
 import { createUsageOverlay } from './usage-overlay.ts'
-import { cacheInspection, requestHeaderReading } from './cache/model.ts'
+import { cacheInspection, cacheTransitionNote, requestHeaderReading } from './cache/model.ts'
 import { createCacheOverlay } from './cache/overlay.ts'
 import { contextPreview, contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
 import { createContextOverlay } from './context/overlay.ts'
@@ -550,10 +550,21 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       complete: async () => (await listModelOptions(ctx))
         .map(option => ({ value: option.model, note: option.provider })),
       execute: async rawInput => {
+        // The note is decided at this command seam, not inside the model
+        // picker: the selection before/after are the only facts it needs, and
+        // the picker stays cache-agnostic. No projection cut is captured:
+        // deciding "was there prior usage" would need a snapshot that is at
+        // once post-picker and pre-new-route while `/model` can run against an
+        // in-flight turn, and an informational note is not worth that race, so
+        // the note depends on the real provider/model move alone.
+        const before = selection.current
         const outcome = await pickModel(ctx, selection, rawInput)
         if (outcome !== undefined) {
           w.refreshModelInfo()
-          commit([paint(`· ${outcome}`, 'muted')])
+          const lines = [paint(`· ${outcome}`, 'muted')]
+          const note = cacheTransitionNote(before, selection.current)
+          if (note !== undefined) lines.push(paint(`· ${note}`, 'muted'))
+          commit(lines)
         }
         draw()
       },
