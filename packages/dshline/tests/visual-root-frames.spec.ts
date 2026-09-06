@@ -5,8 +5,11 @@ import { Composer, displayWidth, Screen, stripAnsi } from '@dshline/renderer'
 import { describe, expect, it } from 'vitest'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { chromeWidth, fitFooterHelp, rootFrame } from '../src/chrome.ts'
+import { createCompletion } from '../src/completion.ts'
+import { InputHistory } from '../src/history.ts'
+import { routeInputKey } from '../src/input.ts'
 import { TuiSlots } from '../src/slots.ts'
-import { createComposerView } from '../src/views.ts'
+import { composerGutter, composerInner, createComposerView } from '../src/views.ts'
 
 /** Terminal widths that exercise the floor, ordinary widths, and the cap. */
 const ROOT_WIDTHS = [20, 24, 30, 40, 80, 120] as const
@@ -129,6 +132,47 @@ describe('the composer inside the shared root', () => {
     expect(frame.cursor.row).toBeGreaterThan(2)
     expect((await frame.emulator.cell(frame.cursor.column - 1, frame.cursor.row))?.chars).toBe('x')
     expect((await frame.emulator.cell(frame.cursor.column, frame.cursor.row))?.chars).toBe(' ')
+  })
+
+  it.each([
+    [80, 79],
+    [100, 99],
+    [101, 100],
+    [102, 101],
+    [120, 119],
+    [160, 159],
+  ] as const)('uses terminal-following composer width at %i columns', async (columns, expected) => {
+    const wideText = typed(`界${'🙂界'.repeat(80)}`)
+    for (const composer of [new Composer(), typed('hello'), wideText]) {
+      const frame = await drawn(composer, columns)
+      const top = frame.rows.find(row => stripAnsi(row).includes('dshline')) ?? ''
+      expect(displayWidth(top), `${String(columns)} columns`).toBe(expected)
+      expect(frame.rows.every(row => displayWidth(row) <= columns), `${String(columns)} columns`).toBe(true)
+    }
+  })
+
+  it('keeps a wide cursor on typed text and moves it through wrapped multiline rows', async () => {
+    const columns = 120
+    const composer = typed(`${'a'.repeat(140)}\n${'b'.repeat(140)}\nccc`)
+    const completion = createCompletion(composer, {
+      commands: () => [],
+      commandArguments: async () => [],
+      paths: async () => [],
+    }, () => {})
+    const history = new InputHistory()
+    const before = await drawn(composer, columns)
+    expect((await before.emulator.cell(before.cursor.column - 1, before.cursor.row))?.chars).toBe('c')
+
+    expect(routeInputKey(
+      { kind: 'key', name: 'up' },
+      composer,
+      completion,
+      history,
+      { width: composerInner(columns), gutter: line => composerGutter(line, columns) },
+    )).toBe('vertical')
+    const after = await drawn(composer, columns)
+    expect(after.rows[after.cursor.row]).toContain('b')
+    expect((await after.emulator.cell(after.cursor.column, after.cursor.row))?.chars).toBe('b')
   })
 
   it('lets an overlay replace composer rows and cursor together', () => {

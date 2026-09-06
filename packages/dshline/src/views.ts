@@ -24,7 +24,7 @@ import {
 } from '@dshline/renderer'
 import type { CardDetail } from './cards.ts'
 import type { ActivityWord } from './activity.ts'
-import { CHROME_MIN_COLUMNS, chromeWidth, rootFrame } from './chrome.ts'
+import { CHROME_MIN_COLUMNS, chromeWidth, composerFrameWidth, rootFrame } from './chrome.ts'
 import type { BusyEnter } from './delivery.ts'
 import { DEFAULT_BUSY_ENTER } from './delivery.ts'
 import type { TuiSlotView } from './slots.ts'
@@ -195,7 +195,7 @@ export function createComposerView(
    * @returns the rows and the cursor's row and column within them.
    */
   const layout = (columns: number): { rows: readonly string[]; row: number; column: number } => {
-    const found = layoutComposer(composer, composerInner(columns), composerGutter)
+    const found = layoutComposer(composer, composerInner(columns), line => composerGutter(line, columns))
     return { rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
   }
 
@@ -252,28 +252,13 @@ export function createComposerView(
   const contentRowOffset = (rows: number | undefined): number => keepsSeparator(rows) ? 2 : 1
 
   /**
-   * Gutter for the pathological-width fallback, truncated to fit the terminal
-   * itself rather than the frame's inner width.
-   *
-   * Below {@link CHROME_MIN_COLUMNS} there is no frame, so the gutter has
-   * nothing to share the row with but the terminal's own width. Truncating it
-   * here — the same width `layoutComposer` chunks against — is what keeps
-   * every row `chunkLine` produces inside `columns` even when the prompt
-   * itself cannot fit whole.
-   * @param columns - the terminal's current width.
-   * @returns the gutter function for `layoutComposer`.
-   */
-  const narrowGutter = (columns: number) => (line: number): string =>
-    truncateToWidth(line === 0 ? PROMPT : CONTINUATION, Math.max(0, columns))
-
-  /**
    * The composer laid out directly against the terminal's width, with no
    * frame around it. See {@link layout} for the framed equivalent.
    * @param columns - the terminal's current width.
    * @returns the rows and the cursor's row and column within them.
    */
   const narrowLayout = (columns: number): { rows: readonly string[]; row: number; column: number } => {
-    const found = layoutComposer(composer, Math.max(1, columns), narrowGutter(columns))
+    const found = layoutComposer(composer, composerInner(columns), line => composerGutter(line, columns))
     return { rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
   }
 
@@ -312,6 +297,7 @@ export function createComposerView(
         // make this the only view in the live region that can outgrow its budget.
         const prompt = rootFrame({
           columns,
+          width: composerFrameWidth(columns),
           context: paint(escapedLabel, 'composer-title'),
           body: [composerHintRow(hint(), composerInner(columns))],
         })
@@ -323,6 +309,7 @@ export function createComposerView(
       const shown = window(rows, row, contentBudget(terminalRows))
       const hidden = rows.length - shown.rows.length
       const framed = rootFrame({
+        width: composerFrameWidth(columns),
         columns,
         context: hidden > 0
           ? `${paint(escapedLabel, 'composer-title')} ${paint(`+${String(hidden)} rows`, 'muted')}`
@@ -388,7 +375,8 @@ export interface ComposerHint {
  * that silently does the other thing. `docs/usage.md` teaches it instead, which
  * is the same call this interface already made about `shift-enter`.
  * @param hint - whether a turn is running, and what enter means while one is.
- * @param inner - the composer's content width, from {@link composerInner}.
+ * @param inner - the framed composer's content width, from {@link composerInner}.
+ *   The narrow unframed fallback does not call this helper.
  * @returns one row, prompt included, painted and ready for the frame.
  */
 export function composerHintRow(hint: ComposerHint, inner: number): string {
@@ -418,34 +406,40 @@ export function composerHintRow(hint: ComposerHint, inner: number): string {
     // `cursor()` places the caret just past it at every rung.
     return `${PROMPT}${segments.map(segment => paint(segment, 'muted')).join(separator)}`
   }
-  // Unreachable in practice — the empty rung is two columns and the inner width
-  // floors at eight — but a ladder whose last rung could be skipped would return
-  // undefined, and the prompt is the one thing that must survive every width.
+  // Unreachable in the framed branch — the empty rung is two columns and its
+  // inner width floors at eight — but a ladder whose last rung could be skipped
+  // would return undefined, and the prompt is the one thing that must survive.
   return PROMPT
 }
 
 /**
  * Display columns of the composer's content area, including its gutter.
  *
- * The inner cell budget of the framed box, shared by the view that draws the
- * cursor and the router that moves it, so both calculate the same visual rows.
+ * The width is shared by the view that draws the cursor and the router that moves
+ * it. Below the frame floor it becomes the physical terminal width, because the
+ * unframed fallback has no border cells to subtract.
  * @param columns - the terminal's current width.
  * @returns the content width the composer draws and moves within.
  */
 export function composerInner(columns: number): number {
-  return chromeWidth(columns) - BOX_CHROME_COLUMNS
+  return columns < CHROME_MIN_COLUMNS
+    ? Math.max(1, columns)
+    : composerFrameWidth(columns) - BOX_CHROME_COLUMNS
 }
 
 /**
  * The gutter preceding each logical line of the composer.
  *
  * Line zero carries the prompt; continuation lines an indent of the same width,
- * so the wrapped text lines up under the prompt.
+ * so the wrapped text lines up under the prompt. The optional terminal width is
+ * used by the unframed narrow fallback, where the gutter itself may not fit.
  * @param line - zero-based logical line index.
+ * @param columns - the terminal's current width, when the gutter must be bounded.
  * @returns the line's leading gutter.
  */
-export function composerGutter(line: number): string {
-  return line === 0 ? PROMPT : CONTINUATION
+export function composerGutter(line: number, columns?: number): string {
+  const gutter = line === 0 ? PROMPT : CONTINUATION
+  return columns === undefined ? gutter : truncateToWidth(gutter, Math.max(0, columns))
 }
 
 /**

@@ -195,7 +195,7 @@ describe("the empty composer's hint", () => {
    * @returns the visible row, prompt included.
    */
   const hint = (hint: ComposerHint, columns = 120): string =>
-    stripAnsi(composerHintRow(hint, composerInner(columns)))
+    stripAnsi(composerHintRow(hint, Math.max(8, composerInner(columns))))
 
   const idle: ComposerHint = { busy: false, busyEnter: 'queue' }
 
@@ -291,14 +291,17 @@ describe("the empty composer's hint", () => {
     // region past the screen where rows can no longer be erased.
     for (const state of [idle, { busy: true, busyEnter: 'steer' } as const]) {
       for (let columns = 1; columns <= 130; columns += 1) {
+        // The narrow live-region fallback does not render a hint or frame; keep
+        // this standalone hint test's framed minimum independent of its width.
+        const inner = Math.max(8, composerInner(columns))
         expect(
-          composerHintRow(state, composerInner(columns)).split('\n'),
+          composerHintRow(state, inner).split('\n'),
           `${String(columns)} columns`,
         ).toHaveLength(1)
         expect(
-          displayWidth(composerHintRow(state, composerInner(columns))),
+          displayWidth(composerHintRow(state, inner)),
           `${String(columns)} columns`,
-        ).toBeLessThanOrEqual(composerInner(columns))
+        ).toBeLessThanOrEqual(inner)
       }
     }
   })

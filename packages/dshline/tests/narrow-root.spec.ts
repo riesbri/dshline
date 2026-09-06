@@ -13,10 +13,13 @@ import { Context } from '@deepseek-ai/cordis'
 import { Composer, displayWidth, Screen, stripAnsi } from '@dshline/renderer'
 import { describe, expect, it } from 'vitest'
 import { createEmulator } from '../../../tests/emulator.ts'
+import { createCompletion } from '../src/completion.ts'
 import { CHROME_MIN_COLUMNS } from '../src/chrome.ts'
+import { InputHistory } from '../src/history.ts'
+import { routeInputKey } from '../src/input.ts'
 import { TuiSlots } from '../src/slots.ts'
 import type { StatusState } from '../src/views.ts'
-import { createComposerView, createStatusView } from '../src/views.ts'
+import { composerGutter, composerInner, createComposerView, createStatusView } from '../src/views.ts'
 
 const ROWS = 24
 
@@ -132,6 +135,28 @@ describe('the root live region below the chrome floor', () => {
       expect(cursor.column).toBeLessThanOrEqual(columns)
       for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(columns)
     }
+  })
+
+  it('uses the unframed width and gutter for narrow vertical movement', async () => {
+    const columns = 5
+    const composer = typed('abcdefghij')
+    const completion = createCompletion(composer, {
+      commands: () => [],
+      commandArguments: async () => [],
+      paths: async () => [],
+    }, () => {})
+    const history = new InputHistory()
+
+    expect(routeInputKey(
+      { kind: 'key', name: 'up' },
+      composer,
+      completion,
+      history,
+      { width: composerInner(columns), gutter: line => composerGutter(line, columns) },
+    )).toBe('vertical')
+    const { rows, cursor } = await drawnRoot(composer, columns)
+    expect(rows[cursor.row]).toContain('defgh')
+    expect((rows[cursor.row] ?? '').slice(0, cursor.column)).toBe('de')
   })
 
   it("the status view cannot independently exceed the terminal's width, and may surrender entirely", () => {

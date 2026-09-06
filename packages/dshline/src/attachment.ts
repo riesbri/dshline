@@ -1602,9 +1602,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // navigation, and stays there until they edit or submit. At the draft, the
     // composer's own `↑`/`↓` move through the wrapped buffer first, so a long
     // prompt is navigated vertically before `↑` reaches for history.
+    const columns = terminal.columns()
     const geometry = {
-      width: composerInner(terminal.columns()),
-      gutter: composerGutter,
+      width: composerInner(columns),
+      gutter: (line: number): string => composerGutter(line, columns),
     }
     const routed = routeInputKey(key, composer, completion, history, geometry)
     if (routed === 'completion') {
