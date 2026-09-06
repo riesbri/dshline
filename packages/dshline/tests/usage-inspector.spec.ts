@@ -41,9 +41,22 @@ import { createUsageOverlay } from '../src/usage-overlay.ts'
 import { formatDuration, formatTokenRate, isMeasured, sessionPerformance } from '../src/performance.ts'
 import { SessionProjectionObserver } from '../src/projections/observer.ts'
 
-/** A reading dshline's own fold would produce. */
+/** A reading dshline's own fold would produce, priced on the billed side. */
 function reading(overrides: Partial<UsageReading> = {}): UsageReading {
-  return { inputTokens: 2_310_000, outputTokens: 42_000, costUsd: 0.84, partial: false, ...overrides }
+  return {
+    inputTokens: 2_310_000,
+    outputTokens: 42_000,
+    costUsd: 0.84,
+    partial: false,
+    billedUsd: 0.84,
+    apiEquivalentUsd: undefined,
+    ...overrides,
+  }
+}
+
+/** The same totals, priced entirely on the API-equivalent side. */
+function equivalentReading(overrides: Partial<UsageReading> = {}): UsageReading {
+  return reading({ billedUsd: undefined, apiEquivalentUsd: 0.84, ...overrides })
 }
 
 /** One projection cut carrying Harness's usage buckets. */
@@ -431,7 +444,9 @@ describe('the usage inspector’s presentation', () => {
   })
 
   it('reports no money at all for an unpriced session, rather than zero', () => {
-    const body = rows(usageInspection(cut(), reading({ costUsd: undefined }))).join('\n')
+    const body = rows(usageInspection(cut(), reading({
+      costUsd: undefined, billedUsd: undefined, apiEquivalentUsd: undefined,
+    }))).join('\n')
     expect(body).toContain('No rates are configured')
     expect(body).not.toContain('$0.00')
   })
@@ -441,6 +456,34 @@ describe('the usage inspector’s presentation', () => {
     expect(body).toContain('cost (partial)')
     expect(body).toContain('~$0.84')
     expect(body).toContain('is a floor')
+  })
+
+  it('names API-equivalent money as such, never as a plain cost', () => {
+    // A session priced entirely against public API rates — a signed-in/OAuth
+    // route — must not read as the user's bill: the label says what the number
+    // is, and a separate `cost` row would claim a billing that never happened.
+    const body = rows(usageInspection(cut(), equivalentReading())).join('\n')
+    expect(body).toMatch(/API-equivalent cost\s+\$0\.84/u)
+    expect(body).not.toMatch(/^\s*cost\s+\$0\.84/mu)
+  })
+
+  it('keeps a mixed billed/API-equivalent session in two labelled rows', () => {
+    const body = rows(usageInspection(cut(), reading({
+      costUsd: 5.22, billedUsd: 0.22, apiEquivalentUsd: 5,
+    }))).join('\n')
+    expect(body).toMatch(/cost\s+\$0\.22/u)
+    expect(body).toMatch(/API-equivalent cost\s+\$5\.00/u)
+  })
+
+  it('marks every money row as a floor when part of a mixed session was unpriced', () => {
+    const body = rows(usageInspection(cut(), reading({
+      costUsd: 5.22, partial: true, billedUsd: 0.22, apiEquivalentUsd: 5,
+    }))).join('\n')
+    expect(body).toContain('cost (partial)')
+    expect(body).toContain('API-equivalent cost (partial)')
+    expect(body).toContain('~$0.22')
+    expect(body).toContain('~$5.00')
+    expect(body).toContain('each amount is a floor')
   })
 
   it('names the reason the cache split is missing', () => {

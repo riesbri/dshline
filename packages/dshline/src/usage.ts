@@ -3,9 +3,11 @@
  *
  * The numbers come from the adapter's own accounting, folded out of
  * `assistant/message` events rather than counted here, so what the status line
- * reports is what the provider billed. Folding happens in the runner's shared
- * projection, which means a resumed session recovers its totals by replaying its
- * log — there is no second restore path that could disagree with the live one.
+ * reports is what dshline prices those reports at: a billed route's own rates,
+ * or a signed-in route's public API equivalent — see {@link PricingBasis}.
+ * Folding happens in the runner's shared projection, which means a resumed
+ * session recovers its totals by replaying its log — there is no second
+ * restore path that could disagree with the live one.
  *
  * Nothing in this module knows about a terminal, a Context, or an agent, so all
  * of it is testable directly.
@@ -48,22 +50,56 @@ export interface RateSet {
   output: number
 }
 
+/** One rate tier: a rate set that applies once a request's input passes a bound. */
+export interface RateTier {
+  /** A request whose input is strictly ABOVE this token count prices at {@link RateTier.rates}. */
+  inputTokensAbove: number
+  /** The rates for a request that crosses the bound, applied to the WHOLE request. */
+  rates: RateSet
+}
+
 /**
- * One route's prices, and how they change with the clock.
+ * One route's prices, and how they change with the clock or the request size.
  *
  * The bare fields are the rate that applies most of the day, and `peak` is the
  * exception. That is the way round it is because DeepSeek's peak is the narrow
  * window — a few hours of the morning — so the common case reads as the plain
  * one, and a table written without a `peak` block simply prices the same all day
  * rather than silently picking one column of a two-column price list.
+ *
+ * A `tier` is the same kind of exception for request size: OpenAI prices
+ * requests whose input passes 272k tokens at a higher rate set, applied to the
+ * whole request. No shipped model has both a peak and a tier; when a tier
+ * applies it replaces whatever the window selected.
  */
 export interface ModelRates extends RateSet {
   /** Prices during a peak window; the bare fields apply outside one. */
   peak?: RateSet
+  /** Rate set for a request whose input crosses {@link RateTier.inputTokensAbove}. */
+  tier?: RateTier
+}
+
+/**
+ * What one entry's rates represent for its route.
+ *
+ * `billed` is an ordinary route whose rates are its own published billing.
+ * `api-equivalent` is a signed-in/OAuth route valued at the corresponding
+ * public API rates — what the provider's own pay-as-you-go API would have
+ * charged for these exact tokens. It is never the user's subscription charge
+ * or Codex credits, which dshline deliberately does not account.
+ */
+export type PricingBasis = 'billed' | 'api-equivalent'
+
+/** One route's price, and the basis it is offered on. */
+export interface PricingEntry {
+  /** The rates in force for this entry. */
+  rates: ModelRates
+  /** Whether these rates are the route's billing or its API-equivalent. */
+  basis: PricingBasis
 }
 
 /** Rates by route, as {@link pricingKey} builds the key. */
-export type PricingTable = ReadonlyMap<string, ModelRates>
+export type PricingTable = ReadonlyMap<string, PricingEntry>
 
 /** Minutes past midnight UTC, as a half-open range. */
 export interface PeakWindow {
@@ -113,50 +149,152 @@ const DEFAULT_PEAK_WINDOWS: readonly PeakWindow[] = [
 ]
 
 /**
- * DeepSeek's published list, per model.
+ * Published public-API rates, in dollars per million tokens, keyed
+ * `provider/model`.
  *
- * Dollars per million tokens, off-peak in the bare fields and standard under
- * `peak`. Written once here and attached below to each route billed this way, so
- * a rate change is one edit rather than one per route.
+ * The one authoritative definition of a provider/model's rates, written once
+ * and attached to every route that prices at it (see {@link ROUTE_REFERENCES}),
+ * so a rate change is one edit rather than one per route. The reference key is
+ * the pricing namespace for a model — not a route key, and never an inference
+ * about what some other gateway charges for the same id.
+ *
+ * DeepSeek is the direct API's own list; the bare fields are off-peak and
+ * `peak` the standard-rate exception. OpenAI is the `developers.openai.com`
+ * pricing table (standard processing tier) as of 2026-09-05, at the
+ * short-context rates unless a `tier` applies:
+ *
+ * - Cached input is a tenth of uncached for every gpt-5.x here.
+ * - The gpt-5.6 family bills cache writes at 1.25x the uncached input rate
+ *   (short and long), which is why their `cachedWrite` is explicit; gpt-5.4,
+ *   gpt-5.4-mini, and gpt-5.5 publish NO cache-write rate, so their
+ *   `cachedWrite` is an explicit zero rather than an inherited fallback.
+ * - Requests whose input crosses 272k tokens are priced at the `tier` rate set
+ *   (2x input, 1.5x output) for the WHOLE request. OpenAI words it "the full
+ *   session" for gpt-5.4/gpt-5.5 and "the full request" for the gpt-5.6
+ *   family; on a Codex route each request carries the accumulated session
+ *   context, so the first request whose prompt crosses the threshold is where
+ *   long pricing begins and every later one stays above it. gpt-5.4-mini has
+ *   no published tier and its reference has none.
+ * - gpt-5.6-sol's price is promotional at least through 2026-11-21; its
+ *   pre-promo list price was $5/$0.50/$30.
+ *
+ * Typed with `satisfies` rather than an explicit `Record<string, …>` so the
+ * object keeps its literal keys: {@link ReferenceRateKey} is then the exact set
+ * of rate-set names, and a route mapping that names a rate set with a typo
+ * fails compilation instead of shipping a missing price.
  */
-const DEEPSEEK_RATES: Readonly<Record<string, ModelRates>> = {
-  'deepseek-v4-flash': {
+const REFERENCE_RATES = {
+  'deepseek/deepseek-v4-flash': {
     input: 0.22,
     cachedInput: 0.007,
     output: 0.66,
     peak: { input: 0.44, cachedInput: 0.014, output: 1.32 },
   },
-  'deepseek-v4-pro': {
+  'deepseek/deepseek-v4-pro': {
     input: 0.66,
     cachedInput: 0.022,
     output: 1.98,
     peak: { input: 1.32, cachedInput: 0.044, output: 3.96 },
   },
+  'openai/gpt-5.4': {
+    input: 2.5,
+    cachedInput: 0.25,
+    cachedWrite: 0,
+    output: 15,
+    tier: { inputTokensAbove: 272_000, rates: { input: 5, cachedInput: 0.5, cachedWrite: 0, output: 22.5 } },
+  },
+  'openai/gpt-5.4-mini': { input: 0.75, cachedInput: 0.075, cachedWrite: 0, output: 4.5 },
+  'openai/gpt-5.5': {
+    input: 5,
+    cachedInput: 0.5,
+    cachedWrite: 0,
+    output: 30,
+    tier: { inputTokensAbove: 272_000, rates: { input: 10, cachedInput: 1, cachedWrite: 0, output: 45 } },
+  },
+  'openai/gpt-5.6-luna': {
+    input: 0.2,
+    cachedInput: 0.02,
+    cachedWrite: 0.25,
+    output: 1.2,
+    tier: { inputTokensAbove: 272_000, rates: { input: 0.4, cachedInput: 0.04, cachedWrite: 0.5, output: 1.8 } },
+  },
+  'openai/gpt-5.6-sol': {
+    input: 4,
+    cachedInput: 0.4,
+    cachedWrite: 5,
+    output: 20,
+    tier: { inputTokensAbove: 272_000, rates: { input: 8, cachedInput: 0.8, cachedWrite: 10, output: 30 } },
+  },
+  'openai/gpt-5.6-terra': {
+    input: 2,
+    cachedInput: 0.2,
+    cachedWrite: 2.5,
+    output: 12,
+    tier: { inputTokensAbove: 272_000, rates: { input: 4, cachedInput: 0.4, cachedWrite: 5, output: 18 } },
+  },
+}
+
+/** The rate-set key one shipped route prices at; typed so a mapping typo fails compilation. */
+type ReferenceRateKey = keyof typeof REFERENCE_RATES
+
+/** One shipped pricing entry: an exact route/model key and the reference it prices at. */
+interface RouteReference {
+  /** The {@link REFERENCE_RATES} key whose rates apply. */
+  reference: ReferenceRateKey
+  /** What those rates represent for this exact route. */
+  basis: PricingBasis
 }
 
 /**
- * Routes this interface prices at {@link DEEPSEEK_RATES}.
+ * The route/model keys this interface prices out of the box, each mapped to a
+ * reference and a basis.
  *
- * Naming the routes is the point, rather than pricing the model ids wherever they
- * turn up. A model reached through a gateway is billed by the gateway, on its own
- * terms, so a bare-model default would quietly put one company's price list
- * against another's invoice — a route not named here shows tokens and no money
- * until it is given rates of its own.
+ * Naming the exact routes is the point, rather than pricing the model ids
+ * wherever they turn up. A model reached through a gateway is billed by the
+ * gateway, on its own terms, so a bare-model default would quietly put one
+ * company's price list against another's invoice — a route not named here
+ * shows tokens and no money until it is given rates of its own. Nothing here
+ * is inferred from a model id.
  *
- * `opencode` and `opencode-go` are the two OpenCode routes the installed catalog
- * carries — `opencode` for OpenCode Zen and `opencode-go` for OpenCode Go — the
- * payer this interface is built to run against. Both share one set of numbers:
- * DeepSeek's own list, the accounting OpenCode matches for its DeepSeek models.
- * A route that bills differently is one config entry to correct, and an entry
- * replaces the shipped one outright rather than merging into it; see
- * {@link pricingFrom}.
+ * `deepseek-official`, `opencode`, and `opencode-go` are the two OpenCode
+ * routes the installed catalog carries — `opencode` for OpenCode Zen and
+ * `opencode-go` for OpenCode Go — plus the direct route, and all three share
+ * DeepSeek's own list, the accounting OpenCode matches for its DeepSeek
+ * models. They are `billed`: rates ARE the route's charging basis.
+ *
+ * `openai-codex` is the OAuth sign-in Codex route, recorded in the session by
+ * that exact route id. It is priced `api-equivalent`, valued at the OpenAI
+ * public API rates for the same-named model ids the catalog serves — the route
+ * is OAuth-only (a ChatGPT subscription), so its public API rates can never be
+ * its own billing. The catalog's `gpt-5.3-codex-spark` has no public API
+ * equivalent and is deliberately absent, as are the other sign-in routes in
+ * the installed catalog (`anthropic`, `xai`, `kimi-coding`, `github-copilot`,
+ * `openrouter`): those also ship an API-key path or a gateway surface, so a
+ * session on them could be genuinely billed or something else, and no single
+ * basis would be truthful about it.
+ *
+ * A route that bills differently from a shipped entry is one config entry to
+ * correct, and an entry replaces the shipped one outright rather than merging
+ * into it; see {@link pricingFrom}.
  */
-const DEEPSEEK_BILLED_ROUTES: readonly string[] = ['deepseek-official', 'opencode', 'opencode-go']
+const ROUTE_REFERENCES: Readonly<Record<string, RouteReference>> = {
+  'deepseek-official/deepseek-v4-flash': { reference: 'deepseek/deepseek-v4-flash', basis: 'billed' },
+  'deepseek-official/deepseek-v4-pro': { reference: 'deepseek/deepseek-v4-pro', basis: 'billed' },
+  'opencode/deepseek-v4-flash': { reference: 'deepseek/deepseek-v4-flash', basis: 'billed' },
+  'opencode/deepseek-v4-pro': { reference: 'deepseek/deepseek-v4-pro', basis: 'billed' },
+  'opencode-go/deepseek-v4-flash': { reference: 'deepseek/deepseek-v4-flash', basis: 'billed' },
+  'opencode-go/deepseek-v4-pro': { reference: 'deepseek/deepseek-v4-pro', basis: 'billed' },
+  'openai-codex/gpt-5.4': { reference: 'openai/gpt-5.4', basis: 'api-equivalent' },
+  'openai-codex/gpt-5.4-mini': { reference: 'openai/gpt-5.4-mini', basis: 'api-equivalent' },
+  'openai-codex/gpt-5.5': { reference: 'openai/gpt-5.5', basis: 'api-equivalent' },
+  'openai-codex/gpt-5.6-luna': { reference: 'openai/gpt-5.6-luna', basis: 'api-equivalent' },
+  'openai-codex/gpt-5.6-sol': { reference: 'openai/gpt-5.6-sol', basis: 'api-equivalent' },
+  'openai-codex/gpt-5.6-terra': { reference: 'openai/gpt-5.6-terra', basis: 'api-equivalent' },
+}
 
 /** Published rates for the routes this interface is built against. */
-const DEFAULT_PRICING: PricingTable = new Map<string, ModelRates>(
-  DEEPSEEK_BILLED_ROUTES.flatMap(route => Object.entries(DEEPSEEK_RATES)
-    .map(([model, rates]): [string, ModelRates] => [pricingKey(route, model), rates])),
+const DEFAULT_PRICING: PricingTable = new Map<string, PricingEntry>(
+  Object.entries(ROUTE_REFERENCES).map(([key, { reference, basis }]) => [key, { rates: REFERENCE_RATES[reference], basis }]),
 )
 
 /**
@@ -203,22 +341,56 @@ function parseRates(raw: unknown): RateSet | undefined {
 }
 
 /**
+ * A rate tier from configuration, or nothing when it is incomplete.
+ *
+ * The bound must be a positive integer and the tier's rates must be a complete
+ * price; either way, an unreadable tier is dropped rather than thrown over,
+ * exactly like an unreadable `peak` block.
+ * @param raw - the configured `tier` value, of any shape.
+ * @returns the tier, or undefined.
+ */
+function parseTier(raw: unknown): RateTier | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const { inputTokensAbove, ...rest } = raw as Record<string, unknown>
+  if (typeof inputTokensAbove !== 'number' || !Number.isInteger(inputTokensAbove) || inputTokensAbove <= 0) {
+    return undefined
+  }
+  const rates = parseRates(rest)
+  return rates === undefined ? undefined : { inputTokensAbove, rates }
+}
+
+/**
  * Read a pricing table out of plugin configuration.
  *
  * Deliberately total: an entry that does not describe a price is dropped rather
  * than thrown over. Prices are a convenience on a status line, and a typo in a
  * machine-local config file must not be the reason a terminal refuses to start.
+ *
+ * A configured entry carries the `billed` basis by default — the reading for a
+ * route dshline does not ship, where writing rates is a reader stating what
+ * that route charges. {@link pricingFrom} then keeps the shipped basis when a
+ * configured entry REPLACES one this interface ships: correcting an
+ * `openai-codex/...` rate does not turn the OAuth route into pay-as-you-go, so
+ * its money still reads `API-equivalent cost`.
  * @param raw - the `pricing` value from the plugin's config, of any shape.
  * @returns the entries that were complete and usable.
  */
 export function parsePricing(raw: unknown): PricingTable {
-  const table = new Map<string, ModelRates>()
+  const table = new Map<string, PricingEntry>()
   if (typeof raw !== 'object' || raw === null) return table
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     const base = parseRates(value)
     if (base === undefined) continue
     const peak = parseRates((value as Record<string, unknown>).peak)
-    table.set(key, { ...base, ...peak === undefined ? {} : { peak } })
+    const tier = parseTier((value as Record<string, unknown>).tier)
+    table.set(key, {
+      rates: {
+        ...base,
+        ...peak === undefined ? {} : { peak },
+        ...tier === undefined ? {} : { tier },
+      },
+      basis: 'billed',
+    })
   }
   return table
 }
@@ -230,11 +402,23 @@ export function parsePricing(raw: unknown): PricingTable {
  * field by field. Half a correction is the dangerous shape: someone fixing an
  * output price would not expect the input price beside it to stay at whatever
  * this release was built with.
+ *
+ * Replacement is about the NUMBERS. What the entry represents — its
+ * {@link PricingBasis} — belongs to the route, so a correction of a shipped
+ * `api-equivalent` entry keeps that basis, and only a route dshline does not
+ * ship reads as the default `billed`.
  * @param raw - the `pricing` value from the plugin's config, of any shape.
  * @returns every route this session can price.
  */
 export function pricingFrom(raw: unknown): PricingTable {
-  return new Map([...DEFAULT_PRICING, ...parsePricing(raw)])
+  const table = new Map(DEFAULT_PRICING)
+  for (const [key, configured] of parsePricing(raw)) {
+    table.set(key, {
+      ...configured,
+      basis: table.get(key)?.basis ?? configured.basis,
+    })
+  }
+  return table
 }
 
 /**
@@ -298,13 +482,17 @@ export interface UsageReading {
   inputTokens: number
   /** Every token generated, reasoning included. */
   outputTokens: number
-  /** Dollars spent, or undefined when no observed message had a known rate. */
+  /** Dollars priced across every basis, or undefined when no observed message had a known rate. */
   costUsd: number | undefined
   /**
-   * Whether some observed usage could not be priced, so {@link UsageReading.costUsd}
-   * is a floor rather than the total.
+   * Whether some observed usage could not be priced, so the amounts in this
+   * reading are a floor rather than the total.
    */
   partial: boolean
+  /** Money at `billed` entries, or undefined when no message priced that way. */
+  billedUsd: number | undefined
+  /** Money at `api-equivalent` entries, or undefined when no message priced that way. */
+  apiEquivalentUsd: number | undefined
 }
 
 /**
@@ -315,12 +503,19 @@ export interface UsageReading {
  * and pricing them once at the end would bill the whole session at whichever
  * model happened to be selected last, on whichever side of the peak boundary the
  * reader happened to look.
+ *
+ * The money is kept in two subtotals, one per {@link PricingBasis}. A session
+ * may switch routes, and a billed route's total must not be labelled
+ * API-equivalent (or the other way round), so the fold remembers which basis
+ * each message priced at; the inspector decides what labels truthfully apply.
  */
 export class SessionUsage {
   private inputTokens = 0
   private outputTokens = 0
-  private costUsd = 0
-  private priced = false
+  private billedUsd = 0
+  private apiEquivalentUsd = 0
+  private billed = false
+  private apiEquivalent = false
   private unpriced = false
 
   /**
@@ -333,7 +528,7 @@ export class SessionUsage {
   ) {}
 
   /**
-   * The rates for one route, if any are known.
+   * The price and its basis for one route, if any are known.
    *
    * An exact route is preferred, then the model on its own. The fallback is what
    * lets one entry cover a model wherever it is served, and it is deliberately
@@ -341,9 +536,9 @@ export class SessionUsage {
    * gateway never inherits the direct provider's price list by accident.
    * @param provider - the route.
    * @param model - the model id.
-   * @returns the rates, or undefined.
+   * @returns the price entry, or undefined.
    */
-  private ratesFor(provider: string, model: string): ModelRates | undefined {
+  private entryFor(provider: string, model: string): PricingEntry | undefined {
     return this.pricing.get(pricingKey(provider, model)) ?? this.pricing.get(model)
   }
 
@@ -367,30 +562,50 @@ export class SessionUsage {
 
     const known = provider === undefined || model === undefined
       ? undefined
-      : this.ratesFor(provider, model)
+      : this.entryFor(provider, model)
     if (known === undefined) {
       // Remembered rather than ignored: a total that quietly omits some traffic
       // reads as the whole bill, and the reader has no way to tell.
       this.unpriced = true
       return
     }
-    const rates = isPeak(at, this.peakWindows) && known.peak !== undefined ? known.peak : known
-    this.priced = true
-    this.costUsd += (
-      usage.inputTokens * rates.input
-      + cacheRead * (rates.cachedInput ?? rates.input)
-      + cacheWrite * (rates.cachedWrite ?? rates.input)
-      + usage.outputTokens * rates.output
+    // One rate set for this message: the window-adjusted everyday rates, unless
+    // the entry's tier applies. A tier keys off the WHOLE request's input —
+    // uncached, cache reads, and cache writes together — because that is the
+    // prompt the provider priced as a unit, and it applies to every token of the
+    // request, cache buckets included.
+    const rates = isPeak(at, this.peakWindows) && known.rates.peak !== undefined ? known.rates.peak : known.rates
+    const tier = known.rates.tier
+    const effective = tier !== undefined && usage.inputTokens + cacheRead + cacheWrite > tier.inputTokensAbove
+      ? tier.rates
+      : rates
+    const amount = (
+      usage.inputTokens * effective.input
+      + cacheRead * (effective.cachedInput ?? effective.input)
+      + cacheWrite * (effective.cachedWrite ?? effective.input)
+      + usage.outputTokens * effective.output
     ) / TOKENS_PER_PRICED_UNIT
+    if (known.basis === 'billed') {
+      this.billed = true
+      this.billedUsd += amount
+    } else {
+      this.apiEquivalent = true
+      this.apiEquivalentUsd += amount
+    }
   }
 
   /** The totals so far. */
   get reading(): UsageReading {
+    // The aggregate is derived from the two basis subtotals rather than kept
+    // beside them, so there is exactly one place the money is folded.
+    const priced = this.billed || this.apiEquivalent
     return {
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
-      costUsd: this.priced ? this.costUsd : undefined,
-      partial: this.priced && this.unpriced,
+      costUsd: priced ? this.billedUsd + this.apiEquivalentUsd : undefined,
+      partial: priced && this.unpriced,
+      billedUsd: this.billed ? this.billedUsd : undefined,
+      apiEquivalentUsd: this.apiEquivalent ? this.apiEquivalentUsd : undefined,
     }
   }
 }

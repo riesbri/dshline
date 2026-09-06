@@ -1479,7 +1479,7 @@ unchanged — every token figure, the cache split, and the money are all still
 there — and one line saying this profile does not mount them. Nothing is
 estimated in its place.
 
-What the `$` means depends on the route. On a pay-as-you-go route it estimates what you spent; on OpenCode Go — which you pay for by subscription — it is the dollar-denominated usage counted against the subscription allowance, not a separate bill.
+What the `$` means depends on the route. On a pay-as-you-go route it estimates what you spent; on OpenCode Go — which you pay for by subscription — it is the dollar-denominated usage counted against the subscription allowance, not a separate bill. On a signed-in route — `openai-codex` today — there is no per-token bill at all, and the figure is the **API-equivalent cost**: what those exact tokens would have cost at the provider's public API rates. `/usage` says so by name rather than letting it read as your bill.
 
 #### Which rates it uses
 
@@ -1495,6 +1495,21 @@ The routes this interface is built against — DeepSeek's own and OpenCode's (Ze
 Dollars per million tokens. Peak is 01:00–04:00 and 06:00–10:00 UTC; every other hour is off-peak, which is most of the day.
 
 Three routes are priced this way: `deepseek-official` plus `opencode` and `opencode-go` — OpenCode Zen and OpenCode Go respectively, the two OpenCode routes the installed catalog carries — the routes this interface is built to run against. The OpenCode figures mirror DeepSeek's own list, peak schedule included, which is the accounting OpenCode applies to these models. Treat them as a starting point you can correct; a route that bills differently is one config entry.
+
+**Signed-in Codex is priced against OpenAI's public API, not against your subscription.** The `openai-codex` route is a ChatGPT sign-in, and the model ids its catalog serves are also sold on the public API, so each priced Codex model carries the API price as its equivalent — shown in `/usage` as `API-equivalent cost` rather than `cost`, which would read as a bill the route never produced. The rates are the standard (short-context) tier from `developers.openai.com` as this release was built:
+
+| | cache hit | cache miss | cache write | output |
+| --- | --- | --- | --- | --- |
+| `gpt-5.4` | $0.25 | $2.50 | — | $15.00 |
+| `gpt-5.4-mini` | $0.075 | $0.75 | — | $4.50 |
+| `gpt-5.5` | $0.50 | $5.00 | — | $30.00 |
+| `gpt-5.6-luna` | $0.02 | $0.20 | $0.25 | $1.20 |
+| `gpt-5.6-sol` | $0.40 | $4.00 | $5.00 | $20.00 |
+| `gpt-5.6-terra` | $0.20 | $2.00 | $2.50 | $12.00 |
+
+Dollars per million tokens. A request whose total input — uncached, cache reads, and cache writes together — crosses 272k tokens is priced at the long-context tier, 2× input and 1.5× output applied to the **whole request**: gpt-5.4, gpt-5.5, and the gpt-5.6 family publish one (gpt-5.4-mini does not). The 5.6 family bills cache writes at 1.25× the uncached input rate on every tier; for gpt-5.4, gpt-5.4-mini, and gpt-5.5 the official table lists no cache-write rate, and the shipped pricing represents a write at zero. `gpt-5.6-sol`'s price is promotional at least through 2026-11-21. The catalog's `gpt-5.3-codex-spark` has no public API equivalent and stays unpriced. Nothing here is your subscription charge or Codex credits — dshline does not account either.
+
+A session that switches routes keeps the two kinds of money apart: `/usage` shows one labelled row per basis — `cost` for what ran on a route's own billing, `API-equivalent cost` for what ran on a signed-in route — never one total called either one.
 
 Rates move, and this file will not. Both the prices and the peak windows are overridable in `~/.dsh/cordis.patch.yml`, and an entry you write **replaces** the shipped one for that route rather than merging into it — correcting one price should not leave the rest at whatever the release was built with:
 
@@ -1523,7 +1538,9 @@ Rates move, and this file will not. Both the prices and the peak windows are ove
       - { from: '06:00', to: '10:00' }
 ```
 
-**Nothing is priced by model id alone unless you ask for it.** The same model through a gateway is billed by the gateway, on its own terms, so the shipped rates are pinned to the `deepseek-official` route. A model on a route with no entry is counted but not priced — you get the tokens and no `$`, which is the honest reading — and a total that is missing part of the session is marked `~` so it cannot be mistaken for the whole bill.
+**Nothing is priced by model id alone unless you ask for it.** The same model through a gateway is billed by the gateway, on its own terms, so the shipped rates are pinned to the `deepseek-official` route — and, the same way, to the `openai-codex` route for signed-in Codex: a gateway serving `gpt-5.5` is not priced by the entry that names `openai-codex/gpt-5.5`. A model on a route with no entry is counted but not priced — you get the tokens and no `$`, which is the honest reading — and a total that is missing part of the session is marked `~` so it cannot be mistaken for the whole bill.
+
+**Correcting a shipped rate keeps the route's label.** A configured entry replaces the shipped numbers for that key (an optional `tier` block may replace the long-context rates the same way `peak` replaces a window), but replacing numbers does not change what the route is: correcting `openai-codex/gpt-5.5` still reads `API-equivalent cost`, while a route dshline does not ship reads as `cost` — writing rates for a route states what that route charges.
 
 ### Reaching DeepSeek through a gateway
 
