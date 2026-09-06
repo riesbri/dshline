@@ -50,6 +50,8 @@ function mount(columns: number, terminalRows: number, entries: readonly ContextE
     survey: () => survey(entries),
     preview: () => ({ text: '上下文が長い\nPASS one', truncated: false, available: true }),
     capacity: () => 1_000_000,
+     canCompact: () => false,
+     compact: async () => undefined,
     close: () => { screen.setLive(['composer', 'status']) },
     invalidate: () => { draw() },
   })

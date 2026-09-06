@@ -1017,4 +1017,24 @@ describe('the status line', () => {
     expect(status({ detail: 'hidden' })).toContain('tools hidden')
     expect(status()).not.toContain('tools')
   })
+
+  it('reports an in-flight compaction instead of ready', () => {
+    const line = status({ compacting: true })
+    expect(line).toContain('compacting')
+    expect(line).not.toContain('ready')
+  })
+
+  it('lets a running turn outrank the compaction reading', () => {
+    // Compaction runs while the agent is idle; if the agent is busy too, the
+    // turn's activity is the more urgent fact and the spinner already speaks.
+    const line = status({ busy: true, elapsedMs: 4_000, activityWord: 'thinking', compacting: true })
+    expect(line).toContain('thinking')
+    expect(line).not.toContain('compacting')
+  })
+
+  it('keeps the compaction word on a narrow line, like any other bare word', () => {
+    const line = status({ compacting: true }, 16)
+    expect(line).toContain('compacting')
+    expect(displayWidth(line)).toBeLessThanOrEqual(16)
+  })
 })

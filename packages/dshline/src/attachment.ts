@@ -156,10 +156,17 @@ const TIMING_LIVE_ROWS = 1
 const CONTEXT_ENTRY_LIMIT = 32
 
 /**
- * Budget for a slash command, so a command that never settles cannot wedge the
- * composer. Commands are local operations; a model turn is not one of them.
+ * Budget for an ordinary slash command, so a handler that never settles cannot
+ * wedge the composer. Commands are local operations; a model turn is not one.
  */
 const COMMAND_TIMEOUT_MS = 120_000
+
+/**
+ * Compaction is the exception: its registered command performs an auxiliary
+ * model call, so it gets a longer caller budget without weakening the bound on
+ * ordinary commands.
+ */
+const COMPACTION_COMMAND_TIMEOUT_MS = 300_000
 
 /**
  * Budget for the skill-catalog refresh a submitted `/name` may have to wait for.
@@ -304,6 +311,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // actually projects — so the set is the evidence, not the field alone.
   const presentedSeqs = new Set<number>()
   let tick = 0
+  // Manual compaction is a command rather than a model turn, so the status line
+  // cannot infer its progress from `agent.status`. Automatic compaction has the
+  // durable lifecycle below; this local flag covers the caller's wait as well.
+  let compactCommandActive = false
+  let compactionEventActive = false
+  const compactionActive = (): boolean => compactCommandActive || compactionEventActive
   // Measured from `turn/start`, so the `· turn` label agrees with the timing
   // panel's turn totals instead of including agent startup before the turn.
   let turnStartedAt: number | undefined
@@ -390,25 +403,37 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
    *
    * `/compact` does not declare image input, so it is dispatched with no
    * attachment envelope even when this session has staged image drafts.
-   * @returns a message when the registry did not accept the line, else nothing.
+   * @returns a message when dispatch failed, else nothing.
    */
   const runCompactCommand = async (): Promise<string | undefined> => {
     const outcomesBefore = commandOutcomes
     let execution: Awaited<ReturnType<typeof ctx.commands.execute>>
+    compactCommandActive = true
+    draw()
     try {
-      execution = await ctx.commands.execute(agent, '/compact', [], AbortSignal.timeout(COMMAND_TIMEOUT_MS))
+      execution = await ctx.commands.execute(
+        agent,
+        '/compact',
+        [],
+        AbortSignal.timeout(COMPACTION_COMMAND_TIMEOUT_MS),
+      )
+      // `undefined` means the registry did not resolve the name, which can only
+      // happen if the composition changed between the offer and the keystroke.
+      if (execution === undefined) return 'This profile has no /compact command.'
+      // The command lifecycle is committed underneath the overlay. Returning its
+      // classified text as well gives the reader a timely notice instead of
+      // making them close the overlay to discover a busy or failed compaction.
+      return execution.result.kind === 'error' ? execution.result.text : undefined
     } catch (error: unknown) {
       // A handler that threw has already appended its own `command/done`, which
       // the projection has printed. Only a throw that never reached the
       // lifecycle still needs saying — the same rule the composer's submit uses.
       if (commandOutcomes === outcomesBefore) report(error)
-      draw()
       return undefined
+    } finally {
+      compactCommandActive = false
+      draw()
     }
-    draw()
-    // `undefined` means the registry did not resolve the name, which can only
-    // happen if the composition changed between the offer and the keystroke.
-    return execution === undefined ? 'This profile has no /compact command.' : undefined
   }
 
   /**
@@ -651,9 +676,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           // measured against; the projection's own last-recorded capacity is the
           // fallback for a session whose route metadata never resolved.
           capacity: () => w.modelInfo.contextWindow,
-          // Offered only when this agent really has the registered command, so
-          // the footer never advertises a key that cannot work.
-          ...compactRegistered() ? { compact: runCompactCommand } : {},
+          // A live getter, not a snapshot: a scoped composition change while the
+          // overlay is open repaints the footer before the next keystroke.
+          canCompact: compactRegistered,
+          compact: runCompactCommand,
           close: () => dismiss(),
           invalidate: () => { ctx.tuiSlots.invalidate() },
         })
@@ -1053,6 +1079,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       todo: todoSummary(todoReading(projected)),
       plan: planActive,
       replay: replaying,
+      compacting: compactionActive(),
       // Two authorities, joined in the adapter and nowhere else: the durable
       // goal comes out of the same cut as Todo and the context reading, adding
       // no further dshline snapshot, and the service is consulted — lazily,
@@ -1196,6 +1223,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     return lines
   }
 
+  // The command registry is mutable and scoped. An overlay opened before a
+  // preset change must repaint its footer before the next key is interpreted.
+  scope.own(ctx.on('commands/change', () => { ctx.tuiSlots.invalidate() }))
+
   // `Inbox.splice` in @deepseek-ai/dsh-agent/inbox and the
   // `agent/inbox/spliced` declaration in @deepseek-ai/dsh-agent/types both say
   // the durable event commits before the live projection mutates, so this
@@ -1211,6 +1242,8 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     timer.observe(event)
     if (event.type === 'turn/start') turnStartedAt = event.time
     if (event.type === 'turn/end') turnStartedAt = undefined
+    if (event.type === 'compaction/start') compactionEventActive = true
+    if (event.type === 'compaction/end') compactionEventActive = false
     // A tool call starts executing the moment the model's request settles, so a
     // phase captured before the first pending invocation is stale: when that
     // call drains, `waiting` is the truth unless stream activity arrived while
@@ -1329,6 +1362,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     const outcomesBefore = commandOutcomes
     let execution: Awaited<ReturnType<typeof ctx.commands.execute>>
     let admission: AbortController | undefined
+    const isCompactionCommand = registeredCommand?.name === 'compact'
+    if (isCompactionCommand) {
+      compactCommandActive = true
+      draw()
+    }
     try {
       let commandImages: Parameters<typeof ctx.commands.execute>[2] = []
       if (imageDrafts.size > 0 && registeredCommand?.input?.images === true) {
@@ -1378,7 +1416,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         commandLine,
         commandImages,
         admission === undefined
-          ? AbortSignal.timeout(COMMAND_TIMEOUT_MS)
+          ? AbortSignal.timeout(isCompactionCommand ? COMPACTION_COMMAND_TIMEOUT_MS : COMMAND_TIMEOUT_MS)
           : AbortSignal.any([admission.signal, AbortSignal.timeout(COMMAND_TIMEOUT_MS)]),
       )
     } catch (error: unknown) {
@@ -1395,6 +1433,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       return
     } finally {
       if (admission !== undefined && imageAdmission === admission) imageAdmission = undefined
+      if (isCompactionCommand) {
+        compactCommandActive = false
+        draw()
+      }
     }
     if (execution !== undefined) {
       if (scope.closed) return

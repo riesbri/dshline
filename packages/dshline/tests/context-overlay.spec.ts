@@ -60,6 +60,7 @@ function driver(options: {
   readonly survey?: ContextSurvey
   readonly preview?: ContextPreview
   readonly capacity?: number | undefined
+  readonly canCompact?: () => boolean
   readonly compact?: () => Promise<string | undefined>
 } = {}): {
   readonly rows: (columns?: number, terminalRows?: number) => string[]
@@ -73,7 +74,8 @@ function driver(options: {
     survey: () => options.survey ?? survey([entry()]),
     preview: () => options.preview ?? { text: 'PASS one', truncated: false, available: true },
     capacity: () => ('capacity' in options ? options.capacity : 1_000_000),
-    ...options.compact === undefined ? {} : { compact: options.compact },
+    canCompact: () => options.canCompact?.() ?? options.compact !== undefined,
+    compact: options.compact ?? (async () => undefined),
     close: () => { closed = true },
     invalidate: () => {},
   })
@@ -222,6 +224,8 @@ describe('the context inspector’s navigation', () => {
       survey: () => survey(entries),
       preview: () => ({ text: 'x', truncated: false, available: true }),
       capacity: () => 1_000_000,
+      canCompact: () => true,
+      compact: async () => undefined,
       close: () => { closed = true },
       invalidate: () => {},
     })
@@ -258,6 +262,7 @@ describe('the context inspector’s compaction key', () => {
       survey: () => survey([entry()]),
       preview: () => ({ text: 'x', truncated: false, available: true }),
       capacity: () => 1_000_000,
+      canCompact: () => true,
       compact: () => { calls += 1; return pending },
       close: () => {},
       invalidate: () => {},
@@ -288,6 +293,7 @@ describe('the context inspector’s compaction key', () => {
       survey: () => survey([entry()]),
       preview: () => ({ text: 'x', truncated: false, available: true }),
       capacity: () => 1_000_000,
+      canCompact: () => true,
       compact: async () => 'This profile has no /compact command.',
       close: () => {},
       invalidate: () => {},
@@ -320,6 +326,65 @@ describe('the context inspector’s compaction key', () => {
     view.rows()
     view.press({ kind: 'text', text: 'c' })
     expect(text(view.rows())).not.toContain('compacting')
+  })
+
+  it('reads the compaction offer live, so a changed composition repaints the footer', () => {
+    // Harness can register or remove a scoped command while the inspector is
+    // open; the footer must never advertise a control the registry cannot
+    // resolve, nor hide one it can.
+    let available = false
+    let calls = 0
+    const view = driver({
+      canCompact: () => available,
+      compact: async () => { calls += 1; return undefined },
+    })
+    expect(text(view.rows())).not.toContain('c compact')
+    view.press({ kind: 'text', text: 'c' })
+    expect(calls).toBe(0)
+    available = true
+    expect(text(view.rows())).toContain('c compact')
+    view.press({ kind: 'text', text: 'c' })
+    expect(calls).toBe(1)
+    available = false
+    expect(text(view.rows())).not.toContain('c compact')
+  })
+
+  it('compacts only from the overview, never from an open entry', () => {
+    // The footer offers `c compact` only on the overview; the gesture follows
+    // that offer rather than firing beneath an entry's scroll keys.
+    let calls = 0
+    const view = driver({
+      canCompact: () => true,
+      compact: async () => { calls += 1; return undefined },
+    })
+    view.rows()
+    view.press({ kind: 'key', name: 'enter' })
+    expect(text(view.rows())).toContain('Context entry')
+    view.press({ kind: 'text', text: 'c' })
+    expect(calls).toBe(0)
+    view.press({ kind: 'key', name: 'escape' })
+    view.press({ kind: 'text', text: 'c' })
+    expect(calls).toBe(1)
+  })
+
+  it('keeps reporting an in-flight compaction on a terminal too short for the frame', async () => {
+    let settle = (): void => {}
+    const pending = new Promise<string | undefined>(resolve => {
+      settle = () => { resolve(undefined) }
+    })
+    const view = driver({
+      canCompact: () => true,
+      compact: () => pending,
+    })
+    view.rows()
+    view.press({ kind: 'text', text: 'c' })
+    // The one-row backstop carries the same state the framed view does, so a
+    // resize during compaction does not make the command look idle.
+    expect(view.rows(80, 3)[0]).toContain('compacting context')
+    settle()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(view.rows(80, 3)[0]).toContain('esc close')
   })
 })
 

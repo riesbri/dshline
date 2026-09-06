@@ -63,6 +63,7 @@ async function fixture(options: {
   readonly compactRegistered?: boolean
   readonly meter?: boolean
   readonly projections?: boolean
+  readonly executeResult?: { commandId: string; result: { kind: 'error'; text: string } | { kind: 'success' } }
 } = {}): Promise<{
   dispatch: () => ((key: Key) => void) | undefined
   ctx: RealContext
@@ -78,7 +79,7 @@ async function fixture(options: {
   ctx.provide('tools', { get: () => undefined })
   const registered = options.compactRegistered ?? true
   const commands = {
-    execute: vi.fn(async () => ({ commandId: 'c-1', result: { kind: 'success' } })),
+    execute: vi.fn(async () => options.executeResult ?? { commandId: 'c-1', result: { kind: 'success' } }),
     list: () => registered ? [{ name: 'compact', description: 'Compact older conversation history' }] : [],
   }
   ctx.provide('commands', commands as never)
@@ -285,6 +286,21 @@ describe('/context', () => {
     dispatch()?.({ kind: 'text', text: 'c' })
     await flush()
     expect(commands.execute).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a /compact command error inside the inspector instead of hiding it', async () => {
+    const { dispatch, frames, draw } = await fixture({
+      executeResult: { commandId: 'c-1', result: { kind: 'error', text: 'Already compacting the session.' } },
+    })
+    await flush()
+    submit(dispatch(), '/context')
+    await flush()
+    dispatch()?.({ kind: 'text', text: 'c' })
+    await flush()
+    // The command lifecycle is committed underneath; the overlay re-renders the
+    // classified text so a busy or failed compaction is visible without closing.
+    draw()
+    expect(latest(frames)).toContain('Already compacting the session.')
   })
 
   it('says what it can when no meter is mounted, and still closes', async () => {

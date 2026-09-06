@@ -111,15 +111,24 @@ export interface ContextOverlaySpec {
   /** The model's context window as the selected route advertises it. */
   readonly capacity: () => number | undefined
   /**
-   * Run the REGISTERED Harness `/compact` command, when this agent has one.
+   * Whether the running agent currently has a registered `/compact` command.
    *
-   * Absent when the mounted preset composes no compaction backend, in which
-   * case the inspector offers no compaction key at all rather than a control
-   * that would fail. dshline never registers a `/compact` of its own and never
-   * calls `ctx.compaction`: this dispatches the same command a typed line does.
-   * @returns a message when the request could not be dispatched, else nothing.
+   * This stays a getter rather than a snapshot: Harness can register or remove
+   * scoped commands while an overlay is open, and the footer must not advertise
+   * a control that no longer resolves.
+   * @returns whether the command is currently available.
    */
-  readonly compact?: () => Promise<string | undefined>
+  readonly canCompact: () => boolean
+  /**
+   * Run the REGISTERED Harness `/compact` command.
+   *
+   * dshline never registers a `/compact` of its own and never calls
+   * `ctx.compaction`: this dispatches the same command a typed line does. The
+   * owner returns a problem for the overlay while the command lifecycle remains
+   * the durable transcript authority underneath it.
+   * @returns a message when the request failed, else nothing.
+   */
+  readonly compact: () => Promise<string | undefined>
   /** Remove this temporary overlay. */
   readonly close: () => void
   /** Redraw after a keystroke, a spinner tick, or a settled action. */
@@ -205,7 +214,7 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
     // A second press while one is in flight is ignored HERE rather than sent:
     // Harness would answer `busy` correctly, but printing a refusal for a key
     // the reader pressed twice is worse than doing nothing visible.
-    if (compact === undefined || compacting) return
+    if (!spec.canCompact() || compacting) return
     compacting = true
     startTicker()
     spec.invalidate()
@@ -232,7 +241,14 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
       const built = build(inner, true)
       const fallback = (): string[] => {
         fellBack = true
-        return compactFallback(spec.reading(), spec.capacity(), columns, terminalRows, activeNotice)
+        return compactFallback(
+          spec.reading(),
+          spec.capacity(),
+          columns,
+          terminalRows,
+          compacting,
+          activeNotice,
+        )
       }
       if (terminalRows <= CONTEXT_FIXED_ROWS || columns < CONTEXT_MIN_COLUMNS) return fallback()
       const visible = terminalRows - CONTEXT_FIXED_ROWS - (activeNotice === undefined ? 0 : 1)
@@ -258,7 +274,7 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
             )],
             ...built.slice(viewport.start, viewport.end).map(row => paintRow(row, focus.current)),
           ],
-          footer: fitFooterHelp(help(stage, focusedRow(), spec.compact !== undefined), footerBudget(columns)),
+          footer: fitFooterHelp(help(stage, focusedRow(), spec.canCompact()), footerBudget(columns)),
         }),
       ]
       // The frame wraps whatever it is given, including state text a caller may
@@ -281,7 +297,10 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
       // owns text entry while it is mounted, so its one letter gesture is
       // recognized here rather than by adding a key name to a generic decoder.
       if (key.kind === 'text' && key.text === 'c') {
-        runCompact()
+        // The footer offers compaction only from the overview. Keeping the
+        // gesture there too prevents an undocumented action from firing while
+        // a reader is inspecting a single entry.
+        if (stage.kind === 'overview' && spec.canCompact()) runCompact()
         return
       }
       if (key.kind !== 'key') return
@@ -710,6 +729,7 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
  * @param routeCapacity - the selected route's advertised context window.
  * @param columns - the terminal's width.
  * @param rows - the terminal's height.
+ * @param compacting - whether a compaction is currently running.
  * @param notice - a pending outcome, which takes precedence when it failed.
  * @returns at most one row.
  */
@@ -718,6 +738,7 @@ function compactFallback(
   routeCapacity: number | undefined,
   columns: number,
   rows: number,
+  compacting: boolean,
   notice?: Notice,
 ): string[] {
   if (rows <= 0) return []
@@ -726,10 +747,18 @@ function compactFallback(
   if (notice?.failed === true) {
     return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), 'error')]
   }
+  // The framed view puts this above the listing. Keep the same state visible in
+  // the one-row backstop; otherwise resizing during a compaction makes it look
+  // idle even though the command is still running.
   const summary = compactSummary(reading, routeCapacity)
   // One row must carry a whole truthful phrase. `esc cl` says neither what is
   // on screen nor how to leave it.
-  const visible = [summary, 'esc close', 'esc'].find(candidate => displayWidth(candidate) <= columns)
+  const visible = [
+    ...(compacting ? ['compacting context · esc close'] : []),
+    summary,
+    'esc close',
+    'esc',
+  ].find(candidate => displayWidth(candidate) <= columns)
   return visible === undefined ? [] : [paint(visible, 'overlay-headline')]
 }
 
