@@ -112,7 +112,17 @@ jobs:
         id: install
         if: steps.apply.outcome == 'success'
         continue-on-error: true
-        run: pnpm install --no-frozen-lockfile --ignore-scripts 2>&1 | tee install.log
+        run: |
+          # `pipefail`, because GitHub's default shell for a `run:` block is
+          # `bash -e` and not `bash -eo pipefail`. Without it the exit status of
+          # this pipeline is tee's, which is always zero — so an install that
+          # pnpm refused reported success, `steps.install.outcome` never became
+          # `failure`, and the two steps below that exist to tell a release-age
+          # quarantine apart from a real breakage never ran at all. A candidate
+          # that could not be installed would have gone on to open a pull
+          # request carrying a lockfile that does not match its manifests.
+          set -o pipefail
+          pnpm install --no-frozen-lockfile --ignore-scripts 2>&1 | tee install.log
 
       - name: classify an install refusal
         id: quarantine
