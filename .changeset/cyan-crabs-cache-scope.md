@@ -10,8 +10,8 @@ totals cannot be read as the route named in the header section below. A
 provider/model change is a request boundary, not a reset boundary for this
 metric, and Harness's `tokenUsage` fold stays the single cumulative authority.
 
-`/model` now appends one informational note to its transcript line when the
-switch actually moves to a different provider or model: "cache reuse after a
+`/model` now emits one informational note on its own second transcript line when
+the switch actually moves to a different provider or model: "cache reuse after a
 provider/model change is provider-dependent; /cache remains session-cumulative".
 The note claims neither outcome — no promise that cache is lost, no promise that
 it carries over — and depends on the move alone: re-selecting the active route
