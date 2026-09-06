@@ -9,6 +9,7 @@ the command registry live so the `c compact` footer follows a changed
 composition, and restricts the `c` gesture to the overview where the footer
 offers it. Compaction has a longer dispatch timeout than ordinary commands,
 because its handler performs an auxiliary model call, and the status line now
-reports a running compaction with its own spinner while the agent stays idle —
-including for typed `/compact` and for automatic compaction — instead of
-claiming `ready`.
+reports a `/compact` it is awaiting with its own spinner while the agent stays
+idle — for a typed `/compact` — instead of claiming `ready`. Automatic
+compaction belongs to Harness and runs inside a running turn, so its progress
+is the turn's own busy presentation.

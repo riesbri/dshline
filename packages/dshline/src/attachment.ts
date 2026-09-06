@@ -312,11 +312,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const presentedSeqs = new Set<number>()
   let tick = 0
   // Manual compaction is a command rather than a model turn, so the status line
-  // cannot infer its progress from `agent.status`. Automatic compaction has the
-  // durable lifecycle below; this local flag covers the caller's wait as well.
-  let compactCommandActive = false
-  let compactionEventActive = false
-  const compactionActive = (): boolean => compactCommandActive || compactionEventActive
+  // cannot infer its progress from `agent.status`. This counter counts exactly
+  // the `/compact` executions THIS frontend is currently awaiting. Automatic
+  // compaction and its durable lifecycle belong to Harness; the status line
+  // does not track them.
+  let compactCommandsInFlight = 0
+  const compactionActive = (): boolean => compactCommandsInFlight > 0
   // Measured from `turn/start`, so the `· turn` label agrees with the timing
   // panel's turn totals instead of including agent startup before the turn.
   let turnStartedAt: number | undefined
@@ -408,7 +409,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const runCompactCommand = async (): Promise<string | undefined> => {
     const outcomesBefore = commandOutcomes
     let execution: Awaited<ReturnType<typeof ctx.commands.execute>>
-    compactCommandActive = true
+    compactCommandsInFlight += 1
     draw()
     try {
       execution = await ctx.commands.execute(
@@ -431,7 +432,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       if (commandOutcomes === outcomesBefore) report(error)
       return undefined
     } finally {
-      compactCommandActive = false
+      compactCommandsInFlight -= 1
       draw()
     }
   }
@@ -1242,8 +1243,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     timer.observe(event)
     if (event.type === 'turn/start') turnStartedAt = event.time
     if (event.type === 'turn/end') turnStartedAt = undefined
-    if (event.type === 'compaction/start') compactionEventActive = true
-    if (event.type === 'compaction/end') compactionEventActive = false
     // A tool call starts executing the moment the model's request settles, so a
     // phase captured before the first pending invocation is stale: when that
     // call drains, `waiting` is the truth unless stream activity arrived while
@@ -1364,7 +1363,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     let admission: AbortController | undefined
     const isCompactionCommand = registeredCommand?.name === 'compact'
     if (isCompactionCommand) {
-      compactCommandActive = true
+      compactCommandsInFlight += 1
       draw()
     }
     try {
@@ -1434,7 +1433,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     } finally {
       if (admission !== undefined && imageAdmission === admission) imageAdmission = undefined
       if (isCompactionCommand) {
-        compactCommandActive = false
+        compactCommandsInFlight -= 1
         draw()
       }
     }
