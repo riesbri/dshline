@@ -30,6 +30,7 @@
  */
 
 import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
+import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-token-meter/client'
 import type { UsageBuckets } from '../usage.ts'
@@ -125,6 +126,52 @@ export function cacheInspection(
     cacheReadShare: cacheReadShare(buckets),
     header,
   }
+}
+
+/**
+ * The informational note a real provider/model switch earns.
+ *
+ * Deliberately worded as an expectation about provider behaviour, never a
+ * promise about either outcome: dshline has no authority to say whether any
+ * particular provider reuses cache across a route change, and saying it would
+ * resend the prompt or keep the cache would claim a provider fact nobody
+ * reported. The second half is a statement about this frontend's own metric —
+ * `/cache` counts the whole session, so a route boundary is not a reset
+ * boundary — which is the claim this note exists to make.
+ */
+export const CACHE_TRANSITION_NOTE
+  = 'cache reuse after a provider/model change is provider-dependent; /cache remains session-cumulative'
+
+/**
+ * Whether a provider/model switch earns the transition note, and its text.
+ *
+ * The cache feature's answer to "is this a real provider/model move", decided
+ * on the two facts the command seam already has: the selection BEFORE and AFTER
+ * the pick. Deliberately no projection cut and no usage reading beside them:
+ * deciding "was there prior usage" would need a snapshot captured at exactly
+ * the transition, and the seam cannot take one that is both pre-new-route and
+ * post-picker while `/model` can run against an in-flight turn — so the note
+ * makes none of those claims and depends on nothing race-sensitive. The
+ * decision lives here, not in the model picker: model selection is about
+ * models, and the note is cache vocabulary, so the seam composes the two rather
+ * than the picker knowing about cache.
+ *
+ * A move is a REAL change of provider or model, and it takes two known
+ * selections to prove one: re-selecting what is already active says nothing,
+ * and so does either side being undefined — no explicit override before means
+ * the effective route is unknown, not that it differs, and no selection after
+ * means nothing was applied.
+ * @param before - the selection being replaced; undefined when no override existed.
+ * @param after - the selection the pick produced; undefined when nothing was applied.
+ * @returns the note to print, or undefined when the switch does not earn one.
+ */
+export function cacheTransitionNote(
+  before: ModelSelection | undefined,
+  after: ModelSelection | undefined,
+): string | undefined {
+  if (before === undefined || after === undefined) return undefined
+  if (before.provider === after.provider && before.model === after.model) return undefined
+  return CACHE_TRANSITION_NOTE
 }
 
 /**

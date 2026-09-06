@@ -55,6 +55,18 @@ const LABEL_COLUMN = 16
 const WHEN_AVAILABLE
   = 'dshline will show provider cache usage when the active Harness adapter exposes it.'
 
+/**
+ * The accounting's scope, in one line.
+ *
+ * The figures above are Harness's session-wide `tokenUsage` fold — every route
+ * this session used, including ones the session has left. The header section
+ * below names ONE recorded request, so without the caption a reader can read
+ * the totals as the route beneath them. A provider/model change is a request
+ * boundary, not a reset boundary for this metric, and the caption says that
+ * without having to say why the numbers did not move.
+ */
+const SESSION_SCOPE_NOTE = 'Session cumulative · includes requests across provider/model changes'
+
 /** Inputs the cache inspector needs from its owner. */
 export interface CacheOverlaySpec {
   /** The current reading, read fresh on every paint. */
@@ -149,15 +161,19 @@ function accountingRows(inspection: CacheInspection, width: number): string[] {
   const rows = [paint('Cache accounting', 'section-heading')]
   const buckets = inspection.buckets
   if (!hasCacheReads(inspection) || buckets === undefined) {
-    return [...rows, ...note(unavailable(inspection), width), ...note(WHEN_AVAILABLE, width)]
+    rows.push(...note(unavailable(inspection), width), ...note(WHEN_AVAILABLE, width))
+  } else {
+    const share = formatCacheShare(inspection.cacheReadShare)
+    if (share !== undefined) rows.push(fact('cache read', share, width))
+    rows.push(
+      fact('cached input', formatTokens(buckets.cacheRead), width),
+      fact('uncached input', formatTokens(buckets.uncachedInput), width),
+    )
+    if (buckets.cacheWrite > 0) rows.push(fact('cache write', formatTokens(buckets.cacheWrite), width))
   }
-  const share = formatCacheShare(inspection.cacheReadShare)
-  if (share !== undefined) rows.push(fact('cache read', share, width))
-  rows.push(
-    fact('cached input', formatTokens(buckets.cacheRead), width),
-    fact('uncached input', formatTokens(buckets.uncachedInput), width),
-  )
-  if (buckets.cacheWrite > 0) rows.push(fact('cache write', formatTokens(buckets.cacheWrite), width))
+  // The caption belongs to the accounting half, not the header half: it states
+  // what the fold's scope is, and the route below it is a separate record.
+  rows.push(...note(SESSION_SCOPE_NOTE, width))
   return rows
 }
 
