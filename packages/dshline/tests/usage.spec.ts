@@ -325,9 +325,13 @@ describe('the shipped API-equivalent pricing', () => {
     const session = new SessionUsage(pricingFrom(undefined))
     session.observe(usage({ inputTokens: 1_000_000 }), PROVIDER, 'deepseek-v4-flash', OFF_PEAK)
     session.observe(usage({ inputTokens: 200_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
-    expect(session.reading.billedUsd).toBeCloseTo(0.22, 10)
-    expect(session.reading.apiEquivalentUsd).toBeCloseTo(1, 10)
-    expect(session.reading.costUsd).toBeCloseTo(1.22, 10)
+    const reading = session.reading
+    expect(reading.billedUsd).toBeCloseTo(0.22, 10)
+    expect(reading.apiEquivalentUsd).toBeCloseTo(1, 10)
+    expect(reading.costUsd).toBeCloseTo(1.22, 10)
+    // The aggregate is derived: it must always equal the sum of the two
+    // basis subtotals rather than drift independently of them.
+    expect(reading.costUsd).toBeCloseTo(reading.billedUsd! + reading.apiEquivalentUsd!, 10)
   })
 
   it('marks a mixed session that also hit an unpriced route as a floor', () => {

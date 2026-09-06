@@ -512,10 +512,8 @@ export interface UsageReading {
 export class SessionUsage {
   private inputTokens = 0
   private outputTokens = 0
-  private costUsd = 0
   private billedUsd = 0
   private apiEquivalentUsd = 0
-  private priced = false
   private billed = false
   private apiEquivalent = false
   private unpriced = false
@@ -587,8 +585,6 @@ export class SessionUsage {
       + cacheWrite * (effective.cachedWrite ?? effective.input)
       + usage.outputTokens * effective.output
     ) / TOKENS_PER_PRICED_UNIT
-    this.priced = true
-    this.costUsd += amount
     if (known.basis === 'billed') {
       this.billed = true
       this.billedUsd += amount
@@ -600,11 +596,14 @@ export class SessionUsage {
 
   /** The totals so far. */
   get reading(): UsageReading {
+    // The aggregate is derived from the two basis subtotals rather than kept
+    // beside them, so there is exactly one place the money is folded.
+    const priced = this.billed || this.apiEquivalent
     return {
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
-      costUsd: this.priced ? this.costUsd : undefined,
-      partial: this.priced && this.unpriced,
+      costUsd: priced ? this.billedUsd + this.apiEquivalentUsd : undefined,
+      partial: priced && this.unpriced,
       billedUsd: this.billed ? this.billedUsd : undefined,
       apiEquivalentUsd: this.apiEquivalent ? this.apiEquivalentUsd : undefined,
     }
