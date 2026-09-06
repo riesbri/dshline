@@ -1365,10 +1365,11 @@ This is worth knowing before you use `/model` to try something for one question,
 ```
 
 A switch that actually moves to a different provider or model says what it can
-cost, in that same line, and only then:
+cost, on its own second line, and only then:
 
 ```
-· model set to opencode-go / deepseek-v4-flash · cache reuse after a provider/model change is provider-dependent; /cache remains session-cumulative · also the default for new sessions
+· model set to opencode-go / deepseek-v4-flash · also the default for new sessions
+· cache reuse after a provider/model change is provider-dependent; /cache remains session-cumulative
 ```
 
 The note is informational and claims neither outcome — cache reuse after a

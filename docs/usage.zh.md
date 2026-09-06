@@ -979,10 +979,11 @@ dshline:
 · model set to deepseek-official / deepseek-v4-pro · also the default for new sessions
 ```
 
-真正切换到不同提供方或模型的开关，会在同一行里说明它可能付出的代价，而且只在这种情况下：
+真正切换到不同提供方或模型的开关，会在单独的第二行里说明它可能付出的代价，而且只在这种情况下：
 
 ```
-· model set to opencode-go / deepseek-v4-flash · cache reuse after a provider/model change is provider-dependent; /cache remains session-cumulative · also the default for new sessions
+· model set to opencode-go / deepseek-v4-flash · also the default for new sessions
+· cache reuse after a provider/model change is provider-dependent; /cache remains session-cumulative
 ```
 
 这句说明是信息性的，不承诺任何一种结果——提供方/模型变更后的缓存复用取决于提供方，本
