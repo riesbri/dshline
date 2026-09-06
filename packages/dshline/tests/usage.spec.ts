@@ -64,6 +64,22 @@ describe('parsePricing()', () => {
     expect(table.get('a/b')?.rates).toEqual({ input: 1, output: 2 })
   })
 
+  it('carries a complete rate tier through', () => {
+    const table = parsePricing({
+      'a/b': { input: 1, output: 2, tier: { inputTokensAbove: 272_000, input: 2, output: 4, cachedInput: 0.5 } },
+    })
+    expect(table.get('a/b')?.rates.tier).toEqual({
+      inputTokensAbove: 272_000,
+      rates: { input: 2, output: 4, cachedInput: 0.5 },
+    })
+  })
+
+  it('drops a tier that is not itself a complete price', () => {
+    const table = parsePricing({ 'a/b': { input: 1, output: 2, tier: { inputTokensAbove: 272_000, input: 2 } } })
+    expect(table.get('a/b')?.rates.tier).toBeUndefined()
+    expect(table.get('a/b')?.rates).toEqual({ input: 1, output: 2 })
+  })
+
   it('drops an entry priced on only one side', () => {
     expect(parsePricing({ 'a/b': { input: 1 } }).size).toBe(0)
     expect(parsePricing({ 'a/b': { output: 2 } }).size).toBe(0)
@@ -182,23 +198,81 @@ describe('the shipped API-equivalent pricing', () => {
     // `openai-codex` is the route a ChatGPT sign-in serves, recorded by that
     // exact id; its money is the public API equivalent — the prices on
     // developers.openai.com — never a subscription charge. gpt-5.5 official:
-    // $5 input / $0.50 cached / $30 output.
+    // $5 input / $0.50 cached / $30 output, short context (200k request input).
     const session = new SessionUsage(pricingFrom(undefined))
-    session.observe(usage({ inputTokens: 1_000_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
-    expect(session.reading.apiEquivalentUsd).toBeCloseTo(5, 10)
+    session.observe(usage({ inputTokens: 200_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(1, 10)
     expect(session.reading.billedUsd).toBeUndefined()
-    expect(session.reading.costUsd).toBeCloseTo(5, 10)
+    expect(session.reading.costUsd).toBeCloseTo(1, 10)
     expect(session.reading.partial).toBe(false)
   })
 
   it('prices Codex cache reads and writes at their own published rates', () => {
     // gpt-5.6-luna official: $0.20 uncached / $0.02 cached read / $1.20 output,
-    // and cache writes at 1.25x uncached input ($0.25).
+    // and cache writes at 1.25x uncached input ($0.25). Total request input is
+    // 150k, below the 272k tier.
+    const session = new SessionUsage(pricingFrom(undefined))
+    session.observe(usage({
+      inputTokens: 50_000, cacheReadTokens: 50_000, cacheWriteTokens: 50_000, outputTokens: 50_000,
+    }), 'openai-codex', 'gpt-5.6-luna', OFF_PEAK)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(0.0835, 10)
+  })
+
+  it('prices an OpenAI cache write at the model’s explicit rate, never as a miss', () => {
+    // gpt-5.4/gpt-5.4-mini/gpt-5.5 publish NO cache-write rate, so their shipped
+    // `cachedWrite` is an explicit zero — a written token costs nothing — while
+    // the gpt-5.6 family bills writes at 1.25x on every tier. Neither inherits
+    // the DeepSeek rule that a write IS a miss.
+    const table = pricingFrom(undefined)
+    expect(table.get('openai-codex/gpt-5.5')?.rates.cachedWrite).toBe(0)
+    expect(table.get('openai-codex/gpt-5.4')?.rates.cachedWrite).toBe(0)
+    expect(table.get('openai-codex/gpt-5.4-mini')?.rates.cachedWrite).toBe(0)
+    expect(table.get('openai-codex/gpt-5.6-luna')?.rates.cachedWrite).toBe(0.25)
+    expect(table.get('openai-codex/gpt-5.6-luna')?.rates.tier?.rates.cachedWrite).toBe(0.5)
+
+    const session = new SessionUsage(table)
+    session.observe(usage({ inputTokens: 100_000, cacheWriteTokens: 100_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(0.5, 10)
+  })
+
+  it('prices a request at the long-context tier only once its input crosses the bound', () => {
+    // gpt-5.4 official: short $2.50/$0.25/$15.00, long (input above 272k)
+    // $5/$0.50/$22.50 for the whole request. Exactly at the bound is still
+    // short; one token past it is long.
+    const short = new SessionUsage(pricingFrom(undefined))
+    short.observe(usage({ inputTokens: 272_000 }), 'openai-codex', 'gpt-5.4', OFF_PEAK)
+    expect(short.reading.apiEquivalentUsd).toBeCloseTo(0.68, 10)
+
+    const long = new SessionUsage(pricingFrom(undefined))
+    long.observe(usage({ inputTokens: 272_001 }), 'openai-codex', 'gpt-5.4', OFF_PEAK)
+    expect(long.reading.apiEquivalentUsd).toBeCloseTo(1.360_005, 10)
+  })
+
+  it('applies the long-context tier to the whole request, cache buckets included', () => {
+    // A 300k-total request — 100k uncached plus 200k served from cache — is
+    // long on gpt-5.5 ($10 uncached / $1 cached), and every token prices at
+    // the tier, not just the tokens past the bound.
+    const session = new SessionUsage(pricingFrom(undefined))
+    session.observe(usage({ inputTokens: 100_000, cacheReadTokens: 200_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(1.2, 10)
+  })
+
+  it('keeps a model with no published tier at its everyday rates', () => {
+    // gpt-5.4-mini has no >272k pricing tier on the official table, so a
+    // request past the threshold is still priced at its published rates.
+    const session = new SessionUsage(pricingFrom(undefined))
+    session.observe(usage({ inputTokens: 300_000 }), 'openai-codex', 'gpt-5.4-mini', OFF_PEAK)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(0.225, 10)
+  })
+
+  it('prices a long gpt-5.6 request at the tier’s cache-write rate', () => {
+    // gpt-5.6-luna long tier: $0.40/$0.04/$1.80 with writes at $0.50; a
+    // 3M-token request prices every bucket at the tier.
     const session = new SessionUsage(pricingFrom(undefined))
     session.observe(usage({
       inputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000, outputTokens: 1_000_000,
     }), 'openai-codex', 'gpt-5.6-luna', OFF_PEAK)
-    expect(session.reading.apiEquivalentUsd).toBeCloseTo(1.67, 10)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(2.74, 10)
   })
 
   it('labels the shipped Codex entries api-equivalent and the DeepSeek ones billed', () => {
@@ -250,28 +324,33 @@ describe('the shipped API-equivalent pricing', () => {
   it('keeps a mixed billed/API-equivalent session in separate truthful totals', () => {
     const session = new SessionUsage(pricingFrom(undefined))
     session.observe(usage({ inputTokens: 1_000_000 }), PROVIDER, 'deepseek-v4-flash', OFF_PEAK)
-    session.observe(usage({ inputTokens: 1_000_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    session.observe(usage({ inputTokens: 200_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
     expect(session.reading.billedUsd).toBeCloseTo(0.22, 10)
-    expect(session.reading.apiEquivalentUsd).toBeCloseTo(5, 10)
-    expect(session.reading.costUsd).toBeCloseTo(5.22, 10)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(1, 10)
+    expect(session.reading.costUsd).toBeCloseTo(1.22, 10)
   })
 
   it('marks a mixed session that also hit an unpriced route as a floor', () => {
     const session = new SessionUsage(pricingFrom(undefined))
-    session.observe(usage({ inputTokens: 1_000_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    session.observe(usage({ inputTokens: 200_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
     session.observe(usage({ inputTokens: 1_000_000 }), 'other', 'mystery', OFF_PEAK)
-    expect(session.reading.costUsd).toBeCloseTo(5, 10)
-    expect(session.reading.apiEquivalentUsd).toBeCloseTo(5, 10)
+    expect(session.reading.costUsd).toBeCloseTo(1, 10)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(1, 10)
     expect(session.reading.billedUsd).toBeUndefined()
     expect(session.reading.partial).toBe(true)
   })
 
-  it('reads a configured replacement for an api-equivalent entry as billed', () => {
-    // Configuration states what a route charges, so replacing a shipped
-    // api-equivalent entry makes its money read as `cost`.
-    const table = pricingFrom({ 'openai-codex/gpt-5.5': { input: 9, output: 9 } })
-    expect(table.get('openai-codex/gpt-5.5')?.basis).toBe('billed')
-    expect(table.get('openai-codex/gpt-5.5')?.rates).toEqual({ input: 9, output: 9 })
+  it('keeps the shipped api-equivalent basis when its rates are corrected', () => {
+    // Correcting a stale public API rate does not turn an OAuth route into
+    // pay-as-you-go: the replacement keeps reading `API-equivalent cost`.
+    const table = pricingFrom({ 'openai-codex/gpt-5.5': { input: 5.5, output: 33 } })
+    expect(table.get('openai-codex/gpt-5.5')?.basis).toBe('api-equivalent')
+    expect(table.get('openai-codex/gpt-5.5')?.rates.input).toBeCloseTo(5.5, 10)
+  })
+
+  it('reads a route dshline does not ship as the reader’s own billing', () => {
+    const table = pricingFrom({ 'my-gateway/gpt-5.5': { input: 5.5, output: 33 } })
+    expect(table.get('my-gateway/gpt-5.5')?.basis).toBe('billed')
   })
 })
 

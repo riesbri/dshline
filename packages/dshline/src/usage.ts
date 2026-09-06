@@ -50,18 +50,33 @@ export interface RateSet {
   output: number
 }
 
+/** One rate tier: a rate set that applies once a request's input passes a bound. */
+export interface RateTier {
+  /** A request whose input is strictly ABOVE this token count prices at {@link RateTier.rates}. */
+  inputTokensAbove: number
+  /** The rates for a request that crosses the bound, applied to the WHOLE request. */
+  rates: RateSet
+}
+
 /**
- * One route's prices, and how they change with the clock.
+ * One route's prices, and how they change with the clock or the request size.
  *
  * The bare fields are the rate that applies most of the day, and `peak` is the
  * exception. That is the way round it is because DeepSeek's peak is the narrow
  * window — a few hours of the morning — so the common case reads as the plain
  * one, and a table written without a `peak` block simply prices the same all day
  * rather than silently picking one column of a two-column price list.
+ *
+ * A `tier` is the same kind of exception for request size: OpenAI prices
+ * requests whose input passes 272k tokens at a higher rate set, applied to the
+ * whole request. No shipped model has both a peak and a tier; when a tier
+ * applies it replaces whatever the window selected.
  */
 export interface ModelRates extends RateSet {
   /** Prices during a peak window; the bare fields apply outside one. */
   peak?: RateSet
+  /** Rate set for a request whose input crosses {@link RateTier.inputTokensAbove}. */
+  tier?: RateTier
 }
 
 /**
@@ -145,13 +160,30 @@ const DEFAULT_PEAK_WINDOWS: readonly PeakWindow[] = [
  *
  * DeepSeek is the direct API's own list; the bare fields are off-peak and
  * `peak` the standard-rate exception. OpenAI is the `developers.openai.com`
- * pricing table (standard tier) as of 2026-09-05: cached input is a tenth of
- * uncached, and the gpt-5.6 family bills cache writes at 1.25x uncached input.
- * OpenAI's long-context tier (input above 272k tokens) is NOT modeled, so a
- * request past it prices at the standard rate. gpt-5.6-sol's price is
- * promotional through 2026-11-21; its pre-promo list price was $5/$0.50/$30.
+ * pricing table (standard processing tier) as of 2026-09-05, at the
+ * short-context rates unless a `tier` applies:
+ *
+ * - Cached input is a tenth of uncached for every gpt-5.x here.
+ * - The gpt-5.6 family bills cache writes at 1.25x the uncached input rate
+ *   (short and long), which is why their `cachedWrite` is explicit; gpt-5.4,
+ *   gpt-5.4-mini, and gpt-5.5 publish NO cache-write rate, so their
+ *   `cachedWrite` is an explicit zero rather than an inherited fallback.
+ * - Requests whose input crosses 272k tokens are priced at the `tier` rate set
+ *   (2x input, 1.5x output) for the WHOLE request. OpenAI words it "the full
+ *   session" for gpt-5.4/gpt-5.5 and "the full request" for the gpt-5.6
+ *   family; on a Codex route each request carries the accumulated session
+ *   context, so the first request whose prompt crosses the threshold is where
+ *   long pricing begins and every later one stays above it. gpt-5.4-mini has
+ *   no published tier and its reference has none.
+ * - gpt-5.6-sol's price is promotional at least through 2026-11-21; its
+ *   pre-promo list price was $5/$0.50/$30.
+ *
+ * Typed with `satisfies` rather than an explicit `Record<string, …>` so the
+ * object keeps its literal keys: {@link ReferenceRateKey} is then the exact set
+ * of rate-set names, and a route mapping that names a rate set with a typo
+ * fails compilation instead of shipping a missing price.
  */
-const REFERENCE_RATES: Readonly<Record<string, ModelRates>> = {
+const REFERENCE_RATES = {
   'deepseek/deepseek-v4-flash': {
     input: 0.22,
     cachedInput: 0.007,
@@ -164,18 +196,51 @@ const REFERENCE_RATES: Readonly<Record<string, ModelRates>> = {
     output: 1.98,
     peak: { input: 1.32, cachedInput: 0.044, output: 3.96 },
   },
-  'openai/gpt-5.4': { input: 2.5, cachedInput: 0.25, output: 15 },
-  'openai/gpt-5.4-mini': { input: 0.75, cachedInput: 0.075, output: 4.5 },
-  'openai/gpt-5.5': { input: 5, cachedInput: 0.5, output: 30 },
-  'openai/gpt-5.6-luna': { input: 0.2, cachedInput: 0.02, cachedWrite: 0.25, output: 1.2 },
-  'openai/gpt-5.6-sol': { input: 4, cachedInput: 0.4, cachedWrite: 5, output: 20 },
-  'openai/gpt-5.6-terra': { input: 2, cachedInput: 0.2, cachedWrite: 2.5, output: 12 },
+  'openai/gpt-5.4': {
+    input: 2.5,
+    cachedInput: 0.25,
+    cachedWrite: 0,
+    output: 15,
+    tier: { inputTokensAbove: 272_000, rates: { input: 5, cachedInput: 0.5, cachedWrite: 0, output: 22.5 } },
+  },
+  'openai/gpt-5.4-mini': { input: 0.75, cachedInput: 0.075, cachedWrite: 0, output: 4.5 },
+  'openai/gpt-5.5': {
+    input: 5,
+    cachedInput: 0.5,
+    cachedWrite: 0,
+    output: 30,
+    tier: { inputTokensAbove: 272_000, rates: { input: 10, cachedInput: 1, cachedWrite: 0, output: 45 } },
+  },
+  'openai/gpt-5.6-luna': {
+    input: 0.2,
+    cachedInput: 0.02,
+    cachedWrite: 0.25,
+    output: 1.2,
+    tier: { inputTokensAbove: 272_000, rates: { input: 0.4, cachedInput: 0.04, cachedWrite: 0.5, output: 1.8 } },
+  },
+  'openai/gpt-5.6-sol': {
+    input: 4,
+    cachedInput: 0.4,
+    cachedWrite: 5,
+    output: 20,
+    tier: { inputTokensAbove: 272_000, rates: { input: 8, cachedInput: 0.8, cachedWrite: 10, output: 30 } },
+  },
+  'openai/gpt-5.6-terra': {
+    input: 2,
+    cachedInput: 0.2,
+    cachedWrite: 2.5,
+    output: 12,
+    tier: { inputTokensAbove: 272_000, rates: { input: 4, cachedInput: 0.4, cachedWrite: 5, output: 18 } },
+  },
 }
+
+/** The rate-set key one shipped route prices at; typed so a mapping typo fails compilation. */
+type ReferenceRateKey = keyof typeof REFERENCE_RATES
 
 /** One shipped pricing entry: an exact route/model key and the reference it prices at. */
 interface RouteReference {
   /** The {@link REFERENCE_RATES} key whose rates apply. */
-  reference: string
+  reference: ReferenceRateKey
   /** What those rates represent for this exact route. */
   basis: PricingBasis
 }
@@ -229,13 +294,7 @@ const ROUTE_REFERENCES: Readonly<Record<string, RouteReference>> = {
 
 /** Published rates for the routes this interface is built against. */
 const DEFAULT_PRICING: PricingTable = new Map<string, PricingEntry>(
-  Object.entries(ROUTE_REFERENCES).map(([key, { reference, basis }]) => {
-    const rates = REFERENCE_RATES[reference]
-    // A mapping that names no rate set is an internal typo, and the loudest
-    // place to learn that is startup, not a session where a price goes missing.
-    if (rates === undefined) throw new Error(`dshline: pricing reference "${reference}" has no rate set`)
-    return [key, { rates, basis }]
-  }),
+  Object.entries(ROUTE_REFERENCES).map(([key, { reference, basis }]) => [key, { rates: REFERENCE_RATES[reference], basis }]),
 )
 
 /**
@@ -282,16 +341,37 @@ function parseRates(raw: unknown): RateSet | undefined {
 }
 
 /**
+ * A rate tier from configuration, or nothing when it is incomplete.
+ *
+ * The bound must be a positive integer and the tier's rates must be a complete
+ * price; either way, an unreadable tier is dropped rather than thrown over,
+ * exactly like an unreadable `peak` block.
+ * @param raw - the configured `tier` value, of any shape.
+ * @returns the tier, or undefined.
+ */
+function parseTier(raw: unknown): RateTier | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const { inputTokensAbove, ...rest } = raw as Record<string, unknown>
+  if (typeof inputTokensAbove !== 'number' || !Number.isInteger(inputTokensAbove) || inputTokensAbove <= 0) {
+    return undefined
+  }
+  const rates = parseRates(rest)
+  return rates === undefined ? undefined : { inputTokensAbove, rates }
+}
+
+/**
  * Read a pricing table out of plugin configuration.
  *
  * Deliberately total: an entry that does not describe a price is dropped rather
  * than thrown over. Prices are a convenience on a status line, and a typo in a
  * machine-local config file must not be the reason a terminal refuses to start.
  *
- * A configured entry reads as `billed`: writing rates for a route is a reader
- * stating what that route charges, so the money is reported as its cost rather
- * than as a public-API equivalent. Replacing a shipped `api-equivalent` entry
- * this way is a deliberate correction of the route's own economics.
+ * A configured entry carries the `billed` basis by default — the reading for a
+ * route dshline does not ship, where writing rates is a reader stating what
+ * that route charges. {@link pricingFrom} then keeps the shipped basis when a
+ * configured entry REPLACES one this interface ships: correcting an
+ * `openai-codex/...` rate does not turn the OAuth route into pay-as-you-go, so
+ * its money still reads `API-equivalent cost`.
  * @param raw - the `pricing` value from the plugin's config, of any shape.
  * @returns the entries that were complete and usable.
  */
@@ -302,8 +382,13 @@ export function parsePricing(raw: unknown): PricingTable {
     const base = parseRates(value)
     if (base === undefined) continue
     const peak = parseRates((value as Record<string, unknown>).peak)
+    const tier = parseTier((value as Record<string, unknown>).tier)
     table.set(key, {
-      rates: { ...base, ...peak === undefined ? {} : { peak } },
+      rates: {
+        ...base,
+        ...peak === undefined ? {} : { peak },
+        ...tier === undefined ? {} : { tier },
+      },
       basis: 'billed',
     })
   }
@@ -317,11 +402,23 @@ export function parsePricing(raw: unknown): PricingTable {
  * field by field. Half a correction is the dangerous shape: someone fixing an
  * output price would not expect the input price beside it to stay at whatever
  * this release was built with.
+ *
+ * Replacement is about the NUMBERS. What the entry represents — its
+ * {@link PricingBasis} — belongs to the route, so a correction of a shipped
+ * `api-equivalent` entry keeps that basis, and only a route dshline does not
+ * ship reads as the default `billed`.
  * @param raw - the `pricing` value from the plugin's config, of any shape.
  * @returns every route this session can price.
  */
 export function pricingFrom(raw: unknown): PricingTable {
-  return new Map([...DEFAULT_PRICING, ...parsePricing(raw)])
+  const table = new Map(DEFAULT_PRICING)
+  for (const [key, configured] of parsePricing(raw)) {
+    table.set(key, {
+      ...configured,
+      basis: table.get(key)?.basis ?? configured.basis,
+    })
+  }
+  return table
 }
 
 /**
@@ -474,12 +571,21 @@ export class SessionUsage {
       this.unpriced = true
       return
     }
+    // One rate set for this message: the window-adjusted everyday rates, unless
+    // the entry's tier applies. A tier keys off the WHOLE request's input —
+    // uncached, cache reads, and cache writes together — because that is the
+    // prompt the provider priced as a unit, and it applies to every token of the
+    // request, cache buckets included.
     const rates = isPeak(at, this.peakWindows) && known.rates.peak !== undefined ? known.rates.peak : known.rates
+    const tier = known.rates.tier
+    const effective = tier !== undefined && usage.inputTokens + cacheRead + cacheWrite > tier.inputTokensAbove
+      ? tier.rates
+      : rates
     const amount = (
-      usage.inputTokens * rates.input
-      + cacheRead * (rates.cachedInput ?? rates.input)
-      + cacheWrite * (rates.cachedWrite ?? rates.input)
-      + usage.outputTokens * rates.output
+      usage.inputTokens * effective.input
+      + cacheRead * (effective.cachedInput ?? effective.input)
+      + cacheWrite * (effective.cachedWrite ?? effective.input)
+      + usage.outputTokens * effective.output
     ) / TOKENS_PER_PRICED_UNIT
     this.priced = true
     this.costUsd += amount
