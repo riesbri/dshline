@@ -78,7 +78,11 @@ export interface Config {
   /**
    * Dollars per million tokens, keyed `provider/model` — e.g.
    * `deepseek-official/deepseek-v4-flash` — or by model id alone to cover every
-   * route serving it. An entry replaces the shipped rates for that key outright.
+   * route serving it. An entry replaces the shipped rates for that key outright,
+   * and reads as the route's own billing: configuration states what a route
+   * charges, so its money is reported as `cost` rather than as the
+   * `API-equivalent cost` the shipped signed-in routes (such as
+   * `openai-codex/<model>`) are valued at.
    */
   pricing?: Readonly<Record<string, ModelRates>>
   /**

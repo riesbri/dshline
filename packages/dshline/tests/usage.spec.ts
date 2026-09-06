@@ -38,24 +38,30 @@ function usage(buckets: Partial<TokenUsage>): TokenUsage {
 
 describe('parsePricing()', () => {
   it('keeps an entry that names both required rates', () => {
-    expect(parsePricing({ 'a/b': { input: 1, output: 2 } }).get('a/b')).toEqual({ input: 1, output: 2 })
+    expect(parsePricing({ 'a/b': { input: 1, output: 2 } }).get('a/b')?.rates).toEqual({ input: 1, output: 2 })
+  })
+
+  it('reads a configured entry as the route’s own billing', () => {
+    // Configuration states what a route charges, so its money reads as `cost`
+    // rather than as a public-API equivalent.
+    expect(parsePricing({ 'a/b': { input: 1, output: 2 } }).get('a/b')?.basis).toBe('billed')
   })
 
   it('carries the optional cache rates through', () => {
     const table = parsePricing({ 'a/b': { input: 1, output: 2, cachedInput: 0.1, cachedWrite: 1.25 } })
-    expect(table.get('a/b')).toEqual({ input: 1, output: 2, cachedInput: 0.1, cachedWrite: 1.25 })
+    expect(table.get('a/b')?.rates).toEqual({ input: 1, output: 2, cachedInput: 0.1, cachedWrite: 1.25 })
   })
 
   it('reads a peak override beside the everyday rates', () => {
     const table = parsePricing({ 'a/b': { input: 1, output: 2, peak: { input: 2, output: 4 } } })
-    expect(table.get('a/b')?.peak).toEqual({ input: 2, output: 4 })
+    expect(table.get('a/b')?.rates.peak).toEqual({ input: 2, output: 4 })
   })
 
   it('drops a peak override that is not itself a complete price', () => {
     // Half a peak block would charge the standard rate on one bucket and the
     // discount on the next, which is not a price either column ever named.
     const table = parsePricing({ 'a/b': { input: 1, output: 2, peak: { input: 2 } } })
-    expect(table.get('a/b')).toEqual({ input: 1, output: 2 })
+    expect(table.get('a/b')?.rates).toEqual({ input: 1, output: 2 })
   })
 
   it('drops an entry priced on only one side', () => {
@@ -138,8 +144,8 @@ describe('the shipped rates', () => {
     // The rates are written once and attached to each route, so the thing worth
     // pinning is that they stay separable afterwards.
     const table = pricingFrom({ 'opencode/deepseek-v4-pro': { input: 9, output: 9 } })
-    expect(table.get('opencode/deepseek-v4-pro')).toEqual({ input: 9, output: 9 })
-    expect(table.get(`${PROVIDER}/deepseek-v4-pro`)?.input).toBeCloseTo(0.66, 10)
+    expect(table.get('opencode/deepseek-v4-pro')?.rates).toEqual({ input: 9, output: 9 })
+    expect(table.get(`${PROVIDER}/deepseek-v4-pro`)?.rates.input).toBeCloseTo(0.66, 10)
   })
 
   it('charges a v4-flash cache miss at the published pair', () => {
@@ -167,7 +173,105 @@ describe('the shipped rates', () => {
     // would not expect the input price beside it to stay at whatever this
     // release was built with.
     const table = pricingFrom({ [`${PROVIDER}/deepseek-v4-flash`]: { input: 9, output: 9 } })
-    expect(table.get(`${PROVIDER}/deepseek-v4-flash`)).toEqual({ input: 9, output: 9 })
+    expect(table.get(`${PROVIDER}/deepseek-v4-flash`)?.rates).toEqual({ input: 9, output: 9 })
+  })
+})
+
+describe('the shipped API-equivalent pricing', () => {
+  it('prices the OAuth Codex route at the OpenAI public API rates', () => {
+    // `openai-codex` is the route a ChatGPT sign-in serves, recorded by that
+    // exact id; its money is the public API equivalent — the prices on
+    // developers.openai.com — never a subscription charge. gpt-5.5 official:
+    // $5 input / $0.50 cached / $30 output.
+    const session = new SessionUsage(pricingFrom(undefined))
+    session.observe(usage({ inputTokens: 1_000_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(5, 10)
+    expect(session.reading.billedUsd).toBeUndefined()
+    expect(session.reading.costUsd).toBeCloseTo(5, 10)
+    expect(session.reading.partial).toBe(false)
+  })
+
+  it('prices Codex cache reads and writes at their own published rates', () => {
+    // gpt-5.6-luna official: $0.20 uncached / $0.02 cached read / $1.20 output,
+    // and cache writes at 1.25x uncached input ($0.25).
+    const session = new SessionUsage(pricingFrom(undefined))
+    session.observe(usage({
+      inputTokens: 1_000_000, cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000, outputTokens: 1_000_000,
+    }), 'openai-codex', 'gpt-5.6-luna', OFF_PEAK)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(1.67, 10)
+  })
+
+  it('labels the shipped Codex entries api-equivalent and the DeepSeek ones billed', () => {
+    const table = pricingFrom(undefined)
+    expect(table.get('openai-codex/gpt-5.5')?.basis).toBe('api-equivalent')
+    expect(table.get('deepseek-official/deepseek-v4-flash')?.basis).toBe('billed')
+  })
+
+  it('never prices a model id through a route that does not name it', () => {
+    // gpt-5.5 is shipped only as `openai-codex/gpt-5.5`; the same id on another
+    // gateway is that gateway's business, and nothing shipped keys a model bare.
+    const table = pricingFrom(undefined)
+    expect(table.get('openai-codex/gpt-5.5')).toBeDefined()
+    expect(table.get('openai/gpt-5.5')).toBeUndefined()
+    expect(table.get('gpt-5.5')).toBeUndefined()
+
+    const session = new SessionUsage(table)
+    session.observe(usage({ inputTokens: 1_000_000 }), 'some-gateway', 'gpt-5.5', OFF_PEAK)
+    expect(session.reading.costUsd).toBeUndefined()
+  })
+
+  it('keeps an OAuth model with no public API equivalent unpriced', () => {
+    // gpt-5.3-codex-spark is a ChatGPT Pro OAuth-only research preview with no
+    // public API price, so there is no reference to map it to.
+    const table = pricingFrom(undefined)
+    expect(table.get('openai-codex/gpt-5.3-codex-spark')).toBeUndefined()
+
+    const session = new SessionUsage(table)
+    session.observe(usage({ inputTokens: 1_000_000 }), 'openai-codex', 'gpt-5.3-codex-spark', OFF_PEAK)
+    expect(session.reading.costUsd).toBeUndefined()
+  })
+
+  it('leaves sign-in routes that can also bill on an API key unpriced', () => {
+    // `xai` and `anthropic` ship both an API-key path and an OAuth login, and
+    // the session fold records only the route, not which side it ran on — so
+    // no single basis would be truthful about the total. Their catalog models
+    // have public API prices; they are not shipped until the fold can tell
+    // the two apart.
+    const table = pricingFrom(undefined)
+    expect(table.get('xai/grok-4.5')).toBeUndefined()
+    expect(table.get('anthropic/claude-opus-5')).toBeUndefined()
+
+    const session = new SessionUsage(table)
+    session.observe(usage({ inputTokens: 1_000_000 }), 'xai', 'grok-4.5', OFF_PEAK)
+    session.observe(usage({ inputTokens: 1_000_000 }), 'anthropic', 'claude-opus-5', OFF_PEAK)
+    expect(session.reading.costUsd).toBeUndefined()
+  })
+
+  it('keeps a mixed billed/API-equivalent session in separate truthful totals', () => {
+    const session = new SessionUsage(pricingFrom(undefined))
+    session.observe(usage({ inputTokens: 1_000_000 }), PROVIDER, 'deepseek-v4-flash', OFF_PEAK)
+    session.observe(usage({ inputTokens: 1_000_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    expect(session.reading.billedUsd).toBeCloseTo(0.22, 10)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(5, 10)
+    expect(session.reading.costUsd).toBeCloseTo(5.22, 10)
+  })
+
+  it('marks a mixed session that also hit an unpriced route as a floor', () => {
+    const session = new SessionUsage(pricingFrom(undefined))
+    session.observe(usage({ inputTokens: 1_000_000 }), 'openai-codex', 'gpt-5.5', OFF_PEAK)
+    session.observe(usage({ inputTokens: 1_000_000 }), 'other', 'mystery', OFF_PEAK)
+    expect(session.reading.costUsd).toBeCloseTo(5, 10)
+    expect(session.reading.apiEquivalentUsd).toBeCloseTo(5, 10)
+    expect(session.reading.billedUsd).toBeUndefined()
+    expect(session.reading.partial).toBe(true)
+  })
+
+  it('reads a configured replacement for an api-equivalent entry as billed', () => {
+    // Configuration states what a route charges, so replacing a shipped
+    // api-equivalent entry makes its money read as `cost`.
+    const table = pricingFrom({ 'openai-codex/gpt-5.5': { input: 9, output: 9 } })
+    expect(table.get('openai-codex/gpt-5.5')?.basis).toBe('billed')
+    expect(table.get('openai-codex/gpt-5.5')?.rates).toEqual({ input: 9, output: 9 })
   })
 })
 
@@ -320,6 +424,24 @@ describe('SessionUsage', () => {
     expect(session.reading.costUsd).toBeCloseTo(1, 10)
     expect(session.reading.partial).toBe(true)
   })
+
+  it('recovers the same totals when a session is replayed', () => {
+    // A resumed session re-observes its `assistant/message` events through a
+    // fresh SessionUsage, so the fold must be a pure function of the events,
+    // the registry, and the clock — one run and a replay agree exactly, basis
+    // included.
+    const events = [
+      { usage: usage({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 900 }), provider: PROVIDER, model: 'deepseek-v4-flash', at: OFF_PEAK },
+      { usage: usage({ inputTokens: 50, outputTokens: 10, cacheReadTokens: 400 }), provider: 'openai-codex', model: 'gpt-5.5', at: OFF_PEAK },
+    ]
+    const first = new SessionUsage(pricingFrom(undefined))
+    const replay = new SessionUsage(pricingFrom(undefined))
+    for (const event of events) {
+      first.observe(event.usage, event.provider, event.model, event.at)
+      replay.observe(event.usage, event.provider, event.model, event.at)
+    }
+    expect(replay.reading).toEqual(first.reading)
+  })
 })
 
 describe('usage modes', () => {
@@ -336,9 +458,9 @@ describe('usage modes', () => {
 })
 
 describe('formatUsage()', () => {
-  /** A reading with the totals given. */
+  /** A reading with the totals given, priced on the billed side like the shipped routes. */
   const reading = (costUsd: number | undefined, partial = false): Parameters<typeof formatUsage>[0] =>
-    ({ inputTokens: 8_800, outputTokens: 1_600, costUsd, partial })
+    ({ inputTokens: 8_800, outputTokens: 1_600, costUsd, partial, billedUsd: costUsd, apiEquivalentUsd: undefined })
 
   it('reports both directions and the money', () => {
     expect(formatUsage(reading(0.018), 'cost')).toBe('↑8.8k ↓1.6k $0.018')

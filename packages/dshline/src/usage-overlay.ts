@@ -36,7 +36,7 @@ import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from './chrome.ts
 import type { SessionPerformance } from './performance.ts'
 import { formatDuration, formatTokenRate, isMeasured } from './performance.ts'
 import type { TuiOverlay } from './slots.ts'
-import type { UsageInspection, UsageMode } from './usage.ts'
+import type { UsageInspection, UsageMode, UsageReading } from './usage.ts'
 import { formatCacheShare, usageCost } from './usage.ts'
 
 /** Rows outside the body: the leading blank and the two frame borders. */
@@ -48,12 +48,13 @@ const USAGE_MIN_COLUMNS = BOX_CHROME_COLUMNS + 10
 /**
  * Widest label in the report, so every figure lines up in one column.
  *
- * Sixteen is `cache read share` and `avg output tok/s` exactly — the two
- * longest. A narrower column does not shorten anything, because `padEnd` is a
- * minimum: it just lets the longest label touch its own value while every
- * other row keeps a gap, which reads as a typo rather than as a column.
+ * Twenty is `API-equivalent cost` exactly — the longest label, one wider than
+ * `cache read share`. A narrower column does not shorten anything, because
+ * `padEnd` is a minimum: it just lets the longest label touch its own value
+ * while every other row keeps a gap, which reads as a typo rather than as a
+ * column.
  */
-const LABEL_COLUMN = 16
+const LABEL_COLUMN = 20
 
 /** Columns reserved for a figure, so the right edge lines up too. */
 const VALUE_COLUMN = 8
@@ -162,29 +163,58 @@ function bodyRows(inspection: UsageInspection, mode: UsageMode, width: number): 
     if (share !== undefined) rows.push(fact('cache read share', share, width))
   }
   rows.push('')
-  const cost = inspection.reading.costUsd
-  if (cost === undefined) {
-    // The same rule the status line follows: nothing is claimed before there is
-    // something true to claim. An unpriced route reports no money, not zero.
-    rows.push(paint(truncateToWidth(
-      'No rates are configured for the routes this session used.',
-      Math.max(1, width),
-    ), 'muted'))
-  } else {
-    rows.push(fact(
-      inspection.reading.partial ? 'cost (partial)' : 'cost',
-      `${inspection.reading.partial ? '~' : ''}${usageCost(cost)}`,
-      width,
-    ))
-    if (inspection.reading.partial) {
-      rows.push(paint(truncateToWidth(
-        'Part of this session ran on a route with no rates, so the cost is a floor.',
-        Math.max(1, width),
-      ), 'muted'))
-    }
-  }
+  rows.push(...costRows(inspection.reading, width))
   rows.push(...performanceRows(inspection.performance, width))
   rows.push('', fact('status line', mode, width))
+  return rows
+}
+
+/**
+ * The money rows: one per basis the session priced on, none at all when
+ * nothing could be priced.
+ *
+ * A row is labelled by what its numbers ARE. `cost` means the routes' own
+ * billing; `API-equivalent cost` means a signed-in/OAuth route valued at the
+ * corresponding public API rates — never the user's subscription charge. A
+ * single-basis session gets one row, and a session that switched routes gets
+ * one row per basis, so the reader is never asked to believe that a total
+ * mixing both is either one. `~` marks a floor: part of the session used a
+ * route with no rates, so each amount shown is a floor.
+ * @param reading - the current totals.
+ * @param width - display columns available inside the frame.
+ * @returns painted rows.
+ */
+function costRows(reading: UsageReading, width: number): string[] {
+  const { billedUsd, apiEquivalentUsd, partial } = reading
+  if (billedUsd === undefined && apiEquivalentUsd === undefined) {
+    // The same rule the status line follows: nothing is claimed before there is
+    // something true to claim. An unpriced route reports no money, not zero.
+    return [paint(truncateToWidth(
+      'No rates are configured for the routes this session used.',
+      Math.max(1, width),
+    ), 'muted')]
+  }
+  const rows: string[] = []
+  if (billedUsd !== undefined) {
+    rows.push(fact(
+      partial ? 'cost (partial)' : 'cost',
+      `${partial ? '~' : ''}${usageCost(billedUsd)}`,
+      width,
+    ))
+  }
+  if (apiEquivalentUsd !== undefined) {
+    rows.push(fact(
+      partial ? 'API-equivalent cost (partial)' : 'API-equivalent cost',
+      `${partial ? '~' : ''}${usageCost(apiEquivalentUsd)}`,
+      width,
+    ))
+  }
+  if (partial) {
+    rows.push(paint(truncateToWidth(
+      'Part of this session used a route with no rates, so each amount is a floor.',
+      Math.max(1, width),
+    ), 'muted'))
+  }
   return rows
 }
 
