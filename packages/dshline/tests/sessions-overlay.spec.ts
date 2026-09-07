@@ -265,13 +265,12 @@ describe('what the browser shows', () => {
     expect(view.detailed).toEqual(['two'])
   })
 
-  it('marks the session this window drives and defers every other relationship', () => {
+  it('marks the current session and identifies delegated children without a detail trip', () => {
     // `open` stays: reopening the current session is the choice Harness refuses,
     // and a reader who cannot see which row that is reads the refusal as a bug.
-    // Live, delegated, and fork are facts about a session rather than about this
-    // choice, so they belong to the disclosed detail.
-    // Deliberate break: restoring the badge column puts up to three labels back
-    // on the right of every row.
+    // Delegated is the one additional relationship worth keeping in the list: it
+    // explains why a child row exists without making the picker disclose every
+    // other fact about it.
     const view = mount({
       currentSessionId: 'dshline-one' as SessionId,
       listing: {
@@ -287,9 +286,21 @@ describe('what the browser shows', () => {
     })
     const drawn = screen(view)
     expect(drawn).toContain('open')
+    expect(drawn).toContain('delegated')
     expect(drawn).not.toContain('live')
-    expect(drawn).not.toContain('delegated')
     expect(drawn).not.toContain('fork')
+  })
+
+  it('calls an untitled current session current in the list and details', () => {
+    const view = mount({
+      currentSessionId: 'dshline-one' as SessionId,
+      listing: { kind: 'ready', entries: [entry({ title: undefined })], truncated: 0 },
+    })
+    const drawn = screen(view)
+    expect(drawn).toContain('current')
+    expect(drawn).not.toContain('untitled')
+    view.press(key('right'))
+    expect(screen(view)).toContain('current')
   })
 
   it('counts the rows, the listing, and the corpus without conflating them', () => {

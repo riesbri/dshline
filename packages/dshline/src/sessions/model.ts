@@ -210,14 +210,19 @@ export function relativeAge(at: number, now: number): string {
 /** What a row is called when its log never carried a title. */
 export const UNTITLED = 'untitled'
 
+/** A clear list label for the currently open session when it has no title. */
+export const CURRENT = 'current'
+
 /**
  * The name a row shows.
  * @param entry - the session.
- * @returns its title, or the untitled placeholder.
+ * @param currentSessionId - the open session, when the caller has one.
+ * @returns its title, a current-session label, or the untitled placeholder.
  */
-export function sessionLabel(entry: SessionEntry): string {
+export function sessionLabel(entry: SessionEntry, currentSessionId?: SessionId): string {
   const title = entry.title
-  return title === undefined || title.trim() === '' ? UNTITLED : title
+  if (title !== undefined && title.trim() !== '') return title
+  return entry.id === currentSessionId ? CURRENT : UNTITLED
 }
 
 /**

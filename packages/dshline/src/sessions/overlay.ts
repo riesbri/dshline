@@ -679,33 +679,47 @@ function renderResolved(
 
 /** Draw one session row: the title, and the age that orders the list. */
 function entryRow(entry: SessionEntry, active: boolean, spec: SessionsOverlaySpec, inner: number): string {
-  const right = rightColumn(entry, spec, inner)
+  const right = rightColumn(entry, spec, inner, active)
   const rightWidth = Math.min(displayWidth(right), Math.max(0, inner - 8))
-  const label = truncateToWidth(escapeControls(sessionLabel(entry)), Math.max(1, inner - 3 - rightWidth))
+  const label = truncateToWidth(
+    escapeControls(sessionLabel(entry, spec.currentSessionId)),
+    Math.max(1, inner - 3 - rightWidth),
+  )
   const gap = Math.max(1, inner - 2 - displayWidth(label) - rightWidth)
   const plain = `${label}${' '.repeat(gap)}${truncateToWidth(right, rightWidth)}`
   if (active) return paint(`❯ ${plain}`, 'selection')
-  return `  ${entry.title === undefined ? paint(plain, 'subdued') : plain}`
+  return `  ${entry.title === undefined && entry.id !== spec.currentSessionId ? paint(plain, 'subdued') : plain}`
 }
 
 /**
- * The age, marked when the row is the session this window is already driving.
+ * The relationship and age shown at the right of a session row.
  *
- * `open` is the one relationship a picker cannot defer: reopening the current
- * session is the choice Harness refuses, and a reader who cannot see which row
- * they are standing on reads that refusal as a broken list. Everything else a
- * row used to badge — live, delegated, fork — is a fact about the session
- * rather than about this choice, so it moved behind the disclosure.
+ * `open` is the relationship a picker cannot defer: reopening the current session
+ * is the choice Harness refuses. A delegated child is also worth one small list
+ * label, because otherwise its row looks like an unrelated untitled session. Live
+ * and fork details remain behind disclosure; they do not change what the reader
+ * should choose.
  * @param entry - the row.
  * @param spec - the clock and the current session id.
  * @param inner - the frame's inner width.
+ * @param active - whether the row is selected, so selection colour can own it.
  * @returns the right-hand column's text.
  */
-function rightColumn(entry: SessionEntry, spec: SessionsOverlaySpec, inner: number): string {
+function rightColumn(entry: SessionEntry, spec: SessionsOverlaySpec, inner: number, active: boolean): string {
   const age = relativeAge(entry.createdAt, spec.now())
-  if (entry.id !== spec.currentSessionId) return age
-  const full = `open · ${age}`
-  return inner - 3 - displayWidth(full) >= MIN_TITLE_COLUMNS ? full : age
+  const delegated = entry.origin === 'delegated'
+    ? active ? 'delegated' : paint('delegated', 'subdued')
+    : undefined
+  const relation = [
+    entry.id === spec.currentSessionId ? 'open' : undefined,
+    delegated,
+  ].filter((part): part is string => part !== undefined)
+  if (relation.length === 0) return age
+  const full = `${relation.join(' · ')} · ${age}`
+  if (entry.id !== spec.currentSessionId) return full
+  if (inner - 3 - displayWidth(full) >= MIN_TITLE_COLUMNS) return full
+  const withoutOpen = `${delegated === undefined ? '' : `${delegated} · `}${age}`
+  return inner - 3 - displayWidth(withoutOpen) >= MIN_TITLE_COLUMNS ? withoutOpen : age
 }
 
 /**
@@ -772,7 +786,10 @@ function renderDetail(
     return compactDetail(columns, terminalRows)
   }
   const inner = chromeWidth(columns) - BOX_CHROME_COLUMNS
-  const headline = paint(truncateToWidth(escapeControls(sessionLabel(entry)), inner), 'overlay-headline')
+  const headline = paint(
+    truncateToWidth(escapeControls(sessionLabel(entry, spec.currentSessionId)), inner),
+    'overlay-headline',
+  )
   const actionRows = actions.map((action, index) => {
     const label = truncateToWidth(action.label, Math.max(1, inner - 2))
     return index === selected ? paint(`❯ ${label}`, 'selection') : `  ${label}`
