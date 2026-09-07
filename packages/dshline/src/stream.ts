@@ -343,7 +343,7 @@ export class StreamBuffer {
     // reader, but a strict prefix check would fall into the divergence fallback
     // and append that content a second time. Ignore only trailing whitespace here;
     // substantive, internal, or other content divergence still uses the
-     // authoritative assembled fallback below.
+    // authoritative assembled fallback below.
     const reasoningMatchesWithoutTrailingWhitespace = channel === 'reasoning'
       && full.trimEnd() === state.pushed.trimEnd()
     if (!full.startsWith(state.pushed) && !reasoningMatchesWithoutTrailingWhitespace) {
