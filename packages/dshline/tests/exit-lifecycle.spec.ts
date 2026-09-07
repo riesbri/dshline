@@ -24,6 +24,8 @@ interface FixtureOptions {
   readonly pendingCommand?: boolean
   /** Make the window's exit-handler cleanup throw when it is cleared. */
   readonly cleanupFailure?: boolean
+  /** Make the public Agent cancellation seam throw synchronously. */
+  readonly cancelFailure?: boolean
 }
 
 /** One assembled attachment and the controls needed by these tests. */
@@ -76,8 +78,10 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   const events: string[] = []
   const exit = vi.fn(() => { events.push('appExit') })
   let exitHandler: (() => void) | undefined
+  let installedExitHandler: (() => void) | undefined
   const setExit = (handler: (() => void) | undefined): void => {
     if (handler === undefined && options.cleanupFailure) throw new Error('cleanup failed')
+    if (handler !== undefined) installedExitHandler = handler
     exitHandler = handler
   }
   let dispatch: ((key: Key) => void) | undefined
@@ -117,7 +121,10 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     inbox: { nextStep: [], nextTurn: [] },
     followup: vi.fn(),
     steer: vi.fn(),
-    cancel: vi.fn(() => { events.push('cancel') }),
+    cancel: vi.fn(() => {
+      events.push('cancel')
+      if (options.cancelFailure) throw new Error('Agent cancellation failed')
+    }),
   }
   const outcome = {
     target: { kind: 'new', cwd: '/workspace' },
@@ -128,7 +135,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   expect(exitHandler).toBeDefined()
   return {
     dispatch: () => dispatch,
-    requestExit: () => { exitHandler?.() },
+    requestExit: () => { installedExitHandler?.() },
     exit,
     events,
     agent,
@@ -142,15 +149,17 @@ describe('attachment exit lifecycle', () => {
       const f = await fixture()
       submit(f.dispatch(), command)
       expect(f.exit).toHaveBeenCalledOnce()
-      expect(f.events).toEqual(['appExit'])
+      expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
+      expect(f.events).toEqual(['cancel', 'appExit'])
     }
   })
 
-  it('uses the same exit path for idle ctrl-c', async () => {
+  it('cancels an idle Agent on the same exit path as any other Agent', async () => {
     const f = await fixture()
     f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
+    expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
     expect(f.exit).toHaveBeenCalledOnce()
-    expect(f.events).toEqual(['appExit'])
+    expect(f.events).toEqual(['cancel', 'appExit'])
   })
 
   it('cancels a running Agent before requesting app exit', async () => {
@@ -158,6 +167,14 @@ describe('attachment exit lifecycle', () => {
     submit(f.dispatch(), '/exit')
     expect(f.events).toEqual(['cancel', 'appExit'])
     expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
+  })
+
+  it('still requests app exit when Agent cancellation throws synchronously', async () => {
+    const f = await fixture({ cancelFailure: true })
+    f.requestExit()
+    expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
+    expect(f.exit).toHaveBeenCalledOnce()
+    expect(f.events).toEqual(['cancel', 'appExit'])
   })
 
   it('aborts a pending registered command through the attachment lifetime', async () => {

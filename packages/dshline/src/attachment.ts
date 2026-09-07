@@ -231,7 +231,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // request so the same AbortSignal reaches the provider before
     // AgentHandle.dispose() waits for loop convergence. The launcher still owns
     // final shutdown.
-    cancelAttachmentWork()
+    try {
+      cancelAttachmentWork()
+    } catch {
+      // Abort is normally infallible, but a listener is foreign code. Exit must
+      // continue even if one listener rejects the attachment's cancellation.
+    }
     try {
       scope.dispose()
     } catch {
@@ -239,7 +244,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // There is no safe terminal-independent diagnostic surface here; do not
       // replace Harness shutdown with a raw write into the TUI's terminal.
     }
-    if (agent.status === 'running') agent.cancel({ kind: 'user' })
+    try {
+      agent.cancel({ kind: 'user' })
+    } catch {
+      // Cancellation is a best-effort prelude. Harness still owns final teardown,
+      // so a synchronous Agent failure must not block the launcher's exit request.
+    }
     exit?.(0)
   }
   w.setExit(requestExit)
