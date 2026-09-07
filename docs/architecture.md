@@ -437,7 +437,11 @@ registrations, the log listener, the spinner, and the Work and projection
 adapters all describe one session, so they belong to a `SessionScope` that comes
 down before its agent handle does. Key routing moved the other way, up to the
 window, which is also why `ctrl-d` now quits from the launch browser without that
-browser owning a keyboard of its own.
+browser owning a keyboard of its own. The window remains the global quit owner; an
+attached session supplies only a cancellation-aware prelude that cancels its own
+async work and tears down presentation before interrupting the Agent through its
+public cancel seam. It then requests `ctx.appExit`; Harness still owns AgentHandle
+teardown, tree disposal, persistence, and final process shutdown.
 
 Reopening uses the supported lifecycle and nothing else: the owned
 `AgentHandle.dispose()` retires the current agent — the handle is this

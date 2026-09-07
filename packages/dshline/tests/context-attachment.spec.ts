@@ -147,6 +147,7 @@ async function fixture(options: {
     clear: () => {},
     refreshModelInfo: () => {},
     setDispatch: (handler?: (key: Key) => void) => { dispatch = handler },
+    setExit: () => {},
   } as unknown as Window
 
   const agent = {

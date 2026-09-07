@@ -83,6 +83,7 @@ async function fixture(options: { busyEnter?: BusyEnter } = {}) {
     clear: () => {},
     refreshModelInfo: () => {},
     setDispatch: handler => { dispatch = handler },
+    setExit: () => {},
   } as unknown as Window
 
   const session = Session.create(SessionId('routing-test'))

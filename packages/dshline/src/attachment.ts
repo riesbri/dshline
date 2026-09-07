@@ -205,17 +205,45 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const { ctx, terminal, exit, startup, pricing, peakHours, selection, prefs, draw, commit, clear } = w
   const { target, attached } = outcome
   const scope = new SessionScope()
+  const attachmentAbort = new AbortController()
   let imageAdmission: AbortController | undefined
-  scope.own(() => {
+  const cancelAttachmentWork = (): void => {
+    attachmentAbort.abort(new Error('Session attachment stopped because the session closed.'))
     imageAdmission?.abort(new Error('Image attachment stopped because the session closed.'))
     imageAdmission = undefined
-  })
+  }
+  // Session switching and process exit share the same cancellation prelude. The
+  // scope registration remains the ordinary-switch owner; the explicit call in
+  // the exit path makes the ordering visible before presentation teardown.
+  scope.own(cancelAttachmentWork)
   // Created before anything can ask for it: a transition requested while the
   // transcript is still replaying must not resolve into a promise that does not
   // exist yet.
   let requestNext: (target: AttachTarget) => void = () => {}
   const switched = new Promise<AttachTarget>(resolve => { requestNext = resolve })
   const { agent, dispose: disposeAgent } = attached.handle
+  let exitRequested = false
+  const requestExit = (): void => {
+    if (exitRequested) return
+    exitRequested = true
+    // The launcher's exit request waits for tree disposal. Cancel attachment
+    // work first, tear down presentation second, then interrupt any active model
+    // request so the same AbortSignal reaches the provider before
+    // AgentHandle.dispose() waits for loop convergence. The launcher still owns
+    // final shutdown.
+    cancelAttachmentWork()
+    try {
+      scope.dispose()
+    } catch {
+      // SessionScope contains disposer failures after running every disposer.
+      // There is no safe terminal-independent diagnostic surface here; do not
+      // replace Harness shutdown with a raw write into the TUI's terminal.
+    }
+    if (agent.status === 'running') agent.cancel({ kind: 'user' })
+    exit?.(0)
+  }
+  w.setExit(requestExit)
+  scope.own(() => { w.setExit(undefined) })
 
   // Held until after the banner, so the transcript reads in the order it
   // happened rather than opening with a footnote. The window asked which session
@@ -966,12 +994,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     {
       name: 'exit',
       description: 'Leave the session, as ctrl-d does',
-      execute: () => { exit?.(0) },
+      execute: () => { requestExit() },
     },
     {
       name: 'quit',
       description: 'Leave the session, as ctrl-d does',
-      execute: () => { exit?.(0) },
+      execute: () => { requestExit() },
     },
   ])
 
@@ -1405,7 +1433,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
             workspace,
             attachments.imageLimits.maxImageBytes,
             attachments.imageLimits.maxMessageImageBytes,
-            AbortSignal.any([admission.signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)]),
+            AbortSignal.any([attachmentAbort.signal, admission.signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)]),
           )
         } catch (error: unknown) {
           if (scope.closed) return
@@ -1426,8 +1454,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         commandLine,
         commandImages,
         admission === undefined
-          ? AbortSignal.timeout(isCompactionCommand ? COMPACTION_COMMAND_TIMEOUT_MS : COMMAND_TIMEOUT_MS)
-          : AbortSignal.any([admission.signal, AbortSignal.timeout(COMMAND_TIMEOUT_MS)]),
+          ? AbortSignal.any([
+            attachmentAbort.signal,
+            AbortSignal.timeout(isCompactionCommand ? COMPACTION_COMMAND_TIMEOUT_MS : COMMAND_TIMEOUT_MS),
+          ])
+          : AbortSignal.any([
+            attachmentAbort.signal,
+            admission.signal,
+            AbortSignal.timeout(COMMAND_TIMEOUT_MS),
+          ]),
       )
     } catch (error: unknown) {
       if (scope.closed) return
@@ -1531,7 +1566,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       const admission = new AbortController()
       imageAdmission = admission
       const batch = imageDrafts.items
-      const admissionSignal = AbortSignal.any([admission.signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)])
+      const admissionSignal = AbortSignal.any([attachmentAbort.signal, admission.signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)])
       let inputs
       try {
         inputs = await readImageDrafts(
@@ -1683,6 +1718,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // had in flight must not land afterwards.
       completion.invalidate()
       if (replaying !== undefined) {
+        // Leaving is window-global and must not wait for a slow transcript read:
+        // unlike a prompt, `/exit` cannot be interleaved with the replay flood.
+        // `ctrl-d` already takes this path at the window boundary; exempt the
+        // equivalent local commands here as well.
+        const replayCommand = parseCommand(action.text.trim())
+        if (replayCommand?.name === 'exit' || replayCommand?.name === 'quit') {
+          void localCommands.execute(replayCommand.name, replayCommand.rawInput).catch(report)
+          return
+        }
         // The composer has already cleared its buffer. Put the draft back so the
         // enter that could not be honoured costs nothing, and park the reason in
         // the transcript AFTER the replay flood (this window is the one in which
@@ -1753,7 +1797,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           }
           return
         }
-        exit?.(0)
+        requestExit()
         return
       }
       case 'ctrl-r':

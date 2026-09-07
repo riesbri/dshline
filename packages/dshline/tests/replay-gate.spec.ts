@@ -82,6 +82,7 @@ async function fixture(options: {
   dispatch: () => ((key: Key) => void) | undefined
   agent: { followup: ReturnType<typeof vi.fn>; steer: ReturnType<typeof vi.fn> }
   commands: { execute: ReturnType<typeof vi.fn> }
+  exit: ReturnType<typeof vi.fn>
   resolveRead: (events?: SessionEvent[]) => void
   commits: string[][]
   frames: Array<{ lines: string[] }>
@@ -97,6 +98,7 @@ async function fixture(options: {
 
   const commits: string[][] = []
   const frames: Array<{ lines: string[] }> = []
+  const exit = vi.fn()
   let dispatch: ((key: Key) => void) | undefined
   const compose = (): void => {
     frames.push(ctx.tuiSlots.compose(80, 24))
@@ -104,7 +106,7 @@ async function fixture(options: {
   const window = {
     ctx,
     terminal: { columns: () => 80, rows: () => 24 },
-    exit: undefined,
+    exit,
     startup: { cwd: '/ws', task: undefined, resume: undefined },
     pricing: pricingFrom(undefined),
     peakHours: [],
@@ -130,6 +132,7 @@ async function fixture(options: {
     clear: () => {},
     refreshModelInfo: () => {},
     setDispatch: handler => { dispatch = handler },
+    setExit: () => {},
   } as unknown as Window
 
   const agent = {
@@ -153,6 +156,7 @@ async function fixture(options: {
     dispatch: () => dispatch,
     agent,
     commands,
+    exit,
     resolveRead: events => read.resolve({ events: events ?? REPLAYED_EVENTS }),
     commits,
     frames,
@@ -247,6 +251,21 @@ describe('the replay input gate', () => {
     expect(agent.steer).not.toHaveBeenCalled()
     const message = agent.followup.mock.calls[0]?.[0] as { content?: Array<{ text?: string }> }
     expect(message.content?.[0]?.text).toBe('hi!')
+  })
+
+  it('lets /exit and /quit bypass the replay gate while the log read is pending', async () => {
+    for (const command of ['/exit', '/quit']) {
+      const { dispatch, exit, agent, resolveRead } = await fixture()
+      typeText(dispatch(), command)
+      press(dispatch(), { kind: 'key', name: 'enter' })
+
+      // The command is global: it must request shutdown without waiting for the
+      // deferred read or the synchronous replay projection to finish.
+      expect(exit).toHaveBeenCalledTimes(1)
+      expect(agent.followup).not.toHaveBeenCalled()
+      expect(agent.steer).not.toHaveBeenCalled()
+      resolveRead()
+    }
   })
 
   it('suppresses persisted reasoning while replaying but keeps the answer', async () => {
