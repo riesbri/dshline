@@ -9,11 +9,11 @@
  * no preset roster is left a no-op.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '@dshline/renderer'
-import { mountAgentPreset } from '../src/window.ts'
+import { mountAgentPreset, routeWindowKey } from '../src/window.ts'
 import type { AgentPresetRow, AgentPresetsSeam } from '../src/plugins/harness.ts'
 
 /** One fake roster preset. */
@@ -113,6 +113,19 @@ function fakeAgentCtx(agentPresets: AgentPresetsSeam | undefined, facts?: Facts)
     agent: session === undefined ? undefined : { session },
   } as unknown as Context
 }
+
+describe('global window key routing', () => {
+  it('sends ctrl-d to the attachment-aware exit request before dispatching anything', () => {
+    const requestExit = vi.fn()
+    const dispatch = vi.fn()
+    routeWindowKey({ kind: 'key', name: 'ctrl-d' }, requestExit, dispatch)
+    expect(requestExit).toHaveBeenCalledOnce()
+    expect(dispatch).not.toHaveBeenCalled()
+
+    routeWindowKey({ kind: 'text', text: 'x' }, requestExit, dispatch)
+    expect(dispatch).toHaveBeenCalledOnce()
+  })
+})
 
 describe('mountAgentPreset', () => {
   it('mounts the roster default for a fresh session with nothing recorded yet', async () => {
