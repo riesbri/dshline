@@ -722,15 +722,15 @@ back to filtering, because a content result answers the words you typed *before*
 the edit. A deployment whose session-query backend implements no full-text search
 says so and keeps filtering — that path is supported, not broken.
 
-A row is a title and a relative age, and that is deliberate: the list answers
-which session, and a workspace repeated down every row competes with the answer
-instead of adding to it. The one exception on the right is `open`, marking the
-session this window is already driving — the row reopening refuses. Everything
-else about a session is one keystroke away: `→` shows its workspace, when it
-was created, when it was last active, how many events its log holds, whether it
-is delegated, whether Harness holds it live or persisted, its fork or delegation
-parent, and its id. Nothing there is read until you open it, so moving through
-the list costs no session-log reads at all.
+A row is a title and a relative age, with two small relationship cues. `open`
+marks the session this window is already driving — the row reopening refuses —
+and `delegated` marks a child session so it is not mistaken for an unrelated
+conversation. When the open session has no title, its row says `current` rather
+than `untitled`. Everything else about a session is one keystroke away: `→` shows
+its workspace, when it was created, when it was last active, how many events its
+log holds, whether Harness holds it live or persisted, its fork or delegation
+parent, and its id. Nothing there is read until you open it, so moving through the
+list costs no session-log reads at all.
 
 Reopening retires the agent driving the current session and resumes the one you
 chose, in the same window and the same terminal. Everything already in your

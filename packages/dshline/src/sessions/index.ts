@@ -41,7 +41,7 @@ export type {
   SessionOrigin,
   SessionSearchMode,
 } from './model.ts'
-export { filterEntries, matchesQuery, relativeAge, sessionFacts, sessionLabel, shortWorkspace, UNTITLED } from './model.ts'
+export { CURRENT, filterEntries, matchesQuery, relativeAge, sessionFacts, sessionLabel, shortWorkspace, UNTITLED } from './model.ts'
 export { createSessionsOverlay } from './overlay.ts'
 export type { RenameDraftOutcome, ResumeRequest, SessionsOverlaySpec } from './overlay.ts'
 export type { ResumeConditions, ResumePlan } from './plan.ts'
