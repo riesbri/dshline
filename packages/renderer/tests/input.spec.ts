@@ -366,6 +366,24 @@ describe('Composer', () => {
     expect(composer.value).toBe('b')
   })
 
+  it('clears the whole draft from its usual end with ctrl-u, and can undo it', () => {
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: 'typed only' })
+    expect(composer.handle({ kind: 'key', name: 'ctrl-u' })).toEqual({ kind: 'changed' })
+    expect(composer.value).toBe('')
+    composer.handle({ kind: 'key', name: 'ctrl-z' })
+    expect(composer.value).toBe('typed only')
+  })
+
+  it('clears the whole draft from any cursor with ctrl-a then ctrl-k', () => {
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: 'typed only' })
+    composer.handle({ kind: 'key', name: 'left' })
+    composer.handle({ kind: 'key', name: 'ctrl-a' })
+    composer.handle({ kind: 'key', name: 'ctrl-k' })
+    expect(composer.value).toBe('')
+  })
+
   it('clamps cursor movement at both ends', () => {
     const composer = new Composer()
     composer.handle({ kind: 'text', text: 'ab' })

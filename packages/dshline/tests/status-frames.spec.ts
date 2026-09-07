@@ -32,7 +32,7 @@ const CROWDED: StatusState = {
   todo: 'todo 5/11',
   plan: false,
   replay: undefined,
-  goal: { label: 'goal armed · ship the release', short: 'goal armed', running: true },
+  goal: { label: 'goal armed', short: 'goal armed', running: true },
 }
 
 /**
@@ -59,27 +59,21 @@ describe('the status line on a real terminal', () => {
   it('never leaves half a mode on the line', async () => {
     for (const columns of [20, 26, 30, 34, 40, 46, 52, 58, 64, 72, 80, 100, 120]) {
       const line = await row(columns)
-      // Either the whole objective or none of it; either `goal armed` or no goal.
-      const halfObjective = line.includes('ship') && !line.includes('ship the release')
+      // The status carries the whole goal state and Todo count, never a cut segment.
       const halfGoal = /goal(?! armed)\S*\s*$/u.test(line)
       const halfTodo = line.includes('todo') && !line.includes('todo 5/11')
-      expect(halfObjective || halfGoal || halfTodo, `${String(columns)} columns: ${JSON.stringify(line)}`)
+      expect(halfGoal || halfTodo, `${String(columns)} columns: ${JSON.stringify(line)}`)
         .toBe(false)
     }
   })
 
-  it('gives things up in the documented order as the window shrinks', async () => {
-    // Widest: everything, objective included.
-    expect(await row(120)).toContain('ship the release')
-    // The objective goes before the goal does.
-    const middle = await row(60)
-    expect(middle).toContain('goal armed')
-    expect(middle).not.toContain('ship the release')
-    // The goal outlives the model name and the session totals both. The
-    // semantic word and its ` · turn` label sit beside the reading, so the
-    // widths that prove the order sit wider than they did for `working`.
+  it('keeps the goal state while giving up other status details', async () => {
+    for (const columns of [120, 60, 58]) {
+      const line = await row(columns)
+      expect(line).toContain('goal armed')
+      expect(line).not.toContain('ship the release')
+    }
     const narrow = await row(58)
-    expect(narrow).toContain('goal armed')
     expect(narrow).not.toContain('x-preview-f-free')
     expect(narrow).not.toContain('2.3M')
   })

@@ -30,25 +30,12 @@
 
 import type { GoalActivation } from '@deepseek-ai/dsh-goal'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
-import { displayWidth, escapeControls, truncateToWidth } from '@dshline/renderer'
-
-/**
- * Columns an objective may occupy in the status line.
- *
- * Cut here rather than in the status line, which drops whole segments and never
- * shortens one. An objective is prose a model wrote, so unlike a round count it
- * has no length worth respecting and no smaller true form to fall back to — a
- * shortened one is still an objective, where `goal 12/25` is a different fact
- * from `goal 12/256`. Wide enough for a recognizable phrase, narrow enough that
- * an eighty-column terminal still has room for the context reading.
- */
-const OBJECTIVE_COLUMNS = 28
 
 /** What a goal is, how far in it is, and whether anything will continue it. */
 export interface GoalReading {
-  /** The full text for the status line: the state, and what the goal is. */
+  /** The goal state shown in the status line; the objective is reserved for `/goal`. */
   label: string
-  /** The state alone, for a terminal that cannot hold the objective. */
+  /** The same state, kept for the status line's narrow-layout contract. */
   short: string
   /** Whether this session will continue the goal by itself. */
   running: boolean
@@ -66,12 +53,10 @@ export type GoalActivationSource = () => GoalActivation | undefined
 /**
  * How the status line reports a goal, or nothing when there is none.
  *
- * The objective leads the reading, because the first question about a goal is
- * what it is — and a goal is not always something the reader set. The harness's
- * `create_goal` tool is model-callable and documents that the model may infer the
- * intent without being asked, so a session can acquire automatic continuation
- * authority that was never typed. The round count is what says so; the objective
- * is what makes that legible.
+ * The status line carries only the state. The objective is model-authored prose and
+ * belongs to the explicit `/goal` report, not persistent footer chrome; this still
+ * makes an automatically-created goal visible without repeating its full text on
+ * every redraw.
  *
  * The count appears only once a round has been taken. Before then it is
  * `roundsStarted` against a deployment's cap — `0/256` — which reads as a meter
@@ -110,27 +95,11 @@ export function goalReading(
       ? 'idle'
       : roundsStarted > 0 ? `${String(roundsStarted)}/${String(goal.maxGoalRounds)}` : 'armed'
   const short = `goal ${state}`
-  // An objective is untrusted text: the model writes it, and it reaches the
-  // terminal. Escaped before it is measured, so the cut and the width agree.
-  const objective = elide(escapeControls(goal.objective), OBJECTIVE_COLUMNS)
   return {
-    label: objective === '' ? short : `${short} \u00b7 ${objective}`,
+    // `/goal` is the explicit surface for the objective; the footer keeps only
+    // the compact state that remains useful on every redraw and terminal width.
+    label: short,
     short,
     running,
   }
-}
-
-/**
- * Fit text to a column budget, marking a cut with an ellipsis.
- *
- * `truncateToWidth` alone cuts silently, and a silently cut objective reads as a
- * complete one — "migrate every call site off" is a plausible whole sentence and
- * a wrong summary of what the goal actually says.
- * @param text - the already-escaped text.
- * @param columns - the budget, ellipsis included.
- * @returns the text, or a cut form ending in an ellipsis.
- */
-function elide(text: string, columns: number): string {
-  if (displayWidth(text) <= columns) return text.trimEnd()
-  return `${truncateToWidth(text, columns - 1).trimEnd()}\u2026`
 }

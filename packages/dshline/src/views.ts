@@ -647,14 +647,12 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       // instead cut one in half — `ctrl-d qui` — which reads as a rendering fault
       // rather than as a hint. `/model` is absent because a slash command announces
       // itself the moment one is typed.
-      // `ctrl-o` is listed while busy too. It was not, and a turn is exactly when
-      // it is needed: truncated tool cards are arriving, each one arming a
-      // one-shot inspect opportunity that the next result takes away, and the only
-      // place this interface says the keystroke exists was off screen until the
-      // turn ended. Interrupting still leads, being the more urgent of the two.
+      // Interrupting is the urgent busy action, and quitting is global. Tool-output
+      // inspection remains available through its key, but is not a footer action:
+      // the status line should reserve its hints for controlling the session.
       const hints = current.busy
-        ? ['ctrl-c interrupt', 'ctrl-o output']
-        : ['alt-enter newline', 'ctrl-o output', 'ctrl-d quit']
+        ? ['ctrl-c stop', 'ctrl-d quit']
+        : ['alt-enter newline', 'ctrl-d quit']
       // Four lines, richest first, and the first that fits wins. Each step gives up
       // something the one above it keeps, in order of how little it costs:
       //

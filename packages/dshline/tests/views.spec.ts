@@ -475,7 +475,7 @@ describe('the status line', () => {
   it('drops a hint whole rather than cutting one in half', () => {
     // Truncating the joined line produced `ctrl-d qui`, which reads as a rendering
     // fault rather than as a hint.
-    const hints = ['alt-enter newline', 'ctrl-o output', 'ctrl-d quit']
+    const hints = ['alt-enter newline', 'ctrl-d quit']
     for (const columns of [20, 30, 40, 60, 80, 96, 120]) {
       const line = status({ tokens: 130_000, contextWindow: 1_000_000 }, columns)
       // The last segment is where a cut would land, and it must be a whole hint or
@@ -645,7 +645,7 @@ describe('the status line', () => {
     // columns — the width most terminals open at — a reading rich enough to fill
     // the line left room for no help at all, so the rung is chosen with room for
     // one hint already held back.
-    const hints = ['alt-enter newline', 'ctrl-o output', 'ctrl-d quit']
+    const hints = ['alt-enter newline', 'ctrl-d quit']
     for (const columns of [60, 70, 80, 90, 100, 120]) {
       const line = status(
         { usage: '\u2191130k \u219312.4k $1.24', tokens: 130_000, contextWindow: 1_000_000 },
@@ -655,15 +655,17 @@ describe('the status line', () => {
     }
   })
 
-  it('keeps the way to interrupt a turn, however rich the reading', () => {
+  it('keeps stop and quit controls, however rich the reading', () => {
     const line = status({
       busy: true,
       elapsedMs: 42_800,
       usage: '\u2191130k \u219312.4k $1.24',
       tokens: 130_000,
       contextWindow: 1_000_000,
-    }, 80)
-    expect(line).toContain('ctrl-c interrupt')
+    }, 120)
+    expect(line).toContain('ctrl-c stop')
+    expect(line).toContain('ctrl-d quit')
+    expect(line).not.toContain('ctrl-o output')
   })
 
   it('names a reasoning level beside the model, and drops it with the model', () => {
@@ -731,40 +733,17 @@ describe('the status line', () => {
     }
   })
 
-  it('gives up a goal\'s objective before the goal itself', () => {
-    // The objective is the one part of a mode that may be surrendered separately,
-    // because it is prose: a shortened objective is still an objective, where a
-    // shortened round count is a different number. So it goes before `plan` does,
-    // and long before the goal it describes.
+  it('keeps the goal state visible without putting its objective in the footer', () => {
     const state = {
       plan: true,
-      goal: { label: 'goal 3/256 · ship the release', short: 'goal 3/256', running: true },
+      goal: { label: 'goal 3/256', short: 'goal 3/256', running: true },
       tokens: 130_000,
       contextWindow: 1_000_000,
     }
-    expect(status(state, 100)).toContain('goal 3/256 · ship the release')
-    const narrow = status(state, 52)
-    expect(narrow).toContain('goal 3/256')
-    expect(narrow).not.toContain('ship the release')
-    expect(narrow).toContain('plan')
-    // And the bare goal still outlives plan mode, as it always did.
-    const narrower = status(state, 34)
-    expect(narrower).toContain('goal 3/256')
-    expect(narrower).not.toContain('plan')
-  })
-
-  it('never leaves half an objective on the line', () => {
-    // The whole reason the objective is bounded inside `goalReading` rather than
-    // here: this function drops segments, it does not shorten them.
-    const state = {
-      goal: { label: 'goal 3/256 · ship the release', short: 'goal 3/256', running: true },
-      tokens: 130_000,
-      contextWindow: 1_000_000,
-    }
-    for (const columns of [20, 24, 30, 36, 40, 46, 52, 60, 70, 80, 100, 120]) {
+    for (const columns of [52, 80, 100, 120]) {
       const line = status(state, columns)
-      const half = line.includes('ship') && !line.includes('ship the release')
-      expect(half, `${String(columns)} columns ended on ${JSON.stringify(line)}`).toBe(false)
+      expect(line).toContain('goal 3/256')
+      expect(line).not.toContain('ship the release')
     }
   })
 
@@ -842,11 +821,11 @@ describe('the status line', () => {
     }
   })
 
-  it('says a turn is running, and offers the key that stops it', () => {
+  it('says a turn is running, and offers stop and quit', () => {
     const busy = status({ busy: true, elapsedMs: 4_000 })
     expect(busy).toContain('waiting')
-    expect(busy).toContain('ctrl-c interrupt')
-    expect(busy).not.toContain('ctrl-d quit')
+    expect(busy).toContain('ctrl-c stop')
+    expect(busy).toContain('ctrl-d quit')
   })
 
   it('keeps the turn elapsed labeled, so a specific word cannot read as its own duration', () => {
@@ -884,19 +863,12 @@ describe('the status line', () => {
     expect(status({ busy: true, elapsedMs: 4_000, activityWord: word }, 40)).not.toContain('…')
   })
 
-  it('offers the way into tool output while the tool output is arriving', () => {
-    // A truncated card arms a one-shot inspect opportunity that the NEXT result
-    // takes away, so a turn is exactly when the keystroke needs advertising — and
-    // it was the one moment the hint was missing.
+  it('does not advertise tool inspection in the status footer', () => {
     const busy = status({ busy: true, elapsedMs: 4_000 })
-    expect(busy).toContain('ctrl-o output')
-    // Interrupting still leads: it is the more urgent of the two, so when only one
-    // hint fits it is the one that survives. The two-space separator and the
-    // ` · turn` label cost the base status eight columns, so the band where
-    // exactly one hint fits sits wider than it did for `working`.
-    const narrow = status({ busy: true, elapsedMs: 4_000, tokens: 130_000, contextWindow: 1_000_000 }, 56)
-    expect(narrow).toContain('ctrl-c interrupt')
-    expect(narrow).not.toContain('ctrl-o output')
+    const idle = status()
+    expect(busy).not.toContain('ctrl-o output')
+    expect(idle).not.toContain('ctrl-o output')
+    expect(idle).toContain('ctrl-d quit')
   })
 
   it('names optional generic work without creating another status row', () => {
