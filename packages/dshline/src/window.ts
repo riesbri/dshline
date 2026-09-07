@@ -196,6 +196,8 @@ export interface Window {
   readonly refreshModelInfo: () => void
   /** Route decoded keys to the attached session, or to nothing between two. */
   readonly setDispatch: (handler: ((key: Key) => void) | undefined) => void
+  /** Install the attached session's cancellation-aware exit handler. */
+  readonly setExit: (handler: (() => void) | undefined) => void
 }
 
 /**
@@ -346,9 +348,16 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   // thing everywhere, and the places it used to be re-implemented — the launch
   // picker's own key loop — are exactly the places it went missing.
   let dispatch: ((key: Key) => void) | undefined
+  let exitHandler: (() => void) | undefined
+  const requestExit = (): void => {
+    // An attached agent supplies a cancellation-aware handler. During the gaps
+    // before and between attachments, the launcher remains the only authority.
+    if (exitHandler === undefined) exit?.(0)
+    else exitHandler()
+  }
   ctx.effect(() => terminal.onKey(key => {
     if (key.kind === 'key' && key.name === 'ctrl-d') {
-      exit?.(0)
+      requestExit()
       return
     }
     dispatch?.(key)
@@ -425,6 +434,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
     clear,
     refreshModelInfo,
     setDispatch: handler => { dispatch = handler },
+    setExit: handler => { exitHandler = handler },
   }
 }
 

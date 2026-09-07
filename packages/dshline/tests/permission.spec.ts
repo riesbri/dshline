@@ -112,6 +112,7 @@ async function fixture(options: {
     clear: () => {},
     refreshModelInfo: () => {},
     setDispatch: (handler: ((key: Key) => void) | undefined) => { dispatch = handler },
+    setExit: () => {},
   } as unknown as Window
   const session = {
     id: 'permission-test',
