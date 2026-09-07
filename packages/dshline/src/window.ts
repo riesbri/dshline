@@ -247,6 +247,30 @@ export function routeWindowKey(
 }
 
 /**
+ * Create the window's one-shot exit request.
+ *
+ * The closure belongs to one Window instance, not to an attachment: an
+ * attachment handler may disappear during the first request, but a later global
+ * `ctrl-d` must not fall through to a second launcher request.
+ * @param appExit - Harness's final shutdown request, when available.
+ * @param attachmentExit - read the current attachment-aware handler.
+ * @returns a one-shot request function for the window's global quit boundary.
+ */
+export function createWindowExitRequest(
+  appExit: ((code: number) => void) | undefined,
+  attachmentExit: () => (() => void) | undefined,
+): () => void {
+  let requested = false
+  return (): void => {
+    if (requested) return
+    requested = true
+    const handler = attachmentExit()
+    if (handler === undefined) appExit?.(0)
+    else handler()
+  }
+}
+
+/**
  * Take the terminal and wait for the Loader, before any agent exists.
  *
  * The Loader mounts siblings concurrently, so this waits for the whole tree
@@ -372,12 +396,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   // picker's own key loop — are exactly the places it went missing.
   let dispatch: ((key: Key) => void) | undefined
   let exitHandler: (() => void) | undefined
-  const requestExit = (): void => {
-    // An attached agent supplies a cancellation-aware handler. During the gaps
-    // before and between attachments, the launcher remains the only authority.
-    if (exitHandler === undefined) exit?.(0)
-    else exitHandler()
-  }
+  const requestExit = createWindowExitRequest(exit, () => exitHandler)
   ctx.effect(() => terminal.onKey(key => {
     routeWindowKey(key, requestExit, dispatch)
   }), 'dshline: input')

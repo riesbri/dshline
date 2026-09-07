@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '@dshline/renderer'
-import { mountAgentPreset, routeWindowKey } from '../src/window.ts'
+import { createWindowExitRequest, mountAgentPreset, routeWindowKey } from '../src/window.ts'
 import type { AgentPresetRow, AgentPresetsSeam } from '../src/plugins/harness.ts'
 
 /** One fake roster preset. */
@@ -115,15 +115,40 @@ function fakeAgentCtx(agentPresets: AgentPresetsSeam | undefined, facts?: Facts)
 }
 
 describe('global window key routing', () => {
-  it('sends ctrl-d to the attachment-aware exit request before dispatching anything', () => {
-    const requestExit = vi.fn()
+  it('delegates the first ctrl-d to the attachment, then ignores later global quits', () => {
+    const appExit = vi.fn()
+    const attachmentExit = vi.fn()
+    let installedAttachmentExit: (() => void) | undefined = attachmentExit
+    const requestExit = createWindowExitRequest(appExit, () => installedAttachmentExit)
     const dispatch = vi.fn()
+
     routeWindowKey({ kind: 'key', name: 'ctrl-d' }, requestExit, dispatch)
-    expect(requestExit).toHaveBeenCalledOnce()
+    installedAttachmentExit = undefined
+    routeWindowKey({ kind: 'key', name: 'ctrl-d' }, requestExit, dispatch)
+
+    expect(attachmentExit).toHaveBeenCalledOnce()
+    expect(appExit).not.toHaveBeenCalled()
     expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('requests launcher exit only once when no attachment exists', () => {
+    const appExit = vi.fn()
+    const requestExit = createWindowExitRequest(appExit, () => undefined)
+
+    routeWindowKey({ kind: 'key', name: 'ctrl-d' }, requestExit, undefined)
+    routeWindowKey({ kind: 'key', name: 'ctrl-d' }, requestExit, undefined)
+
+    expect(appExit).toHaveBeenCalledOnce()
+    expect(appExit).toHaveBeenCalledWith(0)
+  })
+
+  it('dispatches ordinary keys normally before the first quit request', () => {
+    const dispatch = vi.fn()
+    const requestExit = createWindowExitRequest(vi.fn(), () => undefined)
 
     routeWindowKey({ kind: 'text', text: 'x' }, requestExit, dispatch)
     expect(dispatch).toHaveBeenCalledOnce()
+    expect(dispatch).toHaveBeenCalledWith({ kind: 'text', text: 'x' })
   })
 })
 

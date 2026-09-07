@@ -231,12 +231,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // request so the same AbortSignal reaches the provider before
     // AgentHandle.dispose() waits for loop convergence. The launcher still owns
     // final shutdown.
-    try {
-      cancelAttachmentWork()
-    } catch {
-      // Abort is normally infallible, but a listener is foreign code. Exit must
-      // continue even if one listener rejects the attachment's cancellation.
-    }
+    cancelAttachmentWork()
     try {
       scope.dispose()
     } catch {

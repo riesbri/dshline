@@ -78,10 +78,8 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   const events: string[] = []
   const exit = vi.fn(() => { events.push('appExit') })
   let exitHandler: (() => void) | undefined
-  let installedExitHandler: (() => void) | undefined
   const setExit = (handler: (() => void) | undefined): void => {
     if (handler === undefined && options.cleanupFailure) throw new Error('cleanup failed')
-    if (handler !== undefined) installedExitHandler = handler
     exitHandler = handler
   }
   let dispatch: ((key: Key) => void) | undefined
@@ -135,7 +133,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   expect(exitHandler).toBeDefined()
   return {
     dispatch: () => dispatch,
-    requestExit: () => { installedExitHandler?.() },
+    requestExit: () => { exitHandler?.() },
     exit,
     events,
     agent,
@@ -193,14 +191,6 @@ describe('attachment exit lifecycle', () => {
   it('contains cleanup failure and still requests Harness shutdown', async () => {
     const f = await fixture({ cleanupFailure: true })
     f.requestExit()
-    expect(f.exit).toHaveBeenCalledOnce()
-  })
-
-  it('does not repeat cancellation or shutdown for repeated exit gestures', async () => {
-    const f = await fixture({ status: 'running' })
-    f.requestExit()
-    f.requestExit()
-    expect(f.agent.cancel).toHaveBeenCalledOnce()
     expect(f.exit).toHaveBeenCalledOnce()
   })
 })
