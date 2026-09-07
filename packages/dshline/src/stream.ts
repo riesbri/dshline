@@ -7,9 +7,12 @@
  * scrollback one completed line at a time, and only its unfinished trailing line
  * stays in the live region. `assistant/message` then contributes what streaming
  * could not have shown — the last partial line, or the whole reply from a
- * provider that does not stream at all. The assembled message is authoritative;
- * reasoning may differ from its streamed form only at a trailing-whitespace
- * boundary that does not change what a reader sees.
+ * provider that does not stream at all. The assembled assistant message is
+ * authoritative, and streamed content normally corresponds to its prefix. The
+ * only reasoning mismatch treated as presentation-equivalent is trailing
+ * whitespace at the stream boundary; substantive or internal divergence is not
+ * equivalent and falls back to the assembled form. Native scrollback already
+ * committed from the stream cannot be retracted.
  *
  * Committing as lines complete is what keeps the cost flat. Holding the whole
  * reply live meant re-escaping, re-splitting, and retransmitting all of it on
@@ -79,8 +82,9 @@ const CONTINUATION = '  '
 interface ChannelState {
   /**
    * Everything pushed on this channel, kept to reconcile with the assembled
-   * message. Normally the assembled text starts with it; reasoning may differ
-   * only at its trailing-whitespace boundary.
+   * message. Normally the assembled text starts with it. For reasoning, only
+   * trailing whitespace at the stream boundary is presentation-equivalent;
+   * substantive or internal divergence is handled by the assembled fallback.
    */
   pushed: string
   /** The unfinished trailing line, which has not been committed. */
@@ -202,15 +206,15 @@ export class StreamBuffer {
   /**
    * Reconcile the streamed presentation with the assembled assistant message.
    *
-   * The assembled message is authoritative. Streamed content normally corresponds
-   * to its prefix, so the assembled message contributes only the remainder — the
-   * last unterminated line for a streamed reply, or the whole reply for a provider
-   * that does not stream. Reasoning can differ at the boundary where the stream
-   * ends with whitespace that the assembled block omits; that boundary-only form
-   * is equivalent for presentation and contributes no duplicate rows. Any real
-   * internal or content mismatch falls back to the authoritative assembled form:
-   * committed rows cannot be taken back, and dropping the assembled text would be
-   * invisible to the reader.
+   * The assembled assistant message is authoritative. Streamed content normally
+   * corresponds to its prefix, so the assembled message contributes only the
+   * remainder — the last unterminated line for a streamed reply, or the whole
+   * reply for a provider that does not stream. Only a reasoning mismatch made of
+   * trailing whitespace at the stream boundary is presentation-equivalent and
+   * contributes no duplicate rows. Substantive, internal, or other content
+   * divergence is not equivalent and falls back to the authoritative assembled
+   * form. Already committed native scrollback cannot be retracted, so preserving
+   * the assembled form is safer than silently dropping it.
    * @param content - the assembled assistant message's content blocks.
    * @param columns - the terminal's current width.
    * @returns rows to write into scrollback, reasoning before reply.
@@ -338,7 +342,8 @@ export class StreamBuffer {
     // break that arrived in its deltas. The bytes are the same content for a
     // reader, but a strict prefix check would fall into the divergence fallback
     // and append that content a second time. Ignore only trailing whitespace here;
-    // an internal mismatch still uses the authoritative assembled fallback below.
+    // substantive, internal, or other content divergence still uses the
+     // authoritative assembled fallback below.
     const reasoningMatchesWithoutTrailingWhitespace = channel === 'reasoning'
       && full.trimEnd() === state.pushed.trimEnd()
     if (!full.startsWith(state.pushed) && !reasoningMatchesWithoutTrailingWhitespace) {
