@@ -984,7 +984,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     {
       name: 'worktrees',
-      description: 'Choose a code workspace, then a conversation in it',
+      description: 'Choose a working directory, then a conversation in it',
       execute: async () => {
         // Directory-first, and deliberately not `/sessions` with a filter: a
         // working directory is not a session, so choosing one must not resume
@@ -1028,7 +1028,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           requestNext({ kind: 'resume', id: chosen.id })
         } else {
           // The same acknowledgement `/new` commits, because it is the same
-          // act — only the workspace differs.
+          // act — only the directory differs.
           commit([paint('· starting a new session…', 'muted')])
           requestNext({ kind: 'new', cwd: chosen.cwd })
         }
