@@ -223,7 +223,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const switched = new Promise<AttachTarget>(resolve => { requestNext = resolve })
   const { agent, dispose: disposeAgent } = attached.handle
   let exitRequested = false
-  const requestExit = (): void => {
+  const requestAttachmentExit = (): void => {
     if (exitRequested) return
     exitRequested = true
     // The launcher's exit request waits for tree disposal. Cancel attachment
@@ -247,7 +247,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     }
     exit?.(0)
   }
-  w.setExit(requestExit)
+  w.setExit(requestAttachmentExit)
   scope.own(() => { w.setExit(undefined) })
 
   // Held until after the banner, so the transcript reads in the order it
@@ -999,12 +999,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     {
       name: 'exit',
       description: 'Leave the session, as ctrl-d does',
-      execute: () => { requestExit() },
+      execute: () => { w.requestExit() },
     },
     {
       name: 'quit',
       description: 'Leave the session, as ctrl-d does',
-      execute: () => { requestExit() },
+      execute: () => { w.requestExit() },
     },
   ])
 
@@ -1802,7 +1802,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           }
           return
         }
-        requestExit()
+        w.requestExit()
         return
       }
       case 'ctrl-r':

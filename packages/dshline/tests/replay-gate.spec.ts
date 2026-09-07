@@ -131,6 +131,7 @@ async function fixture(options: {
     commit: lines => { commits.push([...lines]) },
     clear: () => {},
     refreshModelInfo: () => {},
+    requestExit: () => { exit(0) },
     setDispatch: handler => { dispatch = handler },
     setExit: () => {},
   } as unknown as Window

@@ -14,6 +14,7 @@ import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
 import { pricingFrom } from '../src/usage.ts'
 import type { AttachOutcome } from '../src/sessions/reopen.ts'
+import { createWindowExitRequest, routeWindowKey } from '../src/window.ts'
 import type { Window } from '../src/window.ts'
 
 /** Configuration for one attachment shutdown fixture. */
@@ -32,6 +33,7 @@ interface FixtureOptions {
 interface Fixture {
   readonly dispatch: () => ((key: Key) => void) | undefined
   readonly requestExit: () => void
+  readonly globalQuit: () => void
   readonly exit: ReturnType<typeof vi.fn>
   readonly events: string[]
   readonly agent: { readonly status: 'idle' | 'running'; readonly cancel: ReturnType<typeof vi.fn> }
@@ -83,6 +85,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     exitHandler = handler
   }
   let dispatch: ((key: Key) => void) | undefined
+  const windowRequestExit = createWindowExitRequest(exit, () => exitHandler)
   const window = {
     ctx,
     terminal: { columns: () => 80, rows: () => 24 },
@@ -110,6 +113,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     commit: () => {},
     clear: () => {},
     refreshModelInfo: () => {},
+    requestExit: windowRequestExit,
     setDispatch: (handler: ((key: Key) => void) | undefined) => { dispatch = handler },
     setExit,
   } as unknown as Window
@@ -133,7 +137,8 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   expect(exitHandler).toBeDefined()
   return {
     dispatch: () => dispatch,
-    requestExit: () => { exitHandler?.() },
+    requestExit: () => { windowRequestExit() },
+    globalQuit: () => { routeWindowKey({ kind: 'key', name: 'ctrl-d' }, windowRequestExit, dispatch) },
     exit,
     events,
     agent,
@@ -146,6 +151,7 @@ describe('attachment exit lifecycle', () => {
     for (const command of ['/exit', '/quit']) {
       const f = await fixture()
       submit(f.dispatch(), command)
+      f.globalQuit()
       expect(f.exit).toHaveBeenCalledOnce()
       expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
       expect(f.events).toEqual(['cancel', 'appExit'])
@@ -155,9 +161,18 @@ describe('attachment exit lifecycle', () => {
   it('cancels an idle Agent on the same exit path as any other Agent', async () => {
     const f = await fixture()
     f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
+    f.globalQuit()
     expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
     expect(f.exit).toHaveBeenCalledOnce()
     expect(f.events).toEqual(['cancel', 'appExit'])
+  })
+
+  it('keeps attached ctrl-d one-shot after the prelude clears its handler', async () => {
+    const f = await fixture()
+    f.globalQuit()
+    f.globalQuit()
+    expect(f.agent.cancel).toHaveBeenCalledOnce()
+    expect(f.exit).toHaveBeenCalledOnce()
   })
 
   it('cancels a running Agent before requesting app exit', async () => {

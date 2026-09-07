@@ -2,4 +2,4 @@
 '@dshline/dshline': patch
 ---
 
-Make exit cancellation best-effort and unconditional: maintenance activity is interrupted even when the public Agent status is idle, while a synchronous cancellation failure can no longer prevent the Harness shutdown request.
+Make the Window quit request one-shot across all gestures; interrupt maintenance activity even when the public Agent status is idle, and keep a synchronous Agent cancellation failure from preventing the Harness shutdown request.

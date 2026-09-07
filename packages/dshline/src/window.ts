@@ -196,6 +196,8 @@ export interface Window {
   readonly refreshModelInfo: () => void
   /** Route decoded keys to the attached session, or to nothing between two. */
   readonly setDispatch: (handler: ((key: Key) => void) | undefined) => void
+  /** Request process exit through this window's one-shot global boundary. */
+  readonly requestExit: () => void
   /** Install the attached session's cancellation-aware exit handler. */
   readonly setExit: (handler: (() => void) | undefined) => void
 }
@@ -471,6 +473,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
     commit,
     clear,
     refreshModelInfo,
+    requestExit,
     setDispatch: handler => { dispatch = handler },
     setExit: handler => { exitHandler = handler },
   }
