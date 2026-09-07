@@ -68,7 +68,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | human commands | `ctx.commands` | Discover and execute the registered command contract. |
 | tools | `ctx.tools` | Render tool-owned presentation intents, not tool-name cases. |
 | human answers | `ctx.userQuestions` | Register a terminal answerer; claim a request this frontend can present, never assuming it was addressed only to this frontend. |
-| sessions | `ctx.sessionQuery` | Query Harness's live-preferred session corpus; do not build another database. Its full-text methods are abstract, so treat content search as optional. |
+| sessions | `ctx.sessionQuery` | Query Harness's live-preferred session corpus; do not build another database. Its full-text methods are abstract, so treat content search as optional. Its `SessionHeader.cwd` values are also the only working-directory authority: group them transiently, never store a directory list, a worktree registry, or a Git state cache. |
 | attachments | `ctx.fs` + `ctx.attachments` | Keep paths as session-local drafts; perform bounded reads through the active filesystem and publish durable image references as one batch. Never persist bytes, base64, or host paths. |
 | log-derived state | `ctx.sessionProjections` | Consume registered domain snapshots and changes. |
 | context occupancy | `ctx.sessionProjections` (`contextPressure`, `contextBreakdown`, `tokenUsage`) | Read the O(1) folds; never count tokens or tokenize. |
@@ -452,6 +452,128 @@ rejected resume neither ends the process nor substitutes a session: by then the
 previous agent is already retired, so the window commits Harness's reason and
 asks again through the same browser. Dismissing that is how a reader chooses a
 fresh session deliberately.
+
+## Worktrees: the working directory is a different question
+
+Sessions answers "which conversation". It cannot answer "where", because a
+`cwd` is a field on a session header rather than a thing with an identity, and
+several conversations share one. So `/worktrees` asks the level above — and
+reads the same authority to do it:
+
+```text
+ctx.sessionQuery.listSessions()   the logical corpus: a fresh
+                                  sessionPersistence.list() merged with this
+                                  process's live sessions, newest first
+      ↓ group by exact SessionHeader.cwd
+worktree rows                     transient; alive only while the picker is
+      ↓ select one                open, and stored nowhere
+SessionCatalog { kind: 'cwd', cwd }
+```
+
+**A row is a definition, not a record.** It IS "the sessions whose header
+records exactly this cwd", which is why it needs no id, no title, and nothing
+durable: the grouping key is the definition. The count in the first view and
+the rows in the second are therefore one relationship read twice, not two
+authorities compared — and a fresh session needs no follow-up write at all,
+because Harness stamps `cwd` into its immutable header and that header is the
+rule.
+
+**Why the session corpus and not the Workspace registry.** Harness does own a
+durable Workspace entity (`ctx.workspaceRegistry`), and it was the first
+instinct here. It is the wrong ownership model for THIS feature at the adopted
+generation, and the reason is upstream's own documentation rather than a
+preference. `/worktrees` exists to serve several dshline processes working in
+several directories at once, and the durable domain stack the Workspace domain
+sits on is single-process: `dsh-storage-domain` records that memory is
+authoritative for an open domain and that `domain/changed` is in-process, so "a
+second host process or a reconnecting GUI observes no changes";
+`dsh-storage-json` records "no cross-process write locking", with concurrent
+writers to one unit resolving last-completion-wins. Several terminals each
+mounting and mutating that registry over one Harness home would hold stale
+in-memory state and overwrite each other.
+
+Session persistence is the opposite shape, and it is the shape this feature
+needs: one artifact per session, one live writer per SESSION, and a fresh
+`sessionPersistence.list()` on every corpus read. Distinct sessions in distinct
+directories are exactly what it already models well, so the multi-terminal
+workflow rides on the surface that was built for it, and dshline introduces no
+shared mutable state of its own.
+
+**One root Session per window survives.** A choice resolves to one of the two
+attachment targets that already exist — `{ kind: 'resume', id }` or
+`{ kind: 'new', cwd }` — and goes through the same retire-then-attach
+transition `/sessions` and `/new` use, under the same `planResume` / `planNew`
+refusals. `sessions/reopen.ts` gained no field and no domain knowledge for
+this. There are no tabs, no panes, and no second live agent; parallel work
+across directories is several terminals, each rooted in its own.
+
+The second view is the very `SessionCatalog` `/sessions` uses, not a second
+browser. That is what made the catalog's workspace scope an arbitrary exact
+`cwd` rather than "this window's directory": `/sessions` supplies the attached
+session's own workspace and `/worktrees` supplies the selected group's key, and
+both reach `filterSessions` through one translation. Because the group is
+DEFINED by `SessionHeader.cwd === cwd`, that filter is not an approximation of
+the grouping — it is the grouping.
+
+**Path identity stays Harness's.** The grouping key is the stored `cwd` string
+exactly as Harness wrote it. dshline does not `realpath` it, join it, or
+normalize it, so two spellings of one directory remain two rows if sessions
+really were created with two different strings. That is deliberate: a frontend
+inventing path identity would be a second canon, and the visible path already
+tells a reader what happened.
+
+**Discovery is a consequence, and its limit is documented rather than filled
+in.** A directory appears because Harness has a session in it. A Git worktree
+created and never worked in does not appear; starting dshline there puts it on
+that window's list immediately through the corpus's live half, and once the
+conversation has persisted the other windows find it through the persisted
+half. The JSONL backend materializes a session lazily, so a conversation that
+produced no durable history yet may not have reached another process — which is
+acceptable, and is not a reason for a second discovery database. There is no
+`git worktree list` here and nothing read under `.git`.
+
+**Git owns Git.** A row carries a path and a session count. It carries no
+branch, HEAD, dirty flag, lock, or prunable marker, and no enumerate, create,
+or remove action, because the adopted generation publishes no Git or worktree
+capability at all. The picker also takes no filesystem status check of its own:
+if a chosen directory has gone, Harness's own session creation reports it
+through the ordinary recovery path rather than a second truth about the
+filesystem living in a browser. The transient cwd-group model is shaped so an
+optional upstream capability publishing structured worktree facts can be
+reconciled with it later; until one exists there is no `ctx.worktrees` here,
+and no subprocess standing in for it.
+
+**"Running" is used precisely, and the limit is a requirement rather than a
+guard.** The persisted corpus deliberately includes sessions other dshline
+processes created, and navigating them is the point. But `SessionRecord.live`
+means live in the process that asked, `ctx.agents` is process-local, and the
+adopted generation publishes no cross-process ownership or liveness contract —
+so `current` marks the directory THIS window's session is rooted in and claims
+nothing else. No row says "live in another terminal", "safe to take over", or
+"idle in another process".
+
+What Harness enforces is narrower than it first looks, and the distinction
+matters enough to write down. `SessionPersistenceCoordinator` refuses to
+prepare a session that is live — `prepare()` throws `cannot prepare session
+"<id>" while it is live` — but the fact it consults is `this.ctx.sessions`,
+which is this process's own store, and its serialization, live-owner, and
+retirement bookkeeping are in-memory maps on one backend instance. The shipped
+JSONL backend states the rest as a REQUIREMENT on callers, not as an
+enforcement: "another instance or process must not write the same session until
+that owner reaches quiescent disposal". There is no lease, pid owner,
+heartbeat, or advisory lock anywhere in the session or storage packages at this
+revision. (POSIX first materialization does use `link()`, so two processes
+racing to create the same NEW id collide safely — but that says nothing about
+reopening a session whose log already exists.)
+
+So the honest reading is: this refusal is process-local, and dshline cannot
+tell whether a persisted session is currently open in another dshline process.
+It does not claim otherwise, and it does not invent the missing contract — no
+pid files, lock files, heartbeats, sockets, process scanning, or cross-process
+agent discovery. The user-facing consequence belongs in documentation rather
+than in a badge on every row: do not drive one session from two processes at
+once. This is `/sessions`'s limitation too, and `/worktrees` makes no stronger
+promise than it does.
 
 ## Connect: configuration is four seams, not one
 

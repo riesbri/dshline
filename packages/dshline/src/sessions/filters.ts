@@ -6,6 +6,42 @@ import type { SessionEntry } from './model.ts'
 /** Whether workspace filtering is disabled or bound to the active workspace. */
 export type WorkspaceChoice = 'all' | 'current'
 
+/**
+ * The exact corpus scope a catalog's workspace clause can narrow to.
+ *
+ * Held apart from {@link WorkspaceChoice} because the two answer different
+ * questions. The choice is the READER's two-state control — filter by
+ * workspace, or do not — while this is the scope its `current` position
+ * resolves against, and that scope is an arbitrary exact `cwd` rather than
+ * "wherever this window happens to be". `/sessions` supplies the attached
+ * session's own workspace and `/worktrees` supplies the workspace a reader
+ * selected, and both reach `filterSessions` through this one translation
+ * instead of a second query path.
+ *
+ * `cwd` is Harness's own exact string equality: it has no path-prefix,
+ * trailing-separator, or symlink semantics, which is why the only string ever
+ * put in it is one Harness itself wrote — a `SessionHeader.cwd`, either the
+ * attached session's own or the key of a `/worktrees` group, which is defined
+ * as the sessions carrying exactly that value.
+ */
+export type SessionWorkspace =
+  /** Never narrow by workspace, whatever the reader's choice says. */
+  | { readonly kind: 'all' }
+  /** Narrow to sessions whose header records exactly this workspace. */
+  | { readonly kind: 'cwd'; readonly cwd: string }
+
+/** The scope that narrows nothing, for a caller with no workspace of its own. */
+export const EVERY_WORKSPACE: SessionWorkspace = { kind: 'all' }
+
+/**
+ * Resolve an optional workspace path into a corpus scope.
+ * @param cwd - the exact workspace path, or undefined when there is none.
+ * @returns the scope to hand {@link sessionFilterClauses}.
+ */
+export function workspaceScope(cwd: string | undefined): SessionWorkspace {
+  return cwd === undefined || cwd === '' ? EVERY_WORKSPACE : { kind: 'cwd', cwd }
+}
+
 /** Which presentation-classified session origins remain visible. */
 export type OriginChoice = 'all' | 'own' | 'delegated'
 
@@ -69,20 +105,20 @@ export function ageWindowRange(age: AgeChoice, now: number): SessionResultRange 
  * Harness has no origin predicate. In particular, `parent: [null]` means no
  * recorded parent, not "own", so origin is deliberately applied only after a
  * read. A `cwd` clause is exact string equality; it has no path-prefix or symlink
- * semantics, and is omitted when the window has no effective workspace.
+ * semantics, and is omitted when the scope narrows nothing.
  * @param filters - the browser value to translate.
- * @param workspace - the window's effective workspace, when known.
+ * @param workspace - the corpus scope the `current` choice resolves against.
  * @param now - the captured current Unix epoch time in milliseconds.
  * @returns Harness clauses, ANDed in their returned order.
  */
 export function sessionFilterClauses(
   filters: SessionFiltersValue,
-  workspace: string | undefined,
+  workspace: SessionWorkspace,
   now: number,
 ): SessionResultFilter[] {
   const clauses: SessionResultFilter[] = []
-  if (filters.workspace === 'current' && workspace !== undefined) {
-    clauses.push({ kind: 'cwd', values: [workspace] })
+  if (filters.workspace === 'current' && workspace.kind === 'cwd') {
+    clauses.push({ kind: 'cwd', values: [workspace.cwd] })
   }
   const age = ageWindowRange(filters.age, now)
   if (age !== undefined) clauses.push({ kind: 'created-at', ...age })

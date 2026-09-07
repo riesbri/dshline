@@ -36,6 +36,12 @@ export type AttachTarget =
    * `clearDisplay` is the same recovery applied to PRESENTATION: an in-window
    * `/clear` carries the intent to begin this fresh session on an emptied
    * visible display, and the next attachment wipes only after create succeeded.
+   *
+   * A `/worktrees` transition is one of these and carries nothing extra: the
+   * directory IS the whole request, because Harness stamps it into the new
+   * session's immutable header and that header is what any later grouping
+   * reads. There is no membership to record and no domain identity for this
+   * module to carry.
    */
   | {
     readonly kind: 'new'
@@ -144,6 +150,38 @@ export function newSessionFailureLines(reason: string): string[] {
   ]
 }
 
+/** A fresh target and the recovery fields a failed transition keeps alive. */
+interface FreshRecovery {
+  /** The workspace the retired attachment was rooted in. */
+  readonly cwd: string
+  /** `/clear`'s presentation intent, when the first target carried it. */
+  readonly clearDisplay: boolean | undefined
+}
+
+/**
+ * Fold the recovery fields into a fresh target.
+ *
+ * One place rather than three. The direct path, the retry after a failed
+ * create, and the retry after a failed resume all mean the same thing, and
+ * three inline spreads of the same field list is how one of them silently
+ * stops carrying a field the other two do. Both fields belong to the ORIGINAL
+ * request rather than to the browser dismissal that followed it, which is why
+ * the recovery wins over whatever the chosen fresh target carried.
+ * @param fresh - the fresh target being attached or retried.
+ * @param recovery - the fields the failed transition kept alive.
+ * @returns the target to attach, or record as attached.
+ */
+function withRecovery(
+  fresh: Extract<AttachTarget, { readonly kind: 'new' }>,
+  recovery: FreshRecovery,
+): AttachTarget {
+  return {
+    ...fresh,
+    cwd: recovery.cwd,
+    ...(recovery.clearDisplay === undefined ? {} : { clearDisplay: recovery.clearDisplay }),
+  }
+}
+
 /**
  * Resolve a target into an attached agent, asking again while reopening fails.
  *
@@ -166,6 +204,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
   // display. A resume choice drops it, which is why it is folded into a
   // fresh target only.
   const recoveryClear = first.kind === 'new' ? first.clearDisplay : undefined
+  const recovery = (cwd: string): FreshRecovery => ({ cwd, clearDisplay: recoveryClear })
   for (;;) {
     if (target.kind === 'new') {
       const preset = spec.newSessionPreset()
@@ -182,7 +221,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
         // deliberately untouched: `clearDisplay` is presentation, and must not
         // leak into the session record.
         const attachedTarget = target.cwd === undefined && recoveryCwd !== undefined
-          ? { ...target, cwd: recoveryCwd, ...(recoveryClear === undefined ? {} : { clearDisplay: recoveryClear }) }
+          ? withRecovery(target, recovery(recoveryCwd))
           : target
         return { target: attachedTarget, attached: { handle, reopened: false } }
       } catch (error: unknown) {
@@ -192,9 +231,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
         if (recoveryCwd === undefined) throw error
         spec.report('new', error instanceof Error ? error.message : String(error))
         const chosen = await spec.ask()
-        target = chosen.kind === 'new'
-          ? { ...chosen, cwd: recoveryCwd, ...(recoveryClear === undefined ? {} : { clearDisplay: recoveryClear }) }
-          : chosen
+        target = chosen.kind === 'new' ? withRecovery(chosen, recovery(recoveryCwd)) : chosen
         continue
       }
     }
@@ -209,7 +246,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
       spec.report('resume', error instanceof Error ? error.message : String(error))
       const chosen = await spec.ask()
       target = chosen.kind === 'new' && recoveryCwd !== undefined
-        ? { ...chosen, cwd: recoveryCwd, ...(recoveryClear === undefined ? {} : { clearDisplay: recoveryClear }) }
+        ? withRecovery(chosen, recovery(recoveryCwd))
         : chosen
     }
   }

@@ -119,7 +119,7 @@ The search covers this session's input only: your prompts and slash commands, th
 
 A long or multiline prompt is previewed around the line that matched, rather than by its first line, so you can see why a result is in the list. Pressing `ctrl-r` while a session is still being reopened is fine: the search says the history is still loading, and whatever you have typed resolves against it the moment it lands.
 
-Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/work`, `/todos`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
+Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/worktrees`, `/work`, `/todos`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
 
 ### Queue or steer
 
@@ -201,6 +201,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | `/new` | Start a fresh session in the current workspace; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/clear` | Wipe the screen and start a fresh session in the current workspace, as `/new` does; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/sessions` | Browse, search, and reopen past sessions without leaving the window |
+| `/worktrees` | Choose a working directory your Harness session history represents, then a conversation there or a new one |
 | `/todos` | Open a bounded read-only view of the current Harness Todo list |
 | `/skills` | Browse the skills available to the running agent, and put one in the prompt |
 | `/exit`, `/quit` | Leave, the same as `ctrl-d` |
@@ -787,6 +788,90 @@ If reopening fails anyway — an unreadable log, an incompatible format version,
 persistence backend — the window prints the reason and opens the browser again so
 you can pick something else. `esc` there starts a new session instead. It never
 ends the process, and never quietly substitutes a session you did not ask for.
+
+### Worktrees
+
+`/sessions` asks which conversation. `/worktrees` asks the question before it —
+which working directory — and only then which conversation there:
+
+```text
+SessionHeader.cwd        what Harness stamped when each session was created
+      ↓ group by exact string
+working directories      one row per distinct cwd; nothing is stored
+      ↓ choose one
+that directory's sessions, or a new one
+```
+
+A working directory is not a session. Several conversations can be rooted in
+the same one, so choosing a directory does not choose one of them: the first
+view lists the directories your Harness session history represents, and
+selecting one opens a second view with that directory's sessions and a
+`+ New session` row on top.
+
+| | |
+| --- | --- |
+| type | Filter the directory list by name or path, as you type |
+| `↑` `↓` | Move; the list wraps at both ends |
+| `↵` | Open the selected directory, then open the selected session |
+| `n` | Start a fresh session in the selected directory, from the second view |
+| `←` | Back to the directory list |
+| `esc` | Back, then clear the filter, then close |
+| `ctrl-d` | Leave, as everywhere else |
+
+Each row is the directory's last path segment, its full path, and how many
+sessions carry exactly that path. `current` marks the directory the session in
+this window is rooted in — and nothing more than that. It does not claim that
+another terminal is live in a directory: Harness reports a session as live only
+for the process asking, and publishes no cross-process ownership state, so a
+row that said "running elsewhere" would be inventing one.
+
+**One process per session.** Harness does not currently publish cross-process
+ownership for a persisted session, so neither `/worktrees` nor `/sessions` can
+tell whether one is already open somewhere else. Do not reopen the same session
+in two dshline processes at once: the shipped JSONL persistence requires one
+live writer per session, and nothing enforces that across processes. Working in
+several directories at the same time is fine and is what several terminals are
+for — it is the same *session* in two places that has no defined behaviour.
+
+Opening a session reopens it exactly as `/sessions` does, under the same
+refusals, and a reopened session keeps the directory it was created in — its
+header is the authority, so nothing is ever re-rooted. `+ New session` starts a
+fresh session in the directory you selected; Harness stamps that path into the
+new session's header, which is the whole transition. Nothing else is written or
+recorded anywhere.
+
+**Where the list comes from, and what it does not include.** The rows are a
+grouping of Harness's own session corpus by each session's stored working
+directory, computed while the picker is open and thrown away when it closes.
+There is no dshline database, no workspace registry, and no Git: dshline runs
+no `git worktree list`, reads nothing under `.git`, and keeps no directory list
+of its own. So a directory appears once Harness has a session in it, and **a
+Git worktree you have just created and never worked in does not appear yet**.
+Start dshline there and its own live session puts it on this list; once that
+conversation has persisted, your other dshline windows find it too, through the
+ordinary session listing.
+
+```text
+Worktrees
+
+● dshline              ~/src/dshline            current · 2 sessions
+  dshline-auth         ~/src/dshline-auth       1 session
+  dshline-ui           ~/src/dshline-ui         1 session
+
+enter open    esc close
+```
+
+Creating and removing Git worktrees is deliberately not here — see
+[Roadmap](../ROADMAP.md), "Current limitations". The grouping key is the exact
+path string Harness stored, never a path dshline resolved, so if two sessions
+really were created with two different spellings of one directory they stay two
+rows; inventing path identity is the one thing a frontend must not do here.
+
+A profile that mounts no session corpus says so and offers nothing else:
+
+```text
+No Harness session corpus is mounted in this profile.
+```
 
 ### Work
 
@@ -1734,7 +1819,11 @@ fresh conversations, but cannot offer those conversations again after they end.
 You do not have to decide at launch. `/sessions` opens the same browser from
 inside a running window and reopens a session in place; see
 [Commands → Sessions](#sessions). One session is driven at a time, and the
-transcript of each stays in your terminal's own scrollback.
+transcript of each stays in your terminal's own scrollback. To move between
+working directories rather than between conversations, use
+[`/worktrees`](#worktrees); to work in two of them at once, open two terminals,
+each rooted in its own directory — which is also how the sessions each one
+creates reach the other's `/worktrees` list.
 
 ## If it refuses to start
 

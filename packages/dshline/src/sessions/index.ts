@@ -21,14 +21,21 @@ import type {} from '@deepseek-ai/dsh-session-query'
 import { escapeControls } from '@dshline/renderer'
 import { promptText } from '../prompt.ts'
 import { SessionCatalog } from './catalog.ts'
+import { workspaceScope } from './filters.ts'
 import { createSessionsOverlay, type RenameDraftOutcome } from './overlay.ts'
 import { CHILD_CLOSE_REQUESTED, type SessionsChildOverlay } from './panels.ts'
 import { planResume } from './plan.ts'
 
 export type { SessionCatalogSpec, SessionQueryReads } from './catalog.ts'
 export { CATALOG_LIMIT, CONTENT_SEARCH_LIMIT, SessionCatalog } from './catalog.ts'
-export type { AgeChoice, OriginChoice, SessionFiltersValue, WorkspaceChoice } from './filters.ts'
-export { equalFilters, NO_FILTERS } from './filters.ts'
+export type {
+  AgeChoice,
+  OriginChoice,
+  SessionFiltersValue,
+  SessionWorkspace,
+  WorkspaceChoice,
+} from './filters.ts'
+export { equalFilters, EVERY_WORKSPACE, NO_FILTERS, workspaceScope } from './filters.ts'
 export type {
   CatalogState,
   ContentState,
@@ -75,7 +82,13 @@ export interface BrowseSpec {
   readonly renameTitle?: (title: string) => Promise<RenameTitleResult>
   /** The user's home directory; injected so path shortening is assertable. */
   readonly home?: string
-  /** Effective workspace used by the catalog's `current` filter. */
+  /**
+   * Effective workspace of the window opening the browser.
+   *
+   * Two things at once, deliberately: the exact `cwd` the catalog's `current`
+   * filter narrows to (through {@link workspaceScope}), and the identity the
+   * frame's right-hand label shows.
+   */
   readonly workspace?: string
   /** Current time; injected so relative ages are assertable. */
   readonly now?: () => number
@@ -95,7 +108,7 @@ export async function browseSessions(spec: BrowseSpec): Promise<SessionId | unde
   const catalog = new SessionCatalog({
     query: ctx.get('sessionQuery'),
     invalidate: () => { ctx.tuiSlots.invalidate() },
-    ...(spec.workspace === undefined ? {} : { workspace: spec.workspace }),
+    workspace: workspaceScope(spec.workspace),
     ...(spec.now === undefined ? {} : { now: spec.now }),
   })
   catalog.refresh()

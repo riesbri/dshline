@@ -27,9 +27,11 @@ import type {
 import {
   applyOrigin,
   equalFilters,
+  EVERY_WORKSPACE,
   NO_FILTERS,
   sessionFilterClauses,
   type SessionFiltersValue,
+  type SessionWorkspace,
 } from './filters.ts'
 import { flattenLineage } from './lineage.ts'
 import type {
@@ -84,8 +86,15 @@ export interface SessionCatalogSpec {
   readonly invalidate: () => void
   /** Rows to keep from one listing; omitted, {@link CATALOG_LIMIT} applies. */
   readonly limit?: number
-  /** The window's effective workspace for the `current` filter. */
-  readonly workspace?: string
+  /**
+   * The exact corpus scope the `current` workspace filter narrows to.
+   *
+   * An arbitrary scope rather than "this window's directory": `/sessions`
+   * supplies the attached session's own workspace and `/worktrees` supplies
+   * the workspace a reader selected, and both reach the same
+   * `filterSessions` translation. Omitted, nothing narrows by workspace.
+   */
+  readonly workspace?: SessionWorkspace
   /** Current time source; omitted, `Date.now` applies. */
   readonly now?: () => number
 }
@@ -481,7 +490,7 @@ export class SessionCatalog {
       this.spec.invalidate()
       return
     }
-    const sessionFilters = sessionFilterClauses(this.filterValue, this.spec.workspace, this.filterAnchor)
+    const sessionFilters = sessionFilterClauses(this.filterValue, this.spec.workspace ?? EVERY_WORKSPACE, this.filterAnchor)
     const request: SessionSearchRequest = {
       query: trimmed,
       sessionFilters,
@@ -669,7 +678,7 @@ export class SessionCatalog {
     this.spec.invalidate()
     void (async (): Promise<void> => {
       try {
-        const clauses = sessionFilterClauses(filters, this.spec.workspace, this.filterAnchor)
+        const clauses = sessionFilterClauses(filters, this.spec.workspace ?? EVERY_WORKSPACE, this.filterAnchor)
         const records = filtered
           ? await query.filterSessions(clauses, abort.signal)
           : await query.listSessions(abort.signal)

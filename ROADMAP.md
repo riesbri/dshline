@@ -128,8 +128,9 @@ Still ahead for Sessions:
 - inspecting a within-session search hit's context through `readEvent()`
 - renaming a closed persisted session, once a narrower Harness mutation surface
   exists — the generic title service wields live session objects only
-- a known-workspaces list and a "recent activity" filter, if Harness ever
-  publishes predicates for them
+- a "recent activity" filter, if Harness ever publishes a predicate for it —
+  the known-workspaces half is now `/worktrees`, which groups the corpus this
+  browser already reads rather than needing a predicate for it
 - archiving a session, once upstream publishes a symmetric lifecycle and the
   session corpus can be asked about archive state
 
@@ -328,6 +329,64 @@ API. A possible small `dshline-api` is a future option, not a current
 commitment. `TuiSlots` and overlays remain experimental pre-1.0, and persistent
 third-party rows need a global live-region layout budget first.
 
+### 10. Worktrees — merged
+
+The fifth generic capability adapter presents the WORKING DIRECTORY, which is
+the question `/sessions` never asked. It reads one authority — the same one
+`/sessions` reads — and groups it:
+
+```text
+ctx.sessionQuery.listSessions()   the logical corpus: a fresh
+                                  sessionPersistence.list() merged with this
+                                  process's live sessions, newest first
+      ↓ group by exact SessionHeader.cwd
+worktree rows                     transient; nothing is persisted
+      ↓ select one
+SessionCatalog { kind: 'cwd', cwd }
+```
+
+A row is DEFINED as "the sessions whose header records exactly this cwd", which
+is why it needs no id, no title, and no durable record: the key is the
+definition.
+
+- directory-first: selecting one opens that directory's sessions rather than
+  resuming whichever is newest, because several conversations can be rooted in
+  the same place and a directory is not a conversation
+- one query path, not two: the second view is the very `SessionCatalog`
+  `/sessions` uses, scoped to the selected cwd, so corpus order, filtering,
+  title folding, and cancellation stay where they already are — and the first
+  view's count and the second view's rows are one relationship read twice
+- transitions are the ones that already exist — `ctx.agents.resume({ id })` for
+  a session, `ctx.agents.create` with the selected `cwd` for a fresh one — so
+  one dshline window still drives one root Session
+- a fresh session needs no follow-up write at all: Harness stamps `cwd` into
+  its immutable header, and that header IS the grouping rule, so the next
+  corpus read places it without dshline recording anything
+- no new dependency and no new composition row. The corpus was chosen over the
+  durable Workspace registry deliberately: at the adopted generation
+  `dsh-storage-domain` documents that `domain/changed` is in-process and that
+  "a second host process observes no changes", and `dsh-storage-json`
+  documents "no cross-process write locking" with last-completion-wins. A
+  feature whose whole point is several simultaneous terminals cannot sit on
+  shared mutable state with those properties, while session persistence — one
+  artifact per session, one live writer per session, a fresh listing per corpus
+  read — already models distinct sessions in distinct directories well
+
+Still ahead for Worktrees, and both wait on upstream:
+
+- **Git worktree facts.** The adopted generation publishes no Git or worktree
+  capability at all, so a row carries a path and a session count — not a
+  branch, a HEAD, a dirty flag, or a lock state. The presentation model is
+  shaped to be reconciled with an optional Harness capability that publishes
+  structured worktree metadata; nothing here will read `.git` or shell out to
+  fill the gap.
+- **Git worktree enumeration and provisioning.** Listing every worktree of a
+  repository, and creating or removing one, stay out for the same reason: that
+  is Git lifecycle, and no Harness seam owns it. What is missing upstream is a
+  runtime capability that publishes worktree facts and accepts add/remove with
+  its own authorization and lifecycle — at which point `/worktrees` gains rows
+  and actions, and dshline still owns none of the Git.
+
 ## Robustness is capability work
 
 Feature count is not worth breaking the terminal model. Ongoing priorities are:
@@ -425,9 +484,47 @@ does not promise is that any older prerelease generation keeps working.
   model-callable tool that may infer the intent from an ordinary request. Either
   way the status line names the objective for as long as one is live; inspect or
   pause a goal before leaving one running.
-- **One session at a time per window.** `/sessions` reopens a session in place
-  rather than beside the current one; there are no tabs, split panes, or
-  side-by-side agents.
+- **One session at a time per window.** `/sessions` and `/worktrees` both
+  reopen a session in place rather than beside the current one; there are no
+  tabs, split panes, or side-by-side agents. Working in two worktrees at once
+  is two terminals, each rooted in its own directory — which is what a shell
+  already gives, and what a multiplexer inside the frontend would take over
+  badly.
+- **`/worktrees` shows directories represented in Harness sessions, not every
+  Git worktree.** Its rows are a transient grouping of the session corpus by
+  each session's stored `cwd`, so a directory appears once Harness has a
+  session in it. A Git worktree created and never worked in therefore does not
+  appear; starting dshline there puts it on that window's list immediately, and
+  once its conversation has persisted, other windows find it through the
+  ordinary session listing. dshline runs no `git worktree list`, reads nothing
+  under `.git`, and keeps no directory list of its own, because a second
+  account of which working directories exist is a second authority to disagree
+  with.
+- **A worktree row carries no Git state.** No branch, HEAD, dirty flag, lock,
+  or prunable marker, because the adopted generation publishes no Git or
+  worktree capability to read them from. Enumerating, creating, and removing
+  worktrees are out for the same reason.
+- **The grouping key is the stored path, not a resolved one.** dshline does not
+  `realpath`, join, or normalize a session's `cwd`, so two spellings of one
+  directory stay two rows if sessions really were created with two different
+  strings. Inventing path identity in the frontend would be worse than showing
+  what Harness recorded.
+- **No cross-process liveness or takeover, in `/worktrees` or `/sessions`.**
+  The persisted corpus includes sessions other dshline processes created, and
+  navigating them is the point — but `SessionRecord.live` means live in the
+  asking process, `ctx.agents` is process-local, and the adopted generation
+  publishes no cross-process ownership contract, so nothing here reports a
+  session as idle elsewhere or safe to take over. **dshline cannot tell whether
+  a persisted session is currently open in another dshline process.** Harness's
+  own refusal is process-local: the persistence coordinator's `prepare()`
+  throws for a session that is live, but the fact it consults is
+  `ctx.sessions`, this process's store, and its ownership bookkeeping is
+  in-memory per backend instance. The shipped JSONL backend states the rest as
+  a requirement on callers rather than an enforcement — "another instance or
+  process must not write the same session until that owner reaches quiescent
+  disposal" — and there is no lease, pid owner, heartbeat, or lock in the
+  session or storage packages at this revision. So do not drive one session
+  from two dshline processes at once; nothing will stop you.
 - **Reopening waits for quiet.** A window refuses to reopen a session while a
   turn is running or while jobs or subagents are attached to the one being left,
   because no generic seam defines what happens to work whose owner is retired.
@@ -494,3 +591,9 @@ does not promise is that any older prerelease generation keeps working.
 - a stable public TUI SDK before internal adapters prove one
 - an npm-style plugin marketplace or package manager (`dsh plugin --profile
   <name> add/remove` already covers that at the profile level)
+- owning Git: worktree creation or removal, branch or merge operations, status
+  parsing, or a dirty-state policy — Git owns Git, and a Harness capability is
+  what would publish it
+- cross-process session takeover, agent discovery, or process locks — pid
+  files, lock files, heartbeats, and sockets are all a frontend inventing an
+  ownership contract Harness has not defined
