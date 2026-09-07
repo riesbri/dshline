@@ -340,6 +340,25 @@ describe('what the browser shows', () => {
     expect(row(44)).toContain('2h ago')
   })
 
+  it('keeps the delegated cue and age readable on a narrow row', () => {
+    const view = mount({
+      listing: {
+        kind: 'ready',
+        entries: [entry({
+          title: 'A child with a long identifying title',
+          origin: 'delegated',
+        })],
+        truncated: 0,
+      },
+    })
+    const row = screen(view, 52, ROWS)
+      .split('\n')
+      .find(line => line.includes('A child with')) ?? ''
+    expect(displayWidth(row)).toBeLessThanOrEqual(52)
+    expect(row).toContain('delegated')
+    expect(row).toContain('2h ago')
+  })
+
   it('drops whole help segments rather than cutting one in half', () => {
     const view = mount()
     const narrow = view.render(46, ROWS).map(stripAnsi).at(-1) ?? ''
