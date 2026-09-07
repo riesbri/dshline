@@ -36,9 +36,9 @@
     "@deepseek-ai/dsh-subprocess": "0.1.2-rc.1",
     "@deepseek-ai/dsh-subprocess-local": "0.1.2-rc.1",
     "@deepseek-ai/dsh-timeout": "0.1.2-rc.1",
-    "@types/node": "^26.4.0",
+    "@types/node": "^26.4.1",
     "@xterm/headless": "^6.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }
