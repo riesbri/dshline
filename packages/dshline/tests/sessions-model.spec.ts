@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEntry } from '../src/sessions/model.ts'
 import {
+  CURRENT,
   filterEntries,
   matchesQuery,
   relativeAge,
@@ -62,6 +63,11 @@ describe('what a row is called', () => {
     // matcher below cannot report a hit on the word "untitled".
     expect(sessionLabel(entry({ title: undefined }))).toBe(UNTITLED)
     expect(sessionLabel(entry({ title: '   ' }))).toBe(UNTITLED)
+  })
+
+  it('names an untitled current session by its relationship to the window', () => {
+    expect(sessionLabel(entry({ title: undefined }), entry().id)).toBe(CURRENT)
+    expect(sessionLabel(entry({ title: '   ' }), entry().id)).toBe(CURRENT)
   })
 })
 
