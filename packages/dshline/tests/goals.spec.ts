@@ -99,14 +99,14 @@ describe('the Goal projection adapter', () => {
 
   it('counts the rounds from the projection while live activation is armed', () => {
     expect(goalReading(cut(projection()), () => 'armed'))
-      .toEqual({ label: 'goal 3/256 · ship it', short: 'goal 3/256', running: true })
+      .toEqual({ label: 'goal 3/256', running: true })
   })
 
   it('says armed rather than nought of a cap no round has approached', () => {
     // `goal 0/256` reads as a progress meter stuck at zero. It is not progress
     // at all: 256 is the deployment's round cap, and nothing has been spent.
     expect(goalReading(cut(projection({ roundsStarted: 0 })), () => 'armed'))
-      .toEqual({ label: 'goal armed · ship it', short: 'goal armed', running: true })
+      .toEqual({ label: 'goal armed', running: true })
   })
 
   it('marks a durably active goal that this process will not continue', () => {
@@ -114,7 +114,7 @@ describe('the Goal projection adapter', () => {
     // says active, the process says disarmed, and only the second one predicts
     // what will happen next.
     expect(goalReading(cut(projection()), () => 'disarmed'))
-      .toEqual({ label: 'goal idle · ship it', short: 'goal idle', running: false })
+      .toEqual({ label: 'goal idle', running: false })
   })
 
   it('treats an unobtainable activation as idle rather than inferring armed', () => {
@@ -122,7 +122,7 @@ describe('the Goal projection adapter', () => {
     // still `active`, and inferring `armed` from it is the exact claim this
     // adapter must never make.
     expect(goalReading(cut(projection()), () => undefined))
-      .toEqual({ label: 'goal idle · ship it', short: 'goal idle', running: false })
+      .toEqual({ label: 'goal idle', running: false })
   })
 
   it('takes a stopped phase from the projection without consulting the service at all', () => {
@@ -132,7 +132,7 @@ describe('the Goal projection adapter', () => {
     for (const phase of ['paused', 'blocked', 'complete'] as const) {
       const source = activationSource('armed')
       expect(goalReading(cut(projection({ phase })), source.read), phase)
-        .toEqual({ label: `goal ${phase} · ship it`, short: `goal ${phase}`, running: false })
+        .toEqual({ label: `goal ${phase}`, running: false })
       expect(source.calls(), phase).toBe(0)
     }
   })
@@ -146,19 +146,13 @@ describe('the Goal projection adapter', () => {
     expect(running('active', 'armed')).toBe(true)
   })
 
-  it('bounds a long objective itself, so the status line never has to cut one', () => {
-    const long = goalReading(
+  it('keeps the objective out of the status reading, including when it is long', () => {
+    const reading = goalReading(
       cut(projection({ objective: 'migrate every call site off the deprecated adapter' })),
       () => 'armed',
     )
-    expect(long?.label).toBe('goal 3/256 · migrate every call site off…')
-    expect(long?.short).toBe('goal 3/256')
-  })
-
-  it('shows an escape sequence in an objective instead of obeying it', () => {
-    // A model writes the objective and it reaches the terminal on every frame.
-    expect(goalReading(cut(projection({ objective: 'ship\u001b[2Jit' })), () => 'armed')?.label)
-      .toContain('^[[2J')
+    expect(reading).toEqual({ label: 'goal 3/256', running: true })
+    expect(reading?.label).not.toContain('deprecated adapter')
   })
 })
 
@@ -186,20 +180,18 @@ describe('the Goal authority split', () => {
     const reading = goalReading(cut(durable), () => service.activation)
     // Durable half: entirely the projection's.
     expect(reading).toEqual({
-      label: 'goal 12/256 · ship the release',
-      short: 'goal 12/256',
+      label: 'goal 12/256',
       running: true,
     })
     expect(reading?.label).not.toContain('stale objective')
-    expect(reading?.short).not.toContain('complete')
+    expect(reading?.label).not.toContain('complete')
     // The service's own round count, which shares no digits with `12/256`.
-    expect(reading?.short).not.toContain('24')
+    expect(reading?.label).not.toContain('24')
 
     // Live half: entirely the service's. The same projection with a disarmed
     // process is idle, and not one character of the durable text moves.
     expect(goalReading(cut(durable), () => 'disarmed')).toEqual({
-      label: 'goal idle · ship the release',
-      short: 'goal idle',
+      label: 'goal idle',
       running: false,
     })
   })
@@ -263,7 +255,7 @@ describe('the real Alpha.5 Goal service and session projection', () => {
     expect(durable).not.toHaveProperty('activation')
 
     expect(goalReading(observer.snapshot(), () => ctx.goals.get(agent)?.activation))
-      .toEqual({ label: 'goal 1/8 · ship the release', short: 'goal 1/8', running: true })
+      .toEqual({ label: 'goal 1/8', running: true })
     observer.dispose()
   })
 
@@ -288,7 +280,7 @@ describe('the real Alpha.5 Goal service and session projection', () => {
     expect(ctx.goals.get(agent)?.activation).toBe('disarmed')
     // dshline joins the two into the one reading neither could give alone.
     expect(goalReading(after, () => ctx.goals.get(agent)?.activation))
-      .toEqual({ label: 'goal idle · ship the release', short: 'goal idle', running: false })
+      .toEqual({ label: 'goal idle', running: false })
     observer.dispose()
   })
 
@@ -300,7 +292,7 @@ describe('the real Alpha.5 Goal service and session projection', () => {
     ctx.emit('agent/session-start', { agent, session: agent.session })
     expect(observer.snapshot()?.values.goal?.goal.phase).toBe('active')
     expect(goalReading(observer.snapshot(), () => ctx.goals.get(agent)?.activation))
-      .toEqual({ label: 'goal idle · ship the release', short: 'goal idle', running: false })
+      .toEqual({ label: 'goal idle', running: false })
 
     ctx.goals.resume(agent, { id: created.id, revision: created.revision })
     expect(goalReading(observer.snapshot(), () => ctx.goals.get(agent)?.activation)?.running).toBe(true)
@@ -312,16 +304,16 @@ describe('the real Alpha.5 Goal service and session projection', () => {
     const created = ctx.goals.create(agent, { objective: 'ship the release', maxGoalRounds: 8 })
     const paused = ctx.goals.pause(agent, { id: created.id, revision: created.revision })
     const never = activationSource('armed')
-    expect(goalReading(observer.snapshot(), never.read)?.short).toBe('goal paused')
+    expect(goalReading(observer.snapshot(), never.read)?.label).toBe('goal paused')
 
     const resumed = ctx.goals.resume(agent, { id: paused.id, revision: paused.revision })
     const blocked = ctx.goals.block(agent, { id: resumed.id, revision: resumed.revision }, {
       code: 'needs-input', message: 'waiting on a decision',
     })
-    expect(goalReading(observer.snapshot(), never.read)?.short).toBe('goal blocked')
+    expect(goalReading(observer.snapshot(), never.read)?.label).toBe('goal blocked')
 
     ctx.goals.complete(agent, { id: blocked.id, revision: blocked.revision })
-    expect(goalReading(observer.snapshot(), never.read)?.short).toBe('goal complete')
+    expect(goalReading(observer.snapshot(), never.read)?.label).toBe('goal complete')
     // Not one of those three needed the live service.
     expect(never.calls()).toBe(0)
     observer.dispose()

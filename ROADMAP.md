@@ -83,10 +83,11 @@ feature replay the same session log.
    internal session-scoped observer. The whole-list `todo/write` state,
    lifecycle, and persistence remain Harness-owned; dshline parses neither
    calls, cards, nor tool output and owns no Todo state machine.
-2. **Goal — implemented.** The status line's durable goal reading — objective,
-   phase, round count, round cap — comes from the Harness `goal` projection
-   through that same observer, on the same snapshot cut Todo uses, so Goal adds
-   no second direct dshline snapshot. `ctx.goals` is consulted for one
+2. **Goal — implemented.** The Harness `goal` projection supplies the durable
+   goal domain — objective, phase, round count, round cap — through that same
+   observer and snapshot cut Todo uses, so Goal adds no second direct dshline
+   snapshot. The persistent footer projects only compact state and progress;
+   `/goal` is the objective inspection surface. `ctx.goals` is consulted for one
    process-local fact that no replay can reconstruct, continuation activation,
    and only for a projected goal that is durably active. It is read live and
    never cached, because `disarm()` changes it with no durable event; an
@@ -482,8 +483,9 @@ does not promise is that any older prerelease generation keeps working.
 - **A goal can start without a `/goal` command.** `/goal <objective>` starts a
   Harness goal-driver run, and the harness also publishes `create_goal` as a
   model-callable tool that may infer the intent from an ordinary request. Either
-  way the status line names the objective for as long as one is live; inspect or
-  pause a goal before leaving one running.
+  way the status line exposes the goal's state and progress; `/goal` is where the
+  objective is inspected, and a goal should be inspected or paused before you
+  leave it running.
 - **One session at a time per window.** `/sessions` and `/worktrees` both
   reopen a session in place rather than beside the current one; there are no
   tabs, split panes, or side-by-side agents. Working in two worktrees at once

@@ -53,7 +53,7 @@ Without a global `dsh` and without that variable, `pnpm dsh` still works — but
 | `↑` `↓` | Move through your earlier messages; inside a long prompt that wraps, move up and down within it before `↑` recalls history; while a suggestion list is open, move through it instead |
 | `enter` `esc` | Confirm or close a box or a suggestion list |
 
-Editing keys: `←` `→` to move, `home` and `end` (or `ctrl-a` and `ctrl-e`) for the ends of the line, `backspace` and `delete`, and `ctrl-u`, `ctrl-k`, `ctrl-w` to delete to the start, to the end, and by word. In a prompt that wraps across rows, `↑` and `↓` also move vertically through the wrapped lines, keeping the column you aimed at across short rows.
+Editing keys: `←` `→` to move, `home` and `end` (or `ctrl-a` and `ctrl-e`) for the ends of the line, `backspace` and `delete`, and `ctrl-u`, `ctrl-k`, `ctrl-w` to delete to the start, to the end, and by word. At the usual cursor position at the end, `ctrl-u` clears the whole draft; from the middle, `ctrl-a` then `ctrl-k` does the same. In a prompt that wraps across rows, `↑` and `↓` also move vertically through the wrapped lines, keeping the column you aimed at across short rows.
 
 `ctrl-z` undoes the last draft edit and `ctrl-y` redoes it. Consecutive typing joins into one undo step; a cursor move, a completion acceptance, a recalled history line, or a submitted prompt each starts a fresh one — history stays history, and a sent prompt is never reachable through undo.
 
@@ -240,9 +240,9 @@ A leading `/name` is resolved in one fixed order: this interface's own commands,
 The check uses the harness's own rule for what a command line looks like, so the name must either end the line or be followed by a space. This means `/etc/hosts is missing` is treated as an ordinary message and reaches the model unchanged, while `/tmp is full` is treated as a command and reported as unknown. That trade-off is deliberate: a mistyped command is far more common than a message starting with a folder name.
 
 > [!WARNING]
-> **`/goal <objective>` does more than record a goal.** It starts the harness's goal driver, which immediately begins working on that objective by itself, for up to 256 rounds, using tools in your folder. Use `/goal` with no text to just view the current goal, and `/goal pause` or `/goal clear` to stop one. Nothing warns you before it begins — but once it has, the status line says so, by name, for as long as it runs.
+> **`/goal <objective>` does more than record a goal.** It starts the harness's goal driver, which immediately begins working on that objective by itself, for up to 256 rounds, using tools in your folder. Use `/goal` with no text to just view the current goal, and `/goal pause` or `/goal clear` to stop one. Nothing warns you before it begins — but once it has, the status line exposes its running state for as long as it runs.
 >
-> **A goal can also start without you.** The harness gives the model a `create_goal` tool and tells it that it may infer a long-running objective from what you asked, without you saying the word "goal". The status line is how you find out; `/goal` shows it in full and `/goal pause` stops it. See [What the session is about to do](#what-the-session-is-about-to-do).
+> **A goal can also start without you.** The harness gives the model a `create_goal` tool and tells it that it may infer a long-running objective from what you asked, without you saying the word "goal". The status line is how you find out through that state; `/goal` shows the full objective and `/goal pause` stops it. See [What the session is about to do](#what-the-session-is-about-to-do).
 
 ### Setup
 
@@ -1371,9 +1371,9 @@ Themes are the five above. A palette is written against an internal vocabulary o
 
 A tool card shows the first rows of what a tool produced, with a marker saying how many it hid. A **command** is the exception: its card keeps the *last* rows and puts the marker above them, because what you ran `pnpm test` to find out is the failure and the summary at the bottom, not the banner at the top.
 
-`ctrl-o` opens the hidden rows. While the newest finished tool card was truncated, it opens an inspector over that card — the same presentation, scrollable, at a much larger budget than the card itself had — and closes on `esc` leaving your scrollback exactly as it was. This works whether you are on `compact` or `full`. With no such card waiting, `ctrl-o` instead cycles how much every *future* card shows: `compact`, `full`, `hidden`. Cards already printed are never redrawn, which is the trade for keeping normal terminal selection and copying.
+`ctrl-o` opens the hidden rows. While the newest finished tool card was truncated, it opens an inspector over that card — the same presentation, scrollable, at a much larger budget than the card itself had — and closes on `esc` leaving your scrollback exactly as it was. This works whether you are on `compact` or `full`. With no such card waiting, `ctrl-o` instead cycles how much every *future* card shows: `compact`, `full`, `hidden`. Cards already printed are never redrawn, which is the trade for keeping normal terminal selection and copying. The status footer keeps its space for session controls rather than advertising this reader shortcut.
 
-Inside the inspector, `←` moves to an older retained card and `→` moves to a newer one; `↑`/`↓` scroll the current card, `home`/`end` jump to its top or bottom, and `esc` closes. `ctrl-o` still works there as an older-card shortcut. The title counts your place (`Tool output 2/6`), and navigation stops at either end rather than wrapping. The last dozen truncated cards stay reachable this way, so a result you scrolled past is not lost to the tool calls that followed it. Each card is offered once: after the newest unseen one, `ctrl-o` returns to the detail cycle, which is what keeps that toggle a single keystroke away. The status line lists `ctrl-o output` while a turn is running.
+Inside the inspector, `←` moves to an older retained card and `→` moves to a newer one; `↑`/`↓` scroll the current card, `home`/`end` jump to its top or bottom, and `esc` closes. `ctrl-o` still works there as an older-card shortcut. The title counts your place (`Tool output 2/6`), and navigation stops at either end rather than wrapping. The last dozen truncated cards stay reachable this way, so a result you scrolled past is not lost to the tool calls that followed it. Each card is offered once: after the newest unseen one, `ctrl-o` returns to the detail cycle, which is what keeps that toggle a single keystroke away.
 
 ### Plan review
 
@@ -1388,18 +1388,18 @@ Two things change what a turn *does* rather than what it says, and both are invi
 | | |
 | --- | --- |
 | `plan` | Plan mode is in force. The agent will propose rather than act |
-| `goal armed · ship the release` | A goal is set and will continue by itself. No round has been taken yet |
-| `goal 3/256 · ship the release` | Three rounds taken, of a cap of 256 |
-| `goal idle · ship the release` | A goal is set, but this session will not continue it. `/goal resume` arms it |
+| `goal armed` | A goal is set and will continue by itself. No round has been taken yet |
+| `goal 3/256` | Three rounds taken, of a cap of 256 |
+| `goal idle` | A goal is set, but this session will not continue it. `/goal resume` arms it |
 | `goal paused`, `goal blocked`, `goal complete` | A goal that is not running, and why |
 
-The objective is there because **a goal is not always something you set.** The harness publishes `create_goal` as a tool the model itself may call, and its own description says the model may infer that a request is long-running without being asked to create anything. So a session can acquire the authority to keep going on its own, and the status line is where that becomes visible. `/goal` shows the whole objective; `/goal pause` stops it.
+A goal can begin without a command you typed. The harness publishes `create_goal` as a tool the model itself may call, and its own description says the model may infer that a request is long-running without being asked to create anything. The footer makes that automatic continuation visible through the goal's state and progress; `/goal` is the surface that shows the full objective, and `/goal pause` stops it.
 
 `256` is the deployment's cap on automatic continuation rounds, not a target — which is why the count appears only once a round has actually been taken. `goal 0/256` reads as a meter stuck at zero; `goal armed` says the same thing truthfully.
 
 `idle` is what every **reopened** session shows for an active goal. Whether a process may continue a goal is deliberately not saved with the goal, so resuming a conversation does not restart a run you left — the goal is still there, and picking it up again is a thing you ask for.
 
-Neither mode is given up when the terminal narrows. They are dropped only after the model name, the totals, the bar and the context reading have gone, and a running goal is the very last thing to go — after the key hints. A mode is dropped whole rather than shortened: `goal 12/25` is not a smaller truth than `goal 12/256`, it is a different one. The objective is the one exception, and only because it is prose: a shortened objective is still an objective, so it is surrendered on its own before anything else about the goal is.
+Neither mode is given up when the terminal narrows. They are dropped only after the model name, the totals, the bar and the context reading have gone, and a running goal is the very last thing to go — after the key hints. A mode is dropped whole rather than shortened: `goal 12/25` is not a smaller truth than `goal 12/256`, it is a different one. The footer carries only this compact state and progress; `/goal` remains the objective's inspection surface.
 
 ### Reasoning levels
 
@@ -1473,7 +1473,7 @@ The whole selection is stored together — route and reasoning level — because
 ### While a turn is running
 
 ```
-◜ working 14m 26s · run_shell_command +2 calls · x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c interrupt
+◜ working 14m 26s · run_shell_command +2 calls · x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
 ```
 
 Beside the elapsed time is the tool the turn is waiting on. A long turn with nothing named beside it reads the same whether a command is running or the session has stopped responding, so the name is the difference between waiting and worrying. It is the first thing given up when the terminal narrows.
