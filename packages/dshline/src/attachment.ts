@@ -12,6 +12,7 @@
  * @module dshline/attachment
  */
 
+import { homedir } from 'node:os'
 import { createUserMessage, type ImageBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-agent/types'
@@ -64,7 +65,7 @@ import { LocalCommandRegistry } from './local-commands.ts'
 import { runThemes, themeValues } from './themes/index.ts'
 import type { LocalCommandChoice } from './local-commands.ts'
 import { SessionScope } from './session-scope.ts'
-import { planNew } from './sessions/plan.ts'
+import { planNew, planResume } from './sessions/plan.ts'
 import type { AttachOutcome, AttachTarget } from './sessions/reopen.ts'
 import { shouldClearDisplay } from './sessions/reopen.ts'
 import { StreamBuffer } from './stream.ts'
@@ -978,6 +979,60 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           workspace,
         })
         if (chosen !== undefined) requestNext({ kind: 'resume', id: chosen })
+        draw()
+      },
+    },
+    {
+      name: 'worktrees',
+      description: 'Choose a code workspace, then a conversation in it',
+      execute: async () => {
+        // Workspace-first, and deliberately not `/sessions` with a filter: a
+        // worktree is not a session, so choosing a directory must not resume
+        // whichever conversation happens to be newest in it. The second view
+        // asks that question separately, and `+ New session` is its first row.
+        //
+        // Imported on demand, like `/plugins`, `/profiles`, `/connect`, and
+        // `/sessions` above: the picker's module graph is one command's UI.
+        // Only `worktrees/membership.ts` — the write the loop performs after a
+        // creation — is on the boot path.
+        //
+        // Both plans are the ones `/sessions` and `/new` already use, and both
+        // are passed as functions rather than decisions: the picker stays open
+        // across turns, so busy and active-work are sampled AT THE MOMENT the
+        // reader chooses. Retiring this agent for a worktree is exactly as
+        // consequential as retiring it for a session, so it passes the same
+        // checks.
+        const { openWorktrees } = await import('./worktrees/index.ts')
+        const chosen = await openWorktrees({
+          ctx,
+          currentSessionId: agent.session.id,
+          currentWorkspace: workspace,
+          planResume: entry => planResume({
+            target: entry,
+            currentSessionId: agent.session.id,
+            busy: agent.status === 'running',
+            activeWork: activeWorkCount(work.snapshot()),
+          }),
+          planNew: () => planNew({
+            busy: agent.status === 'running',
+            activeWork: activeWorkCount(work.snapshot()),
+          }),
+          home: homedir(),
+        })
+        if (chosen === undefined) {
+          draw()
+          return
+        }
+        if (chosen.kind === 'resume') {
+          // Silent, exactly as `/sessions` is: the reopened session announces
+          // itself with its own resume banner.
+          requestNext({ kind: 'resume', id: chosen.id })
+        } else {
+          // The same acknowledgement `/new` commits, because it is the same
+          // act — only the workspace differs.
+          commit([paint('· starting a new session…', 'muted')])
+          requestNext({ kind: 'new', cwd: chosen.cwd, workspaceId: chosen.workspaceId })
+        }
         draw()
       },
     },

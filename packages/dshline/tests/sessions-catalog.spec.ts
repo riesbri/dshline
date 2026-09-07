@@ -293,7 +293,7 @@ describe('filtering the authoritative listing', () => {
           ]
         },
       }),
-      workspace: '/w',
+      workspace: { kind: 'cwd', cwd: '/w' },
       now: () => now,
       limit: 2,
       invalidate: () => {},
@@ -737,7 +737,7 @@ describe('searching what sessions said', () => {
             : next.promise
         },
       }),
-      workspace: '/w',
+      workspace: { kind: 'cwd', cwd: '/w' },
       now: () => 10 * 24 * 60 * 60 * 1_000,
       invalidate: () => {},
     })
@@ -802,7 +802,7 @@ describe('searching what sessions said', () => {
         },
       }),
       invalidate: () => {},
-      workspace: '/work/root',
+      workspace: { kind: 'cwd', cwd: '/work/root' },
     })
     catalog.search('needle')
     await settled()

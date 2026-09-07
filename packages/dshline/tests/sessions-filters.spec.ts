@@ -5,8 +5,10 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import {
   ageWindowRange,
   applyOrigin,
+  EVERY_WORKSPACE,
   NO_FILTERS,
   sessionFilterClauses,
+  workspaceScope,
 } from '../src/sessions/filters.ts'
 import type { SessionEntry } from '../src/sessions/model.ts'
 
@@ -41,10 +43,31 @@ function entry(
 
 describe('translating Sessions filters', () => {
   it('emits exact-workspace clauses only when current has an effective workspace', () => {
-    expect(sessionFilterClauses({ ...NO_FILTERS, workspace: 'current' }, '/work', NOW))
+    expect(sessionFilterClauses({ ...NO_FILTERS, workspace: 'current' }, workspaceScope('/work'), NOW))
       .toEqual([{ kind: 'cwd', values: ['/work'] }])
-    expect(sessionFilterClauses({ ...NO_FILTERS, workspace: 'current' }, undefined, NOW)).toEqual([])
-    expect(sessionFilterClauses(NO_FILTERS, '/work', NOW)).toEqual([])
+    expect(sessionFilterClauses({ ...NO_FILTERS, workspace: 'current' }, EVERY_WORKSPACE, NOW)).toEqual([])
+    expect(sessionFilterClauses(NO_FILTERS, workspaceScope('/work'), NOW)).toEqual([])
+  })
+
+  it('resolves an absent or empty workspace path to the scope that narrows nothing', () => {
+    // The scope, not the reader's choice, is what decides whether a `cwd`
+    // clause exists at all: `/worktrees` supplies an arbitrary selected
+    // workspace here, and an empty string would otherwise become an exact
+    // `cwd` clause matching no session in the corpus.
+    expect(workspaceScope(undefined)).toEqual(EVERY_WORKSPACE)
+    expect(workspaceScope('')).toEqual(EVERY_WORKSPACE)
+    expect(workspaceScope('/other')).toEqual({ kind: 'cwd', cwd: '/other' })
+  })
+
+  it('narrows to any exact workspace, not only the one the window is in', () => {
+    // The reuse `/worktrees` depends on: one translation, one query path, and
+    // the scope is a parameter rather than "wherever this window happens to
+    // be".
+    expect(sessionFilterClauses(
+      { ...NO_FILTERS, workspace: 'current' },
+      { kind: 'cwd', cwd: '/elsewhere/auth' },
+      NOW,
+    )).toEqual([{ kind: 'cwd', values: ['/elsewhere/auth'] }])
   })
 
   it('anchors today at local midnight with an inclusive upper boundary', () => {
@@ -60,7 +83,7 @@ describe('translating Sessions filters', () => {
   })
 
   it('combines workspace and age as separate ANDed clauses', () => {
-    expect(sessionFilterClauses({ workspace: 'current', origin: 'delegated', age: '7d' }, '/work', NOW))
+    expect(sessionFilterClauses({ workspace: 'current', origin: 'delegated', age: '7d' }, workspaceScope('/work'), NOW))
       .toEqual([
         { kind: 'cwd', values: ['/work'] },
         { kind: 'created-at', from: NOW - 7 * DAY, to: NOW },
@@ -68,7 +91,7 @@ describe('translating Sessions filters', () => {
   })
 
   it('translates the empty value to no Harness clauses', () => {
-    expect(sessionFilterClauses(NO_FILTERS, '/work', NOW)).toEqual([])
+    expect(sessionFilterClauses(NO_FILTERS, workspaceScope('/work'), NOW)).toEqual([])
   })
 })
 

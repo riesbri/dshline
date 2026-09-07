@@ -69,6 +69,7 @@ Type `/` to discover the commands and capabilities available in the active Harne
 - `/clear` — wipe the screen and start a fresh session in the current workspace, like `/new`; the previous one is reopenable when the active Harness profile provides session persistence
 - `/image <path>` — stage a PNG, JPEG, WebP, or GIF as a real Harness image for the next prompt; `@path` remains a textual reference
 - `/sessions` — browse and resume Harness sessions
+- `/worktrees` — choose the code workspace to work in, then a conversation there or a new one
 - `/work` — inspect workflows, subagents, and jobs
 - `/connect` — configure providers through Harness
 - `/plugins` — browse, search, and customize the running agent's Harness preset composition

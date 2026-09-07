@@ -119,7 +119,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 长提示或多行提示会围绕匹配到的那一行预览，而不是只显示第一行，于是你能看出一条结果为什么在列表里。会话还在重新打开时按 `ctrl-r` 也没问题：搜索会说明历史仍在加载，你已经输入的内容会在历史到达的那一刻立即解析。
 
-重新打开会话会恢复保存的日志记录下的历史：每一条提示与每一条输入被记录的已解决斜杠命令。本界面自己处理的命令（`/image`、`/model`、`/reasoning`、`/usage`、`/timing`、`/enter`、`/new`、`/clear`、`/sessions`、`/work`、`/todos`、`/skills`、`/exit`、`/quit`）与打错的命令在会话打开期间被记住，但不会写入会话日志，因此恢复后不会重现。
+重新打开会话会恢复保存的日志记录下的历史：每一条提示与每一条输入被记录的已解决斜杠命令。本界面自己处理的命令（`/image`、`/model`、`/reasoning`、`/usage`、`/timing`、`/enter`、`/new`、`/clear`、`/sessions`、`/worktrees`、`/work`、`/todos`、`/skills`、`/exit`、`/quit`）与打错的命令在会话打开期间被记住，但不会写入会话日志，因此恢复后不会重现。
 
 ### 排队还是导向
 
@@ -187,6 +187,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 | `/new` | 在当前工作区开始一个全新会话；当前激活的 Harness 配置文件提供会话持久化时，上一个会话仍可重新打开 |
 | `/clear` | 清屏并在当前工作区开始一个全新会话，如同 `/new`；当前激活的 Harness 配置文件提供会话持久化时，上一个会话仍可重新打开 |
 | `/sessions` | 不离开窗口浏览、搜索并重新打开过去的会话 |
+| `/worktrees` | 选择要工作的代码工作区，然后选择那里的一场对话或开一场新的 |
 | `/todos` | 打开当前 Harness Todo 列表的有界只读视图 |
 | `/skills` | 浏览运行中 agent 可用的技能，并把其中之一放进提示 |
 | `/exit`、`/quit` | 退出，与 `ctrl-d` 相同 |
@@ -563,6 +564,56 @@ allowBuilds:
 重命名会追加一个带显式 `user` 来源的 `session/title` 事件：它钉住会话的标题（自动生成停止），浏览器从日志重新读取它的标题观测。它从不重新打开会话——重命名只在已在本窗口打开的会话上提供，因为通用标题服务只操作活动会话对象，而重命名一个已关闭的持久会话需要先恢复它。
 
 即使重新打开仍然失败——不可读的日志、不兼容的格式版本、没有持久化后端——窗口打印原因并重新打开浏览器，让你选别的。在那里按 `esc` 改为开始一个新会话。它从不结束进程，也从不悄悄替换你没要的会话。
+
+### Worktrees
+
+`/sessions` 问的是哪一场对话。`/worktrees` 问的是它之前的那个问题——哪一个代码工作区——然后才问那里的哪一场对话：
+
+```text
+repository
+  └─ worktree / working directory
+       └─ Harness Workspace
+            ├─ Session A
+            ├─ Session B
+            └─ Session C
+```
+
+worktree 不是会话。同一个目录里可以有好几场对话，因此选一个目录并不等于选中其中某一场：第一层视图列出 Harness 知道的 Workspace，选中一个会打开第二层视图，显示那个 Workspace 自己的会话，最上面是一行 `+ New session`。
+
+| | |
+| --- | --- |
+| type | 边输入边按标题或路径过滤 Workspace 清单 |
+| `↑` `↓` | 移动；列表两端都回绕 |
+| `↵` | 打开选中的 Workspace，然后打开选中的会话 |
+| `n` | 在第二层视图中，于选中的 Workspace 里开一场新会话 |
+| `←` | 返回 Workspace 清单 |
+| `esc` | 先返回，再清空过滤，再关闭 |
+| `ctrl-d` | 退出，与别处一样 |
+
+每一个 Workspace 行是 Harness 自己的标题、它的规范目录，以及 Harness 记在它名下的会话数量。`current` 标记本窗口中的会话所在的 Workspace——仅此而已。它不声称另一个终端在某个目录里存活，因为 `ctx.agents` 是进程内的，而 Harness 不发布跨进程的所有权约定；一行写着"在别处运行"就是在自己发明一个。
+
+打开一个会话与 `/sessions` 的方式完全一致，遵守同样的拒绝规则；恢复的会话保留它被创建时所在的工作区——它的头部是权威，因此任何东西都不会被重新指向别的根目录。`+ New session` 开一场新会话，其工作区就是你选中的那一个，会话存在之后 Harness 会把它记在那个 Workspace 名下。如果这次记录失败，dshline 会说明并保留这场对话：你要的会话已经创建，为了让一份清单看起来整齐而删掉它，等于扔掉唯一成功的部分。
+
+**清单从哪里来，以及它不包含什么。** 这些 Workspace 就是 Harness 自己的 `ctx.workspaceRegistry` 记录——针对规范工作目录的持久登记——除此之外没有别的。dshline 不运行 `git worktree list`，不读取 `.git` 下的任何内容，也不保留自己的目录清单，因为对"存在哪些工作目录"的第二份账目就是第二个会与之分歧的权威。Harness 会在第一次挂载了该 registry 的启动时，把你已有的历史一次性归组成 Workspace；此后，一个目录要成为 Workspace，需要有谁去登记它。所以**你刚刚创建、从未使用过的 Git worktree 现在还不会出现在这里**。当那个目录正是本窗口所在的目录时，清单会提供登记它：
+
+```text
+Worktrees
+
+● dshline              ~/src/dshline            current · 2 sessions
+  auth experiment      ~/src/dshline-auth       1 session
+  workspaces           ~/src/dshline-workspaces no sessions
+  + Register ~/src/dshline-new
+
+enter open    esc close
+```
+
+那一行就是 Harness 自己唯一的添加路径，并且对每个目录是幂等的：它登记一个你已经在其中工作的目录，不创建目录，不创建分支，也不创建 Git worktree。创建与移除 Git worktree 有意不在这里——见 [路线图](../ROADMAP.zh.md)"当前限制"。
+
+没有挂载 Workspace registry 的配置文件会说明这一点，不提供别的东西：
+
+```text
+No Harness Workspace registry is mounted in this profile.
+```
 
 ### Work
 
@@ -1297,7 +1348,7 @@ dsh --profile dshline --resume <id>     # reopen a session directly
 
 重新打开的会话看起来与你看着发生的那场完全一样——推理、diff、工具输出等等——因为它已持久化的日志通过绘制实时会话的同一段代码重绘。没有会话持久化的配置文件仍然支持开始新的对话，只是对话结束后无法再次提供。
 
-你不必在启动时决定。`/sessions` 从运行中的窗口内部打开同一个浏览器，并在原位重新打开会话；见 [命令 → Sessions](#sessions)。一次驱动一个会话，每个的会话记录都留在你自己终端的滚动缓冲区中。
+你不必在启动时决定。`/sessions` 从运行中的窗口内部打开同一个浏览器，并在原位重新打开会话；见 [命令 → Sessions](#sessions)。一次驱动一个会话，每个的会话记录都留在你自己终端的滚动缓冲区中。要在代码工作区之间移动而不是在对话之间移动，用 [`/worktrees`](#worktrees)；要同时在两个工作区里工作，就开两个终端，各自以自己的目录为根。
 
 ## 如果它拒绝启动
 

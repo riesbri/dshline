@@ -36,12 +36,22 @@ export type AttachTarget =
    * `clearDisplay` is the same recovery applied to PRESENTATION: an in-window
    * `/clear` carries the intent to begin this fresh session on an emptied
    * visible display, and the next attachment wipes only after create succeeded.
+   *
+   * `workspaceId` is present only on a `/worktrees` transition, and this
+   * module deliberately never reads it: it is an OPAQUE string carried
+   * through the recovery merges exactly as `cwd` is, so the Workspace domain
+   * stays out of a module whose one responsibility is the create/resume
+   * lifecycle. The loop records the membership it names after create
+   * succeeded — see `worktrees/membership.ts` — which is also why a failed
+   * create can never leave phantom membership behind: nothing has been
+   * written yet.
    */
   | {
     readonly kind: 'new'
     readonly afterDismissal?: boolean
     readonly cwd?: string
     readonly clearDisplay?: boolean
+    readonly workspaceId?: string
   }
   /** Reopen this persisted session. */
   | { readonly kind: 'resume'; readonly id: SessionId }
@@ -144,6 +154,46 @@ export function newSessionFailureLines(reason: string): string[] {
   ]
 }
 
+/** A fresh target and the recovery fields a failed transition keeps alive. */
+interface FreshRecovery {
+  /** The workspace the retired attachment was rooted in. */
+  readonly cwd: string
+  /** `/clear`'s presentation intent, when the first target carried it. */
+  readonly clearDisplay: boolean | undefined
+  /** The `/worktrees` workspace whose membership the loop will record. */
+  readonly workspaceId: string | undefined
+}
+
+/**
+ * Fold the recovery fields into a fresh target.
+ *
+ * One place rather than three. The direct path, the retry after a failed
+ * create, and the retry after a failed resume all mean the same thing, and
+ * three inline spreads of the same field list is how one of them silently
+ * stops carrying a field the other two do.
+ *
+ * `clearDisplay` is taken from the recovery deliberately — the presentation
+ * intent belongs to the ORIGINAL request, not to the browser dismissal that
+ * followed it — while `workspaceId` prefers the target's own, because a reader
+ * who picked a different worktree in between chose a different workspace to be
+ * a member of.
+ * @param fresh - the fresh target being attached or retried.
+ * @param recovery - the fields the failed transition kept alive.
+ * @returns the target to attach, or record as attached.
+ */
+function withRecovery(
+  fresh: Extract<AttachTarget, { readonly kind: 'new' }>,
+  recovery: FreshRecovery,
+): AttachTarget {
+  const workspaceId = fresh.workspaceId ?? recovery.workspaceId
+  return {
+    ...fresh,
+    cwd: recovery.cwd,
+    ...(recovery.clearDisplay === undefined ? {} : { clearDisplay: recovery.clearDisplay }),
+    ...(workspaceId === undefined ? {} : { workspaceId }),
+  }
+}
+
 /**
  * Resolve a target into an attached agent, asking again while reopening fails.
  *
@@ -166,6 +216,17 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
   // display. A resume choice drops it, which is why it is folded into a
   // fresh target only.
   const recoveryClear = first.kind === 'new' ? first.clearDisplay : undefined
+  // Carried with the workspace it belongs to, and only with it: a retried
+  // fresh target that reuses `recoveryCwd` is still the same request, so the
+  // membership the loop will record must still name the same workspace. A
+  // resume choice drops both, which is why they are folded into a fresh
+  // target only.
+  const recoveryWorkspace = first.kind === 'new' ? first.workspaceId : undefined
+  const recovery = (cwd: string): FreshRecovery => ({
+    cwd,
+    clearDisplay: recoveryClear,
+    workspaceId: recoveryWorkspace,
+  })
   for (;;) {
     if (target.kind === 'new') {
       const preset = spec.newSessionPreset()
@@ -182,7 +243,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
         // deliberately untouched: `clearDisplay` is presentation, and must not
         // leak into the session record.
         const attachedTarget = target.cwd === undefined && recoveryCwd !== undefined
-          ? { ...target, cwd: recoveryCwd, ...(recoveryClear === undefined ? {} : { clearDisplay: recoveryClear }) }
+          ? withRecovery(target, recovery(recoveryCwd))
           : target
         return { target: attachedTarget, attached: { handle, reopened: false } }
       } catch (error: unknown) {
@@ -192,9 +253,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
         if (recoveryCwd === undefined) throw error
         spec.report('new', error instanceof Error ? error.message : String(error))
         const chosen = await spec.ask()
-        target = chosen.kind === 'new'
-          ? { ...chosen, cwd: recoveryCwd, ...(recoveryClear === undefined ? {} : { clearDisplay: recoveryClear }) }
-          : chosen
+        target = chosen.kind === 'new' ? withRecovery(chosen, recovery(recoveryCwd)) : chosen
         continue
       }
     }
@@ -209,7 +268,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
       spec.report('resume', error instanceof Error ? error.message : String(error))
       const chosen = await spec.ask()
       target = chosen.kind === 'new' && recoveryCwd !== undefined
-        ? { ...chosen, cwd: recoveryCwd, ...(recoveryClear === undefined ? {} : { clearDisplay: recoveryClear }) }
+        ? withRecovery(chosen, recovery(recoveryCwd))
         : chosen
     }
   }

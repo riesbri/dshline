@@ -41,6 +41,42 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
+# The Workspace entity registry (`ctx.workspaceRegistry`): durable records over
+# canonical working directories, plus header-validated Session membership.
+# `/worktrees` reads it, and reading it is the whole reason this row is here.
+#
+# Host-plane and unconditional, for the same reason `session-stats` and
+# `authorization` are: the registry is a process-wide durable domain keyed by
+# directory, not anything an agent contributes. The package's own README says
+# outright that it is "host-side only: the model, tools, and agent loop never
+# see it, so it adds no tokens, prompts, or request context" — it registers no
+# tool, injects no prompt section, and appends no session event. Putting it
+# behind an agent preset would make whether a person can navigate their
+# worktrees a function of which preset a session happens to run, and would open
+# the same durable domain once per mounted preset.
+#
+# `dsh-base` does not carry this row; upstream's own `web-app` bundle inserts
+# this same name in its host roster for the workspace sidebar
+# (`packages/bundle/web-app/cordis.patch.yml` in deepseek-harness). This row is
+# that same treatment for a different reader — one bounded `/worktrees`
+# overlay.
+#
+# Safe to mount unconditionally on the package's own terms:
+# `WorkspaceRegistry.inject = ['storageDomain', 'sessionPersistence']` leaves
+# the row PENDING rather than failing on a composition that mounts neither, and
+# `dsh-base` mounts both (`storage-domain`, `session-persistence-jsonl`). It
+# creates no storage of its own — `storageDomain` remains the persistence owner
+# and the registry just opens the `workspace` domain on it.
+#
+# A profile that drops this row keeps everything else. `/worktrees` says in one
+# line that this profile mounts no Harness Workspace registry, and dshline
+# implements no fallback: a second list of known working directories — scanned
+# from the sessions tree or from `git worktree list` — would be a second
+# authority to disagree with.
+- insert:
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'
+
 # The authorization seam (`ctx.authorization`): the flows that OBTAIN a
 # credential by asking a human, which is the half of provider setup no
 # settings document can supply. `/connect` reads it, and reading it is the

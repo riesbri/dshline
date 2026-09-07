@@ -49,6 +49,7 @@ native terminal
 | 工具 | `ctx.tools` | 渲染工具拥有的呈现意图，而不是工具名的特例。 |
 | 人类应答 | `ctx.userQuestions` | 注册一个终端应答者；认领本前端能够呈现的请求，绝不假设该请求只发给了本前端。 |
 | 会话 | `ctx.sessionQuery` | 查询 Harness 偏好活动的会话语料库；不构建另一个数据库。其全文方法是抽象的，因此把内容搜索视为可选。 |
+| 工作区 | `ctx.workspaceRegistry` | 读取针对规范工作目录的持久记录，并通过同一个 registry 挂接刚创建的 Session。不保留 worktree 清单、Git 状态存储或第二份归属账目。 |
 | 附件 | `ctx.fs` + `ctx.attachments` | 路径只作为会话本地草稿；通过当前文件系统执行有界读取，并把持久图片引用作为一个批次发布。绝不持久化字节、base64 或主机路径。 |
 | 日志派生的状态 | `ctx.sessionProjections` | 消费已注册的领域快照与变更。 |
 | 上下文占用 | `ctx.sessionProjections`（`contextPressure`、`contextBreakdown`、`tokenUsage`） | 读取 O(1) 折叠；绝不自行计数 token 或分词。 |
@@ -232,6 +233,40 @@ attachment    one Agent, its log projection, its capability adapters, its views
 当一次启动在进程生命周期内恰好驱动一个会话时，插件 fiber 与会话是同一个生命周期，`ctx.effect` 是适合拥有一切的地方。原位重新打开会话打破了这个同一性：槽位注册、日志监听器、旋转指示器以及 Work 与投影适配器都描述同一个会话，因此它们属于一个在其 agent 句柄之前拆除的 `SessionScope`。按键路由向另一个方向移动，上移到窗口，这也是为什么 `ctrl-d` 现在从启动浏览器退出，而那个浏览器不拥有自己的键盘。窗口仍然是全局退出的所有者；附着的会话只提供一个感知取消的前置步骤：取消它自己的异步工作、拆除呈现，然后通过公开的取消 seam 中断 Agent。随后它请求 `ctx.appExit`；AgentHandle 的拆除、树的销毁、持久化与最终进程退出仍由 Harness 负责。
 
 重新打开只使用受支持的生命周期，别无其他：拥有的 `AgentHandle.dispose()` 使当前 agent 退役——句柄是本前端的能力，因为本前端创建了该 agent——而 `ctx.agents.resume` 打开下一个。会话记录追加进已有内容下的原生滚动缓冲区；没有任何已提交内容被重写。被拒绝的恢复既不终止进程，也不替换会话：到那时前一个 agent 已退役，因此窗口提交 Harness 的原因，并通过同一个浏览器再次询问。关掉它正是读者刻意选择新会话的方式。
+
+## Worktrees：工作区是另一个问题
+
+Sessions 回答的是"哪一场对话"。它无法回答"在哪里"，因为 `cwd` 只是会话头部上的一个字段，而不是一个有身份的东西，而且好几场对话共享同一个 `cwd`。因此 `/worktrees` 读取第二个权威，呈现上面那一层：
+
+```text
+repository
+  └─ worktree / working directory      Git's, and Git's alone
+       └─ Harness Workspace            ctx.workspaceRegistry
+            ├─ Session A               ctx.sessionQuery
+            ├─ Session B
+            └─ Session C
+```
+
+**worktree 不是会话，因此选择器不把这些层级压平。**选中一个目录会打开那个目录的会话，加上一行 `+ New session`；它绝不恢复恰好最新的那一场对话。另一种做法——一个清单，选中工作区就恢复某个东西——被否决了，因为它让最常见的情形（一个仓库里有好几场对话）在读者没有主动要求的过滤之外变得不可达。
+
+**两个权威，一次连接，没有第三个存储。**连接键就是 Harness 自己盖上的规范路径：一个 Workspace 记录的 `path` 是它创建时的 `fs.realpath`，而会话那一侧是带 `cwd` 子句的 `filterSessions`，子句携带的正是那个字符串。registry 自己的 `sessionIds` 账目只作为一个数量呈现，别无其他，因为 Harness 的账目与语料库可以如实地不同——在一个没人登记过的目录里创建的会话不属于任何工作区——而把两者平均起来会让 dshline 成为第三个权威。这次连接只存活到选择器关闭为止。
+
+会话那一侧就是 `/sessions` 用的那个 `SessionCatalog`，不是第二个浏览器。这正是把 catalog 的工作区作用域做成任意精确 `cwd`、而不是"本窗口的目录"的全部意义：`/sessions` 提供附着会话自己的工作区，`/worktrees` 提供选中的那一个，两者通过同一次翻译抵达 `filterSessions`。
+
+**每窗口一个根 Session 的不变式得以保留。**一次选择解析为已经存在的两个附着目标之一——`{ kind: 'resume', id }` 或 `{ kind: 'new', cwd }`——并走 `/sessions` 与 `/new` 使用的同一套先退役再附着的切换，遵守同样的 `planResume` / `planNew` 拒绝规则。没有标签页，没有分屏，也没有第二个存活的 agent；跨 worktree 的并行工作就是若干个终端，各自以自己的目录为根。
+
+归属关系是唯一的那次写入，而它的顺序就是约定。Harness 自己的 session controller 先解析 Workspace，再用 `cwd = workspace.path` 创建 Session，然后才调用 `workspace.attachSession(id)`；dshline 与之一致。因此附着目标把工作区 id 作为一个不透明字符串携带，`sessions/reopen.ts` 从不读取它——那个模块唯一的职责是 create/resume，它像携带 `cwd` 那样把这个 id 带过它的恢复合并——而这次写入由主循环在创建成功与新附着之间执行。由此有两个后果，每一个都是一次拒绝：
+
+- 一次失败的创建不可能留下幽灵归属关系，因为在那个时点什么都还没写；
+- 一次失败的 attach 不会回滚会话。上游抛出 `session/workspace-attach-failed`，同时命名两个 id
+  并保留会话；而读者要的是某个目录里的一场对话，并且确实得到了——因此失败被报告，成功的那个会话
+  不会为了让呈现层的账目看起来是原子的而被销毁。
+
+**发现属于 Harness，它的界限被记录下来，而不是被补齐。**registry 会在第一次挂载它的启动时从持久化的会话头部一次性引导出工作区，此后不再重新引导；之后一个目录要成为工作区，需要有谁去登记它。因此一个创建出来却从未使用过的 Git worktree 不会出现。dshline 不运行 `git worktree list`，不读取 `.git` 下的任何内容，也不保留自己的目录清单，因为对"存在哪些工作目录"的第二份账目就是第二个会与之分歧的权威。它提供的是 Harness 自己唯一的幂等添加路径（`workspaceRegistry.create`），只作用在它能够确定无主的那一个目录上——本窗口所在的那个——而这恰恰是上游 Workspace controller 作为人类命令暴露的东西。
+
+**Git owns Git。**一行携带一个标题、一条规范路径、一个归属数量，以及为读者打开的那一个工作区所读取的实时目录检查。它不携带分支、HEAD、脏标记、锁或可修剪标记，也没有创建／移除操作，因为所采纳的世代完全没有发布任何 Git 或 worktree 能力。呈现模型被塑造成日后可以由一个发布结构化 worktree 事实的可选上游能力来丰富；在这样的能力存在之前，这里没有 `ctx.worktrees`，也没有替它顶上的子进程。
+
+**"运行中"这个词被精确使用。**`ctx.agents` 是进程内的，而所采纳的世代不发布跨进程的所有权或存活约定，因此 `current` 标记的是本窗口的会话所在的工作区，别无其他声称。没有任何一行会说"在另一个终端里存活"、"可以安全接管"或"在另一个进程里空闲"；恢复一个由另一个存活进程持有的会话会因 Harness 自己的拒绝而失败，现有的重新打开恢复路径会报告它。
 
 ## Connect：配置是四个 seam，而不是一个
 

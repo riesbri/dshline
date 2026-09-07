@@ -119,7 +119,7 @@ The search covers this session's input only: your prompts and slash commands, th
 
 A long or multiline prompt is previewed around the line that matched, rather than by its first line, so you can see why a result is in the list. Pressing `ctrl-r` while a session is still being reopened is fine: the search says the history is still loading, and whatever you have typed resolves against it the moment it lands.
 
-Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/work`, `/todos`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
+Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/worktrees`, `/work`, `/todos`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
 
 ### Queue or steer
 
@@ -201,6 +201,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | `/new` | Start a fresh session in the current workspace; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/clear` | Wipe the screen and start a fresh session in the current workspace, as `/new` does; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/sessions` | Browse, search, and reopen past sessions without leaving the window |
+| `/worktrees` | Choose the code workspace to work in, then a conversation there or a new one |
 | `/todos` | Open a bounded read-only view of the current Harness Todo list |
 | `/skills` | Browse the skills available to the running agent, and put one in the prompt |
 | `/exit`, `/quit` | Leave, the same as `ctrl-d` |
@@ -787,6 +788,84 @@ If reopening fails anyway — an unreadable log, an incompatible format version,
 persistence backend — the window prints the reason and opens the browser again so
 you can pick something else. `esc` there starts a new session instead. It never
 ends the process, and never quietly substitutes a session you did not ask for.
+
+### Worktrees
+
+`/sessions` asks which conversation. `/worktrees` asks the question before it —
+which code workspace — and only then which conversation there:
+
+```text
+repository
+  └─ worktree / working directory
+       └─ Harness Workspace
+            ├─ Session A
+            ├─ Session B
+            └─ Session C
+```
+
+A worktree is not a session. Several conversations can be rooted in the same
+directory, so choosing a directory does not choose one of them: the first view
+lists the workspaces Harness knows, and selecting one opens a second view with
+that workspace's own sessions and a `+ New session` row on top.
+
+| | |
+| --- | --- |
+| type | Filter the workspace list by title or path, as you type |
+| `↑` `↓` | Move; the list wraps at both ends |
+| `↵` | Open the selected workspace, then open the selected session |
+| `n` | Start a fresh session in the selected workspace, from the second view |
+| `←` | Back to the workspace list |
+| `esc` | Back, then clear the filter, then close |
+| `ctrl-d` | Leave, as everywhere else |
+
+Each workspace row is Harness's own title, its canonical directory, and how
+many sessions Harness accounts to it. `current` marks the workspace the session
+in this window is rooted in — and nothing more than that. It does not claim
+that another terminal is live in a directory, because `ctx.agents` is
+process-local and Harness publishes no cross-process ownership contract; a row
+that said "running elsewhere" would be inventing one.
+
+Opening a session reopens it exactly as `/sessions` does, under the same
+refusals, and a reopened session keeps the workspace it was created in — its
+header is the authority, so nothing is ever re-rooted. `+ New session` starts a
+fresh session whose workspace is the one you selected, and Harness records it
+under that workspace once it exists. If that recording fails, dshline says so
+and keeps the conversation: the session you asked for was created, and deleting
+it to make a list look tidy would throw away the only part that worked.
+
+**Where the list comes from, and what it does not include.** The workspaces are
+Harness's own `ctx.workspaceRegistry` records — durable registrations over
+canonical working directories — and nothing else. dshline runs no `git worktree
+list`, reads nothing under `.git`, and keeps no directory list of its own,
+because a second account of "which working directories exist" would be a second
+authority to disagree with. Harness groups your existing history into
+workspaces once, at the first start that has the registry mounted, and after
+that a directory becomes a workspace when something registers it. So **a Git
+worktree you have just created and never used does not appear here yet**. When
+that is the directory this window is in, the list offers to register it:
+
+```text
+Worktrees
+
+● dshline              ~/src/dshline            current · 2 sessions
+  auth experiment      ~/src/dshline-auth       1 session
+  workspaces           ~/src/dshline-workspaces no sessions
+  + Register ~/src/dshline-new
+
+enter open    esc close
+```
+
+That row is Harness's own single add route, and it is idempotent per directory:
+it records a directory you are already working in, and it creates no directory,
+no branch, and no Git worktree. Creating and removing Git worktrees is
+deliberately not here — see [Roadmap](../ROADMAP.md), "Current limitations".
+
+A profile that does not mount the Workspace registry says so and offers
+nothing else:
+
+```text
+No Harness Workspace registry is mounted in this profile.
+```
 
 ### Work
 
@@ -1734,7 +1813,10 @@ fresh conversations, but cannot offer those conversations again after they end.
 You do not have to decide at launch. `/sessions` opens the same browser from
 inside a running window and reopens a session in place; see
 [Commands → Sessions](#sessions). One session is driven at a time, and the
-transcript of each stays in your terminal's own scrollback.
+transcript of each stays in your terminal's own scrollback. To move between
+code workspaces rather than between conversations, use
+[`/worktrees`](#worktrees); to work in two of them at once, open two terminals,
+each rooted in its own directory.
 
 ## If it refuses to start
 
