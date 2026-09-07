@@ -44,7 +44,6 @@ import { attachTarget, newSessionFailureLines, reopenFailureLines } from './sess
 import { installDshlineSettings } from './settings.ts'
 import type { DshlineSettings } from './settings.ts'
 import { TuiSlots } from './slots.ts'
-import { recordAttachmentMembership } from './worktrees/membership.ts'
 import type { ModelRates, PeakWindow, PricingTable } from './usage.ts'
 import { parsePeakWindows, pricingFrom } from './usage.ts'
 import { attachOptions, chooseTarget, createWindow, offerSetup } from './window.ts'
@@ -206,13 +205,6 @@ async function run(
       },
       ask: () => chooseTarget(w),
     }, target)
-    // Workspace membership belongs to the LOOP, between the create and the
-    // attachment: `sessions/reopen.ts` stays a create/resume lifecycle module
-    // that carries an opaque workspace id without reading it, and a creation
-    // that failed can leave no phantom membership behind because nothing has
-    // been written yet. It reports a refusal and never unwinds the session —
-    // the conversation the reader asked for succeeded.
-    await recordAttachmentMembership(ctx, outcome, w.commit)
     target = await attachSession(w, outcome)
   }
 }

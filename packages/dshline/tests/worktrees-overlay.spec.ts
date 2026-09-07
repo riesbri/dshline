@@ -1,9 +1,9 @@
 /**
  * `/worktrees`: the place first, then the conversation.
  *
- * The behaviour worth pinning is the ORDER. Selecting a worktree must open a
- * second question rather than resume something, `+ New session` must be a
- * first-class answer to that question, and going back must not have chosen
+ * The behaviour worth pinning is the ORDER. Selecting a working directory must
+ * open a second question rather than resume something, `+ New session` must be
+ * a first-class answer to that question, and going back must not have chosen
  * anything. Everything else here is the ordinary overlay contract this
  * project's other browsers already keep: a bounded frame, a truthful empty
  * state, and a refusal that says which rule refused.
@@ -15,7 +15,6 @@ import type { Key } from '@dshline/renderer'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import type { CatalogState, SessionEntry } from '../src/sessions/model.ts'
 import type { NewPlan, ResumePlan } from '../src/sessions/plan.ts'
-import type { RegisterOutcome } from '../src/worktrees/catalog.ts'
 import type { WorktreeListing, WorktreeRow, WorktreeSelection } from '../src/worktrees/model.ts'
 import { createWorktreesOverlay } from '../src/worktrees/overlay.ts'
 
@@ -26,7 +25,7 @@ const HOME = '/home/dev'
 const NOW = 1_800_000_000_000
 
 /**
- * One session row in a workspace's listing.
+ * One session row in a directory's listing.
  * @param id - the session id.
  * @param title - its folded title.
  * @param minutesAgo - how long before {@link NOW} it was created.
@@ -52,14 +51,14 @@ function entry(
   }
 }
 
-/** The three workspaces the picker lists. */
+/** The three directories the picker lists. */
 const ROWS: readonly WorktreeRow[] = [
-  { id: 'ws-main', title: 'dshline', path: `${HOME}/src/dshline`, sessions: 2, current: true },
-  { id: 'ws-auth', title: 'auth experiment', path: `${HOME}/src/dshline-auth`, sessions: 1, current: false },
-  { id: 'ws-quiet', title: 'workspaces', path: `${HOME}/src/dshline-workspaces`, sessions: 0, current: false },
+  { cwd: `${HOME}/src/dshline`, sessions: 2, current: true },
+  { cwd: `${HOME}/src/dshline-auth`, sessions: 1, current: false },
+  { cwd: `${HOME}/src/dshline-ui`, sessions: 1, current: false },
 ]
 
-/** The sessions the `auth experiment` workspace holds. */
+/** The sessions the `dshline-auth` directory holds. */
 const AUTH_SESSIONS: CatalogState = {
   kind: 'ready',
   truncated: 0,
@@ -77,19 +76,16 @@ interface Opened {
   readonly type: (text: string) => void
   readonly opened: () => readonly string[]
   readonly wentBack: () => number
-  readonly registered: () => readonly string[]
   readonly closed: () => boolean
 }
 
 /** How one case configures the picker it opens. */
 interface Options {
   readonly listing?: WorktreeListing
-  readonly unregistered?: string
-  /** Which workspace the second view is showing, if any. */
+  /** Which directory the second view is showing, if any. */
   readonly selected?: WorktreeSelection
   readonly resume?: (entry: SessionEntry) => ResumePlan
-  readonly create?: (workspace: WorktreeRow) => NewPlan
-  readonly register?: (path: string) => Promise<RegisterOutcome>
+  readonly create?: (row: WorktreeRow) => NewPlan
   readonly currentSessionId?: SessionId
 }
 
@@ -103,38 +99,30 @@ interface Options {
  */
 function open(options: Options = {}): Opened {
   const listing: WorktreeListing = options.listing ?? { kind: 'ready', rows: ROWS }
-  const openedIds: string[] = []
-  const registeredPaths: string[] = []
+  const openedCwds: string[] = []
   let backs = 0
   let closed = false
   let selection = options.selected
   const overlay = createWorktreesOverlay({
     listing: () => listing,
-    unregistered: () => options.unregistered,
     selection: () => selection,
-    open: (workspaceId) => {
-      openedIds.push(workspaceId)
-      const workspace = listing.kind === 'ready'
-        ? listing.rows.find(row => row.id === workspaceId)
+    open: (cwd) => {
+      openedCwds.push(cwd)
+      const row = listing.kind === 'ready'
+        ? listing.rows.find(candidate => candidate.cwd === cwd)
         : undefined
-      if (workspace !== undefined) {
+      if (row !== undefined) {
         selection = {
-          workspace,
-          status: 'ok',
-          sessions: workspaceId === 'ws-auth' ? AUTH_SESSIONS : { kind: 'ready', entries: [], truncated: 0 },
+          row,
+          sessions: row.cwd === `${HOME}/src/dshline-auth`
+            ? AUTH_SESSIONS
+            : { kind: 'ready', entries: [], truncated: 0 },
         }
       }
     },
     back: () => {
       backs += 1
       selection = undefined
-    },
-    register: async (path) => {
-      registeredPaths.push(path)
-      return await (options.register?.(path) ?? Promise.resolve<RegisterOutcome>({
-        kind: 'registered',
-        workspaceId: 'ws-new',
-      }))
     },
     resume: options.resume ?? (() => ({ kind: 'resume' })),
     create: options.create ?? (() => ({ kind: 'new' })),
@@ -148,9 +136,8 @@ function open(options: Options = {}): Opened {
     rows: (columns = 88, rows = 26) => overlay.render(columns, rows).map(stripAnsi),
     press: key => { overlay.handleKey(key) },
     type: text => { overlay.handleKey({ kind: 'text', text }) },
-    opened: () => openedIds,
+    opened: () => openedCwds,
     wentBack: () => backs,
-    registered: () => registeredPaths,
     closed: () => closed,
   }
 }
@@ -159,7 +146,7 @@ function open(options: Options = {}): Opened {
  * The BODY row containing some text.
  *
  * The frame's own borders are excluded, because the left title is literally
- * `dshline` and would answer for the workspace of the same name.
+ * `dshline` and would answer for the directory of the same name.
  * @param rows - rendered rows.
  * @param text - the text to find.
  * @returns the row, or undefined.
@@ -181,97 +168,92 @@ function body(rows: readonly string[]): readonly string[] {
 const key = (name: Key extends { name: infer N } ? N : never): Key => ({ kind: 'key', name } as Key)
 
 describe('the worktree picker', () => {
-  it('opens on the workspace list, naming every known worktree with its path', () => {
+  it('opens on the directory list, naming each one with its path', () => {
     const rows = open().rows()
-    expect(rowFor(rows, 'Worktrees · 3 known')).toBeDefined()
-    expect(rowFor(rows, 'dshline')).toContain('~/src/dshline')
-    expect(rowFor(rows, 'auth experiment')).toContain('~/src/dshline-auth')
-    expect(rowFor(rows, 'workspaces')).toContain('~/src/dshline-workspaces')
+    expect(rowFor(rows, 'Worktrees · 3 in session history')).toBeDefined()
+    expect(rowFor(rows, 'dshline-auth')).toContain('~/src/dshline-auth')
+    expect(rowFor(rows, 'dshline-ui')).toContain('~/src/dshline-ui')
   })
 
-  it('marks the workspace this window is rooted in, and claims nothing about other processes', () => {
+  it('marks the directory this window is rooted in, and claims nothing about other processes', () => {
     const rows = open().rows()
-    expect(rowFor(rows, 'dshline')).toContain('current')
-    expect(rowFor(rows, 'auth experiment')).not.toContain('current')
-    // `ctx.agents` is process-local and the adopted Harness generation
-    // publishes no cross-process ownership contract, so no row may suggest one.
+    expect(rowFor(rows, '~/src/dshline ')).toContain('current')
+    expect(rowFor(rows, 'dshline-auth')).not.toContain('current')
+    // `ctx.agents` is process-local, `SessionRecord.live` means live in THIS
+    // Harness process, and the adopted generation publishes no cross-process
+    // ownership contract — so no row may suggest one.
     for (const row of body(rows)) {
       expect(row).not.toMatch(/another terminal|elsewhere|take over|idle in/iu)
     }
   })
 
-  it('reports the registry\'s own membership count beside each worktree', () => {
+  it('reports each directory\'s session count', () => {
     const rows = open().rows()
-    expect(rowFor(rows, 'auth experiment')).toContain('1 session')
-    expect(rowFor(rows, 'workspaces')).toContain('no sessions')
+    expect(rowFor(rows, '~/src/dshline ')).toContain('2 sessions')
+    expect(rowFor(rows, 'dshline-auth')).toContain('1 session')
   })
 
-  it('closes on esc from the workspace list, having chosen nothing', () => {
+  it('closes on esc from the directory list, having chosen nothing', () => {
     const picker = open()
     picker.press(key('escape'))
     expect(picker.closed()).toBe(true)
     expect(picker.opened()).toEqual([])
   })
 
-  it('filters by title and path as you type, and esc gives the list back first', () => {
+  it('filters by label and path as you type, and esc gives the list back first', () => {
     const picker = open()
     picker.type('auth')
     let rows = picker.rows()
-    expect(rowFor(rows, 'auth experiment')).toBeDefined()
-    expect(rowFor(rows, 'workspaces')).toBeUndefined()
+    expect(rowFor(rows, 'dshline-auth')).toBeDefined()
+    expect(rowFor(rows, 'dshline-ui')).toBeUndefined()
     expect(rowFor(rows, 'filter: auth')).toBeDefined()
     picker.press(key('escape'))
     rows = picker.rows()
     expect(picker.closed()).toBe(false)
-    expect(rowFor(rows, 'workspaces')).toBeDefined()
+    expect(rowFor(rows, 'dshline-ui')).toBeDefined()
   })
 })
 
-describe('choosing a worktree', () => {
-  it('opens that worktree\'s sessions instead of resuming one of them', () => {
+describe('choosing a directory', () => {
+  it('opens that directory\'s sessions instead of resuming one of them', () => {
     let resumes = 0
     const picker = open({ resume: () => { resumes += 1; return { kind: 'resume' } } })
     picker.press(key('down'))
     picker.press(key('enter'))
-    expect(picker.opened()).toEqual(['ws-auth'])
+    expect(picker.opened()).toEqual([`${HOME}/src/dshline-auth`])
     expect(picker.closed()).toBe(false)
     // The whole reason this is two views: a directory is not a conversation.
     expect(resumes).toBe(0)
   })
 
-  it('shows the workspace\'s identity and its sessions, newest first, with + New session on top', () => {
+  it('shows the directory\'s identity and its sessions, with + New session on top', () => {
     const picker = open()
     picker.press(key('down'))
     picker.press(key('enter'))
     const rows = picker.rows()
-    expect(rowFor(rows, 'auth experiment')).toBeDefined()
+    expect(rowFor(rows, 'dshline-auth')).toBeDefined()
     expect(rowFor(rows, '~/src/dshline-auth')).toBeDefined()
     expect(rowFor(rows, '+ New session')).toBeDefined()
     expect(rowFor(rows, 'Implement auth flow')).toContain('18m ago')
     expect(rowFor(rows, 'Previous conversation')).toContain('3d ago')
-    const order = rows.findIndex(row => row.includes('+ New session'))
+    const fresh = rows.findIndex(row => row.includes('+ New session'))
     const first = rows.findIndex(row => row.includes('Implement auth flow'))
-    expect(order).toBeLessThan(first)
+    expect(fresh).toBeLessThan(first)
   })
 
-  it('discloses a workspace on → but never triggers the register row with it', () => {
-    const picker = open({ unregistered: `${HOME}/src/fresh-worktree` })
+  it('discloses a directory on → as /sessions does', () => {
+    const picker = open()
     picker.press(key('right'))
-    expect(picker.opened()).toEqual(['ws-main'])
-    picker.press(key('left'))
-    for (let step = 0; step < 3; step += 1) picker.press(key('down'))
-    picker.press(key('right'))
-    // A durable Harness write is not something an arrow key performs.
-    expect(picker.registered()).toEqual([])
+    expect(picker.opened()).toEqual([`${HOME}/src/dshline`])
   })
 
-  it('goes back to the workspace list on ← without choosing anything', () => {
+  it('goes back to the directory list on ← without choosing anything', () => {
     const picker = open()
     picker.press(key('enter'))
     picker.press(key('left'))
     expect(picker.wentBack()).toBe(1)
     expect(picker.closed()).toBe(false)
-    expect(rowFor(picker.rows(), 'Worktrees · 3 known')).toBeDefined()
+    expect(rowFor(picker.rows(), 'Worktrees · 3 in session history')).toBeDefined()
   })
 
   it('spends esc on going back before it spends it on closing', () => {
@@ -295,7 +277,7 @@ describe('choosing a worktree', () => {
   })
 })
 
-describe('choosing what happens in that worktree', () => {
+describe('choosing what happens in that directory', () => {
   it('reopens the selected session when the resume plan accepts it', () => {
     const chosen: SessionEntry[] = []
     const picker = open({
@@ -321,19 +303,19 @@ describe('choosing what happens in that worktree', () => {
     expect(rowFor(picker.rows(), 'already live in this process')).toBeDefined()
   })
 
-  it('starts a fresh session in the selected worktree from the + New session row', () => {
+  it('starts a fresh session in the selected directory from the + New session row', () => {
     const created: WorktreeRow[] = []
-    const picker = open({ create: (workspace) => { created.push(workspace); return { kind: 'new' } } })
+    const picker = open({ create: (row) => { created.push(row); return { kind: 'new' } } })
     picker.press(key('down'))
     picker.press(key('enter'))
     picker.press(key('enter'))
-    expect(created.map(workspace => workspace.path)).toEqual([`${HOME}/src/dshline-auth`])
+    expect(created.map(row => row.cwd)).toEqual([`${HOME}/src/dshline-auth`])
     expect(picker.closed()).toBe(true)
   })
 
   it('offers n as the same gesture, only in the view where a bare letter is free', () => {
     const created: WorktreeRow[] = []
-    const picker = open({ create: (workspace) => { created.push(workspace); return { kind: 'new' } } })
+    const picker = open({ create: (row) => { created.push(row); return { kind: 'new' } } })
     // In the first view every printable character is filter input, so `n`
     // must narrow the list rather than start a session.
     picker.type('n')
@@ -342,7 +324,7 @@ describe('choosing what happens in that worktree', () => {
     picker.press(key('down'))
     picker.press(key('enter'))
     picker.type('n')
-    expect(created.map(workspace => workspace.id)).toEqual(['ws-auth'])
+    expect(created.map(row => row.cwd)).toEqual([`${HOME}/src/dshline-auth`])
     expect(picker.closed()).toBe(true)
   })
 
@@ -363,11 +345,10 @@ describe('choosing what happens in that worktree', () => {
     expect(rowFor(picker.rows(), 'Implement auth flow')).toContain('open')
   })
 
-  it('still offers + New session in a worktree whose sessions could not be read', () => {
+  it('still offers + New session in a directory whose sessions could not be read', () => {
     const picker = open({
       selected: {
-        workspace: ROWS[1] as WorktreeRow,
-        status: 'ok',
+        row: ROWS[1] as WorktreeRow,
         sessions: { kind: 'failed', message: 'session persistence is unavailable' },
       },
     })
@@ -376,72 +357,39 @@ describe('choosing what happens in that worktree', () => {
     expect(rowFor(rows, 'session persistence is unavailable')).toBeDefined()
   })
 
-  it('says a worktree has no sessions rather than showing an empty view', () => {
+  it('says a directory has no sessions rather than showing an empty view', () => {
     const picker = open()
     picker.press(key('down'))
     picker.press(key('down'))
     picker.press(key('enter'))
     expect(rowFor(picker.rows(), 'No sessions here yet')).toBeDefined()
   })
-
-  it('warns when the selected worktree\'s directory is missing right now', () => {
-    const picker = open({
-      selected: { workspace: ROWS[1] as WorktreeRow, status: 'missing-dir', sessions: AUTH_SESSIONS },
-    })
-    expect(rowFor(picker.rows(), 'directory is missing right now')).toBeDefined()
-  })
 })
 
 describe('what it says when there is nothing to list', () => {
-  it('names the absent capability rather than falling back to anything', () => {
+  it('names the absent corpus rather than falling back to anything', () => {
     const rows = open({ listing: { kind: 'unavailable' } }).rows()
-    expect(rowFor(rows, 'No Harness Workspace registry is mounted in this profile.')).toBeDefined()
-    // No scan of the sessions tree, no `git worktree list`, no invented rows.
+    expect(rowFor(rows, 'No Harness session corpus is mounted in this profile.')).toBeDefined()
+    // No sessions-tree scan, no `git worktree list`, no invented rows.
     for (const row of body(rows)) expect(row).not.toMatch(/git worktree|\.git/iu)
   })
 
-  it('reports a refused registry read with Harness\'s own message', () => {
+  it('reports a refused corpus read with Harness\'s own message', () => {
     const rows = open({
-      listing: { kind: 'failed', message: 'workspace domain is inconsistent' },
+      listing: { kind: 'failed', message: 'session persistence is unavailable' },
     }).rows()
-    expect(rowFor(rows, 'workspace domain is inconsistent')).toBeDefined()
+    expect(rowFor(rows, 'session persistence is unavailable')).toBeDefined()
   })
 
-  it('explains an empty but mounted registry', () => {
+  it('explains a corpus with no cwd-bearing sessions', () => {
     const rows = open({ listing: { kind: 'ready', rows: [] } }).rows()
-    expect(rowFor(rows, 'Harness knows no workspaces yet')).toBeDefined()
+    expect(rowFor(rows, 'No working directories are represented in Harness sessions yet')).toBeDefined()
   })
 
-  it('says a filter matched nothing without losing the register row', () => {
-    const picker = open({ unregistered: `${HOME}/src/fresh` })
+  it('says a filter matched nothing', () => {
+    const picker = open()
     picker.type('zzz')
-    const rows = picker.rows()
-    expect(rowFor(rows, '+ Register ~/src/fresh')).toBeDefined()
-  })
-})
-
-describe('registering the directory this window is in', () => {
-  it('offers it only when Harness positively holds no record, and calls the add route', () => {
-    const without = open()
-    expect(rowFor(without.rows(), '+ Register')).toBeUndefined()
-    const picker = open({ unregistered: `${HOME}/src/fresh-worktree` })
-    const rows = picker.rows()
-    expect(rowFor(rows, '+ Register ~/src/fresh-worktree')).toBeDefined()
-    for (let step = 0; step < 3; step += 1) picker.press(key('down'))
-    picker.press(key('enter'))
-    expect(picker.registered()).toEqual([`${HOME}/src/fresh-worktree`])
-    expect(picker.closed()).toBe(false)
-  })
-
-  it('shows a refusal from Harness instead of a row that was never created', async () => {
-    const picker = open({
-      unregistered: `${HOME}/src/a-file`,
-      register: async () => ({ kind: 'failed', message: 'path is not a directory' }),
-    })
-    for (let step = 0; step < 3; step += 1) picker.press(key('down'))
-    picker.press(key('enter'))
-    for (let turn = 0; turn < 4; turn += 1) await Promise.resolve()
-    expect(rowFor(picker.rows(), 'path is not a directory')).toBeDefined()
+    expect(rowFor(picker.rows(), 'No working directory matches that filter')).toBeDefined()
   })
 })
 

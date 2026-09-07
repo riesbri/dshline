@@ -1,12 +1,12 @@
 /**
  * `/worktrees`: choose the place first, then the conversation.
  *
- * Two views, in that order, and the order is the product decision. A worktree
- * is not a session, so selecting one must not resume whichever conversation
- * happens to be newest in it — that is the mistake this shape exists to
- * prevent. The first view answers "where", the second answers "which
- * conversation there, or a new one", and `+ New session` is the second view's
- * first row rather than its last resort.
+ * Two views, in that order, and the order is the product decision. A working
+ * directory is not a session, so selecting one must not resume whichever
+ * conversation happens to be newest in it — that is the mistake this shape
+ * exists to prevent. The first view answers "where", the second answers
+ * "which conversation there, or a new one", and `+ New session` is the second
+ * view's first row rather than its last resort.
  *
  * Everything drawn here is bounded live-region chrome under the shared visual
  * root, exactly as `/sessions`, `/skills`, and `/plugins` are: the committed
@@ -31,19 +31,18 @@ import type { SessionEntry } from '../sessions/model.ts'
 import { relativeAge, sessionLabel } from '../sessions/model.ts'
 import type { NewPlan, ResumePlan } from '../sessions/plan.ts'
 import type { TuiOverlay } from '../slots.ts'
-import type { RegisterOutcome } from './catalog.ts'
 import type {
   WorktreeListing,
-  WorktreeListRow,
   WorktreeRow,
   WorktreeSelection,
   WorktreeSessionRow,
 } from './model.ts'
 import {
   listingMessage,
+  matchesWorktree,
   sessionCountLabel,
   sessionsMessage,
-  worktreeListRows,
+  worktreeLabel,
   worktreePath,
   worktreeSessionRows,
 } from './model.ts'
@@ -51,14 +50,14 @@ import {
 /** Leading blank and the two frame borders, outside any content. */
 const FIXED_ROWS = 3
 
-/** Narrower than this and the framed form cannot hold a title beside a mark. */
+/** Narrower than this and the framed form cannot hold a label beside a mark. */
 const MIN_COLUMNS = BOX_CHROME_COLUMNS + 14
 
-/** Widest a title column grows, so one long title cannot crowd out every path. */
-const TITLE_COLUMN_MAX = 24
+/** Widest a label column grows, so one long name cannot crowd out every path. */
+const LABEL_COLUMN_MAX = 24
 
-/** Columns between the title and the path. */
-const TITLE_GAP = 2
+/** Columns between the label and the path. */
+const LABEL_GAP = 2
 
 /** Inner width at which a row can afford a right-hand meta cue at all. */
 const META_COLUMNS = 46
@@ -71,18 +70,14 @@ const CURSOR = '›'
 
 /** What the picker needs from the attachment that opens it. */
 export interface WorktreesOverlaySpec {
-  /** The live workspace listing; re-read every frame. */
+  /** The live worktree listing; re-read every frame. */
   readonly listing: () => WorktreeListing
-  /** The current directory when Harness positively holds no record for it. */
-  readonly unregistered: () => string | undefined
-  /** The open workspace's sessions, or undefined in the first view. */
+  /** The open directory's sessions, or undefined while the first view is in front. */
   readonly selection: () => WorktreeSelection | undefined
-  /** Open one workspace's sessions. */
-  readonly open: (workspaceId: string) => void
-  /** Return to the workspace list. */
+  /** Open one directory's sessions. */
+  readonly open: (cwd: string) => void
+  /** Return to the directory list. */
   readonly back: () => void
-  /** Register the current directory through Harness's own add route. */
-  readonly register: (path: string) => Promise<RegisterOutcome>
   /**
    * Decide whether the chosen session may be reopened.
    *
@@ -92,8 +87,8 @@ export interface WorktreesOverlaySpec {
    * the owner learns WHICH session was chosen.
    */
   readonly resume: (entry: SessionEntry) => ResumePlan
-  /** Decide whether a fresh session may be started in this workspace. */
-  readonly create: (workspace: WorktreeRow) => NewPlan
+  /** Decide whether a fresh session may be started in this directory. */
+  readonly create: (row: WorktreeRow) => NewPlan
   /** The session this window is driving, for the `open` cue. */
   readonly currentSessionId?: SessionId
   /** The user's home directory, for shortening paths. */
@@ -116,7 +111,6 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
   let listCursor = 0
   let sessionCursor = 0
   let notice: string | undefined
-  let registering = false
   let closed = false
   const close = (): void => {
     if (closed) return
@@ -124,10 +118,10 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
     spec.close()
   }
   /** Rows the first view currently has, recomputed on every read. */
-  const listRows = (): readonly WorktreeListRow[] => {
+  const listRows = (): readonly WorktreeRow[] => {
     const listing = spec.listing()
     const rows = listing.kind === 'ready' ? listing.rows : []
-    return worktreeListRows(rows, spec.unregistered(), query)
+    return rows.filter(row => matchesWorktree(row, query))
   }
   /** Rows the second view currently has, or none while the first is in front. */
   const sessionRows = (): readonly WorktreeSessionRow[] => {
@@ -153,56 +147,35 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
     notice = message
     spec.invalidate()
   }
-  const enterWorkspace = (workspaceId: string): void => {
+  const enterWorktree = (cwd: string): void => {
     sessionCursor = 0
     notice = undefined
-    spec.open(workspaceId)
+    spec.open(cwd)
   }
-  const leaveWorkspace = (): void => {
+  const leaveWorktree = (): void => {
     notice = undefined
     spec.back()
   }
-  const startFresh = (workspace: WorktreeRow): void => {
-    const plan = spec.create(workspace)
+  const startFresh = (row: WorktreeRow): void => {
+    const plan = spec.create(row)
     if (plan.kind === 'refused') {
       report(plan.message)
       return
     }
     close()
   }
-  const registerCurrent = (path: string): void => {
-    if (registering) return
-    registering = true
-    report(`Registering ${path}…`)
-    void spec.register(path).then((outcome) => {
-      registering = false
-      if (closed) return
-      switch (outcome.kind) {
-        case 'registered':
-          notice = undefined
-          spec.invalidate()
-          return
-        case 'unavailable':
-          report('No Harness Workspace registry is mounted in this profile.')
-          return
-        case 'failed':
-          report(outcome.message)
-      }
-    })
-  }
   const confirm = (): void => {
     const selection = spec.selection()
     if (selection === undefined) {
       const row = listRows()[listCursor]
       if (row === undefined) return
-      if (row.kind === 'register') registerCurrent(row.path)
-      else enterWorkspace(row.workspace.id)
+      enterWorktree(row.cwd)
       return
     }
     const row = sessionRows()[sessionCursor]
     if (row === undefined) return
     if (row.kind === 'new') {
-      startFresh(selection.workspace)
+      startFresh(selection.row)
       return
     }
     const plan = spec.resume(row.entry)
@@ -227,7 +200,7 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
       const inner = width - BOX_CHROME_COLUMNS
       const capacity = terminalRows - FIXED_ROWS
       const body = selection === undefined
-        ? workspacesBody(spec, listRows(), bounded, query, notice, inner, capacity)
+        ? worktreesBody(spec, listRows(), bounded, query, notice, inner, capacity)
         : sessionsBody(spec, selection, sessionRows(), bounded, notice, inner, capacity)
       if (body.length === 0) return compactFallback(spec, selection, columns, terminalRows)
       const frame = [
@@ -252,14 +225,14 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
     handleKey(key: Key) {
       const inSessions = spec.selection() !== undefined
       if (key.kind === 'text') {
-        // The second view has no filter: its list is one workspace's sessions
+        // The second view has no filter: its list is one directory's sessions
         // and is already bounded, which is what frees a bare letter for the
-        // `n` shortcut. The first view is a corpus, so every printable
-        // character there is filter input.
+        // `n` shortcut. The first view is a corpus grouping, so every
+        // printable character there is filter input.
         if (inSessions) {
           if (key.text === 'n' || key.text === 'N') {
             const selection = spec.selection()
-            if (selection !== undefined) startFresh(selection.workspace)
+            if (selection !== undefined) startFresh(selection.row)
           }
           return
         }
@@ -280,21 +253,18 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
           move(1)
           return
         case 'right':
-          // Disclosure only, as `→` is in `/sessions`. Deliberately not a
-          // second way to trigger the register row: that row performs a
-          // durable Harness write, and an arrow key is not the gesture for
-          // one.
+          // Disclosure, as `→` is in `/sessions`.
           if (!inSessions) {
             const row = listRows()[listCursor]
-            if (row?.kind === 'workspace') enterWorkspace(row.workspace.id)
+            if (row !== undefined) enterWorktree(row.cwd)
           }
           return
         case 'left':
-          if (inSessions) leaveWorkspace()
+          if (inSessions) leaveWorktree()
           return
         case 'backspace':
           if (inSessions) {
-            leaveWorkspace()
+            leaveWorktree()
             return
           }
           // Code points, not UTF-16 units: one press deletes one character.
@@ -315,7 +285,7 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
           // filter is what a reader most often wants back, and only an empty
           // first view closes. `ctrl-c` below is the one-press way out.
           if (inSessions) {
-            leaveWorkspace()
+            leaveWorktree()
             return
           }
           if (query !== '') {
@@ -335,9 +305,9 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
 }
 
 /**
- * The first view's body: heading, workspace rows, and any standing notice.
- * @param spec - the picker's spec, for the listing state.
- * @param rows - the rows the filter left, plus any register row.
+ * The first view's body: heading, directory rows, and any standing notice.
+ * @param spec - the picker's spec, for the listing state and the home path.
+ * @param rows - the rows the filter left.
  * @param cursor - the highlighted row.
  * @param query - the typed filter.
  * @param notice - a one-row local message, when one is standing.
@@ -345,9 +315,9 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
  * @param capacity - rows available inside the frame.
  * @returns the body rows, or none when nothing useful fits.
  */
-function workspacesBody(
+function worktreesBody(
   spec: WorktreesOverlaySpec,
-  rows: readonly WorktreeListRow[],
+  rows: readonly WorktreeRow[],
   cursor: number,
   query: string,
   notice: string | undefined,
@@ -356,9 +326,10 @@ function workspacesBody(
 ): string[] {
   if (capacity < 1) return []
   const listing = spec.listing()
-  const workspaces = rows.filter(row => row.kind === 'workspace').length
   const heading = headingRow(
-    query === '' ? `Worktrees · ${String(workspaces)} known` : `Worktrees · ${String(workspaces)} matches`,
+    query === ''
+      ? `Worktrees · ${String(rows.length)} in session history`
+      : `Worktrees · ${String(rows.length)} matches`,
     query === '' ? '' : `filter: ${escapeControls(query)}`,
     inner,
   )
@@ -377,16 +348,16 @@ function workspacesBody(
   return [
     heading,
     ...boundedList(rows, cursor, listCapacity, (row, selected) =>
-      listRowText(row, selected, rows, spec.home, inner)),
+      worktreeRowText(row, selected, rows, spec.home, inner)),
     ...noticeRows,
   ]
 }
 
 /**
- * The second view's body: the workspace's identity, its sessions, and a notice.
+ * The second view's body: the directory's identity, its sessions, and a notice.
  * @param spec - the picker's spec, for the current session and the clock.
- * @param selection - the open workspace and its listing.
- * @param rows - the `+ New session` row and the workspace's sessions.
+ * @param selection - the open directory and its listing.
+ * @param rows - the `+ New session` row and the directory's sessions.
  * @param cursor - the highlighted row.
  * @param notice - a one-row local message, when one is standing.
  * @param inner - the frame's inner width in columns.
@@ -403,21 +374,18 @@ function sessionsBody(
   capacity: number,
 ): string[] {
   if (capacity < 1) return []
-  const workspace = selection.workspace
+  const cwd = selection.row.cwd
   const head = [
-    paint(truncateToWidth(escapeControls(workspace.title), inner), 'section-heading'),
+    paint(truncateToWidth(escapeControls(worktreeLabel(cwd)), inner), 'section-heading'),
   ]
   if (capacity >= 3) {
-    head.push(paint(truncateToWidth(worktreePath(workspace.path, spec.home), inner), 'path'))
-  }
-  if (selection.status === 'missing-dir' && capacity >= 4) {
-    head.push(paint(truncateToWidth('directory is missing right now', inner), 'warning'))
+    head.push(paint(truncateToWidth(escapeControls(worktreePath(cwd, spec.home)), inner), 'path'))
   }
   const noticeRows = notice === undefined
     ? []
     : ['', paint(truncateToWidth(`· ${escapeControls(notice)}`, inner), 'warning')]
   // Said whenever there is no session row to show, whatever the reason: an
-  // unmounted corpus, a read still in flight, a refusal, and a workspace whose
+  // unmounted corpus, a read still in flight, a refusal, and a directory whose
   // first conversation has not happened yet are four different sentences, and
   // `+ New session` above is still usable under all of them.
   const quiet = selection.sessions.kind !== 'ready' || selection.sessions.entries.length === 0
@@ -465,63 +433,56 @@ function boundedList<Row>(
 }
 
 /**
- * One first-view row: the mark, the title, the path, and the meta cue.
+ * One first-view row: the mark, the label, the path, and the meta cue.
  * @param row - the row to draw.
  * @param selected - whether this row holds the cursor.
- * @param rows - every row, for the shared title column width.
+ * @param rows - every row, for the shared label column width.
  * @param home - the user's home directory, for shortening the path.
  * @param inner - the frame's inner width in columns.
  * @returns one safely truncated physical row.
  */
-function listRowText(
-  row: WorktreeListRow,
+function worktreeRowText(
+  row: WorktreeRow,
   selected: boolean,
-  rows: readonly WorktreeListRow[],
+  rows: readonly WorktreeRow[],
   home: string,
   inner: number,
 ): string {
   const mark = selected ? paint(CURSOR, 'selection-mark') : ' '
-  if (row.kind === 'register') {
-    const label = `+ Register ${worktreePath(row.path, home)}`
-    const text = truncateToWidth(label, Math.max(1, inner - 2))
-    return `${mark} ${selected ? paint(text, 'selection') : paint(text, 'muted')}`
-  }
-  const workspace = row.workspace
-  const titleColumn = Math.min(
-    TITLE_COLUMN_MAX,
-    Math.max(1, ...rows.map(candidate => candidate.kind === 'workspace'
-      ? displayWidth(escapeControls(candidate.workspace.title))
-      : 1)),
+  const labelColumn = Math.min(
+    LABEL_COLUMN_MAX,
+    Math.max(1, ...rows.map(candidate => displayWidth(escapeControls(worktreeLabel(candidate.cwd))))),
   )
-  const title = truncateToWidth(escapeControls(workspace.title), titleColumn)
-  const painted = selected ? paint(title, 'selection') : title
-  const room = inner - 2 - titleColumn - TITLE_GAP
+  const label = truncateToWidth(escapeControls(worktreeLabel(row.cwd)), labelColumn)
+  const painted = selected ? paint(label, 'selection') : label
+  const room = inner - 2 - labelColumn - LABEL_GAP
   if (room < 8) return truncateToWidth(`${mark} ${painted}`, inner)
-  const meta = metaCue(workspace)
-  const metaWidth = inner >= META_COLUMNS && meta !== '' ? displayWidth(meta) + META_GAP : 0
+  const meta = metaCue(row)
+  const metaWidth = inner >= META_COLUMNS ? displayWidth(meta) + META_GAP : 0
   const pathRoom = Math.max(1, room - metaWidth)
-  const path = truncateToWidth(worktreePath(workspace.path, home), pathRoom)
-  const pad = ' '.repeat(Math.max(0, titleColumn - displayWidth(title)) + TITLE_GAP)
+  const path = truncateToWidth(escapeControls(worktreePath(row.cwd, home)), pathRoom)
+  const pad = ' '.repeat(Math.max(0, labelColumn - displayWidth(label)) + LABEL_GAP)
   const head = `${mark} ${painted}${pad}${paint(path, 'muted')}`
   if (metaWidth === 0) return head
   const gap = ' '.repeat(Math.max(META_GAP, pathRoom - displayWidth(path) + META_GAP))
-  return `${head}${gap}${paint(meta, workspace.current ? 'mode' : 'muted')}`
+  return `${head}${gap}${paint(meta, row.current ? 'mode' : 'muted')}`
 }
 
 /**
- * The right-hand cue on a workspace row.
+ * The right-hand cue on a worktree row.
  *
- * `current` names the workspace the ATTACHED session is rooted in, and nothing
- * else. It deliberately says nothing about whether another dshline process is
- * live in this directory: `ctx.agents` is process-local, the adopted Harness
- * generation publishes no cross-process ownership contract, and a row claiming
- * "running elsewhere" would be this frontend inventing one.
- * @param workspace - the row's workspace.
- * @returns the cue, or an empty string when there is nothing to say.
+ * `current` names the directory the session in THIS window is rooted in, and
+ * nothing else. It deliberately says nothing about whether another dshline
+ * process is live somewhere: `ctx.agents` is process-local, `SessionRecord.live`
+ * means live in this Harness process, and the adopted generation publishes no
+ * cross-process ownership contract — so a row claiming "running elsewhere"
+ * would be this frontend inventing one.
+ * @param row - the row's group facts.
+ * @returns the cue.
  */
-function metaCue(workspace: WorktreeRow): string {
-  const count = sessionCountLabel(workspace.sessions)
-  return workspace.current ? `current · ${count}` : count
+function metaCue(row: WorktreeRow): string {
+  const count = sessionCountLabel(row.sessions)
+  return row.current ? `current · ${count}` : count
 }
 
 /**
@@ -609,7 +570,7 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
 /**
  * A closable answer for a terminal too small to draw the frame.
  * @param spec - the picker's spec, for the listing state.
- * @param selection - the open workspace, when the second view is in front.
+ * @param selection - the open directory, when the second view is in front.
  * @param columns - the terminal's width.
  * @param rows - rows available.
  * @returns at most one row.
@@ -626,7 +587,7 @@ function compactFallback(
     ? listing.kind === 'ready' && listing.rows.length > 0
       ? `Worktrees · ${String(listing.rows.length)}`
       : 'Worktrees'
-    : `Worktrees · ${escapeControls(selection.workspace.title)}`
+    : `Worktrees · ${escapeControls(worktreeLabel(selection.row.cwd))}`
   const visible = [`${identity} · esc close`, identity, 'esc close', 'esc']
     .find(candidate => displayWidth(candidate) <= columns)
   return visible === undefined ? [] : [paint(visible, 'overlay-headline')]

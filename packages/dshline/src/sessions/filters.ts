@@ -19,9 +19,10 @@ export type WorkspaceChoice = 'all' | 'current'
  * instead of a second query path.
  *
  * `cwd` is Harness's own exact string equality: it has no path-prefix,
- * trailing-separator, or symlink semantics, which is why the only strings put
- * in it are ones an authority already canonicalized — a session header's own
- * `cwd`, or a Workspace record's `path`.
+ * trailing-separator, or symlink semantics, which is why the only string ever
+ * put in it is one Harness itself wrote — a `SessionHeader.cwd`, either the
+ * attached session's own or the key of a `/worktrees` group, which is defined
+ * as the sessions carrying exactly that value.
  */
 export type SessionWorkspace =
   /** Never narrow by workspace, whatever the reader's choice says. */

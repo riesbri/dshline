@@ -2,29 +2,43 @@
 '@dshline/dshline': minor
 ---
 
-Add `/worktrees`: choose the code workspace to work in, then a conversation there or a new one.
+Add `/worktrees`: choose a working directory represented in your Harness session history, then a conversation there or a new one.
 
-The picker is workspace-first, because a worktree is not a session — several
-conversations can be rooted in one directory, so selecting a directory opens
-that directory's sessions and a `+ New session` row rather than resuming
-whichever one is newest. It reads two Harness authorities and joins them on the
-canonical path Harness itself stamped: `ctx.workspaceRegistry` for the durable
-records over working directories, and the same `ctx.sessionQuery` catalog
-`/sessions` already uses, scoped to the selected workspace's exact `cwd`. This
-bundle now composes `@deepseek-ai/dsh-workspace` as a host-plane row, as
-upstream's own web bundle does; a profile without it says so and offers nothing
-else.
+`/sessions` answers "which conversation". `/worktrees` answers the question
+before it, and reads the same authority to do it: `ctx.sessionQuery`'s logical
+corpus, grouped by each session's own immutable `SessionHeader.cwd`. A row IS
+"the sessions whose header records exactly this cwd", so it needs no id, no
+title, and nothing durable — the grouping key is the definition, it lives only
+while the picker is open, and the count in the first view and the rows in the
+second are one relationship read twice.
+
+The picker is directory-first, because a working directory is not a session:
+several conversations can be rooted in one, so selecting a directory opens that
+directory's sessions and a `+ New session` row rather than resuming whichever
+is newest. The second view is the same `SessionCatalog` `/sessions` already
+uses, scoped to that exact `cwd`.
 
 A choice becomes one of the two attachment targets that already existed —
-`ctx.agents.resume` for a session, `ctx.agents.create` with the selected
-workspace's `cwd` for a fresh one — under the same refusals `/sessions` and
-`/new` apply, so one dshline window still drives one root Session. A fresh
-session's workspace membership is written through `Workspace.attachSession`
-after creation succeeded, mirroring Harness's own session controller: a failed
-creation leaves no membership behind, and a failed attach is reported rather
-than repaired by destroying the session that was created exactly as asked.
+`ctx.agents.resume({ id })` for a session, `ctx.agents.create` with the
+selected `cwd` for a fresh one — under the same refusals `/sessions` and `/new`
+apply, so one dshline window still drives one root Session. A fresh session
+needs no follow-up write: Harness stamps `cwd` into its header, and that header
+is the grouping rule. Nothing is persisted, and no new dependency or
+composition row is added.
 
-Git worktree creation, removal, and state are deliberately absent: the adopted
-Harness generation publishes no Git or worktree capability, so a row carries
-Harness's title, path, and session count and nothing else, and a Git worktree
-that Harness has never been used in does not appear yet.
+The session corpus is deliberately the authority rather than Harness's durable
+Workspace registry. At the adopted generation the domain storage that registry
+sits on is single-process by upstream's own documentation —
+`dsh-storage-domain`'s `domain/changed` is in-process and "a second host
+process observes no changes", and `dsh-storage-json` has "no cross-process
+write locking" with last-completion-wins — so several terminals mutating it
+would hold stale state and overwrite each other. Session persistence is the
+right shape for this: one artifact per session, one live writer per session,
+and a fresh listing on every corpus read.
+
+Limits, stated rather than worked around: a Git worktree Harness has never had
+a session in does not appear yet; enumerating, creating, and removing worktrees
+stay out because the adopted generation publishes no Git or worktree
+capability; and neither `/worktrees` nor `/sessions` can report cross-process
+liveness or offer takeover, because Harness publishes no such contract and the
+shipped JSONL persistence requires one live writer per session.

@@ -48,8 +48,7 @@ native terminal
 | 人类命令 | `ctx.commands` | 发现并执行已注册的命令约定。 |
 | 工具 | `ctx.tools` | 渲染工具拥有的呈现意图，而不是工具名的特例。 |
 | 人类应答 | `ctx.userQuestions` | 注册一个终端应答者；认领本前端能够呈现的请求，绝不假设该请求只发给了本前端。 |
-| 会话 | `ctx.sessionQuery` | 查询 Harness 偏好活动的会话语料库；不构建另一个数据库。其全文方法是抽象的，因此把内容搜索视为可选。 |
-| 工作区 | `ctx.workspaceRegistry` | 读取针对规范工作目录的持久记录，并通过同一个 registry 挂接刚创建的 Session。不保留 worktree 清单、Git 状态存储或第二份归属账目。 |
+| 会话 | `ctx.sessionQuery` | 查询 Harness 偏好活动的会话语料库；不构建另一个数据库。其全文方法是抽象的，因此把内容搜索视为可选。它的 `SessionHeader.cwd` 值也是唯一的工作目录权威：只做临时分组，绝不存储目录清单、worktree registry 或 Git 状态缓存。 |
 | 附件 | `ctx.fs` + `ctx.attachments` | 路径只作为会话本地草稿；通过当前文件系统执行有界读取，并把持久图片引用作为一个批次发布。绝不持久化字节、base64 或主机路径。 |
 | 日志派生的状态 | `ctx.sessionProjections` | 消费已注册的领域快照与变更。 |
 | 上下文占用 | `ctx.sessionProjections`（`contextPressure`、`contextBreakdown`、`tokenUsage`） | 读取 O(1) 折叠；绝不自行计数 token 或分词。 |
@@ -234,39 +233,37 @@ attachment    one Agent, its log projection, its capability adapters, its views
 
 重新打开只使用受支持的生命周期，别无其他：拥有的 `AgentHandle.dispose()` 使当前 agent 退役——句柄是本前端的能力，因为本前端创建了该 agent——而 `ctx.agents.resume` 打开下一个。会话记录追加进已有内容下的原生滚动缓冲区；没有任何已提交内容被重写。被拒绝的恢复既不终止进程，也不替换会话：到那时前一个 agent 已退役，因此窗口提交 Harness 的原因，并通过同一个浏览器再次询问。关掉它正是读者刻意选择新会话的方式。
 
-## Worktrees：工作区是另一个问题
+## Worktrees：工作目录是另一个问题
 
-Sessions 回答的是"哪一场对话"。它无法回答"在哪里"，因为 `cwd` 只是会话头部上的一个字段，而不是一个有身份的东西，而且好几场对话共享同一个 `cwd`。因此 `/worktrees` 读取第二个权威，呈现上面那一层：
+Sessions 回答的是"哪一场对话"。它无法回答"在哪里"，因为 `cwd` 只是会话头部上的一个字段，而不是一个有身份的东西，而且好几场对话共享同一个 `cwd`。因此 `/worktrees` 问上面那一层——而且读的是同一个权威：
 
 ```text
-repository
-  └─ worktree / working directory      Git's, and Git's alone
-       └─ Harness Workspace            ctx.workspaceRegistry
-            ├─ Session A               ctx.sessionQuery
-            ├─ Session B
-            └─ Session C
+ctx.sessionQuery.listSessions()   the logical corpus: a fresh
+                                  sessionPersistence.list() merged with this
+                                  process's live sessions, newest first
+      ↓ group by exact SessionHeader.cwd
+worktree rows                     transient; alive only while the picker is
+      ↓ select one                open, and stored nowhere
+SessionCatalog { kind: 'cwd', cwd }
 ```
 
-**worktree 不是会话，因此选择器不把这些层级压平。**选中一个目录会打开那个目录的会话，加上一行 `+ New session`；它绝不恢复恰好最新的那一场对话。另一种做法——一个清单，选中工作区就恢复某个东西——被否决了，因为它让最常见的情形（一个仓库里有好几场对话）在读者没有主动要求的过滤之外变得不可达。
+**一行是一个定义，而不是一条记录。**它就是"头部记录的正是这个 cwd 的那些会话"，这正是它不需要 id、不需要标题、不需要任何持久物的原因：分组键就是定义。因此第一层的数量与第二层的行是同一个关系读了两次，而不是两个权威在比对——而新会话完全不需要后续写入，因为 Harness 会把 `cwd` 盖进它不可变的头部，而那个头部就是规则。
 
-**两个权威，一次连接，没有第三个存储。**连接键就是 Harness 自己盖上的规范路径：一个 Workspace 记录的 `path` 是它创建时的 `fs.realpath`，而会话那一侧是带 `cwd` 子句的 `filterSessions`，子句携带的正是那个字符串。registry 自己的 `sessionIds` 账目只作为一个数量呈现，别无其他，因为 Harness 的账目与语料库可以如实地不同——在一个没人登记过的目录里创建的会话不属于任何工作区——而把两者平均起来会让 dshline 成为第三个权威。这次连接只存活到选择器关闭为止。
+**为什么用会话语料库，而不是 Workspace registry。**Harness 确实拥有一个持久的 Workspace 实体（`ctx.workspaceRegistry`），它也是这里最初的直觉。在所采纳的世代，它对*这个*功能是错误的所有权模型，而理由来自上游自己的文档，而不是某种偏好。`/worktrees` 的存在意义是服务若干个 dshline 进程同时在若干个目录里工作，而 Workspace 领域所依赖的持久领域栈是单进程的：`dsh-storage-domain` 记载对一个已打开的领域而言内存是权威、且 `domain/changed` 是进程内事件，因此"第二个宿主进程或重连的 GUI 观察不到变更"；`dsh-storage-json` 记载"没有跨进程写锁"，同一单元的并发写入以最后完成者胜出收场。若干个终端各自在同一个 Harness home 上挂载并变更那个 registry，会持有过期的内存状态并互相覆盖。
 
-会话那一侧就是 `/sessions` 用的那个 `SessionCatalog`，不是第二个浏览器。这正是把 catalog 的工作区作用域做成任意精确 `cwd`、而不是"本窗口的目录"的全部意义：`/sessions` 提供附着会话自己的工作区，`/worktrees` 提供选中的那一个，两者通过同一次翻译抵达 `filterSessions`。
+会话持久化是相反的形状，而这正是这个功能需要的形状：每个会话一份产物、每个*会话*一个存活写入者，以及每次语料库读取都重新执行的 `sessionPersistence.list()`。"不同目录里的不同会话"本来就是它建模得很好的东西，因此多终端工作流建立在为它而生的那个界面上，而 dshline 不引入任何自己的共享可变状态。
 
-**每窗口一个根 Session 的不变式得以保留。**一次选择解析为已经存在的两个附着目标之一——`{ kind: 'resume', id }` 或 `{ kind: 'new', cwd }`——并走 `/sessions` 与 `/new` 使用的同一套先退役再附着的切换，遵守同样的 `planResume` / `planNew` 拒绝规则。没有标签页，没有分屏，也没有第二个存活的 agent；跨 worktree 的并行工作就是若干个终端，各自以自己的目录为根。
+**每窗口一个根 Session 的不变式得以保留。**一次选择解析为已经存在的两个附着目标之一——`{ kind: 'resume', id }` 或 `{ kind: 'new', cwd }`——并走 `/sessions` 与 `/new` 使用的同一套先退役再附着的切换，遵守同样的 `planResume` / `planNew` 拒绝规则。`sessions/reopen.ts` 没有为此增加任何字段或领域知识。没有标签页，没有分屏，也没有第二个存活的 agent；跨目录的并行工作就是若干个终端，各自以自己的目录为根。
 
-归属关系是唯一的那次写入，而它的顺序就是约定。Harness 自己的 session controller 先解析 Workspace，再用 `cwd = workspace.path` 创建 Session，然后才调用 `workspace.attachSession(id)`；dshline 与之一致。因此附着目标把工作区 id 作为一个不透明字符串携带，`sessions/reopen.ts` 从不读取它——那个模块唯一的职责是 create/resume，它像携带 `cwd` 那样把这个 id 带过它的恢复合并——而这次写入由主循环在创建成功与新附着之间执行。由此有两个后果，每一个都是一次拒绝：
+第二层视图就是 `/sessions` 用的那个 `SessionCatalog`，不是第二个浏览器。这正是把 catalog 的工作区作用域做成任意精确 `cwd`、而不是"本窗口的目录"的原因：`/sessions` 提供附着会话自己的工作区，`/worktrees` 提供选中分组的键，两者通过同一次翻译抵达 `filterSessions`。由于分组由 `SessionHeader.cwd === cwd` 定义，那个过滤器并不是对分组的近似——它就是分组。
 
-- 一次失败的创建不可能留下幽灵归属关系，因为在那个时点什么都还没写；
-- 一次失败的 attach 不会回滚会话。上游抛出 `session/workspace-attach-failed`，同时命名两个 id
-  并保留会话；而读者要的是某个目录里的一场对话，并且确实得到了——因此失败被报告，成功的那个会话
-  不会为了让呈现层的账目看起来是原子的而被销毁。
+**路径身份仍然属于 Harness。**分组键是 Harness 写下的那条 `cwd` 字符串，一字不改。dshline 不对它做 `realpath`、拼接或规范化，因此如果会话确实是用同一个目录的两种写法创建的，它们仍然是两行。这是有意的：前端发明路径身份就是第二套canon，而可见的路径本身已经告诉了阅读者发生了什么。
 
-**发现属于 Harness，它的界限被记录下来，而不是被补齐。**registry 会在第一次挂载它的启动时从持久化的会话头部一次性引导出工作区，此后不再重新引导；之后一个目录要成为工作区，需要有谁去登记它。因此一个创建出来却从未使用过的 Git worktree 不会出现。dshline 不运行 `git worktree list`，不读取 `.git` 下的任何内容，也不保留自己的目录清单，因为对"存在哪些工作目录"的第二份账目就是第二个会与之分歧的权威。它提供的是 Harness 自己唯一的幂等添加路径（`workspaceRegistry.create`），只作用在它能够确定无主的那一个目录上——本窗口所在的那个——而这恰恰是上游 Workspace controller 作为人类命令暴露的东西。
+**发现是一个结果，它的界限被记录下来，而不是被补齐。**一个目录之所以出现，是因为 Harness 在其中有会话。一个创建出来却从未在其中工作过的 Git worktree 不会出现；在那里启动 dshline 会立刻通过语料库的存活那一半把它放进那个窗口的清单，而对话持久化之后其他窗口通过持久那一半找到它。JSONL 后端是惰性物化会话的，因此一场还没产生持久历史的对话可能尚未抵达另一个进程——这是可以接受的，也不是引入第二个发现数据库的理由。这里没有 `git worktree list`，也不读取 `.git` 下的任何内容。
 
-**Git owns Git。**一行携带一个标题、一条规范路径、一个归属数量，以及为读者打开的那一个工作区所读取的实时目录检查。它不携带分支、HEAD、脏标记、锁或可修剪标记，也没有创建／移除操作，因为所采纳的世代完全没有发布任何 Git 或 worktree 能力。呈现模型被塑造成日后可以由一个发布结构化 worktree 事实的可选上游能力来丰富；在这样的能力存在之前，这里没有 `ctx.worktrees`，也没有替它顶上的子进程。
+**Git owns Git。**一行携带一条路径与一个会话数量。它不携带分支、HEAD、脏标记、锁或可修剪标记，也没有枚举、创建或移除操作，因为所采纳的世代完全没有发布任何 Git 或 worktree 能力。选择器也不做自己的文件系统状态检查：如果选中的目录已经不在，Harness 自己的会话创建会通过普通的恢复路径报告它，而不是让第二份关于文件系统的真相住在一个浏览器里。这个临时的 cwd 分组模型被塑造成日后可以与一个发布结构化 worktree 事实的可选上游能力相互对齐；在这样的能力存在之前，这里没有 `ctx.worktrees`，也没有替它顶上的子进程。
 
-**"运行中"这个词被精确使用。**`ctx.agents` 是进程内的，而所采纳的世代不发布跨进程的所有权或存活约定，因此 `current` 标记的是本窗口的会话所在的工作区，别无其他声称。没有任何一行会说"在另一个终端里存活"、"可以安全接管"或"在另一个进程里空闲"；恢复一个由另一个存活进程持有的会话会因 Harness 自己的拒绝而失败，现有的重新打开恢复路径会报告它。
+**"运行中"这个词被精确使用。**持久语料库有意包含其他 dshline 进程创建的会话，能够浏览它们正是重点。但 `SessionRecord.live` 意味着"在提问的那个进程里存活"，`ctx.agents` 是进程内的，而所采纳的世代不发布跨进程的所有权或存活约定——因此 `current` 标记的是本窗口的会话所在的目录，别无其他声称。没有任何一行会说"在另一个终端里存活"、"可以安全接管"或"在另一个进程里空闲"。随包发布的 JSONL 持久化要求每个会话只有一个存活写入者，而恢复一个由另一个存活进程持有的会话会因 Harness 自己的拒绝而失败，现有的重新打开恢复路径会报告它。这也是 `/sessions` 的限制，而 `/worktrees` 不做比它更强的承诺。
 
 ## Connect：配置是四个 seam，而不是一个
 

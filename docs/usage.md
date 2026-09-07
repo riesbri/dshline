@@ -201,7 +201,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | `/new` | Start a fresh session in the current workspace; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/clear` | Wipe the screen and start a fresh session in the current workspace, as `/new` does; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/sessions` | Browse, search, and reopen past sessions without leaving the window |
-| `/worktrees` | Choose the code workspace to work in, then a conversation there or a new one |
+| `/worktrees` | Choose a working directory your Harness session history represents, then a conversation there or a new one |
 | `/todos` | Open a bounded read-only view of the current Harness Todo list |
 | `/skills` | Browse the skills available to the running agent, and put one in the prompt |
 | `/exit`, `/quit` | Leave, the same as `ctrl-d` |
@@ -792,79 +792,77 @@ ends the process, and never quietly substitutes a session you did not ask for.
 ### Worktrees
 
 `/sessions` asks which conversation. `/worktrees` asks the question before it —
-which code workspace — and only then which conversation there:
+which working directory — and only then which conversation there:
 
 ```text
-repository
-  └─ worktree / working directory
-       └─ Harness Workspace
-            ├─ Session A
-            ├─ Session B
-            └─ Session C
+SessionHeader.cwd        what Harness stamped when each session was created
+      ↓ group by exact string
+working directories      one row per distinct cwd; nothing is stored
+      ↓ choose one
+that directory's sessions, or a new one
 ```
 
-A worktree is not a session. Several conversations can be rooted in the same
-directory, so choosing a directory does not choose one of them: the first view
-lists the workspaces Harness knows, and selecting one opens a second view with
-that workspace's own sessions and a `+ New session` row on top.
+A working directory is not a session. Several conversations can be rooted in
+the same one, so choosing a directory does not choose one of them: the first
+view lists the directories your Harness session history represents, and
+selecting one opens a second view with that directory's sessions and a
+`+ New session` row on top.
 
 | | |
 | --- | --- |
-| type | Filter the workspace list by title or path, as you type |
+| type | Filter the directory list by name or path, as you type |
 | `↑` `↓` | Move; the list wraps at both ends |
-| `↵` | Open the selected workspace, then open the selected session |
-| `n` | Start a fresh session in the selected workspace, from the second view |
-| `←` | Back to the workspace list |
+| `↵` | Open the selected directory, then open the selected session |
+| `n` | Start a fresh session in the selected directory, from the second view |
+| `←` | Back to the directory list |
 | `esc` | Back, then clear the filter, then close |
 | `ctrl-d` | Leave, as everywhere else |
 
-Each workspace row is Harness's own title, its canonical directory, and how
-many sessions Harness accounts to it. `current` marks the workspace the session
-in this window is rooted in — and nothing more than that. It does not claim
-that another terminal is live in a directory, because `ctx.agents` is
-process-local and Harness publishes no cross-process ownership contract; a row
-that said "running elsewhere" would be inventing one.
+Each row is the directory's last path segment, its full path, and how many
+sessions carry exactly that path. `current` marks the directory the session in
+this window is rooted in — and nothing more than that. It does not claim that
+another terminal is live in a directory: Harness reports a session as live only
+for the process asking, and publishes no cross-process ownership state, so a
+row that said "running elsewhere" would be inventing one.
 
 Opening a session reopens it exactly as `/sessions` does, under the same
-refusals, and a reopened session keeps the workspace it was created in — its
+refusals, and a reopened session keeps the directory it was created in — its
 header is the authority, so nothing is ever re-rooted. `+ New session` starts a
-fresh session whose workspace is the one you selected, and Harness records it
-under that workspace once it exists. If that recording fails, dshline says so
-and keeps the conversation: the session you asked for was created, and deleting
-it to make a list look tidy would throw away the only part that worked.
+fresh session in the directory you selected; Harness stamps that path into the
+new session's header, which is the whole transition. Nothing else is written or
+recorded anywhere.
 
-**Where the list comes from, and what it does not include.** The workspaces are
-Harness's own `ctx.workspaceRegistry` records — durable registrations over
-canonical working directories — and nothing else. dshline runs no `git worktree
-list`, reads nothing under `.git`, and keeps no directory list of its own,
-because a second account of "which working directories exist" would be a second
-authority to disagree with. Harness groups your existing history into
-workspaces once, at the first start that has the registry mounted, and after
-that a directory becomes a workspace when something registers it. So **a Git
-worktree you have just created and never used does not appear here yet**. When
-that is the directory this window is in, the list offers to register it:
+**Where the list comes from, and what it does not include.** The rows are a
+grouping of Harness's own session corpus by each session's stored working
+directory, computed while the picker is open and thrown away when it closes.
+There is no dshline database, no workspace registry, and no Git: dshline runs
+no `git worktree list`, reads nothing under `.git`, and keeps no directory list
+of its own. So a directory appears once Harness has a session in it, and **a
+Git worktree you have just created and never worked in does not appear yet**.
+Start dshline there and its own live session puts it on this list; once that
+conversation has persisted, your other dshline windows find it too, through the
+ordinary session listing.
 
 ```text
 Worktrees
 
 ● dshline              ~/src/dshline            current · 2 sessions
-  auth experiment      ~/src/dshline-auth       1 session
-  workspaces           ~/src/dshline-workspaces no sessions
-  + Register ~/src/dshline-new
+  dshline-auth         ~/src/dshline-auth       1 session
+  dshline-ui           ~/src/dshline-ui         1 session
 
 enter open    esc close
 ```
 
-That row is Harness's own single add route, and it is idempotent per directory:
-it records a directory you are already working in, and it creates no directory,
-no branch, and no Git worktree. Creating and removing Git worktrees is
-deliberately not here — see [Roadmap](../ROADMAP.md), "Current limitations".
+Creating and removing Git worktrees is deliberately not here — see
+[Roadmap](../ROADMAP.md), "Current limitations". The grouping key is the exact
+path string Harness stored, never a path dshline resolved, so if two sessions
+really were created with two different spellings of one directory they stay two
+rows; inventing path identity is the one thing a frontend must not do here.
 
-A profile that does not mount the Workspace registry says so and offers
-nothing else:
+A profile that mounts no session corpus says so and offers nothing else:
 
 ```text
-No Harness Workspace registry is mounted in this profile.
+No Harness session corpus is mounted in this profile.
 ```
 
 ### Work
@@ -1814,9 +1812,10 @@ You do not have to decide at launch. `/sessions` opens the same browser from
 inside a running window and reopens a session in place; see
 [Commands → Sessions](#sessions). One session is driven at a time, and the
 transcript of each stays in your terminal's own scrollback. To move between
-code workspaces rather than between conversations, use
+working directories rather than between conversations, use
 [`/worktrees`](#worktrees); to work in two of them at once, open two terminals,
-each rooted in its own directory.
+each rooted in its own directory — which is also how the sessions each one
+creates reach the other's `/worktrees` list.
 
 ## If it refuses to start
 

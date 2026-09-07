@@ -88,11 +88,6 @@ export const CAPABILITY_PROBES = [
     note: 'the sign-in seam `/connect` runs and this bundle now composes as a host row',
   },
   {
-    name: 'workspaceRegistry',
-    files: ['packages/dshline/tests/capability/workspace.probe.spec.ts'],
-    note: 'the durable Workspace records and header-validated Session membership `/worktrees` navigates',
-  },
-  {
     name: 'requestHeader',
     files: ['packages/dshline/tests/cache-inspector.spec.ts'],
     note: 'the `Session.requestHeader()` fold `/cache` reads the latest recorded route, system prompt, and tool count from',

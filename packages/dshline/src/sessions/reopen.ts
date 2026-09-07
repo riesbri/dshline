@@ -37,21 +37,17 @@ export type AttachTarget =
    * `/clear` carries the intent to begin this fresh session on an emptied
    * visible display, and the next attachment wipes only after create succeeded.
    *
-   * `workspaceId` is present only on a `/worktrees` transition, and this
-   * module deliberately never reads it: it is an OPAQUE string carried
-   * through the recovery merges exactly as `cwd` is, so the Workspace domain
-   * stays out of a module whose one responsibility is the create/resume
-   * lifecycle. The loop records the membership it names after create
-   * succeeded — see `worktrees/membership.ts` — which is also why a failed
-   * create can never leave phantom membership behind: nothing has been
-   * written yet.
+   * A `/worktrees` transition is one of these and carries nothing extra: the
+   * directory IS the whole request, because Harness stamps it into the new
+   * session's immutable header and that header is what any later grouping
+   * reads. There is no membership to record and no domain identity for this
+   * module to carry.
    */
   | {
     readonly kind: 'new'
     readonly afterDismissal?: boolean
     readonly cwd?: string
     readonly clearDisplay?: boolean
-    readonly workspaceId?: string
   }
   /** Reopen this persisted session. */
   | { readonly kind: 'resume'; readonly id: SessionId }
@@ -160,8 +156,6 @@ interface FreshRecovery {
   readonly cwd: string
   /** `/clear`'s presentation intent, when the first target carried it. */
   readonly clearDisplay: boolean | undefined
-  /** The `/worktrees` workspace whose membership the loop will record. */
-  readonly workspaceId: string | undefined
 }
 
 /**
@@ -170,13 +164,9 @@ interface FreshRecovery {
  * One place rather than three. The direct path, the retry after a failed
  * create, and the retry after a failed resume all mean the same thing, and
  * three inline spreads of the same field list is how one of them silently
- * stops carrying a field the other two do.
- *
- * `clearDisplay` is taken from the recovery deliberately — the presentation
- * intent belongs to the ORIGINAL request, not to the browser dismissal that
- * followed it — while `workspaceId` prefers the target's own, because a reader
- * who picked a different worktree in between chose a different workspace to be
- * a member of.
+ * stops carrying a field the other two do. Both fields belong to the ORIGINAL
+ * request rather than to the browser dismissal that followed it, which is why
+ * the recovery wins over whatever the chosen fresh target carried.
  * @param fresh - the fresh target being attached or retried.
  * @param recovery - the fields the failed transition kept alive.
  * @returns the target to attach, or record as attached.
@@ -185,12 +175,10 @@ function withRecovery(
   fresh: Extract<AttachTarget, { readonly kind: 'new' }>,
   recovery: FreshRecovery,
 ): AttachTarget {
-  const workspaceId = fresh.workspaceId ?? recovery.workspaceId
   return {
     ...fresh,
     cwd: recovery.cwd,
     ...(recovery.clearDisplay === undefined ? {} : { clearDisplay: recovery.clearDisplay }),
-    ...(workspaceId === undefined ? {} : { workspaceId }),
   }
 }
 
@@ -216,17 +204,7 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
   // display. A resume choice drops it, which is why it is folded into a
   // fresh target only.
   const recoveryClear = first.kind === 'new' ? first.clearDisplay : undefined
-  // Carried with the workspace it belongs to, and only with it: a retried
-  // fresh target that reuses `recoveryCwd` is still the same request, so the
-  // membership the loop will record must still name the same workspace. A
-  // resume choice drops both, which is why they are folded into a fresh
-  // target only.
-  const recoveryWorkspace = first.kind === 'new' ? first.workspaceId : undefined
-  const recovery = (cwd: string): FreshRecovery => ({
-    cwd,
-    clearDisplay: recoveryClear,
-    workspaceId: recoveryWorkspace,
-  })
+  const recovery = (cwd: string): FreshRecovery => ({ cwd, clearDisplay: recoveryClear })
   for (;;) {
     if (target.kind === 'new') {
       const preset = spec.newSessionPreset()

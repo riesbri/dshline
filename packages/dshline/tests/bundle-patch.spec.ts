@@ -210,68 +210,6 @@ describe('cordis.patch.yml: the session-stats row', () => {
 })
 
 /**
- * `/worktrees` reads Harness's Workspace registry (`ctx.workspaceRegistry`),
- * and `dsh-base` does not mount the row that provides it — a plain TUI
- * assembly has no such service. This bundle inserts it host-plane beside the
- * frontend's own rows, exactly as upstream's `web-app` bundle does for its
- * workspace sidebar, because the registry is a process-wide durable domain
- * keyed by directory rather than anything an agent contributes: the package's
- * own README states it registers no tool, injects no prompt, and is invisible
- * to the model.
- *
- * The same two separable facts as `session-stats`: the row names a package, so
- * the package has to be a shipped `dependency`, while the CAPABILITY is what a
- * composition may drop — a profile without it gets a `/worktrees` that says so
- * (see `worktrees-catalog.spec.ts` and `worktrees-overlay.spec.ts`) rather
- * than one that scans for directories on its own.
- */
-describe('cordis.patch.yml: the workspace row', () => {
-  function findRow(patch: readonly PatchEntry[]): { readonly id: string; readonly name: string; readonly disabled?: unknown; readonly config?: unknown } {
-    const row = patch.flatMap(entry => entry.insert ?? []).find(candidate => candidate.id === 'workspace')
-    if (row === undefined) throw new Error('workspace row not found')
-    return row
-  }
-
-  it('inserts the official Harness package, not a dshline worktree registry', () => {
-    expect(findRow(loadPatch()).name).toBe('@deepseek-ai/dsh-workspace')
-  })
-
-  it('mounts it unconditionally, with no capability probe and no configuration', () => {
-    const row = findRow(loadPatch())
-    expect(row.disabled).toBeUndefined()
-    // The package takes no options; a config block here would be dshline
-    // inventing a knob upstream does not define.
-    expect(row.config).toBeUndefined()
-  })
-
-  it('keeps it host-plane rather than behind an agent preset', () => {
-    const patch = loadPatch()
-    // Not in the agent-plane list, and never disabled: whether a person can
-    // navigate their worktrees must not be a function of which preset a
-    // session runs, and a per-preset mount would open the same durable domain
-    // once per preset.
-    expect(EXPECTED_DISABLED).not.toContain('workspace')
-    expect(disabledIds(patch)).not.toContain('workspace')
-  })
-
-  it('ships the package its row names as a real dependency', () => {
-    const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as {
-      dependencies?: Record<string, string>
-      devDependencies?: Record<string, string>
-      peerDependencies?: Record<string, string>
-      optionalDependencies?: Record<string, string>
-      peerDependenciesMeta?: Record<string, unknown>
-    }
-    const name = findRow(loadPatch()).name
-    expect(manifest.dependencies?.[name]).toBe(HARNESS_VERSION)
-    expect(manifest.peerDependencies?.[name]).toBeUndefined()
-    expect(manifest.devDependencies?.[name]).toBeUndefined()
-    expect(manifest.optionalDependencies?.[name]).toBeUndefined()
-    expect(manifest.peerDependenciesMeta?.[name]).toBeUndefined()
-  })
-})
-
-/**
  * The `standard` preset's `tool-subagent` row opts into
  * `modelSelectionSettings: true`, which needs
  * `@deepseek-ai/dsh-tool-subagent/model-selection-settings` mounted

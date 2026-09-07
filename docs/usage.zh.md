@@ -187,7 +187,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 | `/new` | 在当前工作区开始一个全新会话；当前激活的 Harness 配置文件提供会话持久化时，上一个会话仍可重新打开 |
 | `/clear` | 清屏并在当前工作区开始一个全新会话，如同 `/new`；当前激活的 Harness 配置文件提供会话持久化时，上一个会话仍可重新打开 |
 | `/sessions` | 不离开窗口浏览、搜索并重新打开过去的会话 |
-| `/worktrees` | 选择要工作的代码工作区，然后选择那里的一场对话或开一场新的 |
+| `/worktrees` | 选择你的 Harness 会话历史所代表的工作目录，然后选择那里的一场对话或开一场新的 |
 | `/todos` | 打开当前 Harness Todo 列表的有界只读视图 |
 | `/skills` | 浏览运行中 agent 可用的技能，并把其中之一放进提示 |
 | `/exit`、`/quit` | 退出，与 `ctrl-d` 相同 |
@@ -567,52 +567,50 @@ allowBuilds:
 
 ### Worktrees
 
-`/sessions` 问的是哪一场对话。`/worktrees` 问的是它之前的那个问题——哪一个代码工作区——然后才问那里的哪一场对话：
+`/sessions` 问的是哪一场对话。`/worktrees` 问的是它之前的那个问题——哪一个工作目录——然后才问那里的哪一场对话：
 
 ```text
-repository
-  └─ worktree / working directory
-       └─ Harness Workspace
-            ├─ Session A
-            ├─ Session B
-            └─ Session C
+SessionHeader.cwd        what Harness stamped when each session was created
+      ↓ group by exact string
+working directories      one row per distinct cwd; nothing is stored
+      ↓ choose one
+that directory's sessions, or a new one
 ```
 
-worktree 不是会话。同一个目录里可以有好几场对话，因此选一个目录并不等于选中其中某一场：第一层视图列出 Harness 知道的 Workspace，选中一个会打开第二层视图，显示那个 Workspace 自己的会话，最上面是一行 `+ New session`。
+工作目录不是会话。同一个目录里可以有好几场对话，因此选一个目录并不等于选中其中某一场：第一层视图列出你的 Harness 会话历史所代表的那些目录，选中一个会打开第二层视图，显示那个目录的会话，最上面是一行 `+ New session`。
 
 | | |
 | --- | --- |
-| type | 边输入边按标题或路径过滤 Workspace 清单 |
+| type | 边输入边按名称或路径过滤目录清单 |
 | `↑` `↓` | 移动；列表两端都回绕 |
-| `↵` | 打开选中的 Workspace，然后打开选中的会话 |
-| `n` | 在第二层视图中，于选中的 Workspace 里开一场新会话 |
-| `←` | 返回 Workspace 清单 |
+| `↵` | 打开选中的目录，然后打开选中的会话 |
+| `n` | 在第二层视图中，于选中的目录里开一场新会话 |
+| `←` | 返回目录清单 |
 | `esc` | 先返回，再清空过滤，再关闭 |
 | `ctrl-d` | 退出，与别处一样 |
 
-每一个 Workspace 行是 Harness 自己的标题、它的规范目录，以及 Harness 记在它名下的会话数量。`current` 标记本窗口中的会话所在的 Workspace——仅此而已。它不声称另一个终端在某个目录里存活，因为 `ctx.agents` 是进程内的，而 Harness 不发布跨进程的所有权约定；一行写着"在别处运行"就是在自己发明一个。
+每一行是该目录路径的最后一段、它的完整路径，以及有多少会话携带的正是那条路径。`current` 标记本窗口中的会话所在的目录——仅此而已。它不声称另一个终端在某个目录里存活：Harness 只对提问的那个进程报告会话是否存活，也不发布跨进程的所有权状态，因此一行写着"在别处运行"就是在自己发明一个。
 
-打开一个会话与 `/sessions` 的方式完全一致，遵守同样的拒绝规则；恢复的会话保留它被创建时所在的工作区——它的头部是权威，因此任何东西都不会被重新指向别的根目录。`+ New session` 开一场新会话，其工作区就是你选中的那一个，会话存在之后 Harness 会把它记在那个 Workspace 名下。如果这次记录失败，dshline 会说明并保留这场对话：你要的会话已经创建，为了让一份清单看起来整齐而删掉它，等于扔掉唯一成功的部分。
+打开一个会话与 `/sessions` 的方式完全一致，遵守同样的拒绝规则；恢复的会话保留它被创建时所在的目录——它的头部是权威，因此任何东西都不会被重新指向别的根目录。`+ New session` 在你选中的目录里开一场新会话；Harness 会把那条路径盖进新会话的头部，这就是整个切换。除此之外，任何地方都不写入、不记录别的东西。
 
-**清单从哪里来，以及它不包含什么。** 这些 Workspace 就是 Harness 自己的 `ctx.workspaceRegistry` 记录——针对规范工作目录的持久登记——除此之外没有别的。dshline 不运行 `git worktree list`，不读取 `.git` 下的任何内容，也不保留自己的目录清单，因为对"存在哪些工作目录"的第二份账目就是第二个会与之分歧的权威。Harness 会在第一次挂载了该 registry 的启动时，把你已有的历史一次性归组成 Workspace；此后，一个目录要成为 Workspace，需要有谁去登记它。所以**你刚刚创建、从未使用过的 Git worktree 现在还不会出现在这里**。当那个目录正是本窗口所在的目录时，清单会提供登记它：
+**清单从哪里来，以及它不包含什么。** 这些行是把 Harness 自己的会话语料库按每个会话存储的工作目录分组的结果，在选择器打开期间计算，关闭时丢弃。没有 dshline 数据库，没有工作区 registry，也没有 Git：dshline 不运行 `git worktree list`，不读取 `.git` 下的任何内容，也不保留自己的目录清单。所以一个目录会在 Harness 于其中有了会话之后出现，而**你刚刚创建、从未在其中工作过的 Git worktree 现在还不会出现**。在那里启动 dshline，它自己的存活会话就会把它放进这份清单；那场对话持久化之后，你其他的 dshline 窗口也能通过普通的会话列表找到它。
 
 ```text
 Worktrees
 
 ● dshline              ~/src/dshline            current · 2 sessions
-  auth experiment      ~/src/dshline-auth       1 session
-  workspaces           ~/src/dshline-workspaces no sessions
-  + Register ~/src/dshline-new
+  dshline-auth         ~/src/dshline-auth       1 session
+  dshline-ui           ~/src/dshline-ui         1 session
 
 enter open    esc close
 ```
 
-那一行就是 Harness 自己唯一的添加路径，并且对每个目录是幂等的：它登记一个你已经在其中工作的目录，不创建目录，不创建分支，也不创建 Git worktree。创建与移除 Git worktree 有意不在这里——见 [路线图](../ROADMAP.zh.md)"当前限制"。
+创建与移除 Git worktree 有意不在这里——见 [路线图](../ROADMAP.zh.md)"当前限制"。分组键是 Harness 存储的那条精确路径字符串，绝不是 dshline 解析出来的路径；因此如果两个会话确实是用同一个目录的两种写法创建的，它们就是两行——发明路径身份正是前端在这里唯一绝不能做的事。
 
-没有挂载 Workspace registry 的配置文件会说明这一点，不提供别的东西：
+没有挂载会话语料库的配置文件会说明这一点，不提供别的东西：
 
 ```text
-No Harness Workspace registry is mounted in this profile.
+No Harness session corpus is mounted in this profile.
 ```
 
 ### Work
@@ -1348,7 +1346,7 @@ dsh --profile dshline --resume <id>     # reopen a session directly
 
 重新打开的会话看起来与你看着发生的那场完全一样——推理、diff、工具输出等等——因为它已持久化的日志通过绘制实时会话的同一段代码重绘。没有会话持久化的配置文件仍然支持开始新的对话，只是对话结束后无法再次提供。
 
-你不必在启动时决定。`/sessions` 从运行中的窗口内部打开同一个浏览器，并在原位重新打开会话；见 [命令 → Sessions](#sessions)。一次驱动一个会话，每个的会话记录都留在你自己终端的滚动缓冲区中。要在代码工作区之间移动而不是在对话之间移动，用 [`/worktrees`](#worktrees)；要同时在两个工作区里工作，就开两个终端，各自以自己的目录为根。
+你不必在启动时决定。`/sessions` 从运行中的窗口内部打开同一个浏览器，并在原位重新打开会话；见 [命令 → Sessions](#sessions)。一次驱动一个会话，每个的会话记录都留在你自己终端的滚动缓冲区中。要在工作目录之间移动而不是在对话之间移动，用 [`/worktrees`](#worktrees)；要同时在两个目录里工作，就开两个终端，各自以自己的目录为根——各自创建的会话也正是这样进入对方的 `/worktrees` 清单的。
 
 ## 如果它拒绝启动
 

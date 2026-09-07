@@ -986,15 +986,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       name: 'worktrees',
       description: 'Choose a code workspace, then a conversation in it',
       execute: async () => {
-        // Workspace-first, and deliberately not `/sessions` with a filter: a
-        // worktree is not a session, so choosing a directory must not resume
+        // Directory-first, and deliberately not `/sessions` with a filter: a
+        // working directory is not a session, so choosing one must not resume
         // whichever conversation happens to be newest in it. The second view
         // asks that question separately, and `+ New session` is its first row.
         //
         // Imported on demand, like `/plugins`, `/profiles`, `/connect`, and
-        // `/sessions` above: the picker's module graph is one command's UI.
-        // Only `worktrees/membership.ts` — the write the loop performs after a
-        // creation — is on the boot path.
+        // `/sessions` above: the picker's module graph is one command's UI,
+        // and nothing from it is on the boot path.
         //
         // Both plans are the ones `/sessions` and `/new` already use, and both
         // are passed as functions rather than decisions: the picker stays open
@@ -1031,7 +1030,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           // The same acknowledgement `/new` commits, because it is the same
           // act — only the workspace differs.
           commit([paint('· starting a new session…', 'muted')])
-          requestNext({ kind: 'new', cwd: chosen.cwd, workspaceId: chosen.workspaceId })
+          requestNext({ kind: 'new', cwd: chosen.cwd })
         }
         draw()
       },

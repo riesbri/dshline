@@ -39,7 +39,6 @@
     "@deepseek-ai/dsh-atomic-write": "0.1.2-rc.1",
     "@deepseek-ai/dsh-authorization": "0.1.2-rc.1",
     "@deepseek-ai/dsh-session-stats": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-workspace": "0.1.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.2",
     "@dshline/renderer": "workspace:^",
     "yaml": "^2.9.0"
@@ -88,9 +87,6 @@
     "@deepseek-ai/dsh-session-query": "0.1.2-rc.1",
     "@deepseek-ai/dsh-session-title": "0.1.2-rc.1",
     "@deepseek-ai/dsh-skill": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-storage": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-storage-domain": "0.1.2-rc.1",
-    "@deepseek-ai/dsh-storage-json": "0.1.2-rc.1",
     "@deepseek-ai/dsh-subagent": "0.1.2-rc.1",
     "@deepseek-ai/dsh-subprocess": "0.1.2-rc.1",
     "@deepseek-ai/dsh-system-prompt": "0.1.2-rc.1",
