@@ -8,6 +8,10 @@
 
 **面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件生态系统的终端原生前端。**
 
+agent（智能体）在你的终端里，而不是取代你的终端。完成后的输出会留在终端自身的滚动缓冲区（scrollback）中，只有有界的活动区域会重绘。
+
+**网站：**[dshline.xyz](https://dshline.xyz)
+
 [![npm](https://img.shields.io/npm/v/%40dshline%2Fdshline?color=ff6b35&labelColor=black&style=flat-square)](https://www.npmjs.com/package/@dshline/dshline)
 [![CI](https://img.shields.io/github/actions/workflow/status/riesbri/dshline/ci.yml?branch=main&color=369eff&labelColor=black&logo=github&style=flat-square&label=ci)](https://github.com/riesbri/dshline/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/riesbri/dshline?color=c4f042&labelColor=black&style=flat-square&label=scorecard)](https://scorecard.dev/viewer/?uri=github.com/riesbri/dshline)

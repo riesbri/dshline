@@ -106,7 +106,7 @@
     "url": "git+https://github.com/riesbri/dshline.git",
     "directory": "packages/dshline"
   },
-  "homepage": "https://github.com/riesbri/dshline#readme",
+  "homepage": "https://dshline.xyz",
   "bugs": {
     "url": "https://github.com/riesbri/dshline/issues"
   },
