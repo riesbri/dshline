@@ -4,7 +4,7 @@
  * The composition rules are three nested preferences deep, and a string
  * assertion at one width proves nothing about the width either side of it. The
  * failure worth catching is a segment that survives in HALF — a cut round count
- * or a cut objective reads as a different fact, not as a smaller one — so this
+ * or a cut goal state reads as a different fact, not as a smaller one — so this
  * resizes across the range a real window is dragged through and reads the cells.
  */
 
@@ -32,7 +32,7 @@ const CROWDED: StatusState = {
   todo: 'todo 5/11',
   plan: false,
   replay: undefined,
-  goal: { label: 'goal armed', short: 'goal armed', running: true },
+  goal: { label: 'goal armed', running: true },
 }
 
 /**

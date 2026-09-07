@@ -31,12 +31,10 @@
 import type { GoalActivation } from '@deepseek-ai/dsh-goal'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 
-/** What a goal is, how far in it is, and whether anything will continue it. */
+/** The goal state shown in the footer and whether this process will continue it. */
 export interface GoalReading {
-  /** The goal state shown in the status line; the objective is reserved for `/goal`. */
+  /** One indivisible state/progress label such as `goal armed` or `goal 3/256`. */
   label: string
-  /** The same state, kept for the status line's narrow-layout contract. */
-  short: string
   /** Whether this session will continue the goal by itself. */
   running: boolean
 }
@@ -94,12 +92,11 @@ export function goalReading(
     : !running
       ? 'idle'
       : roundsStarted > 0 ? `${String(roundsStarted)}/${String(goal.maxGoalRounds)}` : 'armed'
-  const short = `goal ${state}`
+  const label = `goal ${state}`
   return {
     // `/goal` is the explicit surface for the objective; the footer keeps only
     // the compact state that remains useful on every redraw and terminal width.
-    label: short,
-    short,
+    label,
     running,
   }
 }

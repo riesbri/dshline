@@ -276,8 +276,10 @@ from its owner. Everything durable — objective, phase, blocked reason,
 `roundsStarted`, `maxGoalRounds`, revision, timestamps — comes from the `goal`
 projection, out of the same session-scoped observer cut the status line already
 takes for Todo and context occupancy, so Goal adds no second direct dshline
-snapshot. `ctx.goals` answers exactly one question, and is asked only where the
-answer can change the reading: live, process-local continuation activation, for
+snapshot. The persistent footer projects only the goal's compact state and
+progress; `/goal` is the inspection surface for its objective. `ctx.goals` answers
+exactly one question, and is asked only where the answer can change the reading:
+live, process-local continuation activation, for
 a projected goal whose durable phase is `active`. That read is live and never
 cached, because `disarm()` is process-local by design — it changes activation
 with no `goal/change` event, no revision, and no `goal/changed` notification, so

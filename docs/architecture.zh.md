@@ -177,7 +177,7 @@ dshline 不重新统计会话日志，不安装定时器，不重放事件，也
 `compactRegion` 存在于该服务上，并被特意不暴露：人类命令不接受参数，而一个范围选择
 界面会是上游尚未定义的控制约定。
 
-Goal 是一个具有两个权威的已知投影领域，dshline 分别从各自的所有者读取。所有持久内容——objective、phase、blocked reason、`roundsStarted`、`maxGoalRounds`、revision、时间戳——都来自 `goal` 投影，取自状态行已经为 Todo 与上下文占用所取的同一份会话作用域观察器切面，因此 Goal 不增加第二次 dshline 直接快照。`ctx.goals` 只回答一个问题，并且只在答案能改变读数时才被询问：对于持久 phase 为 `active` 的已投影目标，读取实时、进程局部的续跑激活。该读取是实时的，且从不缓存，因为 `disarm()` 按设计是进程局部的——它改变激活时不产生 `goal/change` 事件、不推进 revision、也不发出 `goal/changed` 通知，因此任何投影观察器都无法重建或拥有它。无法获取的激活绝不被当作 `armed`：持有持久 active 目标的恢复会话报告 `goal idle`，而不是声称本进程会继续它——这正是任一权威单独都说不出的那件事。
+Goal 是一个具有两个权威的已知投影领域，dshline 分别从各自的所有者读取。所有持久内容——objective、phase、blocked reason、`roundsStarted`、`maxGoalRounds`、revision、时间戳——都来自 `goal` 投影，取自状态行已经为 Todo 与上下文占用所取的同一份会话作用域观察器切面，因此 Goal 不增加第二次 dshline 直接快照。持久页脚只投影目标的紧凑状态与进度；`/goal` 才是查看其 objective 的界面。`ctx.goals` 只回答一个问题，并且只在答案能改变读数时才被询问：对于持久 phase 为 `active` 的已投影目标，读取实时、进程局部的续跑激活。该读取是实时的，且从不缓存，因为 `disarm()` 按设计是进程局部的——它改变激活时不产生 `goal/change` 事件、不推进 revision、也不发出 `goal/changed` 通知，因此任何投影观察器都无法重建或拥有它。无法获取的激活绝不被当作 `armed`：持有持久 active 目标的恢复会话报告 `goal idle`，而不是声称本进程会继续它——这正是任一权威单独都说不出的那件事。
 
 之所以整体读取该服务视图，是因为已采纳的这一代没有发布仅取激活的访问器，而 `GoalService.get()` 会先通过 `sessionProjections.stateOf(session, 'goal')` 解析它自己的持久部分，再与进程局部的运行时状态合并。那次内部读取属于该服务而不属于本前端，并且本前端只从其返回值中取用 `.activation`——因此权威划分是精确的，尽管在物理上还不够窄。上游若提供仅取激活的访问器，就能免去服务端的那次 `stateOf()` 读取，使两者兼得。Plan 仍由其文档化的 Harness 权威治理。
 

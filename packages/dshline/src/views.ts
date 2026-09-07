@@ -28,6 +28,7 @@ import { CHROME_MIN_COLUMNS, chromeWidth, composerFrameWidth, rootFrame } from '
 import type { BusyEnter } from './delivery.ts'
 import { DEFAULT_BUSY_ENTER } from './delivery.ts'
 import type { TuiSlotView } from './slots.ts'
+import type { GoalReading } from './goals/model.ts'
 import type { PendingUserInput } from './steering.ts'
 
 /** What the status line reports; the runner owns the values. */
@@ -97,11 +98,8 @@ export interface StatusState {
   todo: string | undefined
   /** Whether plan mode is in force, so the agent will propose rather than act. */
   plan: boolean
-  /**
-   * A goal to report, already worded. `running` decides how loudly, and `short`
-   * is the same fact without the objective, for a terminal that cannot hold it.
-   */
-  goal: { label: string; short: string; running: boolean } | undefined
+  /** One whole goal state/progress segment; `/goal` owns objective inspection. */
+  goal: GoalReading | undefined
 }
 
 /** The composer's prompt, inside the frame. */
@@ -636,12 +634,10 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const plan = current.plan ? paint('plan', 'mode') : undefined
       const goalStyle = (text: string): string =>
         paint(text, current.goal?.running === true ? 'mode-alert' : 'subdued')
+      // Goal state is one indivisible mode segment. The objective belongs to the
+      // explicit `/goal` surface, so no second footer rung is needed to retain a
+      // shorter version of this reading.
       const goal = current.goal === undefined ? undefined : goalStyle(current.goal.label)
-      // The objective is the only part of a mode that MAY be given up separately,
-      // because it is the only part that is prose rather than a fact with a
-      // smaller false form. Dropping it leaves `goal 3/256`, which is true;
-      // shortening `3/256` would not be.
-      const goalShort = current.goal === undefined ? undefined : goalStyle(current.goal.short)
 
       // Hints are dropped WHOLE when the width runs out. Truncating the joined line
       // instead cut one in half — `ctrl-d qui` — which reads as a rendering fault
@@ -687,7 +683,6 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const plain = reading === undefined ? [] : [reading]
       const planned = plan === undefined ? [] : [plan]
       const goalled = goal === undefined ? [] : [goal]
-      const goalBare = goalShort === undefined ? [] : [goalShort]
       const tooled = detail === undefined ? [] : [detail]
       const todoed = todo === undefined ? [] : [todo]
       const worked = work === undefined ? [] : [work]
@@ -710,8 +705,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         [...planned, ...goalled, ...queuedTail, ...worked],
         [...planned, ...goalled, ...queuedTail],
         [...planned, ...goalled],
-        [...planned, ...goalBare],
-        [...goalBare],
+        [...goalled],
         [],
       ]
       const bodies = [

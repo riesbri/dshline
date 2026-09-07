@@ -689,7 +689,7 @@ describe('the status line', () => {
   })
 
   it('says when a goal is taking rounds on its own', () => {
-    expect(status({ goal: { label: 'goal 3/256', short: 'goal 3/256', running: true } })).toContain('goal 3/256')
+    expect(status({ goal: { label: 'goal 3/256', running: true } })).toContain('goal 3/256')
     expect(status()).not.toContain('goal')
   })
 
@@ -698,7 +698,7 @@ describe('the status line', () => {
     // and which model it is on, and both are absent in the ordinary case anyway.
     const line = status({
       plan: true,
-      goal: { label: 'goal 3/256', short: 'goal 3/256', running: true },
+      goal: { label: 'goal 3/256', running: true },
       usage: '\u2191130k \u219312.4k $1.24',
       tokens: 130_000,
       contextWindow: 1_000_000,
@@ -712,7 +712,7 @@ describe('the status line', () => {
   it('keeps a running goal in preference to a hint', () => {
     // The hint reservation exists so a richer READING cannot crowd out help. It
     // must not outrank what the session is about to do on its own.
-    const line = status({ goal: { label: 'goal 12/256', short: 'goal 12/256', running: true }, tokens: 14_000 }, 40)
+    const line = status({ goal: { label: 'goal 12/256', running: true }, tokens: 14_000 }, 40)
     expect(line).toContain('goal 12/256')
     expect(line).not.toContain('alt-enter')
   })
@@ -723,7 +723,7 @@ describe('the status line', () => {
     for (const columns of [20, 24, 30, 36, 40, 44, 50, 60, 70, 80, 100]) {
       const line = status({
         plan: true,
-        goal: { label: 'goal 12/256', short: 'goal 12/256', running: true },
+        goal: { label: 'goal 12/256', running: true },
         usage: '\u2191130k \u219312.4k $1.24',
         tokens: 130_000,
         contextWindow: 1_000_000,
@@ -736,7 +736,7 @@ describe('the status line', () => {
   it('keeps the goal state visible without putting its objective in the footer', () => {
     const state = {
       plan: true,
-      goal: { label: 'goal 3/256', short: 'goal 3/256', running: true },
+      goal: { label: 'goal 3/256', running: true },
       tokens: 130_000,
       contextWindow: 1_000_000,
     }
@@ -794,7 +794,7 @@ describe('the status line', () => {
     // goes, and both behaviour modes stay.
     const state = {
       plan: true,
-      goal: { label: 'goal 12/256', short: 'goal 12/256', running: true },
+      goal: { label: 'goal 12/256', running: true },
       detail: 'full' as const,
       tokens: 130_000,
       contextWindow: 1_000_000,
@@ -810,7 +810,7 @@ describe('the status line', () => {
     for (const columns of [20, 30, 40, 60, 80, 96, 120, 200]) {
       const line = status({
         plan: true,
-        goal: { label: 'goal 128/256 idle', short: 'goal 128/256 idle', running: false },
+        goal: { label: 'goal 128/256 idle', running: false },
         detail: 'full',
         effort: 'max',
         usage: '\u2191130k \u219312.4k $1.24',
@@ -881,7 +881,7 @@ describe('the status line', () => {
       todo: 'todo 2/5',
       work: '2 subagents · 1 job',
       plan: true,
-      goal: { label: 'goal 12/256', short: 'goal 12/256', running: true },
+      goal: { label: 'goal 12/256', running: true },
       tokens: 130_000,
       contextWindow: 1_000_000,
     }
@@ -902,7 +902,7 @@ describe('the status line', () => {
     const state = {
       work: '2 subagents · 1 job',
       plan: true,
-      goal: { label: 'goal 12/256', short: 'goal 12/256', running: true },
+      goal: { label: 'goal 12/256', running: true },
       tokens: 130_000,
       contextWindow: 1_000_000,
     }
@@ -917,7 +917,7 @@ describe('the status line', () => {
       const line = status({
         work: '2 subagents · 1 job',
         plan: true,
-        goal: { label: 'goal 12/256', short: 'goal 12/256', running: true },
+        goal: { label: 'goal 12/256', running: true },
         tokens: 130_000,
         contextWindow: 1_000_000,
       }, columns)
@@ -967,7 +967,7 @@ describe('the status line', () => {
     // And it yields to behavior-changing modes like every observation does:
     // somewhere in the sweep there is a width that has already given the count
     // up while still holding plan and a running goal.
-    const crowded = { ...state, plan: true, goal: { label: 'goal 12/256', short: 'goal 12/256', running: true } }
+    const crowded = { ...state, plan: true, goal: { label: 'goal 12/256', running: true } }
     const yieldsToModes = (() => {
       for (let columns = 24; columns <= 200; columns += 1) {
         const line = status(crowded, columns)
