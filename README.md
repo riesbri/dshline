@@ -8,6 +8,10 @@ English | [中文](README.zh.md)
 
 **The terminal-native frontend for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin ecosystem.**
 
+An agent in your terminal — not instead of it. Finished output stays in your terminal's own scrollback; only a bounded live region redraws.
+
+**Website:** [dshline.xyz](https://dshline.xyz)
+
 [![npm](https://img.shields.io/npm/v/%40dshline%2Fdshline?color=ff6b35&labelColor=black&style=flat-square)](https://www.npmjs.com/package/@dshline/dshline)
 [![CI](https://img.shields.io/github/actions/workflow/status/riesbri/dshline/ci.yml?branch=main&color=369eff&labelColor=black&logo=github&style=flat-square&label=ci)](https://github.com/riesbri/dshline/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/riesbri/dshline?color=c4f042&labelColor=black&style=flat-square&label=scorecard)](https://scorecard.dev/viewer/?uri=github.com/riesbri/dshline)
