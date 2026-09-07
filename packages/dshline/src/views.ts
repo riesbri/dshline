@@ -635,8 +635,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const goalStyle = (text: string): string =>
         paint(text, current.goal?.running === true ? 'mode-alert' : 'subdued')
       // Goal state is one indivisible mode segment. The objective belongs to the
-      // explicit `/goal` surface, so no second footer rung is needed to retain a
-      // shorter version of this reading.
+      // explicit `/goal` surface, so the footer has no alternate goal reading.
       const goal = current.goal === undefined ? undefined : goalStyle(current.goal.label)
 
       // Hints are dropped WHOLE when the width runs out. Truncating the joined line
