@@ -36,13 +36,10 @@ import type {
 // importing from there also carries the `ctx.userQuestions` Context merge and
 // the `user-questions/request` waterfall declaration this module registers on.
 import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
-import { promptMultiSelect } from './multiselect.ts'
+import { otherDisplay, promptMultiSelect } from './multiselect.ts'
 import { createPlanReviewOverlay } from './plan-review.ts'
 import { promptText } from './prompt.ts'
 import { promptSelect } from './select.ts'
-
-/** The row appended to an option list, offering the free-text answer. */
-const OTHER_LABEL = 'Other…'
 
 /**
  * Offered when a plan-review question carries no options of its own. The
@@ -216,7 +213,10 @@ async function askSingleSelect(
     ...option.description === undefined ? {} : { description: option.description },
   }))
   const other = otherValue(choices.map(choice => choice.value))
-  const offer = [...choices, { value: other, label: OTHER_LABEL }]
+  // The route's display label names itself out of the way of any offered
+  // option, so a question may offer `Other…` itself and the two rows still
+  // read apart; routing stays on the private sentinel value either way.
+  const offer = [...choices, { value: other, label: otherDisplay(choices.map(choice => choice.label)) }]
   let initial: string | undefined
   for (;;) {
     const picked = await promptSelect(ctx, {

@@ -5,7 +5,10 @@
  * (`multiSelect`), which the single-choice picker in `./select.ts` cannot
  * express: its confirm is whichever row the cursor rests on. This overlay is
  * that picker with the confirm decoupled from the cursor — space flips the row
- * under it, and enter submits every flipped row at once. Movement, bounding,
+ * under it, and enter submits every flipped row at once. The Other… route is
+ * the one row Enter reads by its state: while its answer is unwritten, Enter
+ * opens the editor; once committed, the row is the finished answer and Enter
+ * confirms in place, with tab back into the text. Movement, bounding,
  * framing, and the once-only settlement discipline are the same, and anything
  * beyond the offered rows (an `Other…` route, the editor behind it) is composed
  * by the caller: the overlay draws the row and hands back what was committed,
@@ -52,8 +55,40 @@ const ROW_PREFIX_COLUMNS = 6
 /** The row appended after the offered choices, opening the free-text answer. */
 const OTHER_LABEL = 'Other…'
 
-/** Navigation help, surrendered whole segments at a time by `fitFooterHelp`. */
-const MULTI_HELP = '↑↓ move · space toggle · enter confirm · esc cancel'
+/**
+ * The route's display text when an offered option already claims `Other…`.
+ * The Harness contract reserves no label and requires none to be unique, so
+ * the route names itself out of the way rather than presenting two rows a
+ * reader cannot tell apart.
+ */
+const OTHER_DISAMBIGUATED = 'Other… (free text)'
+
+/** Navigation help over the offered rows, surrendered whole segments at a time. */
+const CHOICE_HELP = '↑↓ move · space toggle · enter confirm · esc cancel'
+
+/** The route row before anything is committed: Enter opens the editor there. */
+const ROUTE_EMPTY_HELP = '↑↓ move · enter edit · esc cancel'
+
+/**
+ * The route row once an answer is committed: the receipt IS the finished
+ * answer, so Enter confirms in place and tab is the way back into the text.
+ */
+const ROUTE_EDITED_HELP = '↑↓ move · tab edit · enter confirm · esc cancel'
+
+/**
+ * The Other… row's display text for one question's offer.
+ * @param offered - every label the question itself offers.
+ * @returns a display text no offered option shares, so the custom route can
+ *   always be told apart from the choices around it. The routing value stays
+ *   the caller's private sentinel; only what is drawn adapts.
+ */
+export function otherDisplay(offered: readonly string[]): string {
+  if (!offered.includes(OTHER_LABEL)) return OTHER_LABEL
+  if (!offered.includes(OTHER_DISAMBIGUATED)) return OTHER_DISAMBIGUATED
+  let suffix = 2
+  while (offered.includes(`${OTHER_DISAMBIGUATED} (${String(suffix)})`)) suffix += 1
+  return `${OTHER_DISAMBIGUATED} (${String(suffix)})`
+}
 
 /** What a confirmed multi-select carries, ready for the Harness answer item. */
 export interface MultiSelectAnswer {
@@ -149,17 +184,23 @@ export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
       spec.invalidate()
     })
   }
+  /** The answer as it stands: flipped labels in offer order, plus any committed text. */
+  const answer = (): MultiSelectAnswer => ({
+    // Offer order, whatever order the boxes were flipped in: the answer quotes
+    // the question's own list, it does not record the reader's path through it.
+    selected: spec.choices.flatMap((choice, index) => (checked[index] ? [choice.label] : [])),
+    ...custom === '' ? {} : { custom },
+  })
   const confirm = (): void => {
-    if (cursor >= spec.choices.length) {
+    // On the route row Enter reads the row's state: an unanswered Other…
+    // opens its editor, while a committed receipt IS the finished answer — a
+    // custom-only submission must not need a detour onto an unrelated option.
+    // Tab is the way back into the text either way.
+    if (cursor >= spec.choices.length && custom === '') {
       openEditor()
       return
     }
-    settle({
-      // Offer order, whatever order the boxes were flipped in: the answer quotes
-      // the question's own list, it does not record the reader's path through it.
-      selected: spec.choices.flatMap((choice, index) => (checked[index] ? [choice.label] : [])),
-      ...custom === '' ? {} : { custom },
-    })
+    settle(answer())
   }
   return {
     render(columns, terminalRows = 24) {
@@ -176,13 +217,19 @@ export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
       const cursorEnd = rendered.cursorRow + rendered.cursorHeight
       const overshoot = cursorEnd - viewport.end
       if (overshoot > 0) viewport.move(Math.min(overshoot, rendered.cursorRow - viewport.start))
+      // The footer states what Enter does on the ACTIVE row, which is the
+      // whole point of a help line: on the route row it differs, and space
+      // toggles nothing there at all.
+      const helpText = cursor >= spec.choices.length
+        ? custom === '' ? ROUTE_EMPTY_HELP : ROUTE_EDITED_HELP
+        : CHOICE_HELP
       const frame = [
         '',
         ...rootFrame({
           columns,
           context: paint(escapeControls(spec.view ?? spec.title), 'overlay-title'),
           body: [...heading, ...rendered.rows.slice(viewport.start, viewport.end)],
-          footer: fitFooterHelp(MULTI_HELP, footerBudget(columns)),
+          footer: fitFooterHelp(helpText, footerBudget(columns)),
         }),
       ]
       // A backstop, not the primary bound: every content row above is already
@@ -223,6 +270,12 @@ export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
           cursor = Math.max(0, lastRow)
           viewport.last()
           spec.invalidate()
+          return
+        case 'tab':
+          // The editor is a row-level action, offered on the route row — the
+          // one row where space toggles nothing. Elsewhere tab does nothing,
+          // and the footer never advertises it.
+          if (cursor >= spec.choices.length) openEditor()
           return
         case 'enter':
           confirm()
@@ -304,11 +357,14 @@ function renderRows(
   if (spec.editCustom !== undefined) {
     if (cursor >= spec.choices.length) cursorRow = rows.length
     const active = cursor >= spec.choices.length
-    // The committed supplement is shown on the row itself, tail first, so what
-    // will actually be submitted stays visible however long it has grown.
-    const prefix = `${OTHER_LABEL}: `
+    // The route names itself out of the way of any offered label (see
+    // otherDisplay), and the committed supplement is shown on the row itself,
+    // tail first, so what will actually be submitted stays visible however
+    // long it has grown.
+    const routeLabel = otherDisplay(spec.choices.map(choice => choice.label))
+    const prefix = `${routeLabel}: `
     const text = custom === ''
-      ? OTHER_LABEL
+      ? routeLabel
       : prefix + tailToWidth(escapeControls(custom), Math.max(1, budget - displayWidth(prefix)))
     const label = truncateToWidth(text, budget)
     const pointer = active ? paint('❯ ', 'selection-mark') : '  '
@@ -354,8 +410,12 @@ function compactFallback(
   const rendered = renderRows(spec, checked, cursor, custom, Math.max(1, width - ROW_PREFIX_COLUMNS))
   const lines = [rendered.rows[rendered.cursorRow] ?? '']
   if (rows > 1) {
-    const hint = ['space · enter · esc', 'enter · esc', 'esc']
-      .find(candidate => displayWidth(candidate) <= width)
+    // The same row-truth as the framed footer: space toggles nothing on the
+    // route row, so the compact hint drops it there.
+    const candidates = cursor >= spec.choices.length
+      ? ['enter · esc', 'esc']
+      : ['space · enter · esc', 'enter · esc', 'esc']
+    const hint = candidates.find(candidate => displayWidth(candidate) <= width)
     if (hint !== undefined) lines.push(paint(hint, 'muted'))
   }
   return lines.slice(0, rows)

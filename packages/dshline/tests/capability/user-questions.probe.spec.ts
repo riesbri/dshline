@@ -69,7 +69,7 @@ describe('capability: userQuestions', () => {
       ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'enter' })
       // The committed supplement lands on the waiting list one microtask later.
       await vi.waitFor(() => { expect(shown()).toContain('Other…: cli too') })
-      ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'up' })
+      // The receipt row is the finished answer; Enter confirms it in place.
       ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'enter' })
       await expect(answer).resolves.toEqual({
         answers: [{ id: 'stack', selected: ['web'], custom: 'cli too' }],

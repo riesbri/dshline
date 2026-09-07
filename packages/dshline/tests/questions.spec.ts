@@ -170,6 +170,37 @@ describe('single-select questions', () => {
     await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: ['B'] }] })
   })
 
+  it('keeps a real Other… option selectable beside the renamed custom route', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{ id: 'q', question: 'Pick', options: [{ label: 'A' }, { label: 'Other…' }] }],
+    })
+    // Harness reserves no label, so the offered option renders verbatim while
+    // the route names itself out of its way: two rows, visibly not the same.
+    // The frame's border columns come off each line before matching.
+    const rows = shown(overlay()).split('\n').map(row => row.replaceAll('│', ' ').trim())
+    expect(rows).toContain('Other…')
+    expect(rows).toContain('Other… (free text)')
+    overlay()?.handleKey({ kind: 'key', name: 'down' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: ['Other…'] }] })
+  })
+
+  it('routes the renamed custom row to the editor when a real option claims Other…', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{ id: 'q', question: 'Pick', options: [{ label: 'A' }, { label: 'Other…' }] }],
+    })
+    overlay()?.handleKey({ kind: 'key', name: 'end' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(shown(overlay())).toContain('Type your own answer') })
+    overlay()?.handleKey({ kind: 'text', text: 'off-menu' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: [], custom: 'off-menu' }] })
+  })
+
   it('dismisses an unanswered picker without fabricating a selection', async () => {
     const { ctx, send, overlay } = questionContext()
     installQuestionProvider(ctx, () => {})
@@ -212,11 +243,71 @@ describe('multi-select questions', () => {
     overlay()?.handleKey({ kind: 'text', text: 'embedded too' })
     overlay()?.handleKey({ kind: 'key', name: 'enter' })
     await vi.waitFor(() => { expect(shown(overlay())).toContain('Other…: embedded too') })
-    overlay()?.handleKey({ kind: 'key', name: 'up' })
+    // The receipt row IS the finished answer: Enter confirms it in place, and
+    // the footer says so instead of promising a toggle that cannot happen here.
+    const receipt = shown(overlay())
+    expect(receipt).toContain('tab edit')
+    expect(receipt).toContain('enter confirm')
+    expect(receipt).not.toContain('space toggle')
     overlay()?.handleKey({ kind: 'key', name: 'enter' })
     await expect(answer).resolves.toEqual({
       answers: [{ id: 'stack', selected: ['web'], custom: 'embedded too' }],
     })
+  })
+
+  it('confirms a custom-only answer from the Other… row without moving', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({ questions: [MULTI_QUESTION] })
+    overlay()?.handleKey({ kind: 'key', name: 'end' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    expect(shown(overlay())).toContain('kept alongside the selections')
+    overlay()?.handleKey({ kind: 'text', text: 'only this' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(shown(overlay())).toContain('Other…: only this') })
+    // No ordinary option is touched, and none is needed to submit.
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'stack', selected: [], custom: 'only this' }],
+    })
+  })
+
+  it('reopens the editor with the committed text, and a further commit replaces it', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({ questions: [MULTI_QUESTION] })
+    overlay()?.handleKey({ kind: 'text', text: ' ' })
+    overlay()?.handleKey({ kind: 'key', name: 'end' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    overlay()?.handleKey({ kind: 'text', text: 'first' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(shown(overlay())).toContain('Other…: first') })
+    overlay()?.handleKey({ kind: 'key', name: 'tab' })
+    // The editor alone is on top, so the visible 'first' is the field's
+    // prefill, not the receipt row underneath.
+    expect(shown(overlay())).toContain('kept alongside the selections')
+    expect(shown(overlay())).toContain('first')
+    overlay()?.handleKey({ kind: 'key', name: 'ctrl-u' })
+    overlay()?.handleKey({ kind: 'text', text: 'round two' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(shown(overlay())).toContain('Other…: round two') })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'stack', selected: ['web'], custom: 'round two' }],
+    })
+  })
+
+  it('states the true Enter behavior for the active row', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    send({ questions: [MULTI_QUESTION] })
+    const onChoice = shown(overlay())
+    expect(onChoice).toContain('space toggle')
+    expect(onChoice).toContain('enter confirm')
+    overlay()?.handleKey({ kind: 'key', name: 'end' })
+    const onRoute = shown(overlay())
+    expect(onRoute).toContain('enter edit')
+    expect(onRoute).not.toContain('space toggle')
   })
 
   it('answers a deliberate none with no labels and no custom text', async () => {
@@ -225,6 +316,50 @@ describe('multi-select questions', () => {
     const answer = send({ questions: [MULTI_QUESTION] })
     overlay()?.handleKey({ kind: 'key', name: 'enter' })
     await expect(answer).resolves.toEqual({ answers: [{ id: 'stack', selected: [] }] })
+  })
+
+  it('keeps a real Other… option checkable beside the renamed custom route', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{
+        id: 'stack',
+        question: 'Which layers?',
+        multiSelect: true,
+        options: [{ label: 'web' }, { label: 'Other…' }],
+      }],
+    })
+    const rows = shown(overlay()).split('\n').map(row => row.replaceAll('│', ' ').trim())
+    expect(rows).toContain('[ ] Other…')
+    expect(rows).toContain('Other… (free text)')
+    overlay()?.handleKey({ kind: 'key', name: 'down' })
+    overlay()?.handleKey({ kind: 'text', text: ' ' })
+    expect(shown(overlay())).toContain('[x] Other…')
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'stack', selected: ['Other…'] }] })
+  })
+
+  it('routes the renamed custom row to the editor when a real option claims Other…', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{
+        id: 'stack',
+        question: 'Which layers?',
+        multiSelect: true,
+        options: [{ label: 'web' }, { label: 'Other…' }],
+      }],
+    })
+    overlay()?.handleKey({ kind: 'key', name: 'end' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    expect(shown(overlay())).toContain('kept alongside the selections')
+    overlay()?.handleKey({ kind: 'text', text: 'mine' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(shown(overlay())).toContain('Other… (free text): mine') })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'stack', selected: [], custom: 'mine' }],
+    })
   })
 
   it('dismisses without fabricating an answer', async () => {
