@@ -330,7 +330,14 @@ export class StreamBuffer {
       return []
     }
     if (full === '' && state.pending === '') return []
-    if (!full.startsWith(state.pushed)) {
+    // Some providers close a reasoning item without preserving the trailing line
+    // break that arrived in its deltas. The bytes are the same content for a
+    // reader, but a strict prefix check would fall into the divergence fallback
+    // and append that content a second time. Ignore only trailing whitespace here;
+    // an internal mismatch still uses the authoritative assembled fallback below.
+    const reasoningMatchesWithoutTrailingWhitespace = channel === 'reasoning'
+      && full.trimEnd() === state.pushed.trimEnd()
+    if (!full.startsWith(state.pushed) && !reasoningMatchesWithoutTrailingWhitespace) {
       if (channel === 'reasoning' && this.reasoningHadHiddenContent) {
         // Once hidden and visible epochs share one assembled block, divergence
         // makes its origin unknowable. Keep only the current visible tail, which

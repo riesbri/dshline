@@ -250,6 +250,18 @@ describe('reasoning', () => {
     ], COLUMNS))).toEqual(['', '✻ authoritative assembled thought', '', '● answer'])
   })
 
+  it('does not replay reasoning when assembly only omits its streamed line break', () => {
+    // Codex can finish a commentary item without the newline that its streamed
+    // deltas carried. The content is already committed; treating that harmless
+    // boundary difference as divergence printed the same thought twice.
+    const buffer = new StreamBuffer()
+    expect(plain(buffer.push('reasoning', '**Preparing to export current index**\n', COLUMNS)))
+      .toEqual(['', '✻ **Preparing to export current index**'])
+    expect(plain(buffer.settle([
+      { type: 'reasoning', text: '**Preparing to export current index**' },
+    ], COLUMNS))).toEqual([])
+  })
+
   it('clears hidden-epoch divergence state when a turn resets', () => {
     const buffer = new StreamBuffer(false)
     buffer.push('reasoning', 'old hidden thought', COLUMNS)
