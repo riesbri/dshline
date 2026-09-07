@@ -1,0 +1,189 @@
+/**
+ * The attachment-specific shutdown prelude, exercised through real input paths.
+ *
+ * The window still owns the global key boundary; this fixture only captures the
+ * handler the attachment installs there. A real attachment then proves that
+ * local quit commands, idle ctrl-c, Agent cancellation, and lifetime signals all
+ * converge on the same ordered prelude before the launcher's app-exit seam.
+ */
+
+import { describe, expect, it, vi } from 'vitest'
+import { Context as RealContext } from '@deepseek-ai/cordis'
+import { type Key } from '@dshline/renderer'
+import { attachSession } from '../src/attachment.ts'
+import { TuiSlots } from '../src/slots.ts'
+import { pricingFrom } from '../src/usage.ts'
+import type { AttachOutcome } from '../src/sessions/reopen.ts'
+import type { Window } from '../src/window.ts'
+
+/** Configuration for one attachment shutdown fixture. */
+interface FixtureOptions {
+  /** Lifecycle state visible to the attachment. */
+  readonly status?: 'idle' | 'running'
+  /** Mount a pending `/compact` command to capture its lifetime signal. */
+  readonly pendingCommand?: boolean
+  /** Make the window's exit-handler cleanup throw when it is cleared. */
+  readonly cleanupFailure?: boolean
+}
+
+/** One assembled attachment and the controls needed by these tests. */
+interface Fixture {
+  readonly dispatch: () => ((key: Key) => void) | undefined
+  readonly requestExit: () => void
+  readonly exit: ReturnType<typeof vi.fn>
+  readonly events: string[]
+  readonly agent: { readonly status: 'idle' | 'running'; readonly cancel: ReturnType<typeof vi.fn> }
+  readonly commandSignal: () => AbortSignal | undefined
+}
+
+/** Let the attachment's submitted command reach its Harness double. */
+async function flush(): Promise<void> {
+  await new Promise<void>(resolve => { setImmediate(resolve) })
+}
+
+/** Type and submit one line through the real attachment composer. */
+function submit(dispatch: ((key: Key) => void) | undefined, line: string): void {
+  expect(dispatch).toBeDefined()
+  for (const text of [...line]) dispatch?.({ kind: 'text', text })
+  dispatch?.({ kind: 'key', name: 'enter' })
+}
+
+/** Build one fresh attached session with captured exit and command seams. */
+async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
+  const ctx = new RealContext()
+  await ctx.plugin(TuiSlots)
+  ctx.provide('tools', { get: () => undefined })
+  ctx.provide('userQuestions', {} as never)
+
+  let commandSignal: AbortSignal | undefined
+  const commands = {
+    list: () => options.pendingCommand
+      ? [{ name: 'compact', description: 'Compact older conversation history' }]
+      : [],
+    execute: vi.fn(async (
+      _agent: unknown,
+      _line: string,
+      _images: readonly unknown[],
+      signal: AbortSignal,
+    ) => {
+      commandSignal = signal
+      if (options.pendingCommand) await new Promise<never>(() => {})
+      return { commandId: 'exit-test', result: { kind: 'success' as const } }
+    }),
+  }
+  ctx.provide('commands', commands as never)
+
+  const events: string[] = []
+  const exit = vi.fn(() => { events.push('appExit') })
+  let exitHandler: (() => void) | undefined
+  const setExit = (handler: (() => void) | undefined): void => {
+    if (handler === undefined && options.cleanupFailure) throw new Error('cleanup failed')
+    exitHandler = handler
+  }
+  let dispatch: ((key: Key) => void) | undefined
+  const window = {
+    ctx,
+    terminal: { columns: () => 80, rows: () => 24 },
+    exit,
+    startup: { cwd: '/workspace', task: undefined, resume: undefined },
+    pricing: pricingFrom(undefined),
+    peakHours: [],
+    version: 'test',
+    selection: { current: undefined },
+    modelInfo: { contextWindow: undefined, reasoning: undefined },
+    prefs: {
+      usageMode: 'cost',
+      timing: false,
+      cardDetail: 'compact',
+      reasoningVisible: true,
+      busyEnter: 'queue',
+    },
+    colorDepth: 0,
+    palette: () => ({}),
+    setPalette: () => {},
+    themeSettings: {},
+    pendingTask: undefined,
+    draw: () => {},
+    paintNow: () => {},
+    commit: () => {},
+    clear: () => {},
+    refreshModelInfo: () => {},
+    setDispatch: (handler: ((key: Key) => void) | undefined) => { dispatch = handler },
+    setExit,
+  } as unknown as Window
+  const agent = {
+    session: { id: 'exit-test', header: { cwd: '/workspace' }, events: [] },
+    status: options.status ?? 'idle',
+    inbox: { nextStep: [], nextTurn: [] },
+    followup: vi.fn(),
+    steer: vi.fn(),
+    cancel: vi.fn(() => { events.push('cancel') }),
+  }
+  const outcome = {
+    target: { kind: 'new', cwd: '/workspace' },
+    attached: { handle: { agent, dispose: async () => {} }, reopened: false },
+  } as unknown as AttachOutcome
+
+  void attachSession(window, outcome)
+  expect(exitHandler).toBeDefined()
+  return {
+    dispatch: () => dispatch,
+    requestExit: () => { exitHandler?.() },
+    exit,
+    events,
+    agent,
+    commandSignal: () => commandSignal,
+  }
+}
+
+describe('attachment exit lifecycle', () => {
+  it('routes the local exit and quit commands through one exit behavior', async () => {
+    for (const command of ['/exit', '/quit']) {
+      const f = await fixture()
+      submit(f.dispatch(), command)
+      expect(f.exit).toHaveBeenCalledOnce()
+      expect(f.events).toEqual(['appExit'])
+    }
+  })
+
+  it('uses the same exit path for idle ctrl-c', async () => {
+    const f = await fixture()
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
+    expect(f.exit).toHaveBeenCalledOnce()
+    expect(f.events).toEqual(['appExit'])
+  })
+
+  it('cancels a running Agent before requesting app exit', async () => {
+    const f = await fixture({ status: 'running' })
+    submit(f.dispatch(), '/exit')
+    expect(f.events).toEqual(['cancel', 'appExit'])
+    expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
+  })
+
+  it('aborts a pending registered command through the attachment lifetime', async () => {
+    const f = await fixture({ pendingCommand: true })
+    submit(f.dispatch(), '/compact')
+    await flush()
+    const signal = f.commandSignal()
+    expect(signal).toBeDefined()
+    expect(signal?.aborted).toBe(false)
+
+    f.requestExit()
+    expect(signal?.aborted).toBe(true)
+    expect(f.exit).toHaveBeenCalledOnce()
+  })
+
+  it('contains cleanup failure and still requests Harness shutdown', async () => {
+    const f = await fixture({ cleanupFailure: true })
+    f.requestExit()
+    expect(f.exit).toHaveBeenCalledOnce()
+  })
+
+  it('does not repeat cancellation or shutdown for repeated exit gestures', async () => {
+    const f = await fixture({ status: 'running' })
+    f.requestExit()
+    f.requestExit()
+    expect(f.agent.cancel).toHaveBeenCalledOnce()
+    expect(f.exit).toHaveBeenCalledOnce()
+  })
+})

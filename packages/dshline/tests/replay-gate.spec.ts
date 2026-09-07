@@ -253,17 +253,19 @@ describe('the replay input gate', () => {
     expect(message.content?.[0]?.text).toBe('hi!')
   })
 
-  it('lets /exit bypass the replay gate while the log read is still pending', async () => {
-    const { dispatch, exit, agent, resolveRead } = await fixture()
-    typeText(dispatch(), '/exit')
-    press(dispatch(), { kind: 'key', name: 'enter' })
+  it('lets /exit and /quit bypass the replay gate while the log read is pending', async () => {
+    for (const command of ['/exit', '/quit']) {
+      const { dispatch, exit, agent, resolveRead } = await fixture()
+      typeText(dispatch(), command)
+      press(dispatch(), { kind: 'key', name: 'enter' })
 
-    // The command is global: it must request shutdown without waiting for the
-    // deferred read or the synchronous replay projection to finish.
-    expect(exit).toHaveBeenCalledTimes(1)
-    expect(agent.followup).not.toHaveBeenCalled()
-    expect(agent.steer).not.toHaveBeenCalled()
-    resolveRead()
+      // The command is global: it must request shutdown without waiting for the
+      // deferred read or the synchronous replay projection to finish.
+      expect(exit).toHaveBeenCalledTimes(1)
+      expect(agent.followup).not.toHaveBeenCalled()
+      expect(agent.steer).not.toHaveBeenCalled()
+      resolveRead()
+    }
   })
 
   it('suppresses persisted reasoning while replaying but keeps the answer', async () => {

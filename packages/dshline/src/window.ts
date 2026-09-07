@@ -224,6 +224,29 @@ function terminalColorDepth(): ColorDepth {
 }
 
 /**
+ * Route one decoded key through the window's global quit boundary.
+ *
+ * Kept as the small policy seam under the one terminal subscription: `ctrl-d`
+ * never belongs to an overlay or attachment, while every other key may be
+ * delegated to the current attachment.
+ * @param key - the decoded terminal key.
+ * @param requestExit - the window exit request, possibly attachment-aware.
+ * @param dispatch - the current attachment's key handler, when one exists.
+ * @returns nothing; the chosen handler receives the key synchronously.
+ */
+export function routeWindowKey(
+  key: Key,
+  requestExit: () => void,
+  dispatch: ((key: Key) => void) | undefined,
+): void {
+  if (key.kind === 'key' && key.name === 'ctrl-d') {
+    requestExit()
+    return
+  }
+  dispatch?.(key)
+}
+
+/**
  * Take the terminal and wait for the Loader, before any agent exists.
  *
  * The Loader mounts siblings concurrently, so this waits for the whole tree
@@ -356,11 +379,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
     else exitHandler()
   }
   ctx.effect(() => terminal.onKey(key => {
-    if (key.kind === 'key' && key.name === 'ctrl-d') {
-      requestExit()
-      return
-    }
-    dispatch?.(key)
+    routeWindowKey(key, requestExit, dispatch)
   }), 'dshline: input')
   ctx.effect(() => ctx.on('tui/render', draw), 'dshline: redraw on slot change')
   ctx.effect(() => terminal.onResize(() => {

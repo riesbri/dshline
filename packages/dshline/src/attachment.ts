@@ -207,11 +207,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const scope = new SessionScope()
   const attachmentAbort = new AbortController()
   let imageAdmission: AbortController | undefined
-  scope.own(() => {
+  const cancelAttachmentWork = (): void => {
     attachmentAbort.abort(new Error('Session attachment stopped because the session closed.'))
     imageAdmission?.abort(new Error('Image attachment stopped because the session closed.'))
     imageAdmission = undefined
-  })
+  }
+  // Session switching and process exit share the same cancellation prelude. The
+  // scope registration remains the ordinary-switch owner; the explicit call in
+  // the exit path makes the ordering visible before presentation teardown.
+  scope.own(cancelAttachmentWork)
   // Created before anything can ask for it: a transition requested while the
   // transcript is still replaying must not resolve into a promise that does not
   // exist yet.
@@ -222,17 +226,18 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const requestExit = (): void => {
     if (exitRequested) return
     exitRequested = true
-    // The launcher's exit request waits for tree disposal. Tear down this
-    // attachment's presentation first, then cancel any active model request so
-    // the same AbortSignal reaches the provider before AgentHandle.dispose()
-    // waits for loop convergence. The launcher still owns final shutdown.
+    // The launcher's exit request waits for tree disposal. Cancel attachment
+    // work first, tear down presentation second, then interrupt any active model
+    // request so the same AbortSignal reaches the provider before
+    // AgentHandle.dispose() waits for loop convergence. The launcher still owns
+    // final shutdown.
+    cancelAttachmentWork()
     try {
       scope.dispose()
-    } catch (error: unknown) {
-      // Exit is not the moment to strand the terminal over a cleanup failure.
-      // The normal session-switch path still reports these failures to the
-      // transcript; shutdown proceeds after the best-effort cleanup here.
-      process.stderr.write(`dshline: session cleanup failed: ${error instanceof Error ? error.message : String(error)}\r\n`)
+    } catch {
+      // SessionScope contains disposer failures after running every disposer.
+      // There is no safe terminal-independent diagnostic surface here; do not
+      // replace Harness shutdown with a raw write into the TUI's terminal.
     }
     if (agent.status === 'running') agent.cancel({ kind: 'user' })
     exit?.(0)

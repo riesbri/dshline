@@ -34,6 +34,8 @@ async function fixture(options: {
   reads: ReturnType<typeof vi.fn>
   saves: ReturnType<typeof vi.fn>
   commands: { execute: ReturnType<typeof vi.fn> }
+  exit: ReturnType<typeof vi.fn>
+  requestExit: () => void
   commits: string[][]
   draws: ReturnType<typeof vi.fn>
   frame: () => string
@@ -88,6 +90,8 @@ async function fixture(options: {
   }
 
   const commits: string[][] = []
+  const exit = vi.fn()
+  let exitHandler: (() => void) | undefined
   let dispatch: ((key: Key) => void) | undefined
   let latest: string[] = []
   const compose = (): void => { latest = ctx.tuiSlots.compose(80, 24).lines }
@@ -95,7 +99,7 @@ async function fixture(options: {
   const window = {
     ctx,
     terminal: { columns: () => 80, rows: () => 24 },
-    exit: undefined,
+    exit,
     startup: { cwd: '/workspace', task: undefined, resume: undefined },
     pricing: pricingFrom(undefined),
     peakHours: [],
@@ -118,7 +122,7 @@ async function fixture(options: {
     clear: () => {},
     refreshModelInfo: () => {},
     setDispatch: (handler?: (key: Key) => void) => { dispatch = handler },
-    setExit: () => {},
+    setExit: handler => { exitHandler = handler },
   } as unknown as Window
   const agent = {
     session: { id: 's-image', header: { cwd: '/workspace' }, events: [] },
@@ -139,6 +143,8 @@ async function fixture(options: {
     reads,
     saves,
     commands,
+    exit,
+    requestExit: () => { exitHandler?.() },
     commits,
     draws,
     frame: () => stripAnsi(latest.join('\n')),
@@ -304,6 +310,24 @@ describe('image attachment submission', () => {
     expect(f.agent.followup).not.toHaveBeenCalled()
     expect(f.saves).not.toHaveBeenCalled()
     expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('image attachment cancelled')
+  })
+
+  it('aborts an in-flight image read before requesting app exit', async () => {
+    const read = (signal: AbortSignal | undefined): Promise<Uint8Array> => new Promise((resolve, reject) => {
+      void resolve
+      signal?.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+    })
+    const f = await fixture({ read })
+    submit(f.dispatch(), '/image slow.png')
+    await flush()
+    submit(f.dispatch(), 'inspect this')
+    await flush()
+
+    const signal = f.reads.mock.calls[0]?.[1] as AbortSignal | undefined
+    expect(signal?.aborted).toBe(false)
+    f.requestExit()
+    expect(signal?.aborted).toBe(true)
+    expect(f.exit).toHaveBeenCalledOnce()
   })
 
   it('freezes the draft batch and refuses draft mutations while a read is pending', async () => {
