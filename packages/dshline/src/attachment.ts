@@ -223,7 +223,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const switched = new Promise<AttachTarget>(resolve => { requestNext = resolve })
   const { agent, dispose: disposeAgent } = attached.handle
   let exitRequested = false
-  const requestExit = (): void => {
+  const requestAttachmentExit = (): void => {
     if (exitRequested) return
     exitRequested = true
     // The launcher's exit request waits for tree disposal. Cancel attachment
@@ -239,10 +239,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // There is no safe terminal-independent diagnostic surface here; do not
       // replace Harness shutdown with a raw write into the TUI's terminal.
     }
-    if (agent.status === 'running') agent.cancel({ kind: 'user' })
+    try {
+      agent.cancel({ kind: 'user' })
+    } catch {
+      // Cancellation is a best-effort prelude. Harness still owns final teardown,
+      // so a synchronous Agent failure must not block the launcher's exit request.
+    }
     exit?.(0)
   }
-  w.setExit(requestExit)
+  w.setExit(requestAttachmentExit)
   scope.own(() => { w.setExit(undefined) })
 
   // Held until after the banner, so the transcript reads in the order it
@@ -994,12 +999,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     {
       name: 'exit',
       description: 'Leave the session, as ctrl-d does',
-      execute: () => { requestExit() },
+      execute: () => { w.requestExit() },
     },
     {
       name: 'quit',
       description: 'Leave the session, as ctrl-d does',
-      execute: () => { requestExit() },
+      execute: () => { w.requestExit() },
     },
   ])
 
@@ -1797,7 +1802,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           }
           return
         }
-        requestExit()
+        w.requestExit()
         return
       }
       case 'ctrl-r':
