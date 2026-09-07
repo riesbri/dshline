@@ -1191,6 +1191,23 @@ describe('the locations a call view declared', () => {
     expect(expanded.truncated).toBe(false)
   })
 
+  it('draws only the budgeted prefix of a large declared location list', () => {
+    // The declared list can be arbitrarily long, and only the rows the budget
+    // will actually draw are formatted: bounded presentation is bounded work,
+    // the omitted count comes from the list's own length, and the inspector
+    // still reaches everything the compact card elided.
+    const locations = Array.from({ length: 5_000 }, (_, i) => ({ path: `file${String(i)}.ts` }))
+    const cards = new ToolCards(tool({ call: () => ({ card: 'generic', title: 'Touch many', locations }) }), '/w')
+    const rows = plain(cards.call({ callId: 'c1', name: 'demo', arguments: '{}' }, COLUMNS))
+    expect(rows.filter(row => row.startsWith('  file'))).toHaveLength(COMPACT_BUDGET)
+    expect(rows.at(-1)).toBe('  … 4994 more locations · ctrl+o view')
+    const item = cards.takeInspectable()
+    expect(item).toBeDefined()
+    const expanded = cards.renderInspect(item!, COLUMNS)
+    expect(stripAnsi(expanded.rows.join('\n'))).toContain('file4999')
+    expect(expanded.truncated).toBe(false)
+  })
+
   it('spends ONE row budget across a call\'s locations and content together', () => {
     // COMPACT_ROWS bounds the body of ONE card, not each section of it: an
     // allowance per section would let a call that names many files AND echoes
@@ -1289,8 +1306,8 @@ describe('a web search result', () => {
       }),
     }))
     expect(rows).toContain('    An excerpt about the page.')
-    // The provider's own timestamp string, not one reformatted into a precision
-    // the contract never states.
+    // Displayed without date parsing or reformatting: the provider value is
+    // shown without interpreting it as a date.
     expect(rows).toContain('    published 2024-05-01T00:00:00Z')
   })
 

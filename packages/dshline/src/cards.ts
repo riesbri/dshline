@@ -732,6 +732,11 @@ export class ToolCards extends PendingToolCalls {
    * The declared list is the only source: locations are never inferred from
    * arguments or diffs, because a tool that declared none may still have touched
    * files, and a row claiming it did would be the frontend inventing a fact.
+   *
+   * Only the rows the budget will actually draw are formatted: the declared list
+   * can be arbitrarily long, and escaping, painting, and truncating rows the
+   * card is about to elide is work with no output. The visible prefix is known
+   * before any formatting, because a location is one structured row.
    * @param locations - the locations the call view declared, when it did.
    * @param columns - the terminal's current width.
    * @param detail - the detail level being drawn, for the elision marker.
@@ -750,18 +755,18 @@ export class ToolCards extends PendingToolCalls {
     if (detail === 'hidden' || locations === undefined || locations.length === 0) {
       return { rows: [], drawn: 0, elided: 0 }
     }
-    const labels = locations.map(location => truncateToWidth(
+    const shown = locations.slice(0, Math.max(0, budget))
+    const elided = locations.length - shown.length
+    const rows = shown.map(location => `${BODY_INDENT}${truncateToWidth(
       paint(escapeControls(location.line === undefined
         ? location.path
         // The separator matches how a person names a position in an editor, which
         // is also how the harness writes a location's meaning into the contract.
         : `${location.path}:${String(location.line)}`), 'path'),
       Math.max(1, columns - BODY_INDENT.length),
-    ))
-    const { rows, elided } = this.limit(labels, budget)
-    const out = rows.map(row => `${BODY_INDENT}${row}`)
-    if (elided > 0) out.push(`${BODY_INDENT}${paint(elisionMarker(detail, `… ${String(elided)} more locations`), 'muted')}`)
-    return { rows: out, drawn: rows.length, elided }
+    )}`)
+    if (elided > 0) rows.push(`${BODY_INDENT}${paint(elisionMarker(detail, `… ${String(elided)} more locations`), 'muted')}`)
+    return { rows, drawn: shown.length, elided }
   }
 
   /**
@@ -917,8 +922,8 @@ export class ToolCards extends PendingToolCalls {
    *
    * Every field is read from the structured view and nothing else: a snippet is
    * the provider's own, never re-derived from result text, and `publishedAt` is
-   * shown exactly as the provider wrote it — reformatting it would claim a
-   * precision the string does not carry.
+   * displayed without date parsing or reformatting — interpreting the string as
+   * a date would claim a precision it does not carry.
    * @param view - the search result view.
    * @param columns - the terminal's current width.
    * @param detail - the detail level being drawn.
@@ -1096,8 +1101,9 @@ function webSourceRows(source: WebSource, columns: number): string[] {
     rows.push(truncateToWidth(paint(oneLine(source.snippet.trim()), 'subdued'), width))
   }
   if (source.publishedAt !== undefined && source.publishedAt.trim() !== '') {
-    // The provider's own string, verbatim: parsing it would invent a precision
-    // the contract never states.
+    // Displayed without date parsing or reformatting: the provider value is
+    // preserved without interpreting it as a date, whose precision the
+    // contract never states.
     rows.push(truncateToWidth(paint(`published ${oneLine(source.publishedAt.trim())}`, 'muted'), width))
   }
   return rows
