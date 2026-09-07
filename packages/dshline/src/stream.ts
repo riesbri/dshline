@@ -2,12 +2,14 @@
  * The assistant's own output: reasoning, then reply, as it arrives.
  *
  * This module owns every line the assistant produces, both the streamed form and
- * the committed one, because they are the same text and only one of them may
- * reach the screen. A reply arrives as deltas, is written into scrollback one
- * completed line at a time, and only its unfinished trailing line stays in the
- * live region. `assistant/message` then contributes what streaming could not
- * have shown — the last partial line, or the whole reply from a provider that
- * does not stream at all.
+ * the committed one, because they represent one response and only one
+ * presentation may reach the screen. A reply arrives as deltas, is written into
+ * scrollback one completed line at a time, and only its unfinished trailing line
+ * stays in the live region. `assistant/message` then contributes what streaming
+ * could not have shown — the last partial line, or the whole reply from a
+ * provider that does not stream at all. The assembled message is authoritative;
+ * reasoning may differ from its streamed form only at a trailing-whitespace
+ * boundary that does not change what a reader sees.
  *
  * Committing as lines complete is what keeps the cost flat. Holding the whole
  * reply live meant re-escaping, re-splitting, and retransmitting all of it on
@@ -76,8 +78,9 @@ const CONTINUATION = '  '
 /** What one channel has produced so far. */
 interface ChannelState {
   /**
-   * Everything pushed on this channel, kept to compare against the assembled
-   * message: the remainder beyond it is what has not been shown yet.
+   * Everything pushed on this channel, kept to reconcile with the assembled
+   * message. Normally the assembled text starts with it; reasoning may differ
+   * only at its trailing-whitespace boundary.
    */
   pushed: string
   /** The unfinished trailing line, which has not been committed. */
@@ -197,16 +200,17 @@ export class StreamBuffer {
   }
 
   /**
-   * Commit whatever the assembled message adds beyond what streamed.
+   * Reconcile the streamed presentation with the assembled assistant message.
    *
-   * The message is the authority, and what streamed is a prefix of it by
-   * construction — the assembler concatenates the same deltas this buffer
-   * received. So only the remainder is new, which for a streamed reply is its
-   * last unterminated line and for a provider that does not stream is the whole
-   * thing. If the two forms are not in that relationship the assembled form is
-   * committed whole: the lines already on screen cannot be taken back, and a
-   * duplicated reply is something a reader can see past, while a dropped one is
-   * invisible.
+   * The assembled message is authoritative. Streamed content normally corresponds
+   * to its prefix, so the assembled message contributes only the remainder — the
+   * last unterminated line for a streamed reply, or the whole reply for a provider
+   * that does not stream. Reasoning can differ at the boundary where the stream
+   * ends with whitespace that the assembled block omits; that boundary-only form
+   * is equivalent for presentation and contributes no duplicate rows. Any real
+   * internal or content mismatch falls back to the authoritative assembled form:
+   * committed rows cannot be taken back, and dropping the assembled text would be
+   * invisible to the reader.
    * @param content - the assembled assistant message's content blocks.
    * @param columns - the terminal's current width.
    * @returns rows to write into scrollback, reasoning before reply.
