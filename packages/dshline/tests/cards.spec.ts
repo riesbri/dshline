@@ -1191,6 +1191,58 @@ describe('the locations a call view declared', () => {
     expect(expanded.truncated).toBe(false)
   })
 
+  it('spends ONE row budget across a call\'s locations and content together', () => {
+    // COMPACT_ROWS bounds the body of ONE card, not each section of it: an
+    // allowance per section would let a call that names many files AND echoes
+    // much content show roughly two compact budgets before eliding, which is
+    // how the cap stops meaning anything.
+    const view = {
+      card: 'generic' as const,
+      title: 'Touch and echo',
+      kind: 'other' as const,
+      locations: Array.from({ length: 5 }, (_, i) => ({ path: `file${String(i)}.ts` })),
+      content: [{ type: 'text' as const, text: Array.from({ length: 10 }, (_, i) => `echoed ${String(i)}`).join('\n') }],
+    }
+    const cards = new ToolCards(tool({ call: () => view }), '/w')
+    const rows = plain(cards.call({ callId: 'c1', name: 'demo', arguments: '{}' }, COLUMNS))
+    const secondary = rows.filter(row => row.startsWith('  file') || row.includes('echoed'))
+    // Five locations leave the content one row of the shared six; both sections
+    // are present, and together they never exceed one compact budget.
+    expect(secondary).toHaveLength(COMPACT_BUDGET)
+    expect(secondary.some(row => row.startsWith('  file'))).toBe(true)
+    expect(secondary.some(row => row.includes('echoed'))).toBe(true)
+    expect(rows.at(-1)).toBe('    … 9 more lines · ctrl+o view')
+    // The inspector reconstructs BOTH sections at its own budget: nothing the
+    // harness published is discarded because the compact card ran out of rows.
+    const item = cards.takeInspectable()
+    expect(item).toBeDefined()
+    const expanded = cards.renderInspect(item!, COLUMNS)
+    const seen = stripAnsi(expanded.rows.join('\n'))
+    expect(seen).toContain('file4')
+    expect(seen).toContain('echoed 9')
+    expect(expanded.truncated).toBe(false)
+  })
+
+  it('gives locations and content the full budget at full detail, through the same sections', () => {
+    // Full detail resolves through the same callSections helper, so the shared
+    // rule holds there too: fifteen rows fit FULL_ROWS, so nothing is elided,
+    // nothing is marked, and the inspector is never armed.
+    const view = {
+      card: 'generic' as const,
+      title: 'Touch and echo',
+      kind: 'other' as const,
+      locations: Array.from({ length: 5 }, (_, i) => ({ path: `file${String(i)}.ts` })),
+      content: [{ type: 'text' as const, text: Array.from({ length: 10 }, (_, i) => `echoed ${String(i)}`).join('\n') }],
+    }
+    const cards = new ToolCards(tool({ call: () => view }), '/w')
+    cards.detail = 'full'
+    const rows = plain(cards.call({ callId: 'c1', name: 'demo', arguments: '{}' }, COLUMNS))
+    expect(rows.filter(row => row.startsWith('  file'))).toHaveLength(5)
+    expect(rows.filter(row => row.includes('echoed'))).toHaveLength(10)
+    expect(rows.join('\n')).not.toContain('more')
+    expect(cards.takeInspectable()).toBeUndefined()
+  })
+
   it('invents no location row when the view declared none', () => {
     // A tool that declared no locations may still have touched files, and a row
     // claiming it did would be the frontend inventing a fact.

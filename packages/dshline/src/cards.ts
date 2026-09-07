@@ -485,12 +485,11 @@ export class ToolCards extends PendingToolCalls {
    */
   renderInspect(item: InspectableCard, columns: number): { rows: string[]; truncated: boolean } {
     // A call-shaped entry has no result to re-run `renderResult` against — it is
-    // the call's own `presentCall` content, so it re-renders through the same
-    // `body()` a generic call used, just at the inspector's budget.
+    // the call's own `presentCall` body, so it re-renders through the same
+    // `callSections` the card used, locations and content together under one
+    // budget, just at the inspector's far larger allowance.
     if (item.kind === 'call') {
-      const declared = this.locationRows(item.locations, columns, 'inspect')
-      const content = this.body(textOf(item.content), columns, false, 'inspect')
-      return { rows: [...declared.rows, ...content.rows], truncated: declared.truncated || content.truncated }
+      return this.callSections(item.locations, item.content, columns, 'inspect')
     }
     const call = {
       name: item.name,
@@ -580,21 +579,57 @@ export class ToolCards extends PendingToolCalls {
     const icon = kind === undefined ? MARK.call : KIND_ICON[kind] ?? MARK.call
     const head = paint(escapeControls(title), 'tool-name')
     const rows = hangingIndent(`${paint(icon, 'tool-icon')} `, BODY_INDENT, head, columns)
-    // Locations sit directly under the title rather than after the content: they
-    // are part of what the call IS (the files it touches), and trailing rows
-    // after a long content body would be buried under it.
-    const declared = this.locationRows(locations, columns, this.detail)
-    rows.push(...declared.rows)
     if (detail !== '' && this.detail === 'full') {
       rows.push(...hangingIndent(BODY_INDENT, BODY_INDENT, paint(escapeControls(detail), 'subdued'), columns))
     }
-    let truncated = declared.truncated
-    if (content !== undefined && content.length > 0) {
-      const body = this.body(textOf(content), columns, false, this.detail)
+    // Locations sit directly under the salient input rather than trailing the
+    // content: they are part of what the call IS (the files it touches), and rows
+    // after a long content body would be buried under it.
+    const sections = this.callSections(locations, content, columns, this.detail)
+    return { rows: ['', ...rows, ...sections.rows], truncated: sections.truncated }
+  }
+
+  /**
+   * A generic call's body sections — its declared locations, then its presented
+   * content — spending ONE row budget across both.
+   *
+   * The detail budgets bound the body of ONE card, not each section of it: an
+   * allowance per section would let a call that names many files and echoes much
+   * content show roughly two compact budgets before eliding, which is how the
+   * cap stops meaning anything. Locations come first, and the content spends
+   * whatever they leave; each section reports what the shared budget hid from
+   * it, and either one being cut leaves the card inspectable, so the compact
+   * card never silently discards metadata the harness published.
+   *
+   * Both the scrollback card and the inspector render through here, so the
+   * inspector reconstructs the same two sections at its own, far larger budget.
+   * @param locations - the files the view declared the call touches, when any.
+   * @param content - extra content blocks the view asked to show, when any.
+   * @param columns - the terminal's current width.
+   * @param detail - the detail level being drawn.
+   * @returns the section rows and whether the shared budget cut either section.
+   */
+  private callSections(
+    locations: readonly FileLocation[] | undefined,
+    content: readonly ContentBlock[] | undefined,
+    columns: number,
+    detail: RenderDetail,
+  ): Rendered {
+    if (detail === 'hidden') return { rows: [], truncated: false }
+    const budget = rowBudget(detail)
+    let remaining = budget
+    let truncated = false
+    const rows: string[] = []
+    const declared = this.locationRows(locations, columns, detail, remaining)
+    rows.push(...declared.rows)
+    remaining -= declared.drawn
+    truncated = declared.elided > 0
+    if (content !== undefined) {
+      const body = this.body(textOf(content), columns, false, detail, remaining)
       rows.push(...body.rows)
       truncated = body.truncated || truncated
     }
-    return { rows: ['', ...rows], truncated }
+    return { rows, truncated }
   }
 
   /**
@@ -685,8 +720,10 @@ export class ToolCards extends PendingToolCalls {
       '',
       ...hangingIndent(`${paint(KIND_ICON.edit ?? MARK.call, 'tool-icon')} `, BODY_INDENT, paint(escapeControls(view.title), 'tool-name'), columns),
     ]
-    const declared = this.locationRows(view.locations, columns, this.detail)
-    return { rows: [...rows, ...declared.rows], truncated: declared.truncated }
+    // A diff call has no other body to compete with, so its locations take the
+    // whole allowance for themselves.
+    const declared = this.locationRows(view.locations, columns, this.detail, rowBudget(this.detail))
+    return { rows: [...rows, ...declared.rows], truncated: declared.elided > 0 }
   }
 
   /**
@@ -697,12 +734,23 @@ export class ToolCards extends PendingToolCalls {
    * files, and a row claiming it did would be the frontend inventing a fact.
    * @param locations - the locations the call view declared, when it did.
    * @param columns - the terminal's current width.
-   * @param detail - the detail level being drawn.
-   * @returns the location rows and whether the budget cut any.
+   * @param detail - the detail level being drawn, for the elision marker.
+   * @param budget - rows the section may draw, from the allowance the card
+   *   shares across its body sections.
+   * @returns the rows (this section's own elision marker included, which is
+   *   chrome rather than a spent row), how many rows the allowance spent, and
+   *   how many locations the budget hid.
    */
-  private locationRows(locations: readonly FileLocation[] | undefined, columns: number, detail: RenderDetail): Rendered {
-    if (detail === 'hidden' || locations === undefined || locations.length === 0) return { rows: [], truncated: false }
-    const rows = locations.map(location => truncateToWidth(
+  private locationRows(
+    locations: readonly FileLocation[] | undefined,
+    columns: number,
+    detail: RenderDetail,
+    budget: number,
+  ): { rows: string[]; drawn: number; elided: number } {
+    if (detail === 'hidden' || locations === undefined || locations.length === 0) {
+      return { rows: [], drawn: 0, elided: 0 }
+    }
+    const labels = locations.map(location => truncateToWidth(
       paint(escapeControls(location.line === undefined
         ? location.path
         // The separator matches how a person names a position in an editor, which
@@ -710,10 +758,10 @@ export class ToolCards extends PendingToolCalls {
         : `${location.path}:${String(location.line)}`), 'path'),
       Math.max(1, columns - BODY_INDENT.length),
     ))
-    const { rows: shown, elided } = this.limit(rows, detail)
-    const out = shown.map(row => `${BODY_INDENT}${row}`)
+    const { rows, elided } = this.limit(labels, budget)
+    const out = rows.map(row => `${BODY_INDENT}${row}`)
     if (elided > 0) out.push(`${BODY_INDENT}${paint(elisionMarker(detail, `… ${String(elided)} more locations`), 'muted')}`)
-    return { rows: out, truncated: elided > 0 }
+    return { rows: out, drawn: rows.length, elided }
   }
 
   /**
@@ -778,7 +826,7 @@ export class ToolCards extends PendingToolCalls {
     if (view.shape === 'paths') {
       const summary = `${total} ${view.total === 1 ? 'path' : 'paths'}`
       if (detail === 'hidden') return { rows: [`${head}${paint(summary, 'subdued')}`], truncated: false }
-      const { rows, elided } = this.limit(view.paths, detail)
+      const { rows, elided } = this.limit(view.paths, rowBudget(detail))
       return {
         rows: [
           `${head}${paint(summary, 'subdued')}`,
@@ -834,7 +882,7 @@ export class ToolCards extends PendingToolCalls {
     const { rows, elided } = this.limit(view.lines.map(line => {
       const number = paint(String(line.number).padStart(4), 'muted')
       return `${number} ${paint(escapeControls(line.text), 'subdued')}`
-    }), detail)
+    }), rowBudget(detail))
     return {
       rows: [
         head,
@@ -952,13 +1000,17 @@ export class ToolCards extends PendingToolCalls {
    * @param text - the result text, unescaped.
    * @param columns - the terminal's current width.
    * @param isError - whether the call failed, which colours it.
+   * @param detail - the detail level being drawn.
+   * @param budget - rows the section may draw; defaults to the detail's own
+   *   budget. A card that spends one allowance across several sections hands
+   *   each section only what the sections before it left.
    * @returns rows to write into scrollback.
    */
-  private body(text: string, columns: number, isError: boolean, detail: RenderDetail): Rendered {
+  private body(text: string, columns: number, isError: boolean, detail: RenderDetail, budget: number = rowBudget(detail)): Rendered {
     const trimmed = text.trim()
     if (trimmed === '' || detail === 'hidden') return { rows: [], truncated: false }
     const all = escapeControls(trimmed).split('\n')
-    const { rows, elided } = this.limit(all, detail)
+    const { rows, elided } = this.limit(all, budget)
     const role = isError ? 'error' : 'subdued'
     const out = rows.map((row, index) => (index === 0
       ? `${BODY_INDENT}${paint(MARK.body, 'chrome')} ${truncateToWidth(paint(row, role), columns - 4)}`
@@ -968,13 +1020,13 @@ export class ToolCards extends PendingToolCalls {
   }
 
   /**
-   * Cut a body to a detail level's row budget.
+   * Cut a body to a row budget.
    * @param rows - every row the body could show.
-   * @param detail - the detail level being drawn.
+   * @param budget - rows the section may draw, from the allowance the card
+   *   shares across its body sections.
    * @returns the retained rows and how many were dropped.
    */
-  private limit(rows: readonly string[], detail: RenderDetail): { rows: readonly string[]; elided: number } {
-    const budget = rowBudget(detail)
+  private limit(rows: readonly string[], budget: number): { rows: readonly string[]; elided: number } {
     if (rows.length <= budget) return { rows, elided: 0 }
     return { rows: rows.slice(0, budget), elided: rows.length - budget }
   }
