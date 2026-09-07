@@ -282,6 +282,16 @@ describe('render intent', () => {
     expect(rows.slice(0, 3)).toEqual(['', '⏺ demo', '  a=1'])
   })
 
+  it('falls a web arm it has never seen back to the raw result content', () => {
+    // Same rule on the result side: an unknown arm must degrade to the fallback
+    // rather than read a field it does not carry.
+    const rows = draw(
+      tool({ result: () => ({ card: 'web', kind: 'future-kind' } as unknown as ToolResultView) }),
+      { text: 'raw content' },
+    )
+    expect(rows).toEqual(['', '⏺ demo', '  ⎿ raw content'])
+  })
+
   it('falls back to raw content when a presenter throws', () => {
     // Presenters read the model's arguments, which may be any JSON at all. A throw
     // must not take down the render.
@@ -1109,5 +1119,249 @@ describe('which end of a body survives the budget', () => {
     expect(rows).toContain('read 5')
     expect(rows).not.toContain('read 6')
     expect(rows).toContain('… 24 more lines')
+  })
+})
+
+describe('the locations a call view declared', () => {
+  it('lists the files a call declared it touches', () => {
+    const rows = draw(tool({ call: () => ({ card: 'generic', title: 'Read config', kind: 'read', locations: [{ path: 'src/config.ts' }] }) }))
+    expect(rows).toEqual(['', '◇ Read config', '  src/config.ts'])
+  })
+
+  it('keeps a location\'s line when the view declared one', () => {
+    const rows = draw(tool({
+      call: () => ({ card: 'generic', title: 'Read config', kind: 'read', locations: [{ path: 'src/config.ts', line: 40 }] }),
+    }))
+    expect(rows[2]).toBe('  src/config.ts:40')
+  })
+
+  it('lists several locations in the order the view declared them', () => {
+    const rows = draw(tool({
+      call: () => ({
+        card: 'generic',
+        title: 'Touch many',
+        kind: 'edit',
+        locations: [{ path: 'a.ts' }, { path: 'b.ts', line: 7 }, { path: 'c.ts' }],
+      }),
+    }))
+    expect(rows.slice(2)).toEqual(['  a.ts', '  b.ts:7', '  c.ts'])
+  })
+
+  it('shows a diff call\'s declared locations beside its title', () => {
+    // The change itself is still drawn once, at result time; a location says where
+    // a follow-along UI would look, which the diff body never states.
+    const rows = draw(tool({
+      call: () => ({
+        card: 'diff',
+        title: 'Edit f.ts',
+        diffs: [{ path: 'f.ts', oldText: 'a', newText: 'b' }],
+        locations: [{ path: 'f.ts', line: 3 }],
+      }),
+    }))
+    expect(rows.slice(0, 3)).toEqual(['', '◆ Edit f.ts', '  f.ts:3'])
+  })
+
+  it('escapes a control character in a location path', () => {
+    const rows = draw(tool({ call: () => ({ card: 'generic', title: 'Read', locations: [{ path: 'evi\u001b[2Jl.ts' }] }) }))
+    expect(rows[2]).toBe('  evi^[[2Jl.ts')
+  })
+
+  it('truncates a long path to the card width rather than wrapping it', () => {
+    // One location is one row: a path that wrapped would shift every following
+    // row of the card.
+    const rows = draw(tool({
+      call: () => ({ card: 'generic', title: 'Read', locations: [{ path: `${'deep/'.repeat(40)}config.ts` }] }),
+    }))
+    expect(rows).toHaveLength(3)
+    expect(displayWidth(rows[2]!)).toBeLessThanOrEqual(COLUMNS)
+  })
+
+  it('bounds many locations at the compact budget and says how many it hid', () => {
+    const locations = Array.from({ length: 10 }, (_, i) => ({ path: `file${String(i)}.ts` }))
+    const cards = new ToolCards(tool({ call: () => ({ card: 'generic', title: 'Touch many', locations }) }), '/w')
+    const rows = plain(cards.call({ callId: 'c1', name: 'demo', arguments: '{}' }, COLUMNS))
+    expect(rows.filter(row => row.startsWith('  file'))).toHaveLength(COMPACT_BUDGET)
+    expect(rows.at(-1)).toBe('  … 4 more locations · ctrl+o view')
+    // Elided locations arm the inspector exactly as elided content does: those
+    // rows are committed to scrollback and otherwise unreachable.
+    const item = cards.takeInspectable()
+    expect(item).toBeDefined()
+    const expanded = cards.renderInspect(item!, COLUMNS)
+    expect(stripAnsi(expanded.rows.join('\n'))).toContain('file9')
+    expect(expanded.truncated).toBe(false)
+  })
+
+  it('invents no location row when the view declared none', () => {
+    // A tool that declared no locations may still have touched files, and a row
+    // claiming it did would be the frontend inventing a fact.
+    const rows = draw(tool({ call: () => ({ card: 'generic', title: 'Grep MIT in LICENSE', kind: 'search', rawInput: 'MIT' }) }))
+    expect(rows).toEqual(['', '⌕ Grep MIT in LICENSE'])
+  })
+
+  it('hides locations at hidden detail, where the title alone speaks', () => {
+    const rows = draw(tool({
+      call: () => ({ card: 'generic', title: 'Read config', kind: 'read', locations: [{ path: 'src/config.ts', line: 40 }] }),
+    }), { detail: 'hidden' })
+    expect(rows).toEqual(['', '◇ Read config'])
+  })
+})
+
+describe('a web search result', () => {
+  it('shows the provider answer before the source list', () => {
+    const rows = draw(tool({
+      result: () => ({
+        card: 'web',
+        kind: 'search',
+        sources: [{ url: 'https://e.com/a', title: 'A page' }],
+        truncated: false,
+        answer: 'The answer is 42.',
+      }),
+    }))
+    expect(rows[2]).toBe('  ⎿ 1 source')
+    expect(rows[3]).toBe('  ⎿ The answer is 42.')
+    expect(rows[4]).toBe('    A page https://e.com/a')
+  })
+
+  it('shows a source\'s snippet and publication date when the provider sent them', () => {
+    const rows = draw(tool({
+      result: () => ({
+        card: 'web',
+        kind: 'search',
+        truncated: false,
+        sources: [{
+          url: 'https://e.com/a',
+          title: 'A page',
+          snippet: 'An excerpt about the page.',
+          publishedAt: '2024-05-01T00:00:00Z',
+        }],
+      }),
+    }))
+    expect(rows).toContain('    An excerpt about the page.')
+    // The provider's own timestamp string, not one reformatted into a precision
+    // the contract never states.
+    expect(rows).toContain('    published 2024-05-01T00:00:00Z')
+  })
+
+  it('degrades cleanly when every optional field is absent', () => {
+    const rows = draw(tool({
+      result: () => ({ card: 'web', kind: 'search', sources: [{ url: 'https://e.com/a' }], truncated: false }),
+    }))
+    // An untitled source shows its url once: the url beside itself says nothing.
+    expect(rows).toEqual(['', '⏺ demo', '  ⎿ 1 source', '    https://e.com/a'])
+  })
+
+  it('keeps the harness\'s source order', () => {
+    const rows = draw(tool({
+      result: () => ({
+        card: 'web',
+        kind: 'search',
+        truncated: false,
+        sources: [{ url: 'https://b.com/1', title: 'B' }, { url: 'https://a.com/2', title: 'A' }],
+      }),
+    }))
+    expect(rows[3]).toBe('    B https://b.com/1')
+    expect(rows[4]).toBe('    A https://a.com/2')
+  })
+
+  it('escapes control characters in the structured fields', () => {
+    const rows = draw(tool({
+      result: () => ({
+        card: 'web',
+        kind: 'search',
+        truncated: false,
+        sources: [{
+          url: 'https://e.com/\u001b[2Ja',
+          title: 'Ti\u001b[2Jtle',
+          snippet: 'Sni\u0007ppet',
+          publishedAt: '2024\u0007-05-01',
+        }],
+      }),
+    }))
+    const joined = rows.join('\n')
+    expect(joined).toContain('Ti^[[2Jtle')
+    expect(joined).toContain('Sni^Gppet')
+    expect(joined).toContain('published 2024^G-05-01')
+    expect(joined).toContain('https://e.com/^[[2Ja')
+  })
+
+  it('spends one row budget across every source and reports what it hid', () => {
+    const sources = Array.from({ length: 9 }, (_, i) => ({ url: `https://e.com/${String(i)}`, title: `Page ${String(i)}` }))
+    const view = { card: 'web' as const, kind: 'search' as const, sources, truncated: false }
+    expect(draw(tool({ result: () => view })).filter(row => row.includes('Page '))).toHaveLength(COMPACT_BUDGET)
+    expect(draw(tool({ result: () => view })).at(-1)).toBe('    … 3 more rows · ctrl+o view')
+    expect(draw(tool({ result: () => view }), { detail: 'full' }).filter(row => row.includes('Page '))).toHaveLength(9)
+    expect(draw(tool({ result: () => view }), { detail: 'hidden' })).toEqual(['', '⏺ demo', '  ⎿ 9 sources'])
+  })
+
+  it('makes an elided search inspectable and expands every source', () => {
+    const sources = Array.from({ length: 9 }, (_, i) => ({ url: `https://e.com/${String(i)}`, title: `Page ${String(i)}` }))
+    const cards = new ToolCards(tool({ result: () => ({ card: 'web', kind: 'search', sources, truncated: false }) }), '/w')
+    cards.call({ callId: 'c1', name: 'demo', arguments: '{}' }, COLUMNS)
+    cards.result(result(''), COLUMNS)
+    const item = cards.takeInspectable()
+    expect(item).toBeDefined()
+    const expanded = cards.renderInspect(item!, COLUMNS)
+    expect(stripAnsi(expanded.rows.join('\n'))).toContain('Page 8')
+    expect(expanded.truncated).toBe(false)
+  })
+})
+
+describe('a web fetch result', () => {
+  it('summarizes the retrieval from the structured view, then the body', () => {
+    const rows = draw(tool({
+      result: () => ({ card: 'web', kind: 'fetch', url: 'https://e.com/page', statusCode: 200, truncated: false }),
+    }), { text: '# Page\nBody text.' })
+    expect(rows[2]).toBe('  ⎿ https://e.com/page · 200')
+    expect(rows[3]).toBe('  ⎿ # Page')
+    expect(rows[4]).toBe('    Body text.')
+  })
+
+  it('marks a fetch the provider cut, and never one it did not', () => {
+    const cut = draw(tool({ result: () => ({ card: 'web', kind: 'fetch', url: 'https://e.com/a', statusCode: 200, truncated: true }) }))
+    expect(cut[2]).toBe('  ⎿ https://e.com/a · 200 · truncated')
+
+    const whole = draw(tool({ result: () => ({ card: 'web', kind: 'fetch', url: 'https://e.com/a', statusCode: 200, truncated: false }) }), { text: 'body' })
+    expect(whole.join('\n')).not.toContain('truncated')
+  })
+
+  it('never recomputes truncation from the body\'s length', () => {
+    // A body that fits the card entirely can still have been cut upstream, and
+    // only the view's flag says so.
+    const rows = draw(tool({
+      result: () => ({ card: 'web', kind: 'fetch', url: 'https://e.com/a', statusCode: 200, truncated: true }),
+    }), { text: 'tiny body' })
+    expect(rows[2]).toContain('· truncated')
+  })
+
+  it('reads the summary from the view, not the Fetched envelope in the result text', () => {
+    const rows = draw(tool({
+      result: () => ({ card: 'web', kind: 'fetch', url: 'https://real.example/page', statusCode: 200, truncated: false }),
+    }), { text: 'Fetched https://decoy.example/other\nstatus 999\ncontent' })
+    expect(rows[2]).toBe('  ⎿ https://real.example/page · 200')
+  })
+
+  it('keeps the body inside the card\'s row budget', () => {
+    const long = Array.from({ length: 30 }, (_, i) => `line ${String(i)}`).join('\n')
+    const rows = draw(tool({
+      result: () => ({ card: 'web', kind: 'fetch', url: 'https://e.com/a', statusCode: 200, truncated: false }),
+    }), { text: long })
+    expect(rows.at(-1)).toBe('    … 24 more lines · ctrl+o view')
+  })
+
+  it('keeps the url and status visible when the body is hidden', () => {
+    const rows = draw(tool({
+      result: () => ({ card: 'web', kind: 'fetch', url: 'https://e.com/a', statusCode: 404, truncated: false }),
+    }), { detail: 'hidden', text: 'body' })
+    expect(rows).toEqual(['', '⏺ demo', '  ⎿ https://e.com/a · 404'])
+  })
+
+  it('lets the url give way before the status on a narrow row', () => {
+    // The status and truncation marker are what a reader cannot do without; a
+    // long url must not push them off the row.
+    const rows = draw(tool({
+      result: () => ({ card: 'web', kind: 'fetch', url: `https://e.com/${'x'.repeat(80)}`, statusCode: 200, truncated: true }),
+    }))
+    expect(rows[2]).toContain('· 200 · truncated')
+    expect(displayWidth(rows[2]!)).toBeLessThanOrEqual(COLUMNS)
   })
 })
