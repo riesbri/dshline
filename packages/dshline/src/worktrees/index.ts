@@ -66,12 +66,14 @@ export interface WorktreesSpec {
   /** The session this window is driving. */
   readonly currentSessionId: SessionId
   /**
-   * The directory the attached session is rooted in.
+   * The attached session's own `SessionHeader.cwd`, when its header records one.
    *
-   * Its header's own `cwd`. Used only to mark the current row; never to
-   * re-root anything.
+   * Optional and unsubstituted: a session whose header names no directory
+   * marks no row, because the launch directory it operationally falls back to
+   * is not a place that session's own history claims. Used only to mark the
+   * current row; never to re-root anything.
    */
-  readonly currentWorkspace: string
+  readonly currentCwd?: string
   /**
    * Decide whether reopening one session is safe right now.
    *
@@ -105,7 +107,7 @@ export async function openWorktrees(spec: WorktreesSpec): Promise<WorktreeChoice
   const catalog = new WorktreeCatalog({
     query: ctx.get('sessionQuery'),
     invalidate: () => { ctx.tuiSlots.invalidate() },
-    currentWorkspace: spec.currentWorkspace,
+    ...(spec.currentCwd === undefined ? {} : { currentCwd: spec.currentCwd }),
     ...(spec.now === undefined ? {} : { now: spec.now }),
   })
   catalog.refresh()

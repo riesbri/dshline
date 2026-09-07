@@ -164,6 +164,9 @@ function body(rows: readonly string[]): readonly string[] {
   return rows.filter(row => !row.startsWith('╭') && !row.startsWith('╰') && row !== '')
 }
 
+/** The glyph the overlay draws on the highlighted row. */
+const CURSOR_MARK = '\u203a'
+
 /** A key with no text payload. */
 const key = (name: Key extends { name: infer N } ? N : never): Key => ({ kind: 'key', name } as Key)
 
@@ -357,6 +360,49 @@ describe('choosing what happens in that directory', () => {
     expect(rowFor(rows, 'session persistence is unavailable')).toBeDefined()
   })
 
+  it('says how many of a large directory\'s sessions the bounded listing left out', () => {
+    // The shared catalog bounds its listing and the first view counted the
+    // whole group; without this cue the two disagree on screen.
+    const picker = open({
+      selected: {
+        row: { cwd: `${HOME}/src/dshline-auth`, sessions: 250, current: false },
+        sessions: { kind: 'ready', truncated: 50, entries: AUTH_SESSIONS.kind === 'ready' ? AUTH_SESSIONS.entries : [] },
+      },
+    })
+    const rows = picker.rows()
+    expect(rowFor(rows, '50 more sessions in this directory are not listed')).toBeDefined()
+    // Presentation only: it is drawn after the list, is not a row the cursor
+    // can reach, and resuming still only ever happens on a real session.
+    expect(rowFor(rows, 'not listed')).not.toContain(CURSOR_MARK)
+  })
+
+  it('says nothing about omissions when the listing holds the whole group', () => {
+    const picker = open()
+    picker.press(key('down'))
+    picker.press(key('enter'))
+    expect(rowFor(picker.rows(), 'not listed')).toBeUndefined()
+  })
+
+  it('keeps the omitted cue unselectable and + New session first', () => {
+    const entries = AUTH_SESSIONS.kind === 'ready' ? AUTH_SESSIONS.entries : []
+    const created: WorktreeRow[] = []
+    const resumed: SessionEntry[] = []
+    const picker = open({
+      selected: {
+        row: { cwd: `${HOME}/src/dshline-auth`, sessions: 250, current: false },
+        sessions: { kind: 'ready', truncated: 50, entries },
+      },
+      create: (row) => { created.push(row); return { kind: 'new' } },
+      resume: (target) => { resumed.push(target); return { kind: 'resume' } },
+    })
+    // Cursor starts on `+ New session`; walking past the last session wraps
+    // back to it rather than landing on the cue.
+    for (let step = 0; step < entries.length + 1; step += 1) picker.press(key('down'))
+    picker.press(key('enter'))
+    expect(resumed).toEqual([])
+    expect(created.map(row => row.cwd)).toEqual([`${HOME}/src/dshline-auth`])
+  })
+
   it('says a directory has no sessions rather than showing an empty view', () => {
     const picker = open()
     picker.press(key('down'))
@@ -408,14 +454,37 @@ describe('staying inside the live region', () => {
   })
 
   it('falls back to one closable headline on a terminal too small to frame', () => {
-    // One row that still identifies the view; the `esc close` suffix is the
-    // first thing the fallback chain gives up, exactly as `/skills` does.
+    // One row that still identifies the view; the help suffix is the first
+    // thing the fallback chain gives up, exactly as `/skills` does.
     const drawn = open().rows(20, 2)
     expect(drawn).toHaveLength(1)
     expect(drawn[0]).toContain('Worktrees')
     expect(displayWidth(drawn[0] ?? '')).toBeLessThanOrEqual(20)
     const wider = open().rows(40, 2)
     expect(wider[0]).toContain('esc close')
+  })
+
+  it('names the key outcome the CURRENT view actually has in the fallback', () => {
+    // `esc` goes back from the second view and closes only from an empty
+    // first view. On a terminal with one row to spare, saying the wrong one is
+    // the whole message.
+    const second = open()
+    second.press(key('down'))
+    second.press(key('enter'))
+    const drawn = second.rows(48, 2)
+    expect(drawn).toHaveLength(1)
+    expect(drawn[0]).toContain('esc back')
+    expect(drawn[0]).not.toContain('esc close')
+  })
+
+  it('degrades the fallback help before it degrades the identity', () => {
+    const second = open()
+    second.press(key('down'))
+    second.press(key('enter'))
+    for (const columns of [48, 24, 12, 6, 3]) {
+      const drawn = second.rows(columns, 2)
+      for (const row of drawn) expect(displayWidth(row)).toBeLessThanOrEqual(columns)
+    }
   })
 
   it('keeps every row inside the frame at the narrowest framed width', () => {

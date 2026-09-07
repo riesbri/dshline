@@ -63,13 +63,21 @@ export interface WorktreeCatalogSpec {
   /** Redraw after catalog state changes. */
   readonly invalidate: () => void
   /**
-   * The workspace the attached session is rooted in, when there is one.
+   * The attached session's own `SessionHeader.cwd`, when its header records one.
    *
-   * Its header's own `cwd`, not the launch directory: a resumed session keeps
-   * the workspace it was created in, and marking the wrong row current would
-   * be the frontend disagreeing with the header it just read.
+   * Exactly that, and nothing substituted for it. The launch directory is
+   * deliberately NOT a fallback here: a session whose header names no
+   * directory belongs to no group, and marking the group that happens to match
+   * the process's startup cwd would claim the current conversation is rooted
+   * somewhere its own header never said. Undefined means no row is current,
+   * which is the honest answer.
+   *
+   * This is narrower than the attachment's effective workspace (`header.cwd ??
+   * startup.cwd`), which tools, skills, and the composer correctly keep using
+   * — an operational directory has to resolve to something, while this
+   * presentation fact does not.
    */
-  readonly currentWorkspace?: string
+  readonly currentCwd?: string
   /** Current time source, passed through to the session catalog. */
   readonly now?: () => number
 }
@@ -117,7 +125,7 @@ export class WorktreeCatalog {
         if (this.stale(generation)) return
         this.listingState = {
           kind: 'ready',
-          rows: worktreeRows(records, this.spec.currentWorkspace),
+          rows: worktreeRows(records, this.spec.currentCwd),
         }
       } catch (error: unknown) {
         if (this.stale(generation)) return
@@ -201,7 +209,7 @@ export class WorktreeCatalog {
     const found = listing.kind === 'ready'
       ? listing.rows.find(row => row.cwd === cwd)
       : undefined
-    return found ?? { cwd, sessions: 0, current: cwd === this.spec.currentWorkspace }
+    return found ?? { cwd, sessions: 0, current: cwd === this.spec.currentCwd }
   }
 
   /**

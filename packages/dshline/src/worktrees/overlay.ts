@@ -392,7 +392,16 @@ function sessionsBody(
   const emptyRows = quiet
     ? [paint(truncateToWidth(sessionsMessage(selection.sessions), inner), 'muted')]
     : []
-  const listCapacity = capacity - head.length - noticeRows.length - emptyRows.length - 1
+  // The shared catalog bounds its listing, and the first view counted the
+  // whole group — so without this the two disagree on screen for a reason
+  // that is presentation, not authority. Drawn rather than made selectable:
+  // there is nothing to resume, and a bounded browser is not the place to
+  // grow paging the session browser itself does not offer for its listing.
+  const omittedRows = omittedSessions(selection) === 0
+    ? []
+    : [paint(truncateToWidth(omittedLabel(omittedSessions(selection)), inner), 'muted')]
+  const listCapacity = capacity - head.length - noticeRows.length
+    - emptyRows.length - omittedRows.length - 1
   if (listCapacity < 1) return head
   return [
     ...head,
@@ -400,8 +409,29 @@ function sessionsBody(
     ...boundedList(rows, cursor, listCapacity, (row, selected) =>
       sessionRowText(row, selected, spec, inner)),
     ...emptyRows,
+    ...omittedRows,
     ...noticeRows,
   ]
+}
+
+/**
+ * How many of this directory's sessions the shared catalog's bound left out.
+ * @param selection - the open directory and its listing.
+ * @returns the omitted count, or zero when the listing holds the whole group.
+ */
+function omittedSessions(selection: WorktreeSelection): number {
+  return selection.sessions.kind === 'ready' ? selection.sessions.truncated : 0
+}
+
+/**
+ * The cue that says the list is not the whole group.
+ * @param omitted - how many sessions are not listed.
+ * @returns one line of this module's own words.
+ */
+function omittedLabel(omitted: number): string {
+  return omitted === 1
+    ? '… 1 more session in this directory is not listed'
+    : `… ${String(omitted)} more sessions in this directory are not listed`
 }
 
 /**
@@ -569,6 +599,11 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
 
 /**
  * A closable answer for a terminal too small to draw the frame.
+ *
+ * The help word tracks the view, because `esc` does two different things: in
+ * the second view it goes back to the directory list, and only an empty first
+ * view closes. A fallback that always said "close" would be the one row a
+ * reader on a tiny terminal has, telling them the wrong key outcome.
  * @param spec - the picker's spec, for the listing state.
  * @param selection - the open directory, when the second view is in front.
  * @param columns - the terminal's width.
@@ -588,7 +623,8 @@ function compactFallback(
       ? `Worktrees · ${String(listing.rows.length)}`
       : 'Worktrees'
     : `Worktrees · ${escapeControls(worktreeLabel(selection.row.cwd))}`
-  const visible = [`${identity} · esc close`, identity, 'esc close', 'esc']
+  const help = selection === undefined ? 'esc close' : 'esc back'
+  const visible = [`${identity} · ${help}`, identity, help, 'esc']
     .find(candidate => displayWidth(candidate) <= columns)
   return visible === undefined ? [] : [paint(visible, 'overlay-headline')]
 }

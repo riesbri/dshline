@@ -18,6 +18,7 @@ import type {
   SessionTitleObservationResult,
 } from '@deepseek-ai/dsh-session-query'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
+import { CATALOG_LIMIT } from '../src/sessions/catalog.ts'
 import { WorktreeCatalog } from '../src/worktrees/catalog.ts'
 import { worktreeLabel, worktreeRows } from '../src/worktrees/model.ts'
 
@@ -134,15 +135,32 @@ describe('grouping the corpus into working directories', () => {
     ])
   })
 
-  it('orders groups by the newest session in each, which is Harness\'s own corpus order', () => {
-    // No second ordering authority and nothing saved: `listSessions` is newest
-    // first with a stable id tiebreak, so first appearance IS the order.
+  it('preserves its input order and derives no chronology of its own', () => {
+    // The pure function does NOT sort. It groups at first appearance, so a
+    // deliberately unordered input comes back in that same wrong order —
+    // which is the point: no second ordering authority lives here.
     const rows = worktreeRows([
       record('older', '/b', 1_000),
       record('newest', '/a', 9_000),
       record('middle', '/c', 5_000),
     ], undefined)
     expect(rows.map(row => row.cwd)).toEqual(['/b', '/a', '/c'])
+  })
+
+  it('orders groups by each group\'s newest session, given Harness\'s own corpus order', () => {
+    // The real caller receives `listSessions()`, which Harness returns newest
+    // `createdAt` first with a stable id tiebreak. Over THAT input, first
+    // appearance means each group lands at its newest session — the ordering
+    // the picker shows, obtained without sorting anything here.
+    const harnessOrdered = [
+      record('a-new', '/a', 9_000),
+      record('c-mid', '/c', 5_000),
+      record('a-old', '/a', 4_000),
+      record('b-old', '/b', 1_000),
+    ]
+    const rows = worktreeRows(harnessOrdered, undefined)
+    expect(rows.map(row => row.cwd)).toEqual(['/a', '/c', '/b'])
+    expect(rows.map(row => row.sessions)).toEqual([2, 1, 1])
   })
 
   it('keeps two spellings of one directory apart rather than inventing path identity', async () => {
@@ -187,7 +205,7 @@ describe('grouping the corpus into working directories', () => {
     const catalog = new WorktreeCatalog({
       query: engine({ listSessions: async () => [...CORPUS] }),
       invalidate: () => {},
-      currentWorkspace: '/home/me/src/dshline-auth',
+      currentCwd: '/home/me/src/dshline-auth',
     })
     catalog.refresh()
     await settled()
@@ -197,11 +215,35 @@ describe('grouping the corpus into working directories', () => {
       .toEqual(['/home/me/src/dshline-auth'])
   })
 
+  it('marks no row when the attached session\'s header records no cwd at all', async () => {
+    // The regression this guards: the attachment's effective workspace is
+    // `header.cwd ?? startup.cwd`, which is right for tools and wrong here. A
+    // cwd-less legacy session must not make the group that happens to match
+    // the launch directory read as `current` — its own header never said so.
+    const catalog = new WorktreeCatalog({
+      query: engine({
+        listSessions: async () => [
+          record('legacy-current', undefined),
+          record('historical', '/home/me/project'),
+        ],
+      }),
+      invalidate: () => {},
+      // Deliberately not passed: `openWorktrees` omits it when the header has
+      // none, rather than substituting the process's startup cwd.
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('expected a ready listing')
+    expect(listing.rows.map(row => row.cwd)).toEqual(['/home/me/project'])
+    expect(listing.rows.some(row => row.current)).toBe(false)
+  })
+
   it('marks nothing when the attached session\'s cwd names no group', async () => {
     const catalog = new WorktreeCatalog({
       query: engine({ listSessions: async () => [...CORPUS] }),
       invalidate: () => {},
-      currentWorkspace: '/home/me/src/somewhere-else',
+      currentCwd: '/home/me/src/somewhere-else',
     })
     catalog.refresh()
     await settled()
@@ -313,7 +355,7 @@ describe('the sessions under one selected directory', () => {
         readTitleSnapshots: async () => [titled('s3', 'Implement auth flow')],
       }),
       invalidate: () => {},
-      currentWorkspace: '/home/me/src/dshline',
+      currentCwd: '/home/me/src/dshline',
     })
     catalog.refresh()
     await settled()
@@ -410,6 +452,36 @@ describe('the sessions under one selected directory', () => {
       sessions: 0,
       current: false,
     })
+  })
+
+  it('counts the whole group but hands the bounded listing its omitted count', async () => {
+    // The first view groups the complete corpus, so its count is the real
+    // group size; the reused catalog keeps its own bound and reports what it
+    // left out. Both facts come from the same relationship — the mismatch is
+    // presentation, and `truncated` is how the second view says so.
+    const overflow = CATALOG_LIMIT + 50
+    const group = Array.from({ length: overflow }, (_unused, index) =>
+      record(`s${String(index)}`, '/home/me/src/big', overflow - index))
+    const catalog = new WorktreeCatalog({
+      query: engine({
+        listSessions: async () => group,
+        filterSessions: async () => group,
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('expected a ready listing')
+    expect(listing.rows).toEqual([{ cwd: '/home/me/src/big', sessions: overflow, current: false }])
+
+    catalog.select('/home/me/src/big')
+    await settled()
+    const selection = catalog.selection()
+    if (selection?.sessions.kind !== 'ready') throw new Error('expected a ready session listing')
+    expect(selection.row.sessions).toBe(overflow)
+    expect(selection.sessions.entries).toHaveLength(CATALOG_LIMIT)
+    expect(selection.sessions.truncated).toBe(50)
   })
 
   it('reports an unmounted corpus per directory rather than an empty listing', async () => {

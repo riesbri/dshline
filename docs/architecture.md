@@ -543,17 +543,37 @@ optional upstream capability publishing structured worktree facts can be
 reconciled with it later; until one exists there is no `ctx.worktrees` here,
 and no subprocess standing in for it.
 
-**"Running" is used precisely.** The persisted corpus deliberately includes
-sessions other dshline processes created, and navigating them is the point. But
-`SessionRecord.live` means live in the process that asked, `ctx.agents` is
-process-local, and the adopted generation publishes no cross-process ownership
-or liveness contract — so `current` marks the directory THIS window's session
-is rooted in and claims nothing else. No row says "live in another terminal",
-"safe to take over", or "idle in another process". The shipped JSONL
-persistence requires one live writer per session, and resuming one another live
-process holds fails on Harness's own refusal, which the existing
-reopen-recovery path reports. This is `/sessions`'s limitation too, and
-`/worktrees` makes no stronger promise than it does.
+**"Running" is used precisely, and the limit is a requirement rather than a
+guard.** The persisted corpus deliberately includes sessions other dshline
+processes created, and navigating them is the point. But `SessionRecord.live`
+means live in the process that asked, `ctx.agents` is process-local, and the
+adopted generation publishes no cross-process ownership or liveness contract —
+so `current` marks the directory THIS window's session is rooted in and claims
+nothing else. No row says "live in another terminal", "safe to take over", or
+"idle in another process".
+
+What Harness enforces is narrower than it first looks, and the distinction
+matters enough to write down. `SessionPersistenceCoordinator` refuses to
+prepare a session that is live — `prepare()` throws `cannot prepare session
+"<id>" while it is live` — but the fact it consults is `this.ctx.sessions`,
+which is this process's own store, and its serialization, live-owner, and
+retirement bookkeeping are in-memory maps on one backend instance. The shipped
+JSONL backend states the rest as a REQUIREMENT on callers, not as an
+enforcement: "another instance or process must not write the same session until
+that owner reaches quiescent disposal". There is no lease, pid owner,
+heartbeat, or advisory lock anywhere in the session or storage packages at this
+revision. (POSIX first materialization does use `link()`, so two processes
+racing to create the same NEW id collide safely — but that says nothing about
+reopening a session whose log already exists.)
+
+So the honest reading is: this refusal is process-local, and dshline cannot
+tell whether a persisted session is currently open in another dshline process.
+It does not claim otherwise, and it does not invent the missing contract — no
+pid files, lock files, heartbeats, sockets, process scanning, or cross-process
+agent discovery. The user-facing consequence belongs in documentation rather
+than in a badge on every row: do not drive one session from two processes at
+once. This is `/sessions`'s limitation too, and `/worktrees` makes no stronger
+promise than it does.
 
 ## Connect: configuration is four seams, not one
 

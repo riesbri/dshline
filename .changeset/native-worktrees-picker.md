@@ -39,6 +39,9 @@ and a fresh listing on every corpus read.
 Limits, stated rather than worked around: a Git worktree Harness has never had
 a session in does not appear yet; enumerating, creating, and removing worktrees
 stay out because the adopted generation publishes no Git or worktree
-capability; and neither `/worktrees` nor `/sessions` can report cross-process
-liveness or offer takeover, because Harness publishes no such contract and the
-shipped JSONL persistence requires one live writer per session.
+capability; and neither `/worktrees` nor `/sessions` can tell whether a
+persisted session is already open in another dshline process, because Harness
+publishes no cross-process ownership contract — its own live-session refusal
+consults this process's store only. The shipped JSONL backend requires one live
+writer per session, so the same session must not be driven from two processes
+at once.

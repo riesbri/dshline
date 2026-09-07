@@ -514,10 +514,17 @@ does not promise is that any older prerelease generation keeps working.
   navigating them is the point — but `SessionRecord.live` means live in the
   asking process, `ctx.agents` is process-local, and the adopted generation
   publishes no cross-process ownership contract, so nothing here reports a
-  session as idle elsewhere or safe to take over. The shipped JSONL
-  persistence requires one live writer per session; resuming one another live
-  process holds fails on Harness's own refusal, which the existing recovery
-  path reports.
+  session as idle elsewhere or safe to take over. **dshline cannot tell whether
+  a persisted session is currently open in another dshline process.** Harness's
+  own refusal is process-local: the persistence coordinator's `prepare()`
+  throws for a session that is live, but the fact it consults is
+  `ctx.sessions`, this process's store, and its ownership bookkeeping is
+  in-memory per backend instance. The shipped JSONL backend states the rest as
+  a requirement on callers rather than an enforcement — "another instance or
+  process must not write the same session until that owner reaches quiescent
+  disposal" — and there is no lease, pid owner, heartbeat, or lock in the
+  session or storage packages at this revision. So do not drive one session
+  from two dshline processes at once; nothing will stop you.
 - **Reopening waits for quiet.** A window refuses to reopen a session while a
   turn is running or while jobs or subagents are attached to the one being left,
   because no generic seam defines what happens to work whose owner is retired.

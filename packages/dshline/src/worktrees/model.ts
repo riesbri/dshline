@@ -111,10 +111,12 @@ export interface WorktreeSelection {
 /**
  * Group corpus records into worktree rows by their exact stored cwd.
  *
- * Harness's own corpus order is preserved rather than re-sorted: `listSessions`
- * returns newest `createdAt` first with a stable id tiebreak, so taking each
- * cwd at its FIRST appearance orders the groups by the newest session in each
- * one, deterministically, with no second ordering authority and nothing saved.
+ * This function sorts nothing. It preserves its INPUT order, grouping each cwd
+ * at its first appearance — and the caller's input is `listSessions()`, which
+ * Harness returns newest `createdAt` first with a stable id tiebreak. Given
+ * that order, first appearance puts each group at its newest session,
+ * deterministically; the chronology is Harness's, not this module's, and there
+ * is no second ordering authority and nothing saved.
  *
  * A record whose header carries no cwd is skipped entirely. Those exist — the
  * field is optional — and an empty-string or "unknown" row would be dshline

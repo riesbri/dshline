@@ -1005,7 +1005,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         const chosen = await openWorktrees({
           ctx,
           currentSessionId: agent.session.id,
-          currentWorkspace: workspace,
+          // The header's own cwd, NOT the attachment's effective `workspace`
+          // (`header.cwd ?? startup.cwd`). The fallback is right for an
+          // operational directory and wrong for this presentation fact: a
+          // cwd-less legacy session would otherwise mark whichever group
+          // happens to match the launch directory as `current`, claiming the
+          // open conversation is rooted where its header never said.
+          ...(agent.session.header.cwd === undefined
+            ? {}
+            : { currentCwd: agent.session.header.cwd }),
           planResume: entry => planResume({
             target: entry,
             currentSessionId: agent.session.id,
