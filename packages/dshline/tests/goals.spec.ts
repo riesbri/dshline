@@ -203,7 +203,7 @@ describe('the Goal authority split', () => {
     // only field this frontend consumes from the goal service anywhere.
     //
     // Asserted against the source because neither is expressible in the type
-    // system: alpha.5 publishes no activation-only accessor, so `get()` hands
+    // system: the adopted Harness generation publishes no activation-only accessor, so `get()` hands
     // back a whole `GoalView` and nothing but this stops a durable field being
     // read off it. That call does resolve its own durable half through
     // `sessionProjections.stateOf()` internally — a service-side read, not a
@@ -235,13 +235,12 @@ async function harness(): Promise<{ ctx: Context; agent: Agent; observer: Sessio
   return { ctx, agent, observer }
 }
 
-describe('the real Alpha.5 Goal service and session projection', () => {
+describe('the real Goal service and session projection', () => {
   it('reads the durable goal from the registry and activation from the service', async () => {
     const { ctx, agent, observer } = await harness()
     const created = ctx.goals.create(agent, { objective: 'ship the release', maxGoalRounds: 8 })
-    // One admitted continuation round, recorded the way the real goal round
-    // driver records it: a `user/message` attributed to the goal, folded into
-    // `roundsStarted` by the real projection unit.
+    // One continuation-shaped `user/message` attributed to the goal, folded
+    // into `roundsStarted` by the real projection unit.
     agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'continue' }],
       source: { kind: 'goal', goalId: created.id, revision: created.revision, round: 1 },

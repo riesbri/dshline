@@ -1,55 +1,23 @@
 /**
- * Capability probe: Harness compaction, against the real seam.
+ * Capability probe: Harness compaction events, against the real event contract.
  *
- * The compatibility evidence `tools/capability-probes.mjs` names for the
- * `compaction` seam. dshline neither implements compaction nor calls it: it
- * PROJECTS the durable `compaction/*` events and dispatches the registered
- * `/compact` command. So the probe mounts a real `CompactionEngine` subclass —
- * the real abstract class, over a real `SessionStore` — appends the events a
- * backend appends, and asserts dshline's presentation reads them.
- *
- * A real backend (`dsh-compaction-basic`) is deliberately not mounted: it needs
- * an LLM route and an idle agent to summarize with, and none of that is part of
- * the contract dshline consumes. What dshline depends on is the event shape and
- * the command registration, which is what is exercised here.
+ * dshline neither implements compaction nor calls `ctx.compaction`: it projects
+ * durable `compaction/*` events, while the `/compact` command owns dispatch
+ * through `ctx.commands`. This probe uses a real `Session` and the package's
+ * event declarations, appends replacement-shaped records, and asserts the
+ * dshline presentation fold. The local event builder is evidence for the
+ * consumed event shape, not a concrete compaction backend or command run.
  */
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
-import { CompactionEngine, CompactionId } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
+import type {} from '@deepseek-ai/dsh-compaction'
 import { stripAnsi } from '@dshline/renderer'
 import { compactionNote } from '../../src/context/compaction.ts'
-
-/** A real subclass of the real abstract service, appending real events. */
-class ProbeCompaction extends CompactionEngine {
-  /**
-   * Automatic policy is not exercised here.
-   * @returns null: nothing to compact.
-   */
-  async compactIfNeeded(): Promise<CompactionResult | null> {
-    return null
-  }
-
-  /**
-   * Explicit compaction is not exercised here.
-   * @returns null: nothing to compact.
-   */
-  async compactNow(): Promise<CompactionResult | null> {
-    return null
-  }
-
-  /**
-   * Range compaction is not exercised here: dshline deliberately exposes no
-   * range-selection control (observation and control are separate contracts).
-   * @throws always.
-   */
-  async compactRegion(): Promise<CompactionResult> {
-    throw new Error('not exercised')
-  }
-}
 
 /** Append the exact event trio a manual or automatic compaction commits. */
 function compact(session: Session, options: { manual: boolean }): {
@@ -58,7 +26,7 @@ function compact(session: Session, options: { manual: boolean }): {
   readonly endSeq: SessionSeq
 } {
   const compactionId = CompactionId('probe-1')
-  const owner = options.manual ? { sourceCommandId: 'cmd-1' as never } : {}
+  const owner = options.manual ? { sourceCommandId: CommandId('cmd-1') } : {}
   const first = session.append('user/message', {
     id: 'm-1', role: 'user', content: [{ type: 'text', text: 'a'.repeat(200) }], source: { kind: 'user' },
   } as never, { surfaceOp: 'append' })
@@ -87,24 +55,14 @@ function compact(session: Session, options: { manual: boolean }): {
   return { startSeq: start.seq, summarySeq: summary.seq, endSeq: end.seq }
 }
 
-/** Mount the real store and a real engine subclass. */
+/** Mount the real session store used by the event fold. */
 async function harness(): Promise<{ ctx: Context; session: Session }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
-  await ctx.plugin(ProbeCompaction)
   return { ctx, session: ctx.sessions.create() }
 }
 
 describe('capability: compaction', () => {
-  it('publishes the abstract service under the generic name dshline never calls', async () => {
-    const { ctx } = await harness()
-    // Present, and deliberately unused: dshline dispatches `/compact` through
-    // `ctx.commands` so the command owns validation, the idle lock, the
-    // lifecycle, and persistence. The seam is asserted to exist only so the
-    // probe fails loudly if the contract this decision rests on moves.
-    expect(ctx.get('compaction')).toBeInstanceOf(CompactionEngine)
-  })
-
   it('presents a manual compaction from its summary event, not from command prose', async () => {
     const { session } = await harness()
     const seqs = compact(session, { manual: true })
@@ -148,7 +106,7 @@ describe('capability: compaction', () => {
     // the backend's own classified reason.
     const manual = session.append('compaction/end', {
       compactionId: CompactionId('probe-3'),
-      sourceCommandId: 'cmd-9' as never,
+      sourceCommandId: CommandId('cmd-9'),
       turn: null,
       error: 'summary was not smaller',
     })

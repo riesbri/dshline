@@ -6,7 +6,8 @@
  * `@deepseek-ai/dsh-subagent` and `@deepseek-ai/dsh-token-meter` over a real
  * `SessionStore` and a real projection registry, and drives them with real
  * `Session.append` calls rather than with a dshline-shaped fake. What is
- * asserted is exactly what the row claims:
+ * asserted is exactly what the row claims; it does not exercise a concrete
+ * `ctx.subagents` provider lifecycle or discovery backend:
  *
  * 1. both units are registered under the keys `HarnessWork` narrows its
  *    snapshot to, and reachable for a CHILD session through the generic
@@ -15,7 +16,7 @@
  *    turns, and a descriptor replayed from a fork seed does not contribute;
  * 3. the four token buckets are disjoint, so the row's total is their sum;
  * 4. `tokenUsage` has NO such descriptor reset — it folds the complete log, so
- *    a really-seeded child's projection carries its parent's usage too, and the
+ *    a fork-seeded child's projection carries its parent's usage too, and the
  *    row must refuse to attribute that to the child;
  * 5. a live child's route comes from its own logged request envelope.
  *
@@ -210,8 +211,9 @@ describe('capability: subagent telemetry projections', () => {
     vi.setSystemTime(ORIGIN)
     const { ctx } = await harness()
     try {
-      // A REAL parent log with a real completed turn and real provider usage,
-      // taken as the seed rather than a hand-made `inheritedEventCount`: the
+      // A real parent Session log with a completed turn and replacement-shaped
+      // usage event, taken as the seed rather than a hand-made
+      // `inheritedEventCount`: the
       // fork backend seeds a child with exactly this — a balanced
       // completed-turn prefix of its parent — and sets the inherited cut to its
       // length (dsh-subagent's `inheritedEventCount = seed.length`).

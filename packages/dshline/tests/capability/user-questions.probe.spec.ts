@@ -2,9 +2,10 @@
  * Capability probe: `ctx.userQuestions`.
  *
  * Exercises the exact seam `installQuestionProvider` consumes against the
- * real `@deepseek-ai/dsh-user-questions` service — not a dshline-shaped fake
- * — through a real `TuiSlots` overlay stack, so a real request reaches a real
- * terminal-provider boundary and a real structured answer comes back.
+ * real `@deepseek-ai/dsh-user-questions` service through dshline's local
+ * `TuiSlots` overlay provider boundary. A real Harness request reaches the
+ * provider and a structured answer comes back; a terminal, ask-user tool, and
+ * agent-scoped model wiring are outside this probe.
  * dshline registers on the one registration the adopted Harness generation
  * publishes — the Agent-scoped `user-questions/request` waterfall — so what
  * this proves is that the real service's own dispatch reaches it and that its
@@ -22,7 +23,7 @@ import { installQuestionProvider } from '../../src/questions.ts'
 import { TuiSlots } from '../../src/slots.ts'
 
 describe('capability: userQuestions', () => {
-  it('carries a real Harness question request to a real terminal answer', async () => {
+  it('carries a real Harness question request to the dshline overlay answerer', async () => {
     const ctx = new Context()
     await ctx.plugin(TuiSlots)
     await ctx.plugin(UserQuestionService)
@@ -45,7 +46,7 @@ describe('capability: userQuestions', () => {
     }
   })
 
-  it('carries a real multiSelect request and its custom supplement through the real service', async () => {
+  it('carries a real multiSelect request and custom supplement through the service', async () => {
     const ctx = new Context()
     await ctx.plugin(TuiSlots)
     await ctx.plugin(UserQuestionService)

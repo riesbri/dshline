@@ -1,17 +1,15 @@
 /**
  * Capability probe: `ctx.workflowEngine` and the durable workflow records.
  *
- * Exercises the exact contracts Work consumes, against the real packages:
- * the abstract `@deepseek-ai/dsh-workflow` `WorkflowEngine` and its
- * `emitWorkflowEvent` dispatch, the real `workflow/*` event declarations, a
- * real `@deepseek-ai/dsh-session` `Session` from the real `SessionStore`, and
- * the `tool-workflow/*` `SessionEventMap` merge that `@deepseek-ai/dsh-tool-workflow`
- * publishes. An upstream rename or payload change fails this file by capability
- * name instead of surfacing as an unrelated typecheck error.
+ * Exercises the contracts Work consumes over the real packages: the abstract
+ * `@deepseek-ai/dsh-workflow` `WorkflowEngine` dispatch, the real
+ * `workflow/*` event names, a real `Session` from `SessionStore`, and the
+ * `tool-workflow/*` event vocabulary. The local engine and hand-appended
+ * records provide the provider-neutral fixtures; no concrete workflow backend,
+ * script, child agent, or tool execution is claimed here.
  *
- * The engine here runs no script and starts no child: the point is the
- * observation seam, and specifically that a run only becomes visible through
- * the durable record the tool writes into the parent Session.
+ * The observation seam is the point: a run becomes visible only through the
+ * durable record the tool writes into the parent Session.
  * @module
  */
 
@@ -25,15 +23,15 @@ import type {} from '@deepseek-ai/dsh-tool-workflow/types'
 import { describe, expect, it } from 'vitest'
 import { createHarnessWork } from '../../src/work/index.ts'
 
-/** The validated meta a real run carries on every one of its events. */
+/** Metadata shaped like the records a workflow provider would publish. */
 const META = { name: 'capability-probe', description: 'Probe the workflow observation seam' }
 
 /**
- * An engine that publishes the real lifecycle events and runs no script.
+ * A local engine that calls the real abstract dispatch and runs no script.
  *
- * Subclassing the real abstract Service is the point: `emitWorkflowEvent` is
- * the protected dispatch every provider uses, so the event names and payload
- * shapes below are the upstream ones, checked by the compiler.
+ * Subclassing the real abstract service supplies interface compatibility; the
+ * payload objects below are local fixtures, not evidence for a concrete
+ * workflow provider.
  */
 class ProbeWorkflowEngine extends WorkflowEngine {
   override start(request: WorkflowStartRequest): WorkflowRun {
@@ -49,7 +47,7 @@ class ProbeWorkflowEngine extends WorkflowEngine {
     }
   }
 
-  /** Publish one phase narration exactly as a real run would. */
+  /** Publish a local phase fixture through the real event dispatcher. */
   narrate(id: string, title: string): void {
     this.emitWorkflowEvent('workflow/phase', { id: WorkflowRunId(id), meta: META }, title)
   }
@@ -59,21 +57,21 @@ class ProbeWorkflowEngine extends WorkflowEngine {
     this.emitWorkflowEvent('workflow/start', { id: WorkflowRunId(id), meta: META })
   }
 
-  /** Publish one member's start edge exactly as a real run would. */
+  /** Publish a local member-start fixture through the real dispatcher. */
   memberStart(id: string, childId: string): void {
     this.emitWorkflowEvent('workflow/agent-start', { id: WorkflowRunId(id), meta: META }, {
       seq: 1, label: 'probe member', phase: 'Review', childId: SessionId(childId),
     })
   }
 
-  /** Publish one member's settlement exactly as a real run would. */
+  /** Publish a local member-end fixture through the real dispatcher. */
   memberEnd(id: string, childId: string): void {
     this.emitWorkflowEvent('workflow/agent-end', { id: WorkflowRunId(id), meta: META }, {
       seq: 1, label: 'probe member', phase: 'Review', childId: SessionId(childId), outcome: 'completed',
     })
   }
 
-  /** Publish one member settlement exactly as a real run would. */
+  /** Publish a local run-end fixture through the real dispatcher. */
   settle(id: string, agentsStarted: number): void {
     this.emitWorkflowEvent(
       'workflow/end',
@@ -171,7 +169,7 @@ describe('capability: workflows', () => {
     }
   })
 
-  it('starts a real run through the seam without observing it as this session\'s', async () => {
+  it('starts a run through the local engine seam without observing it as this session\'s', async () => {
     const ctx = new Context()
     try {
       await ctx.plugin(SessionStore)
