@@ -147,6 +147,9 @@ export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
   // and flipping one must not flip the other. Offer order is preserved by
   // construction, which is the order the answer reports.
   const checked = spec.choices.map(() => false)
+  // The choice set is immutable for the overlay's lifetime, so the route's
+  // display label is resolved once here rather than on every render.
+  const routeLabel = otherDisplay(spec.choices.map(choice => choice.label))
   // The Other… row sits at index `choices.length`; without an editor behind it
   // there is nothing for it to open, so it is not offered at all.
   const lastRow = spec.editCustom === undefined ? spec.choices.length - 1 : spec.choices.length
@@ -209,9 +212,9 @@ export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
       const heading = headingRows(spec, inner)
       const capacity = terminalRows - MULTI_FIXED_ROWS - heading.length
       if (capacity <= 0 || columns < MULTI_MIN_COLUMNS) {
-        return compactFallback(spec, checked, cursor, custom, columns, terminalRows)
+        return compactFallback(spec, checked, cursor, custom, routeLabel, columns, terminalRows)
       }
-      const rendered = renderRows(spec, checked, cursor, custom, inner)
+      const rendered = renderRows(spec, checked, cursor, custom, routeLabel, inner)
       viewport.update(rendered.rows.length, capacity)
       if (rendered.cursorRow < viewport.start) viewport.move(rendered.cursorRow - viewport.start)
       const cursorEnd = rendered.cursorRow + rendered.cursorHeight
@@ -239,7 +242,7 @@ export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
       // exists to prevent, so it is checked rather than assumed.
       return physicalRows(frame, columns).length <= terminalRows
         ? frame
-        : compactFallback(spec, checked, cursor, custom, columns, terminalRows)
+        : compactFallback(spec, checked, cursor, custom, routeLabel, columns, terminalRows)
     },
     handleKey(key: Key) {
       if (key.kind === 'paste') return
@@ -314,6 +317,7 @@ function headingRows(spec: MultiSelectSpec, inner: number): string[] {
  * @param checked - which rows are flipped.
  * @param cursor - the highlighted row index.
  * @param custom - the committed free-text supplement, if any.
+ * @param routeLabel - the Other… row's display text, resolved once per overlay.
  * @param inner - the frame's inner width in columns.
  * @returns the rows and the cursor's row index among them.
  */
@@ -322,6 +326,7 @@ function renderRows(
   checked: readonly boolean[],
   cursor: number,
   custom: string,
+  routeLabel: string,
   inner: number,
 ): Rendered {
   if (spec.choices.length === 0) {
@@ -357,11 +362,10 @@ function renderRows(
   if (spec.editCustom !== undefined) {
     if (cursor >= spec.choices.length) cursorRow = rows.length
     const active = cursor >= spec.choices.length
-    // The route names itself out of the way of any offered label (see
-    // otherDisplay), and the committed supplement is shown on the row itself,
-    // tail first, so what will actually be submitted stays visible however
-    // long it has grown.
-    const routeLabel = otherDisplay(spec.choices.map(choice => choice.label))
+    // The route's label already names itself out of the way of any offered
+    // label (see otherDisplay), and the committed supplement is shown on the
+    // row itself, tail first, so what will actually be submitted stays visible
+    // however long it has grown.
     const prefix = `${routeLabel}: `
     const text = custom === ''
       ? routeLabel
@@ -393,6 +397,7 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
  * @param checked - which rows are flipped.
  * @param cursor - the highlighted row index.
  * @param custom - the committed free-text supplement, if any.
+ * @param routeLabel - the Other… row's display text, resolved once per overlay.
  * @param columns - the terminal's width.
  * @param rows - the terminal's height.
  * @returns at most `rows` lines.
@@ -402,12 +407,13 @@ function compactFallback(
   checked: readonly boolean[],
   cursor: number,
   custom: string,
+  routeLabel: string,
   columns: number,
   rows: number,
 ): string[] {
   if (rows <= 0) return []
   const width = Math.max(1, columns)
-  const rendered = renderRows(spec, checked, cursor, custom, Math.max(1, width - ROW_PREFIX_COLUMNS))
+  const rendered = renderRows(spec, checked, cursor, custom, routeLabel, Math.max(1, width - ROW_PREFIX_COLUMNS))
   const lines = [rendered.rows[rendered.cursorRow] ?? '']
   if (rows > 1) {
     // The same row-truth as the framed footer: space toggles nothing on the
@@ -441,21 +447,27 @@ export async function promptMultiSelect(
   return new Promise<MultiSelectAnswer | undefined>(resolve => {
     let dismiss = (): void => {}
     let settled = false
+    const signal = spec.signal
     // Shared by the overlay and the withdrawal listener, because either can be
     // first and the loser must not dismiss an overlay someone else has replaced.
     const finish = (value: MultiSelectAnswer | undefined): void => {
       if (settled) return
       settled = true
+      // Whatever settled the prompt, its stake in the signal ends here: a
+      // listener left attached would fire on a signal that may outlive the
+      // question — or never abort at all.
+      signal?.removeEventListener('abort', withdraw)
       dismiss()
       resolve(value)
     }
+    const withdraw = (): void => { finish(undefined) }
     const overlay = createMultiSelectOverlay({
       ...spec,
       invalidate: () => { ctx.tuiSlots.invalidate() },
       settle: finish,
     })
     dismiss = ctx.tuiSlots.pushOverlay(overlay)
-    if (spec.signal?.aborted === true) finish(undefined)
-    else spec.signal?.addEventListener('abort', () => { finish(undefined) }, { once: true })
+    if (signal?.aborted === true) finish(undefined)
+    else signal?.addEventListener('abort', withdraw, { once: true })
   })
 }

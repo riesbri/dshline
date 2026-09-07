@@ -362,6 +362,29 @@ describe('multi-select questions', () => {
     })
   })
 
+  it('unregisters its withdrawal listener whenever the question settles', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    // A real signal, spied rather than mocked: settlement — confirmation or
+    // dismissal alike — must end the prompt's stake in it.
+    const confirmed = new AbortController()
+    const confirmedRemovals = vi.spyOn(confirmed.signal, 'removeEventListener')
+    const answer = send({ signal: confirmed.signal, questions: [MULTI_QUESTION] })
+    overlay()?.handleKey({ kind: 'text', text: ' ' })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'stack', selected: ['web'] }] })
+    expect(confirmedRemovals).toHaveBeenCalledTimes(1)
+    expect(confirmedRemovals).toHaveBeenCalledWith('abort', expect.any(Function))
+
+    const dismissed = new AbortController()
+    const dismissedRemovals = vi.spyOn(dismissed.signal, 'removeEventListener')
+    const second = send({ signal: dismissed.signal, questions: [MULTI_QUESTION] })
+    overlay()?.handleKey({ kind: 'key', name: 'escape' })
+    await expect(second).resolves.toEqual({ answers: [{ id: 'stack', selected: [] }] })
+    expect(dismissedRemovals).toHaveBeenCalledTimes(1)
+    expect(dismissedRemovals).toHaveBeenCalledWith('abort', expect.any(Function))
+  })
+
   it('dismisses without fabricating an answer', async () => {
     const { ctx, send, overlay } = questionContext()
     installQuestionProvider(ctx, () => {})
