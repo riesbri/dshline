@@ -5,31 +5,26 @@ name: publish
 # tarball to this repository, this commit, and this workflow. Anyone installing
 # the package can then check that what they got was built from the source they can
 # read, which is not a claim a local `npm publish` can make at all.
-# Tags are the only trigger that can PUBLISH. The manual entry point performs
-# only the two OIDC token exchanges, so trusted-publisher configuration can be
-# checked without creating an irreversible package version.
+# Tags are the only trigger that can PUBLISH. The ordinary manual entry point
+# performs only the two OIDC token exchanges, so trusted-publisher configuration
+# can be checked without creating an irreversible package version. Its separate
+# existing-tag mode is read-only until the contents-scoped Release job.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      recovery-tag:
+        description: existing immutable v* tag whose missing GitHub Release should be recovered
+        required: false
+        type: string
 
-# One release at a time, across every tag. The group is deliberately CONSTANT: a
-# ref-scoped group gives each tag its own lane, so two tags pushed close together
-# would publish concurrently, and if the older run finished last it would drag
-# npm's `latest` back to the older version and could leave the two packages on
-# different `latest` versions. Nothing in flight is cancelled either — a
-# half-cancelled publish has already put a version on the registry.
-#
-# The limit of this primitive, stated because it is not obvious: GitHub keeps at
-# most ONE pending run per group and cancels the pending one when another is
-# queued, `cancel-in-progress: false` notwithstanding. So pushing a THIRD tag
-# while a release is still running discards the middle tag's run, and that run
-# never executes, so nothing inside it can report the loss. The version workflow
-# therefore refuses to create another tag while a publisher is active, leaving
-# the next tag absent and safely retryable. A manually pushed tag bypasses that
-# guard, so the operational rule remains: never push release tags by hand.
+# Serialize irreversible tag publishers together, but keep manual verification and
+# existing-tag recovery out of that queue. GitHub keeps only one pending run per
+# group even with cancel-in-progress false; sharing a group would let a harmless
+# manual check evict the next tag handoff before npm ever sees it.
 concurrency:
-  group: publish
+  group: publish-${{ github.event_name == 'push' && 'tag' || (inputs.recovery-tag != '' && 'recovery' || 'trusted') }}
   cancel-in-progress: false
 
 permissions:
@@ -38,7 +33,9 @@ permissions:
 jobs:
   trusted-publisher:
     name: verify npm trusted publishers
-    if: github.event_name == 'workflow_dispatch'
+    # OIDC is exposed only to the reviewed main workflow, never to a dispatch from
+    # an arbitrary branch whose script could spend the identity unexpectedly.
+    if: github.event_name == 'workflow_dispatch' && inputs.recovery-tag == '' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read # check out the verification script
@@ -47,6 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Use the exact reviewed dispatch commit, not a branch that can move.
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -56,30 +55,32 @@ jobs:
 
       - run: node tools/check-trusted-publishers.mjs
 
-  publish:
-    name: publish to npm
+  release-preflight:
+    name: validate and pack release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
 
+    # This job intentionally has no OIDC permission. Build, tests, package
+    # lifecycle hooks, and dependency audit all run before any npm identity exists.
     permissions:
-      contents: read # read the tagged tree
-      id-token: write # authenticate to npm and sign provenance with this job identity
+      contents: read
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.22.0
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           # No dependency cache on a release, deliberately. An Actions cache is
           # writable from any branch and restorable here, so a release that used one
-          # would be built partly from whatever a pull request last wrote into it —
-          # which is precisely the guarantee the attestation below is supposed to be
-          # making. Twenty seconds of download is the right price.
+          # would be built partly from whatever a pull request last wrote into it.
           package-manager-cache: false
 
       - run: pnpm install --frozen-lockfile --ignore-scripts
@@ -93,75 +94,225 @@ jobs:
         run: node tools/check-release-tag.mjs
 
       # Defense in depth for the release channel: `@deepseek-ai/dsh@latest` can
-      # move between the green Version Packages check, the tag, and this run,
-      # and a manually pushed or recovered tag skips both earlier gates. Placed
-      # before the first irreversible npm write, so a moved pointer costs a red
-      # release rather than a `latest` that resolves an unsupported pair.
+      # move between the green Version Packages check, the tag, and this run.
       - name: the default Harness install must be the adopted generation
         run: node tools/check-release-harness.mjs
 
-      # Exchange both package identities before either package is published. A
-      # recursive publish authenticates one at a time, so discovering that only
-      # the second package was configured after the renderer went out would leave
-      # an irreversible half-release.
+      - run: pnpm run build
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm run audit
+
+      # The OIDC job publishes these immutable tarballs with --ignore-scripts.
+      # No package prepare/prepublish code runs after a publish identity exists.
+      - name: pack validated npm artifacts
+        run: |
+          set -euo pipefail
+          ARTIFACT_ROOT="$RUNNER_TEMP/dshline-npm-packages"
+          mkdir -p "$ARTIFACT_ROOT"
+          pnpm --dir packages/renderer pack --config.ignore-scripts=true --pack-destination "$ARTIFACT_ROOT"
+          mv "$ARTIFACT_ROOT"/dshline-renderer-*.tgz "$ARTIFACT_ROOT/renderer.tgz"
+          pnpm --dir packages/dshline pack --config.ignore-scripts=true --pack-destination "$ARTIFACT_ROOT"
+          mv "$ARTIFACT_ROOT"/dshline-dshline-*.tgz "$ARTIFACT_ROOT/dshline.tgz"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dshline-npm-packages
+          path: ${{ runner.temp }}/dshline-npm-packages
+          overwrite: true
+          if-no-files-found: error
+
+  publish-to-npm:
+    name: publish accepted npm operations
+    if: github.event_name == 'push'
+    needs: release-preflight
+    runs-on: ubuntu-latest
+
+    # This is the smallest job that can hold OIDC: checkout, artifact download,
+    # trusted-publisher exchange, and the no-script tarball publisher only.
+    permissions:
+      contents: read
+      id-token: write # exchange trusted-publisher identity for npm's short-lived token
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 11.22.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dshline-npm-packages
+          path: ${{ runner.temp }}/dshline-npm-packages
+
       - name: npm must trust this workflow for both packages
         run: node tools/check-trusted-publishers.mjs
 
-      # A release is the one build that cannot be taken back, so it gates on
-      # everything: types, tests, and advisories. Re-running them here costs a
-      # minute and removes the assumption that whoever tagged had checked.
-      - run: pnpm run build
+      - name: create an isolated npm configuration
+        run: |
+          : > "$RUNNER_TEMP/empty-npmrc"
 
-      - run: pnpm run typecheck
+      - name: publish validated tarballs
+        env:
+          PUBLISH_ARTIFACT_ROOT: ${{ runner.temp }}/dshline-npm-packages
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/empty-npmrc
+          npm_config_userconfig: ${{ runner.temp }}/empty-npmrc
+          NPM_TOKEN: ''
+          NODE_AUTH_TOKEN: ''
+        run: node tools/publish-packages.mjs
 
-      - run: pnpm run test
+  # This is deliberately a different job from publish-to-npm. npm accepted
+  # publication is not the same moment npm serves the package publicly. If this
+  # bounded, scanning-aware read fails, GitHub can rerun only this job without
+  # crossing the irreversible npm publication boundary a second time.
+  verify-registry:
+    name: verify npm registry visibility
+    if: github.event_name == 'push'
+    needs: publish-to-npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
-      - run: pnpm run audit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
-      # Trusted publishing exchanges the job's OIDC identity for short-lived,
-      # package-scoped credentials. --provenance remains explicit as defense in
-      # depth even though npm now enables it automatically for trusted publishers.
-      # Order is topological: the renderer publishes before the bundle that
-      # depends on it, and pnpm rewrites `workspace:^` to the real version as it goes.
-      # The repository's minimum release age remains in force for install;
-      # publishing alone disables it so an immediate retry can see and skip the
-      # first package if a prior run failed after only half the workspace landed.
-      - name: publish
-        run: pnpm -r publish --access public --provenance --no-git-checks --config.minimum-release-age=0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
 
-      # A workspace publish is not atomic: the renderer goes out before the bundle
-      # that depends on it, so a failure in between leaves one package published and
-      # the other not, and a published version cannot be replaced. This turns that
-      # into a red release rather than something found later by someone whose
-      # install half-resolves.
-      - name: the registry must now serve what was tagged
+      - name: wait for a coherent public registry release
         run: node tools/verify-published.mjs
 
-# Release creation is separate from publishing so the npm job never receives a
-# token that can write to the repository. That keeps a compromised publish step
-# from being able to create releases or modify repository state.
+  # Release creation is separate from both publishing and registry reads. It is the
+  # only ordinary job with contents: write; a compromised npm or registry-read step
+  # cannot create a release or modify repository state.
   github-release:
     name: create GitHub Release
+    if: github.event_name == 'push'
+    needs: verify-registry
     runs-on: ubuntu-latest
-    needs: publish
-
-    # Only this job gets write access; creating the GitHub Release needs it while
-    # the publish job keeps contents: read so a compromised publish step still
-    # cannot write to the repo.
     permissions:
       contents: write # create the GitHub Release after npm verification
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
-      # --generate-notes builds the body from commits between the previous tag
-      # and this one, grouped by conventional-commit prefix. --verify-tag aborts
-      # if the tag does not exist, which would mean publishing ran from something
-      # other than a tag push.
-      - name: create release from tag
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: create or reuse the release for this tag
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" --generate-notes --verify-tag
+        run: node tools/ensure-github-release.mjs
+
+  # Manual recovery never checks out or executes a mutable main tree as the release
+  # subject. The workflow code stays at the reviewed dispatch ref; an exact-tag
+  # worktree is validated through RELEASE_ROOT. No install, build, OIDC exchange,
+  # npm publish, tag creation, or tag mutation occurs in this path.
+  recover-existing-tag:
+    name: verify existing tag recovery
+    if: github.event_name == 'workflow_dispatch' && inputs.recovery-tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Keep validation tools on the exact reviewed dispatch commit while the
+          # tagged worktree remains the release subject.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: validate and check out the exact existing tag
+        env:
+          RECOVERY_TAG: ${{ inputs.recovery-tag }}
+          WORKFLOW_REF: ${{ github.ref }}
+        run: |
+          if [ "$WORKFLOW_REF" != 'refs/heads/main' ]; then
+            printf '%s\n' 'Existing-tag recovery must be dispatched from reviewed main.' >&2
+            exit 1
+          fi
+          if ! RELEASE_TAG="$RECOVERY_TAG" node tools/release-version.mjs; then
+            printf 'recovery-tag must be an explicit stable release tag, got %s\n' "$RECOVERY_TAG" >&2
+            exit 1
+          fi
+          if ! git ls-remote --exit-code origin "refs/tags/$RECOVERY_TAG" >/dev/null; then
+            printf 'recovery-tag %s does not exist on origin; no tag will be created.\n' "$RECOVERY_TAG" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/tags/$RECOVERY_TAG:refs/tags/$RECOVERY_TAG" main:refs/remotes/origin/main
+          TAG_ROOT="$RUNNER_TEMP/dshline-release-tag"
+          git worktree add --detach "$TAG_ROOT" "refs/tags/$RECOVERY_TAG"
+          TAG_COMMIT="$(git -C "$TAG_ROOT" rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" refs/remotes/origin/main; then
+            printf 'recovery-tag %s is not reachable from origin/main; refusing recovery.\n' "$RECOVERY_TAG" >&2
+            exit 1
+          fi
+          printf 'tag=%s\ncommit=%s\nroot=%s\n' "$RECOVERY_TAG" "$TAG_COMMIT" "$TAG_ROOT"
+          printf 'TAG_ROOT=%s\n' "$TAG_ROOT" >> "$GITHUB_ENV"
+
+      - name: the tagged tree must match the recovery tag
+        env:
+          RELEASE_TAG: ${{ inputs.recovery-tag }}
+        run: RELEASE_ROOT="$TAG_ROOT" node tools/check-release-tag.mjs
+
+      - name: the tagged tree must use one immutable Harness generation
+        run: RELEASE_ROOT="$TAG_ROOT" node tools/harness-target.mjs
+
+      - name: both exact npm versions and the coherent release must be visible
+        env:
+          RELEASE_RECOVERY: 'true'
+        run: RELEASE_ROOT="$TAG_ROOT" node tools/verify-published.mjs
+
+  recover-github-release:
+    name: create recovered GitHub Release
+    if: github.event_name == 'workflow_dispatch' && inputs.recovery-tag != '' && github.ref == 'refs/heads/main'
+    needs: recover-existing-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the only permission needed to create the missing Release
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Keep the writer on the exact reviewed workflow commit selected by
+          # dispatch; `main` can advance while the read-only preflight runs.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: create or reuse the Release for the existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.recovery-tag }}
+        run: node tools/ensure-github-release.mjs

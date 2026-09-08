@@ -28,7 +28,10 @@ concurrency:
 jobs:
   version:
     name: open version PR
-    if: github.event_name != 'pull_request'
+    # A manual run is an operator action, not permission to execute a branch's
+    # changesets or create-pull-request code. Recovery is tag-only, and normal
+    # versioning is accepted only from the reviewed main workflow.
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.recovery-commit == '')
     runs-on: ubuntu-latest
     # VERSION_TOKEN supplies the two write scopes needed for the generated
     # branch and PR. The built-in token stays read-only, so a compromised
@@ -41,6 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Use the exact reviewed event commit, not a branch that can move.
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       # README.md documents Changesets; it is not a release record. Looking for
@@ -84,6 +89,8 @@ jobs:
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         if: steps.check-changesets.outputs.has-changesets == 'true'
+        with:
+          version: 11.22.0
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         if: steps.check-changesets.outputs.has-changesets == 'true'

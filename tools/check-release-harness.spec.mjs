@@ -291,14 +291,16 @@ describe('boundary B: the gate precedes the immutable tag', () => {
 
 describe('boundary C: the gate precedes the first irreversible npm write', () => {
   it('runs before anything is published', async () => {
-    const job = extractJob(await readWorkflow('publish.yml'), 'publish')
+    const job = extractJob(await readWorkflow('publish.yml'), 'release-preflight')
+    const publisher = extractJob(await readWorkflow('publish.yml'), 'publish-to-npm')
     const gate = stepIndex(job, GUARD)
-    const publishing = stepIndex(job, 'pnpm -r publish')
-    expect(gate, 'the publish job must run the release gate').toBeGreaterThanOrEqual(0)
+    const publishing = stepIndex(publisher, 'node tools/publish-packages.mjs')
+    expect(gate, 'the preflight job must run the release gate').toBeGreaterThanOrEqual(0)
     expect(publishing, 'the publish job must still publish').toBeGreaterThanOrEqual(0)
-    // Defense in depth: `latest` can move between the green Version Packages
-    // PR, the tag, and this run.
-    expect(gate).toBeLessThan(publishing)
+    expect(publisher).toContain('needs: release-preflight')
+    expect(publisher).not.toContain(GUARD)
+    // The job dependency is the cross-job ordering; step indexes from different
+    // jobs are not comparable.
   })
 })
 

@@ -13,9 +13,19 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
-/** Workspace packages that get published, in dependency order. */
-const PACKAGES = ['packages/renderer', 'packages/dshline']
+import { NPM_REGISTRY, PUBLISHED_PACKAGES } from './verify-published.mjs'
+import { VERSION_SHAPE, versionFromReleaseTag } from './release-version.mjs'
+
+export { versionFromReleaseTag }
+
+/**
+ * Root of the tree being checked. Recovery uses the workflow checkout plus an
+ * exact-tag worktree, so new validation code can inspect the immutable tag
+ * without pretending that the tag already contains this recovery workflow.
+ */
+const root = resolve(process.env.RELEASE_ROOT ?? process.cwd())
 
 /**
  * A version the SOURCE embeds rather than reads from its manifest.
@@ -27,37 +37,64 @@ const PACKAGES = ['packages/renderer', 'packages/dshline']
  */
 const EMBEDDED = {
   path: 'packages/dshline/src/index.ts',
-  pattern: /^const VERSION = '(?<version>[^']+)'$/mu,
+  pattern: /^const VERSION = '(?<version>[^']+)'$/mgu,
 }
 
-const tag = process.env.RELEASE_TAG ?? ''
-const expected = tag.replace(/^v/u, '')
-if (expected === '') {
-  process.stderr.write('check-release-tag: RELEASE_TAG is empty; expected something like v0.1.0\n')
-  process.exit(2)
-}
+if (process.argv[1] !== undefined && import.meta.url === new URL(process.argv[1], 'file:').href) {
+  const tag = process.env.RELEASE_TAG ?? ''
+  let expected
+  try {
+    expected = versionFromReleaseTag(tag)
+  } catch (error) {
+    process.stderr.write(`check-release-tag: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.exit(2)
+  }
 
-const mismatched = []
-for (const directory of PACKAGES) {
-  const manifest = JSON.parse(readFileSync(`${directory}/package.json`, 'utf8'))
-  if (manifest.version !== expected) mismatched.push(`${manifest.name} is ${manifest.version}`)
-}
+  const mismatched = []
+  for (const definition of PUBLISHED_PACKAGES) {
+    const manifest = JSON.parse(readFileSync(join(root, definition.directory, 'package.json'), 'utf8'))
+    if (manifest.name !== definition.name) mismatched.push(`${definition.directory} is ${manifest.name}, expected ${definition.name}`)
+    if (typeof manifest.version !== 'string' || !VERSION_SHAPE.test(manifest.version) || manifest.version !== expected) {
+      mismatched.push(`${definition.name} is ${manifest.version}`)
+    }
+    if (manifest.publishConfig !== undefined && (manifest.publishConfig === null || typeof manifest.publishConfig !== 'object' || Array.isArray(manifest.publishConfig))) {
+      mismatched.push(`${definition.name} has an invalid publishConfig`)
+    }
+    if (manifest.publishConfig?.name !== undefined && manifest.publishConfig.name !== definition.name) {
+      mismatched.push(`${definition.name} has mismatched publishConfig.name`)
+    }
+    if (manifest.publishConfig?.registry !== undefined && manifest.publishConfig.registry !== NPM_REGISTRY) {
+      mismatched.push(`${definition.name} overrides the npm registry`)
+    }
+    if (manifest.publishConfig?.tag !== undefined && manifest.publishConfig.tag !== 'latest') {
+      mismatched.push(`${definition.name} overrides the latest dist-tag`)
+    }
+    if (manifest.publishConfig?.provenance === false) {
+      mismatched.push(`${definition.name} disables provenance`)
+    }
+    if (manifest.publishConfig?.directory !== undefined || manifest.publishConfig?.linkDirectory !== undefined) {
+      mismatched.push(`${definition.name} overrides the packed directory`)
+    }
+  }
 
-const embedded = EMBEDDED.pattern.exec(readFileSync(EMBEDDED.path, 'utf8'))
-if (embedded?.groups?.version === undefined) {
-  process.stderr.write(`check-release-tag: no VERSION constant found in ${EMBEDDED.path}\n`)
-  process.exit(2)
-}
-if (embedded.groups.version !== expected) {
-  mismatched.push(`the banner in ${EMBEDDED.path} says ${embedded.groups.version}`)
-}
+  const source = readFileSync(join(root, EMBEDDED.path), 'utf8')
+  const embeddedMatches = [...source.matchAll(EMBEDDED.pattern)]
+  if (embeddedMatches.length !== 1 || embeddedMatches[0]?.groups?.version === undefined) {
+    process.stderr.write(`check-release-tag: expected exactly one VERSION constant in ${EMBEDDED.path}\n`)
+    process.exit(2)
+  }
+  const embedded = embeddedMatches[0]
+  if (embedded.groups.version !== expected) {
+    mismatched.push(`the banner in ${EMBEDDED.path} says ${embedded.groups.version}`)
+  }
 
-if (mismatched.length > 0) {
-  process.stderr.write(
-    `check-release-tag: tag ${tag} expects version ${expected}, but ${mismatched.join(', ')}.\n`
-    + 'Bump the manifests and re-tag; a published version cannot be taken back.\n',
-  )
-  process.exit(1)
-}
+  if (mismatched.length > 0) {
+    process.stderr.write(
+      `check-release-tag: tag ${tag} expects version ${expected}, but ${mismatched.join(', ')}.\n`
+      + 'Bump the manifests and re-tag; a published version cannot be taken back.\n',
+    )
+    process.exit(1)
+  }
 
-process.stdout.write(`check-release-tag: ${tag} matches ${expected} in ${String(PACKAGES.length)} packages\n`)
+  process.stdout.write(`check-release-tag: ${tag} matches ${expected} in ${String(PUBLISHED_PACKAGES.length)} packages\n`)
+}

@@ -167,7 +167,7 @@ export function formatChannelStatus(result) {
 }
 
 if (process.argv[1] !== undefined && import.meta.url === new URL(process.argv[1], 'file:').href) {
-  const target = await readTarget()
+  const target = await readTarget(process.env.RELEASE_ROOT)
   const { code, text } = formatChannelStatus(releaseChannelStatus(target.version))
   process[code === 0 ? 'stdout' : 'stderr'].write(text)
   process.exit(code)

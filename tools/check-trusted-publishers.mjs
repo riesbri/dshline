@@ -9,11 +9,10 @@
  * @module tools/check-trusted-publishers
  */
 
-/** Published workspace packages, in dependency order. */
-export const PUBLISHED_PACKAGES = [
-  '@dshline/renderer',
-  '@dshline/dshline',
-]
+import { PUBLISHED_PACKAGES as RELEASE_PACKAGES } from './verify-published.mjs'
+
+/** Published workspace package names, shared with registry and publish gates. */
+export const PUBLISHED_PACKAGES = Object.freeze(RELEASE_PACKAGES.map(item => item.name))
 
 /** npm's expected audience for a GitHub-issued identity token. */
 const NPM_AUDIENCE = 'npm:registry.npmjs.org'
@@ -47,11 +46,19 @@ async function fetchJson(fetchImpl, url, init, label) {
 export async function checkTrustedPublishers({ env = process.env, fetchImpl = fetch } = {}) {
   const requestUrl = env.ACTIONS_ID_TOKEN_REQUEST_URL
   const requestToken = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
-  if (requestUrl === undefined || requestToken === undefined) {
+  if (typeof requestUrl !== 'string' || requestUrl === '' || typeof requestToken !== 'string' || requestToken === '') {
     throw new Error('GitHub OIDC is unavailable; the job needs id-token: write')
   }
 
-  const identityUrl = new URL(requestUrl)
+  let identityUrl
+  try {
+    identityUrl = new URL(requestUrl)
+  } catch {
+    throw new Error('GitHub OIDC request URL is invalid')
+  }
+  if (identityUrl.protocol !== 'https:' || !identityUrl.hostname.endsWith('.actions.githubusercontent.com')) {
+    throw new Error('GitHub OIDC request URL must use the GitHub Actions HTTPS issuer')
+  }
   identityUrl.searchParams.set('audience', NPM_AUDIENCE)
   const identity = await fetchJson(fetchImpl, identityUrl, {
     headers: {
