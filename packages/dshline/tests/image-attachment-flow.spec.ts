@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import { stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
@@ -22,7 +23,7 @@ async function fixture(options: {
   readonly readFailure?: () => Error | undefined
   readonly read?: (signal: AbortSignal | undefined) => Promise<Uint8Array>
   readonly save?: (inputs: readonly { mediaType: string; name?: string }[]) => Promise<readonly ImageAttachmentRef[]>
-  readonly commands?: readonly { readonly name: string; readonly description: string }[]
+  readonly commands?: readonly CommandDescriptor[]
   readonly execute?: (signal: AbortSignal) => Promise<unknown>
   readonly commandResult?: { readonly commandId: string; readonly result: { readonly kind: 'success' | 'error'; readonly text?: string } }
   readonly inputModalities?: readonly ('text' | 'image')[]
@@ -46,7 +47,7 @@ async function fixture(options: {
   await ctx.plugin(TuiSlots)
   ctx.provide('tools', { get: () => undefined })
   const commands = {
-    execute: vi.fn(async (_agent: unknown, _line: string, _images: unknown, signal: AbortSignal) => options.execute === undefined
+    execute: vi.fn(async (_agent: unknown, _line: string, _attachments: unknown, signal: AbortSignal) => options.execute === undefined
       ? options.commandResult
       : options.execute(signal)),
     list: () => [...(options.commands ?? [])],
@@ -250,9 +251,27 @@ describe('image attachment submission', () => {
     expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('does not accept image attachments')
   })
 
-  it('forwards transient bytes only to a command that explicitly accepts images', async () => {
+  it('refuses a command that takes free-form input but declares no attachments', async () => {
+    // The distinction the adopted contract draws: `input.hint` advertises
+    // free-form text, and `input.attachments` is a separate admission. A
+    // command with a hint and no attachment flag must be refused before
+    // dispatch, with the drafts kept for a correction.
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', images: true } } as never],
+      commands: [{ name: 'ask', description: 'ask something', input: { hint: 'question' } }],
+    })
+    submit(f.dispatch(), '/image one.png')
+    await flush()
+    submit(f.dispatch(), '/ask what is this')
+    await flush()
+    expect(f.commands.execute).not.toHaveBeenCalled()
+    expect(f.reads).not.toHaveBeenCalled()
+    expect(f.frame()).toContain('1 image')
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('does not accept image attachments')
+  })
+
+  it('forwards transient bytes only to a command that declares input.attachments', async () => {
+    const f = await fixture({
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } }],
       commandResult: { commandId: 'c-1', result: { kind: 'success' } },
     })
     submit(f.dispatch(), '/image one.png')
@@ -262,7 +281,7 @@ describe('image attachment submission', () => {
     expect(f.commands.execute).toHaveBeenCalledWith(
       expect.anything(),
       '/vision inspect this',
-      [{ mediaType: 'image/png', data: 'AQID', name: 'one.png' }],
+      [{ type: 'image', mediaType: 'image/png', data: 'AQID', name: 'one.png' }],
       expect.any(AbortSignal),
     )
     // The command registry, not dshline, owns durable admission on this path.
@@ -272,7 +291,7 @@ describe('image attachment submission', () => {
 
   it('retains drafts when an accepting command reports an error', async () => {
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', images: true } } as never],
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } }],
       commandResult: { commandId: 'c-1', result: { kind: 'error', text: 'not now' } },
     })
     submit(f.dispatch(), '/image one.png')
@@ -424,7 +443,7 @@ describe('image attachment submission', () => {
       signal.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
     })
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { images: true } } as never],
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } }],
       execute,
     })
     submit(f.dispatch(), '/image one.png')
@@ -442,7 +461,7 @@ describe('image attachment submission', () => {
   it('does not let a late image-command settlement redraw or alter the old session', async () => {
     let finish: ((value: unknown) => void) | undefined
     const f = await fixture({
-      commands: [{ name: 'vision', description: 'inspect', input: { images: true } } as never],
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } }],
       execute: () => new Promise(resolve => { finish = resolve }),
     })
     submit(f.dispatch(), '/image one.png')

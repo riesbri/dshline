@@ -67,7 +67,8 @@ Prefer a standard Harness surface over a concrete package or provider:
 | user configuration | `ctx.settings` | Read redacted namespace descriptors; write path ops against the revision they were read at. |
 | secrets | `ctx.credentials` | Ask whether a reference or record is configured and writable; never hold a value. |
 | obtaining a credential | `ctx.authorization` | Render the seam's neutral notice and prompt vocabulary; own no login protocol. |
-| human commands | `ctx.commands` | Discover and execute the registered command contract. |
+| human commands | `ctx.commands` | Discover and execute the registered command contract. Attachment admission is the registry's: honour `input.attachments` before dispatch, and submit only the discriminated attachment kinds this frontend can author. |
+| assistant output | durable `assistant/message` / `assistant/attempt` on `session/event`, plus live `agent/assistant-stream` frames | Two contracts, kept apart. The settlements are the transcript; the frames are transient presentation for the attached Agent alone. Never expand an embedded stream into a live feed, never persist a frame, and never commit an attempt that settled without a message. |
 | tools | `ctx.tools` | Render tool-owned presentation intents, not tool-name cases. |
 | human answers | `ctx.userQuestions` | Register a terminal answerer; claim a request this frontend can present, never assuming it was addressed only to this frontend. |
 | approvals | `ctx.approval` | Answer only requests owned by this frontend; let the waterfall fail closed for other agent identities. |
@@ -187,10 +188,11 @@ read from `session.requestHeader()` because the header's provider and model are
 what select the routed adapter's image pricing the meter prices with. So an
 inspector left open through a streaming reply measures once, while a landed
 compaction or a route change is picked up on the next paint, and the log length —
-which moves on every chunk — is deliberately not part of the key. Only a
-SUCCESSFUL measurement is cached: an absent or refusing meter is retried, because
-the meter can be mounted after an inspector first read and a throw over a
-malformed log can be repaired by a later append. No timer exists for any of it.
+which moves on every committed event a turn logs — is deliberately not part of
+the key. Only a SUCCESSFUL measurement is cached: an absent or refusing meter is
+retried, because the meter can be mounted after an inspector first read and a
+throw over a malformed log can be repaired by a later append. No timer exists
+for any of it.
 
 The two vocabularies are never mixed. Projected occupancy and heuristic
 composition are presented side by side and never divided into each other, and

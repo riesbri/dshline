@@ -14,6 +14,7 @@
  * @module dshline/timing
  */
 
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { displayWidth, escapeControls, formatElapsed, paint, truncateToWidth } from '@dshline/renderer'
 import type { TuiSlotView } from './slots.ts'
@@ -206,7 +207,7 @@ function formatSpan(milliseconds: number): string {
   return `${(value / 1000).toFixed(1)}s`
 }
 
-/** One streamed kind within one model step. */
+/** One streamed kind within one model attempt. */
 interface StreamSpan {
   readonly kind: 'reasoning' | 'output'
   first: number
@@ -222,18 +223,31 @@ interface PendingTool {
 /**
  * Collects timings for the live turn and retains the most recent finished one.
  *
- * Fed from the runner's LIVE event listener rather than from its shared
- * projection, and that is not an oversight. A resumed session's replay has no
- * `assistant/chunk` events at all — they are the streamed form of a message the
- * log also stores assembled, so replaying both would print every reply twice, and
- * the projection drops them. A timer fed from the replay would therefore chart
- * every historical turn as though the model had thought for no time at all.
+ * Two authorities, each measured from the timestamps its own contract carries.
+ * Turn boundaries and tool call/result pairs are durable session events, so
+ * their spans are exact and never move once logged. Model stream time exists
+ * only in the live `agent/assistant-stream` frames, so it is measured from the
+ * timestamp each chunk frame supplies — the same one the durable settlement
+ * embeds — rather than from a clock read while drawing.
+ *
+ * That split is also why a reopened session shows `no turn measured yet` rather
+ * than a reconstructed panel. Live frames are process-local: a resumed log
+ * carries its Assistant streams compacted inside settlements, and expanding
+ * them to chart a past turn is history dshline never promised and the memory
+ * cost session format v2 exists to avoid.
  */
 export class TurnTimer {
   /** When the open turn began, or undefined when no turn is being measured. */
   private startedAt: number | undefined
   private turn = 0
-  /** First and last delta of one kind within one step, keyed `kind:step`. */
+  /**
+   * First and last chunk of one kind within one attempt, keyed `kind:attempt`.
+   *
+   * Keyed by ATTEMPT rather than by step: a retried attempt streams its
+   * reasoning again, and merging both into one span would measure the gap
+   * between them — the failure, the retry decision — as time the model spent
+   * thinking. Each attempt's own span is real, and {@link reading} sums them.
+   */
   private readonly streams = new Map<string, StreamSpan>()
   /** Calls awaiting their result, keyed by call id. */
   private readonly pending = new Map<string, PendingTool>()
@@ -251,7 +265,7 @@ export class TurnTimer {
   }
 
   /**
-   * Fold one live event into the current measurement.
+   * Fold one committed session event into the current measurement.
    *
    * Observation is intentionally not gated by the display preference. Toggling
    * a presentation should not fabricate a partial turn beginning at the toggle,
@@ -267,16 +281,6 @@ export class TurnTimer {
       return
     }
     if (this.startedAt === undefined) return
-    if (event.type === 'assistant/chunk') {
-      const { chunk, step } = event.data
-      const kind = chunk.type === 'reasoning-delta' ? 'reasoning' : chunk.type === 'text-delta' ? 'output' : undefined
-      if (kind === undefined) return
-      const key = `${kind}:${String(step)}`
-      const span = this.streams.get(key)
-      if (span === undefined) this.streams.set(key, { kind, first: event.time, last: event.time })
-      else span.last = event.time
-      return
-    }
     if (event.type === 'tool/call') {
       this.pending.set(event.data.callId, { name: event.data.name, at: event.time })
       return
@@ -294,6 +298,32 @@ export class TurnTimer {
     if (event.type !== 'turn/end') return
     this.finished = this.reading(event.time, false)
     this.resetOpen()
+  }
+
+  /**
+   * Fold one live assistant-stream frame into the current measurement.
+   *
+   * The frame carries its own timestamp, which is the same value the durable
+   * settlement embeds for that chunk, so the reasoning and output spans are
+   * measured against the model stream rather than against the redraw clock.
+   * Only chunk frames measure anything: an attempt's opening and terminal
+   * markers say when it existed, not how long it produced.
+   * @param frame - one ordered frame for the attached agent's current attempt.
+   * @returns nothing; read the current result through {@link snapshot}.
+   */
+  observeFrame(frame: AssistantStreamFrame): void {
+    // A frame arriving before any `turn/start` belongs to a turn this timer did
+    // not see begin, exactly as for a committed event: measuring from here
+    // would report the time since the attachment as the turn's own.
+    if (this.startedAt === undefined || frame.type !== 'chunk') return
+    const kind = frame.chunk.type === 'reasoning-delta'
+      ? 'reasoning'
+      : frame.chunk.type === 'text-delta' ? 'output' : undefined
+    if (kind === undefined) return
+    const key = `${kind}:${frame.attemptId}`
+    const span = this.streams.get(key)
+    if (span === undefined) this.streams.set(key, { kind, first: frame.time, last: frame.time })
+    else span.last = frame.time
   }
 
   /**

@@ -165,23 +165,33 @@ Each row is drawn as a mid-height stroke over a dim track rather than as full bl
 
 The elided row reports the longest span it hides, labeled `max`, never their sum. These spans overlap, so a sum is work done rather than time passed — it can exceed the very turn printed in the heading, and a figure that contradicts the clock above it would read as a broken panel, not as an abstraction.
 
-A span that arrives while the panel is already live eases its bar in over the next few working heartbeats instead of flashing to full width — which is what pure measurement draws, since the first span is always the longest. The ease counts those heartbeats, never time and never raw redraws: streamed chunks redraw the panel many times inside one heartbeat, and those renders refresh measurement without spending the effect. It advances on the heartbeat the working spinner already drives, adds no timer of its own, and lives entirely inside the view, with the duration beside a growing bar showing the real measured value from the first frame. Anything the panel has no arrival to decorate — a preference toggled on mid-turn, a retained finished turn — draws at full width at once, because decoration must never replay history.
+A span that arrives while the panel is already live eases its bar in over the next few working heartbeats instead of flashing to full width — which is what pure measurement draws, since the first span is always the longest. The ease counts those heartbeats, never time and never raw redraws: streamed frames redraw the panel many times inside one heartbeat, and those renders refresh measurement without spending the effect. It advances on the heartbeat the working spinner already drives, adds no timer of its own, and lives entirely inside the view, with the duration beside a growing bar showing the real measured value from the first frame. Anything the panel has no arrival to decorate — a preference toggled on mid-turn, a retained finished turn — draws at full width at once, because decoration must never replay history.
 
-It is fed from the live event feed rather than from the shared projection, and
-that is not symmetry with the usage counter but the opposite of it on purpose. A
-reopened session replays its log with the streamed chunks filtered out — they are
-the token-by-token form of a reply the log also stores whole, and replaying both
-would print every message twice. A profiler behind that filter would chart every
-past turn as though the model had thought for no time at all, so a reopened
-attachment shows an honest `no turn measured yet` placeholder instead.
+It reads two live authorities rather than the shared projection, and that is not
+symmetry with the usage counter but the opposite of it on purpose. Turn
+boundaries and tool call/result pairs are durable log events. Model stream time
+is not in the log at all: the harness publishes each delivered chunk as a
+process-local frame and stores only the compacted stream inside the settlement
+that ends the attempt. A reopened session therefore has turn timings it could
+chart and no model stream time to go with them, and half a profile is worse than
+none — so a reopened attachment shows an honest `no turn measured yet`
+placeholder instead of walking every past reply's compacted stream to
+reconstruct one.
 
-Finished spans use those events' timestamps and never change afterwards. An open
-turn and an open tool have no ending event yet, so their provisional durations
-tick against the wall clock already driving the working spinner; reasoning and
-output advance as their streamed timestamps arrive. Once a result or turn end
-lands, its log timestamp replaces the provisional clock reading. Keeping that
-exception explicit is more truthful than either freezing active work between
-events or pretending a renderer clock was part of the saved log.
+Finished spans use those timestamps and never change afterwards, whichever
+authority supplied them: a tool span from its `tool/call` and `tool/result`, a
+reasoning or output span from the timestamp each live frame carries — the same
+value the durable settlement embeds for that chunk. An open turn and an open
+tool have no ending event yet, so their provisional durations tick against the
+wall clock already driving the working spinner. Once a result or turn end lands,
+its log timestamp replaces the provisional clock reading. Keeping that exception
+explicit is more truthful than either freezing active work between events or
+pretending a renderer clock was part of the saved log.
+
+Stream spans are separated per model ATTEMPT rather than per step. A request
+that fails and is retried streams its reasoning twice, and merging the two would
+count the failure and the retry decision between them as time the model spent
+thinking. Each attempt's own span is real, and the panel adds them up.
 
 ## Character widths follow the Unicode standard
 
@@ -360,7 +370,11 @@ into a text-only one.
 
 `@path` remains text because source files and directories are references for model
 tools, not image bytes. `/image` is deliberately explicit, and registered commands
-receive its drafts only when their Harness descriptor declares `input.images`.
+receive its drafts only when their Harness descriptor declares
+`input.attachments` — the harness's own generic admission for composer
+attachments, not an image-specific flag. dshline consumes that flag and still
+authors only the attachment kind it owns, so a command that declares it is sent
+discriminated image submissions and nothing else.
 Model names are never used as a vision allowlist: an explicit text-only modality
 refuses before I/O, while absent metadata remains unknown and is left to Harness.
 

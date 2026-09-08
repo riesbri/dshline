@@ -131,8 +131,11 @@ export const CAPABILITY_PROBES = [
   },
   {
     name: 'commands',
-    files: ['packages/dshline/tests/permission.spec.ts'],
-    note: 'real CommandRuntime execute/lifecycle for `/permission review`; local dispatch/list decoration and other fixtures are not discovery evidence',
+    files: [
+      'packages/dshline/tests/permission.spec.ts',
+      'packages/dshline/tests/capability/command-attachments.probe.spec.ts',
+    ],
+    note: 'real CommandRuntime execute/lifecycle for `/permission review`, plus its own attachment admission over a local AttachmentStore — the `input.attachments` declaration and the discriminated image submission `/image` sends a command; local dispatch/list decoration and other fixtures are not discovery evidence',
   },
   {
     name: 'tools',

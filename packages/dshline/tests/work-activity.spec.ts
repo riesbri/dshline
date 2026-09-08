@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
@@ -43,14 +43,19 @@ function result(id: string): SessionEvent {
   })
 }
 
-/** A reasoning delta chunk. */
-function reasoning(text = 'thinking…'): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text } })
+/** One live chunk frame for the child's current attempt. */
+function frame(chunk: unknown): AssistantStreamFrame {
+  return { type: 'chunk', attemptId: 's:1', revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
 }
 
-/** A text delta chunk. */
-function text(): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'answer' } })
+/** A reasoning delta frame. */
+function reasoning(text = 'thinking…'): AssistantStreamFrame {
+  return frame({ type: 'reasoning-delta', index: 0, text })
+}
+
+/** A text delta frame. */
+function text(): AssistantStreamFrame {
+  return frame({ type: 'text-delta', index: 0, text: 'answer' })
 }
 
 /** A per-name resolved call presentation, proving classification rides the definition. */
@@ -96,10 +101,16 @@ function makeChild(
   options: AgentOptions = {},
 ): Agent {
   const asked: number[] = []
+  // A real Context per child: the observer subscribes to the child's OWN
+  // agent-scoped context for its live assistant frames, because `dsh-scope`
+  // admits events up the chain and a subagent's agent scope is not linked
+  // under the runner's. A fake without one would let that regress unseen.
+  const childCtx = new Context()
   const child = {
     id,
     status,
     options,
+    ctx: childCtx,
     session: {
       id,
       seq: events.length,
@@ -114,7 +125,21 @@ function makeChild(
     },
   } as unknown as Agent
   reads.set(child, asked)
+  childContexts.set(child, childCtx)
   return child
+}
+
+/** Each child's own context, for publishing that child's live frames. */
+const childContexts = new WeakMap<Agent, Context>()
+
+/**
+ * Publish one live assistant-stream frame the way the agent loop does: on the
+ * child's own agent-scoped context, which is the scope it is dispatched to.
+ * @param child - the child agent producing the frame.
+ * @param frame - the frame to publish.
+ */
+function publishFrame(child: Agent, frame: AssistantStreamFrame): void {
+  childContexts.get(child)?.emit('agent/assistant-stream', { agent: child, frame } as never)
 }
 
 /**
@@ -188,9 +213,9 @@ describe('per-child semantic activity for Work', () => {
 
     rootCtx.emit('session/event', child.session, ev('turn/start', { turn: 1 }))
     expect(work.snapshot().subagents[0]?.activityWord).toBe('waiting')
-    rootCtx.emit('session/event', child.session, reasoning())
+    publishFrame(child, reasoning())
     expect(work.snapshot().subagents[0]?.activityWord).toBe('thinking')
-    rootCtx.emit('session/event', child.session, text())
+    publishFrame(child, text())
     expect(work.snapshot().subagents[0]?.activityWord).toBe('responding')
     rootCtx.emit('session/event', child.session, call('c1', 'read'))
     expect(work.snapshot().subagents[0]).toMatchObject({
@@ -804,7 +829,7 @@ describe('per-child semantic activity for Work', () => {
     // same figure would include the parent's spend.
     const seeded = makeChild('seeded', 'running', [
       ev('turn/start', { turn: 1 }),
-      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: {} } }),
+      ev('assistant/attempt', { turn: 1, step: 1, stream: [{ type: 'chunk', time: 0, chunk: { type: 'usage', usage: {} } }] }),
       ev('turn/end', { turn: 1, reason: { kind: 'completed' } }),
     ], 3)
     const own = makeChild('own')

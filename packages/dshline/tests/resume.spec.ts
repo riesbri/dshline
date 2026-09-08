@@ -40,9 +40,20 @@ describe('what a resumed transcript replays', () => {
     expect(isTranscriptEvent(event('turn/end'))).toBe(true)
   })
 
-  it('skips streamed chunks, whose assembled form is also in the log', () => {
-    // Replaying both would print every reply twice.
-    expect(isTranscriptEvent(event('assistant/chunk'))).toBe(false)
+  it('replays an assistant message exactly once, with no chunk exclusion behind it', () => {
+    // The rule needs no Assistant special case at all. A reply is one durable
+    // settlement on the surface, so the append/replace rule above is the whole
+    // answer — there is no streamed second copy in the log to suppress.
+    expect(isTranscriptEvent(event('assistant/message', 'append'))).toBe(true)
+  })
+
+  it('replays a log-only assistant attempt, which the projection draws as nothing', () => {
+    // `assistant/attempt` is one model attempt that committed no reply. It is
+    // not surface-eligible, so it replays like every other log-only event; that
+    // it contributes no transcript line is the projection's statement, not a
+    // filter here. Keeping it out of this predicate is what keeps the predicate
+    // about the surface.
+    expect(isTranscriptEvent(event('assistant/attempt'))).toBe(true)
   })
 
   it('replays an event type it has never seen', () => {

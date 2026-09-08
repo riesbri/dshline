@@ -126,11 +126,18 @@ function textOfType(content: readonly ContentBlock[], type: 'text' | 'reasoning'
 }
 
 /**
- * Accumulates one assistant turn's output and hands back lines to commit.
+ * Accumulates one assistant attempt's output and hands back lines to commit.
  *
- * One instance spans one turn: {@link reset} returns it to its initial state, and
- * a turn that ends without an assembled message — an abort — still commits what
- * the user already watched arrive, via {@link finish}.
+ * One instance spans one model attempt: {@link settle} commits its remainder
+ * against the durable `assistant/message` that ends it, and {@link reset}
+ * returns the buffer to its initial state for the next one.
+ *
+ * There is deliberately no "commit whatever is pending" escape. Every attempt
+ * settles durably — a visible reply as `assistant/message`, an interrupted
+ * prefix as the same event with `interrupted: true`, and an attempt that
+ * produced no reply at all as the log-only `assistant/attempt` — so an
+ * unfinished line either belongs to a message that is about to settle it, or
+ * belongs to no reply and must not be committed as one.
  */
 export class StreamBuffer {
   private readonly channels: Record<StreamChannel, ChannelState> = {
@@ -224,19 +231,6 @@ export class StreamBuffer {
       ...this.settleChannel('reasoning', textOfType(content, 'reasoning'), columns),
       ...this.settleChannel('text', textOfType(content, 'text'), columns),
     ]
-  }
-
-  /**
-   * Commit every unfinished line, for a turn that produced no assembled message.
-   *
-   * An aborted turn is the case that matters: the loop throws on the abort signal
-   * before appending a message, so without this the reply the user watched arrive
-   * would be dropped at the exact moment they interrupted it.
-   * @param columns - the terminal's current width.
-   * @returns rows to write into scrollback.
-   */
-  finish(columns: number): string[] {
-    return [...this.flush('reasoning', columns), ...this.flush('text', columns)]
   }
 
   /** Return to the initial state, discarding channel and block state. */

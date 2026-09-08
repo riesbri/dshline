@@ -75,7 +75,7 @@ Staging reads no file and creates no attachment. On the next prompt, dshline res
 
 The empty composer reports the staged count. Once sent, the transcript shows each durable image's display name, dimensions, and size; the opaque attachment id, bytes, and storage path are never printed. Reopening a session reconstructs those rows from the durable `ImageBlock` references in its log. Unsent drafts are process-local to the attached session and are discarded when you start or reopen another session.
 
-An explicitly text-only selected model is refused before any image is read. When a provider does not declare its input modalities, dshline does not guess from its name: Harness receives the image and remains the authority. Registered slash commands accept staged images only when their command descriptor declares `input.images`; an error keeps both the command text and images for correction or retry.
+An explicitly text-only selected model is refused before any image is read. When a provider does not declare its input modalities, dshline does not guess from its name: Harness receives the image and remains the authority. Registered slash commands accept staged images only when their command descriptor declares `input.attachments`; an error keeps both the command text and images for correction or retry.
 
 `@path` itself remains a textual file reference. It tells the model which workspace path to inspect with its filesystem tools; it never reads or attaches the file. This distinction matters for source files and directories, which are not Harness image attachments.
 
@@ -283,7 +283,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.2-rc.1
+✓ Harness    0.1.3-alpha.2
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -332,9 +332,9 @@ dependency is pinned to, and the version you have is read from the
 and both commands that would bring them together:
 
 ```
-⚠ Harness    0.1.3-alpha.1 installed · dshline targets 0.1.2-rc.1
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.3-alpha.2
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.2-rc.1
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.3-alpha.2
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
@@ -1762,9 +1762,10 @@ It is off by default, and while it is off it contributes no live rows at all.
 `/timing` on its own flips it — there are only two states, so a list of two would
 be a ceremony — and `/timing on` or `/timing off` sets it outright. Enabling it
 during a live turn shows the measurement already in progress. Reopening a saved
-session starts with `no turn measured yet`: historical replay deliberately omits
-the streamed chunks needed for an honest breakdown, so the panel does not invent
-one from incomplete data.
+session starts with `no turn measured yet`: model stream time lives only in the
+live frames the harness publishes for this process, so a replayed log has no
+honest breakdown to draw and the panel does not invent one from incomplete
+data.
 
 It was called `/profile` before, which was a name collision waiting to happen: a Harness **profile** is the composition a launcher boots, and `/profiles` browses those. This command is a stopwatch and now says so.
 

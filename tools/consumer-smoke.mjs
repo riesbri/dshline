@@ -294,11 +294,27 @@ async function installLauncher(consumerDir, launcherVersion) {
     '# Written by tools/consumer-smoke.mjs: this scratch project is its own',
     '# workspace root so enclosing repositories\' pnpm policies do not apply.',
     "packages:\n  - '.'",
+    // The launcher's dependency graph contains native addons, and pnpm refuses
+    // to build a dependency's scripts unless it is named. Refusing them here
+    // does not make this install safer than the one being reproduced: the
+    // documented consumer path is `npm install -g @deepseek-ai/dsh`, and npm
+    // runs those same scripts by default. It only makes the install unbootable
+    // and the lane's verdict meaningless — a launcher whose `fs-ext` binary was
+    // never compiled fails inside the loader, which is a fact about this
+    // scratch directory rather than about the published pair.
+    //
+    // Allowing all of them rather than listing names on purpose: the set is
+    // upstream's, it changes with the adopted generation (this one added
+    // `fs-ext`, `koffi`, and `node-pty` where the previous had none), and a
+    // list here would be dshline asserting a dependency inventory it does not
+    // own. The blast radius is one temporary directory in CI installing the
+    // exact first-party package under test.
+    'dangerouslyAllowAllBuilds: true',
   ]
   const configuredStore = (process.env.CONSUMER_SMOKE_STORE_DIR ?? '').trim()
   if (configuredStore !== '') workspaceConfig.push(`storeDir: ${configuredStore}`)
   await writeFile(join(consumerDir, 'pnpm-workspace.yaml'), `${workspaceConfig.join('\n')}\n`)
-  await run('pnpm', ['add', ...storeArgs(), '--ignore-scripts', `${LAUNCHER_PACKAGE}@${launcherVersion}`],
+  await run('pnpm', ['add', ...storeArgs(), `${LAUNCHER_PACKAGE}@${launcherVersion}`],
     { cwd: consumerDir }, `installing ${LAUNCHER_PACKAGE}@${launcherVersion}`)
 }
 

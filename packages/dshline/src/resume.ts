@@ -17,6 +17,13 @@
  * dropped with it — and a result card needs its call's arguments to render. The
  * rule is therefore stated the other way round: a surface-eligible event replays
  * only when it was an append, and everything else replays as it is.
+ *
+ * There is exactly one rule, and no Assistant special case inside it. The log's
+ * Assistant records are settlements: `assistant/message` is the reply, and it is
+ * a surface event this rule already governs. An `assistant/attempt` is log-only
+ * — one model attempt that committed no reply — so it replays like any other
+ * log-only event and the projection gives it no lines, which is where that fact
+ * is written down.
  * @module dshline/resume
  */
 
@@ -37,10 +44,6 @@ import { paint } from '@dshline/renderer'
  * @returns whether to project it.
  */
 export function isTranscriptEvent(event: SessionEvent): boolean {
-  // Chunks are excluded separately from the surface question: they are the
-  // streamed form of a reply whose assembled form is also in the log, so replaying
-  // both would print it twice.
-  if (event.type === 'assistant/chunk') return false
   if (!isSurfaceEvent(event)) return true
   return isAppendSurfaceEvent(event)
 }

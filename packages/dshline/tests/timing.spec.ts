@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import type { TurnTiming, TurnSpan } from '../src/timing.ts'
@@ -16,9 +17,15 @@ function event(time: number, type: string, data: unknown): SessionEvent {
   return { time, type, data } as unknown as SessionEvent
 }
 
-/** A streamed delta of one kind, at one moment. */
-const delta = (time: number, step: number, type: string): SessionEvent =>
-  event(time, 'assistant/chunk', { turn: 1, step, chunk: { type, text: 'x' } })
+/**
+ * One live stream chunk of one kind, at one moment, within one attempt.
+ *
+ * Model stream time is measured from the frame's own timestamp, so this is the
+ * exact input the timer reads live — not a log event, which under session
+ * format v2 carries no per-delta record at all.
+ */
+const delta = (time: number, attempt: string, type: string): AssistantStreamFrame =>
+  ({ type: 'chunk', attemptId: `s:${attempt}`, revision: 1, index: 0, time, chunk: { type, text: 'x' } }) as AssistantStreamFrame
 
 /** A tool call opening, and the result that closes it. */
 const call = (time: number, callId: string, name: string): SessionEvent =>
@@ -30,14 +37,27 @@ const result = (time: number, callId: string): SessionEvent =>
 const ends = (time: number, turn = 1): SessionEvent =>
   event(time, 'turn/end', { turn, reason: 'complete' })
 
+/** One observation, from whichever of the timer's two authorities owns it. */
+type Observation = SessionEvent | AssistantStreamFrame
+
+/**
+ * Hand one observation to the authority that owns it, as the attachment does.
+ * @param timer - the timer under test.
+ * @param one - a committed session event, or a live assistant-stream frame.
+ */
+function feed(timer: TurnTimer, one: Observation): void {
+  if ('attemptId' in one) timer.observeFrame(one)
+  else timer.observe(one)
+}
+
 /**
  * Feed a whole turn through a fresh timer.
- * @param events - the events, in order.
+ * @param observations - the events and frames, in order.
  * @returns the profile the closing `turn/end` produced, if any.
  */
-function profile(events: readonly SessionEvent[]): TurnTiming | undefined {
+function profile(observations: readonly Observation[]): TurnTiming | undefined {
   const timer = new TurnTimer()
-  for (const one of events) timer.observe(one)
+  for (const one of observations) feed(timer, one)
   return timer.snapshot()
 }
 
@@ -50,8 +70,8 @@ describe('TurnTimer', () => {
   it('measures the turn against timestamps the log already carries', () => {
     const finished = profile([
       event(1_000, 'turn/start', { turn: 14 }),
-      delta(2_000, 0, 'text-delta'),
-      delta(4_000, 0, 'text-delta'),
+      delta(2_000, 'a', 'text-delta'),
+      delta(4_000, 'a', 'text-delta'),
       ends(43_800, 14),
     ])
     expect(finished?.turn).toBe(14)
@@ -100,24 +120,41 @@ describe('TurnTimer', () => {
     expect(spans(finished)).toEqual({ bash: 3_000 })
   })
 
-  it('measures reasoning and answering separately, and adds up the steps', () => {
+  it('measures reasoning and answering separately, and adds up the attempts', () => {
     const finished = profile([
       event(0, 'turn/start', { turn: 1 }),
-      delta(1_000, 0, 'reasoning-delta'),
-      delta(9_000, 0, 'reasoning-delta'),
-      delta(9_500, 0, 'text-delta'),
-      delta(11_500, 0, 'text-delta'),
-      delta(12_000, 1, 'reasoning-delta'),
-      delta(22_000, 1, 'reasoning-delta'),
+      delta(1_000, 'a', 'reasoning-delta'),
+      delta(9_000, 'a', 'reasoning-delta'),
+      delta(9_500, 'a', 'text-delta'),
+      delta(11_500, 'a', 'text-delta'),
+      delta(12_000, 'b', 'reasoning-delta'),
+      delta(22_000, 'b', 'reasoning-delta'),
       ends(23_000),
     ])
     expect(spans(finished)).toEqual({ reasoning: 18_000, output: 2_000 })
   })
 
+  it('does not charge a retry\'s dead time to the model', () => {
+    // One attempt streams for two seconds, fails, and the retry streams for two
+    // more twenty seconds later. Both spans are real; the twenty seconds
+    // between them are the failure and the retry decision, not thinking. Keyed
+    // by step instead of by attempt, the two would merge into one 24s span.
+    const finished = profile([
+      event(0, 'turn/start', { turn: 1 }),
+      delta(1_000, 'a', 'reasoning-delta'),
+      delta(3_000, 'a', 'reasoning-delta'),
+      event(3_100, 'assistant/attempt', { turn: 1, step: 1, stream: [] }),
+      delta(23_000, 'b', 'reasoning-delta'),
+      delta(25_000, 'b', 'reasoning-delta'),
+      ends(26_000),
+    ])
+    expect(spans(finished)).toEqual({ reasoning: 4_000 })
+  })
+
   it('charts nothing for a turn it did not see begin', () => {
     // Enabling the timer mid-turn would otherwise report the time since the
     // toggle as though it were the time the turn took.
-    const finished = profile([delta(1_000, 0, 'reasoning-delta'), ends(9_000)])
+    const finished = profile([delta(1_000, 'a', 'reasoning-delta'), ends(9_000)])
     expect(finished).toBeUndefined()
   })
 
@@ -128,8 +165,8 @@ describe('TurnTimer', () => {
     timer.observe(result(5_000, 'a'))
     timer.observe(ends(5_000))
     timer.observe(event(6_000, 'turn/start', { turn: 2 }))
-    timer.observe(delta(6_000, 0, 'text-delta'))
-    timer.observe(delta(8_000, 0, 'text-delta'))
+    timer.observeFrame(delta(6_000, 'a', 'text-delta'))
+    timer.observeFrame(delta(8_000, 'a', 'text-delta'))
     timer.observe(ends(9_000, 2))
     expect(spans(timer.snapshot())).toEqual({ output: 2_000 })
   })
@@ -140,8 +177,8 @@ describe('TurnTimer', () => {
       event(0, 'turn/start', { turn: 1 }),
       call(0, 'a', 'read'),
       result(0, 'a'),
-      delta(0, 0, 'text-delta'),
-      delta(3_000, 0, 'text-delta'),
+      delta(0, 'a', 'text-delta'),
+      delta(3_000, 'a', 'text-delta'),
       ends(3_000),
     ])
     expect(spans(finished)).toEqual({ output: 3_000 })
@@ -166,8 +203,8 @@ describe('TurnTimer', () => {
   it('observes a whole live turn even when presentation is enabled midway through it', () => {
     const timer = new TurnTimer()
     timer.observe(event(1_000, 'turn/start', { turn: 4 }))
-    timer.observe(delta(2_000, 0, 'reasoning-delta'))
-    timer.observe(delta(4_000, 0, 'reasoning-delta'))
+    timer.observeFrame(delta(2_000, 'a', 'reasoning-delta'))
+    timer.observeFrame(delta(4_000, 'a', 'reasoning-delta'))
     expect(timer.snapshot(5_000)).toMatchObject({ turn: 4, totalMs: 4_000, running: true })
     expect(spans(timer.snapshot(5_000))).toEqual({ reasoning: 2_000 })
   })
