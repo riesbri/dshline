@@ -9,11 +9,11 @@
  * change fails this file at compile time, by capability name, instead of only
  * surfacing as an unrelated typecheck error somewhere else in the graph.
  *
- * The fake registry implements only what `HarnessWork` is documented to use
+ * The local registry implements only what `HarnessWork` is documented to use
  * (`list`, `onJobsChanged`, `attachController`, `start`) and makes every method
- * `HarnessWork` must NOT call (`read`, `kill`, `wait`, `onJobDone`) throw, the
- * same contract `work.spec.ts` already asserts — now backed by the real base
- * class instead of a structural cast.
+ * `HarnessWork` must NOT call (`read`, `kill`, `wait`, `onJobDone`) throw. The
+ * evidence is the real abstract base contract plus Work observation; it is not
+ * concrete provider, controller, or authorization behavior.
  * @module
  */
 

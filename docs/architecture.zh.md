@@ -40,23 +40,30 @@ native terminal
 | --- | --- | --- |
 | 后台工作 | `ctx.jobs` | 观察通用任务快照与变更。 |
 | 委派工作 | `ctx.subagents` | 观察提供方无关的生命周期与发现。 |
+| 活动 agent 注册表 | `ctx.agents` | 通过已发布的 factory seam 解析进程内活动 Agent，并委派新建/恢复附着；不拥有 AgentLoop 或持久化策略。 |
 | 编排工作 | `ctx.workflowEngine` + 持久 `tool-workflow/*` 记录 | 观察运行身份、阶段与成员；不持有运行句柄。 |
 | 模型 | `ctx.llm` | 读取已注册提供方/模型元数据，以及配置可激活路由的可配置提供方目录。 |
+| 默认模型 | `ctx.agentDefaultModel` | 在可选服务已挂载时读取或保存组合的默认选择；不在 dshline 中持久化第二份副本。 |
 | 用户配置 | `ctx.settings` | 读取脱敏的命名空间描述符；对读取时的修订号执行写入路径操作。 |
 | 密钥 | `ctx.credentials` | 询问引用或记录是否已配置且可写；绝不持有值。 |
 | 获取凭据 | `ctx.authorization` | 渲染 seam 的中立通知与提示词汇；不拥有登录协议。 |
 | 人类命令 | `ctx.commands` | 发现并执行已注册的命令约定。 |
 | 工具 | `ctx.tools` | 渲染工具拥有的呈现意图，而不是工具名的特例。 |
 | 人类应答 | `ctx.userQuestions` | 注册一个终端应答者；认领本前端能够呈现的请求，绝不假设该请求只发给了本前端。 |
+| 审批 | `ctx.approval` | 只回答属于本前端的请求；对于其他 agent 身份让 waterfall 失败关闭。 |
 | 会话 | `ctx.sessionQuery` | 查询 Harness 偏好活动的会话语料库；不构建另一个数据库。其全文方法是抽象的，因此把内容搜索视为可选。它的 `SessionHeader.cwd` 值也是唯一的工作目录权威：只做临时分组，绝不存储目录清单、worktree registry 或 Git 状态缓存。 |
 | 附件 | `ctx.fs` + `ctx.attachments` | 路径只作为会话本地草稿；通过当前文件系统执行有界读取，并把持久图片引用作为一个批次发布。绝不持久化字节、base64 或主机路径。 |
 | 日志派生的状态 | `ctx.sessionProjections` | 消费已注册的领域快照与变更。 |
 | 上下文占用 | `ctx.sessionProjections`（`contextPressure`、`contextBreakdown`、`tokenUsage`） | 读取 O(1) 折叠；绝不自行计数 token 或分词。 |
 | 会话统计 | `ctx.sessionProjections`（`sessionStats`） | 读取全日志计数与墙钟时间；除了对两个已发布总量做一次除法之外不再推导任何东西。将该单元视为可选。 |
+| 请求元数据 | `Session.requestHeader()` | 为缓存/用量视图读取已记录的路由、系统提示与工具计数；不维护平行的 header。 |
 | 逐条目的上下文组成 | `ctx.tokenMeter` | 只在检视器需要时索取逐节点测量；其自身约定称之为 O(surface)。 |
+| 计划模式 | 已提交的 `plan/mode` 事件；Harness 的 `plan` 投影作为约定证据 | 用 `planModeAfter()` 折叠已提交的模式事件；不维护可变的第二份状态，也不把 `ctx.planMode` 作为呈现镜像来读取。 |
 | 缩减上下文 | `ctx.commands`（`/compact`） | 派发已注册的命令；观察 `compaction/*` 事件。绝不调用 `ctx.compaction`。 |
 | agent 组合 | `ctx.agentPresets` | 读取名册、某个预设的组合，以及某个会话实际运行的预设；只通过这个 seam 加入或切换一个 agent，绝不用私有注册表。 |
 | Host 组合 | `ctx.dshHomePath`、`ctx.baseUrl`、`dsh plugin` | 通过 Harness 自己的 home-path 服务读取配置文件名册，从 Loader 的 base URL 读取已启动的配置文件；变更只转发给 `dsh plugin`，绝不写入配置文件清单。 |
+| 子进程 | `ctx.subprocess` | 通过 Harness runtime 转发 launcher argv、环境与超时；不重新实现 launcher 或 profile 策略。 |
+| 会话标题 | `ctx.sessionTitle` | 通过活动会话服务重命名；不修改复制的 header，也不维护标题存储。 |
 | 技能 | `ctx.skills` | 用 `snapshot({ cwd, scope: agent })` 观察按作用域解析出的有效目录；提供并检视已解析的摘要。绝不发现、加载或注入技能正文——开头带 `/name` 的一行按原样发送，它的含义由 `dsh-tool-skill` 拥有。 |
 | 提供方健康 | `ctx.subagents` | 在呈现指名某个提供方可用的行之前，先向注册表询问哪些提供方存在；绝不从某一行被启用推断可用性。 |
 
@@ -314,7 +321,7 @@ ctx.settings      the PROFILE that registers a route         llm-pi-ai.providers
 
 另一条路被考虑过并被否决。`dsh-authorization` 不声明 `dsh.bundle`，所以 `dsh plugin add` 会把它作为一个什么都不组合的普通依赖装上——正是 `/profiles` 已经会报告的「装了却是惰性的」状态——而要把这件事做完，就意味着 dshline 往 profile 自己的 `cordis.patch.yml` 里写一行组合，而那个 patch 层没有任何 Harness 变更 API 拥有。为一个 bundle 直接组合就能得到的能力去做首次运行安装器，是在不需要生命周期的地方多造一个生命周期。
 
-由于这一行现在归 dshline 挂载，它的形状也就成了 dshline 的兼容性问题：`tests/capability/authorization.probe.spec.ts` 把真实服务挂载在一个真实的抽象 `CredentialProvider` 子类之上，而 `tools/capability-probes.mjs` 把它列为 `authorization` seam 的证据。
+由于这一行现在归 dshline 挂载，它的形状也就成了 dshline 的兼容性问题：`tests/capability/authorization.probe.spec.ts` 把真实的 `AuthorizationService` 挂载在一个实现其已发布记录 surface 的最小本地凭据服务之上，而 `tools/capability-probes.mjs` 把这项编排列为 `authorization` seam 的证据。单独的 credentials 探针覆盖抽象 `CredentialProvider` 约定；两处 fixture 都不声称证明生产存储策略。
 
 seam 接口本身在 `connect/harness.ts` 中结构化写出，而不是依赖整个服务，原因与 `SessionQueryReads` 给出的一样——点名一个视图调用比依赖整个服务更易读。该文件里的每一个导入仍然只是类型导入，所以 Connect 在运行时不携带任何 Harness 代码；`connectSeams` 中的三处赋值在每次构建时把每个窄视图与真实服务做校验，因为每个服务包都用自己的类型扩展了 `Context`。
 
@@ -535,6 +542,6 @@ npm install -g @deepseek-ai/dsh @dshline/dshline
 
 这是一道发布闸门，不是兼容性车道，并且它丝毫不改变上面那句话——不是生成的发布 PR 的 pull request 永远不会解析 dist-tag，因此由 DeepSeek 移动的指针仍然永远无法让无关工作无法合并。一旦两个默认值一致，普通的不带限定安装就重新解析出一致的一对，而这正是这道闸门始终在保护的唯一东西。
 
-每条 Harness 车道都会额外运行 `tools/capability-report.mjs`，它把一个 seam 的真实 Harness 约定——真实的 `SessionQueryEngine`、真实的 `SubagentRuntime`、真实的抽象 `JobRegistry` 子类、真实的 `UserQuestionService`、在真实 `Session` 之上的真实抽象 `WorkflowEngine` 子类，绝不是 dshline 臆造的假对象——转化为按能力命名的通过/失败结果。目前的覆盖是初始的，而非穷尽的：`sessionQuery`、`jobs`、`subagents`、`sessionProjections`、`workflows`、`userQuestions`、`tokenMeter`（真实 `SessionStore` 之上的真实 `TokenMeter`）、`compaction`（真实的 `CompactionEngine` 子类）、`skills`（真实的按作用域分层的 `SkillRegistry`，以及把打出的 `/name` 一行变成注入的真实 `dsh-tool-skill` pre-step 边界）与 `requestHeader`（`/cache` 用来读取最新记录的路由、系统提示词与工具数量的 `Session.requestHeader()` 折叠），之所以选择它们，是因为每一个都已经有（或能够低成本获得）一个针对真实类而非手工伪造对象构建的测试。上游对其中一个的变更读起来是 `sessionQuery contract changed`，而不只是笼统的 `pnpm typecheck failed`；尚未进入这张表的 seam，仍以 `pnpm typecheck`/`pnpm test` 作为后备。`tools/capability-probes.mjs` 是一张指针表，不是约定的第二份拷贝：它只指出哪个既有或新建的测试已经在验证每个 seam，因此扩大这一覆盖意味着往那张表里加一行（或在 `packages/dshline/tests/capability/` 下新增一个小探针），而绝不是让这个模块自己学会该 seam 的形状。
+每条 Harness 车道都会额外运行 `tools/capability-report.mjs`，把命名证据转化为每项能力的 PASS、FAIL 或 MISSING。能力证据以真实 Harness 约定为基础，使用可获得的最强确定性层：可行时使用具体服务或运行时行为；当约定由基类实现时使用基类编排；seam 有意保持抽象时使用最小子类。随后，在相关之处，集成探针验证生产 dshline 对该 seam 的消费。这张表指向生产 dshline 消费、且适合在进程内以确定方式演练的通用 surface；它不是复制的约定，也不宣称覆盖只能由 Host 启动触及的 surface。指针表明确排除 `appExit`、`loader`、`cmdlineArgs`、`dshHomePath` 与 `baseUrl`；它们是命名的进程内服务 inventory 之外的 launcher/Host 平面输入，TUI 自有的 surface 也不是能力行。published consumer 车道在该 Host 边界验证真实安装/启动集成，而 focused tests 验证 dshline 自己的转发与策略；这不表示它覆盖每一种 `/profiles` 或 Host accessor 行为。上游对已命名 seam 的变更读起来是 `sessionQuery contract changed`，而不只是笼统的 `pnpm typecheck failed`；尚未进入这张表的 seam，仍以 `pnpm typecheck`/`pnpm test` 作为后备。`tools/capability-probes.mjs` 仍是一张指针表，不是约定的第二份拷贝：它只指出哪个既有或新建的测试提供证据，因此扩大这一覆盖意味着往那张表里加一行（或在 `packages/dshline/tests/capability/` 下新增一个小探针），而绝不是让这个模块自己学会该 seam 的形状。
 
 `userQuestions` 是这套雷达第一次证明它能发现真实的破坏：Harness 的 `ctx.userQuestions` 注册方式发生了变化，`packages/dshline/src/questions.ts` 一度用一个小的运行时判断把两种形态桥接起来。那个桥接属于债务而不是范式——它早于"一次只支持一代"的规则——随后的那次采纳已经删除了它：该模块现在直接注册在按作用域分层的 `user-questions/request` 瀑布上。不应再写出同类的新桥接。迁移是移除旧调用，而不是同时保留两者。

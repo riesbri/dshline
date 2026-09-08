@@ -2,39 +2,29 @@
  * Capability probe: Harness's `authorization` seam, against the real service.
  *
  * This is the compatibility evidence `tools/capability-probes.mjs` names for
- * the `authorization` seam, and it earns a probe of its own now rather than
- * before because dshline's bundle patch COMPOSES this package. A row dshline
- * inserts is a row whose failure to mount is dshline's boot failing, so the
- * shape it is mounted by — a default-exported `Service` class injecting
- * `credentials` — is now part of this frontend's contract with upstream and
- * not only part of `/connect`'s.
+ * the `authorization` seam. The concrete `AuthorizationService` is mounted
+ * over a local in-memory `CredentialProvider` subclass that supplies the
+ * credential record surface; it does not prove production provider storage
+ * semantics.
  *
- * The real `AuthorizationService` is mounted over a real abstract
- * `CredentialProvider` subclass, never a dshline-shaped fake, and everything
- * asserted is something a `/connect` decision is built on:
+ * The probe checks the deterministic service contract dshline relies on:
  *
- * 1. the package mounts by its published default export and provides
- *    `ctx.authorization` — the composition dshline's own patch performs;
- * 2. `list()` publishes the label, methods, and `inFlight` that
- *    `ConnectSignInRow` is assembled from, and its key is the `<scope>/<id>`
- *    string {@link piAiSignInRoute} reads to find the route a sign-in
- *    authenticates;
- * 3. an attempt's notices and prompts reach the CALLER's interaction, which is
- *    what lets `authorize.ts` put a sign-in URL in scrollback and a question in
- *    an overlay;
- * 4. `authorized` is reported only after a record was committed during the
- *    attempt — so the transcript row saying "signed in" is never ahead of the
- *    credential store;
- * 5. a withdrawn attempt settles `cancelled` rather than throwing, which is the
- *    whole basis of closing `/connect` mid-login.
+ * 1. the published service mounts and provides `ctx.authorization`;
+ * 2. `list()` publishes flow labels, methods, in-flight state, and the
+ *    `<scope>/<id>` key that the adapter's route-key helper consumes;
+ * 3. `begin()` routes notices/prompts through its supplied interaction and
+ *    reports authorization only after the local record was committed;
+ * 4. a withdrawn attempt settles `cancelled` rather than throwing.
  *
- * The seam's own internals are upstream's contract and upstream's tests. What
- * is under test here is dshline's dependence on them.
+ * The full bundle patch and browser `/connect` presentation are not exercised
+ * here. The useful evidence is AuthorizationService orchestration layered over
+ * a minimal local credential fixture.
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
+import CredentialProvider from '@deepseek-ai/dsh-credentials'
 import type { AuthorizationNotice, AuthorizationPrompt } from '@deepseek-ai/dsh-authorization'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import type {
@@ -49,66 +39,54 @@ import type {
 import { piAiSignInRoute } from '../../src/connect/pi-ai.ts'
 import type { ConnectProviderRow } from '../../src/connect/model.ts'
 
-/**
- * A real `CredentialProvider` over a Map.
- *
- * The abstract class from `@deepseek-ai/dsh-credentials` is subclassed rather
- * than replaced, so the seam's commit confirmation runs against the real
- * `describeRecord`/`modifyRecord` contract and the real
- * `credentials/record-updated` event it watches for.
- */
-class MemoryCredentials extends Service {
+/** A local credential record service; AuthorizationService owns the real orchestration. */
+class MemoryCredentials extends CredentialProvider {
   /** Records this provider holds, by key. */
   private readonly records = new Map<string, CredentialRecord>()
 
-  constructor(ctx: Context) {
-    super(ctx, 'credentials')
-  }
-
-  async resolve(_ref: CredentialRef): Promise<ResolvedCredential | undefined> {
+  override async resolve(_ref: CredentialRef): Promise<ResolvedCredential | undefined> {
     return undefined
   }
 
-  async describe(_ref: CredentialRef): Promise<CredentialInfo> {
+  override async describe(_ref: CredentialRef): Promise<CredentialInfo> {
     return { configured: false, writable: true }
   }
 
-  async set(_ref: CredentialRef, _value: string): Promise<void> {}
+  override async set(_ref: CredentialRef, _value: string): Promise<void> {}
 
-  async unset(_ref: CredentialRef): Promise<void> {}
+  override async unset(_ref: CredentialRef): Promise<void> {}
 
-  async readRecord(key: CredentialKey): Promise<CredentialRecord | undefined> {
+  override async readRecord(key: CredentialKey): Promise<CredentialRecord | undefined> {
     return this.records.get(key)
   }
 
-  async describeRecord(key: CredentialKey): Promise<CredentialRecordInfo> {
+  override async describeRecord(key: CredentialKey): Promise<CredentialRecordInfo> {
     const held = this.records.get(key)
     return held === undefined
       ? { configured: false, writable: true }
       : { configured: true, kind: held.kind, writable: true }
   }
 
-  async listRecords(): Promise<readonly CredentialRecordEntry[]> {
+  override async listRecords(): Promise<readonly CredentialRecordEntry[]> {
     return [...this.records].map(([key, record]) => ({ key: key as CredentialKey, kind: record.kind }))
   }
 
-  async modifyRecord(
+  override async modifyRecord(
     key: CredentialKey,
     mutate: (current: CredentialRecord | undefined) => Promise<CredentialRecord | undefined>,
   ): Promise<CredentialRecord | undefined> {
     const next = await mutate(this.records.get(key))
     if (next === undefined) this.records.delete(key)
     else this.records.set(key, next)
-    // The event the seam watches to confirm a commit happened during the
-    // attempt; without it a re-authorization could pass a stale record off as
-    // fresh, which is the failure `NOT_COMMITTED` exists to prevent.
-    this.ctx.emit('credentials/record-updated', key)
+    // The real base-class notifier supplies the event the authorization
+    // orchestration watches after a record commit.
+    this.notifyRecordUpdated(key)
     return next
   }
 
-  async deleteRecord(key: CredentialKey): Promise<void> {
+  override async deleteRecord(key: CredentialKey): Promise<void> {
     this.records.delete(key)
-    this.ctx.emit('credentials/record-updated', key)
+    this.notifyRecordUpdated(key)
   }
 }
 
@@ -131,8 +109,8 @@ async function harness(): Promise<Context> {
 describe('capability probe: the authorization seam', () => {
   it('mounts by its default export and provides ctx.authorization', async () => {
     const ctx = await harness()
-    // The row dshline's bundle patch inserts. A default export that stopped
-    // being a mountable Service would fail here rather than at a user's boot.
+    // The composition dependency publication relies on this being mountable. A
+    // default export that stopped being a Service would fail here early.
     expect(ctx.get('authorization')).toBeDefined()
   })
 
@@ -147,8 +125,8 @@ describe('capability probe: the authorization seam', () => {
     const [entry] = ctx.authorization.list()
     expect(entry?.label).toBe('ChatGPT (Codex)')
     expect(entry?.methods.map(method => method.id)).toEqual(['oauth', 'api-key'])
-    // `inFlight` is what lets a browser render the action unavailable rather
-    // than discovering ALREADY_IN_FLIGHT through an error.
+    // `inFlight` lets a consumer disable the action before it reaches the
+    // service's ALREADY_IN_FLIGHT error.
     expect(entry?.inFlight).toBe(false)
   })
 
@@ -188,8 +166,8 @@ describe('capability probe: the authorization seam', () => {
       label: 'OpenAI',
       methods: [{ id: 'oauth', label: 'Sign in' }],
       run: async session => {
-        // The two shapes `authorize.ts` splits between scrollback and an
-        // overlay: a one-way notice carrying a page and a code, and a question.
+        // Exercise the two interaction payload shapes a consumer may route to
+        // a transcript notice or overlay: a page/code notice and a question.
         session.notify({ message: 'Continue in your browser', url: 'https://auth.example/go', code: 'ABCD-1234' })
         const typed = await session.prompt({ kind: 'text', message: 'Paste the code' })
         await ctx.credentials.modifyRecord(OPENAI, async () => ({ kind: 'grant', payload: { token: typed } }))
@@ -238,8 +216,8 @@ describe('capability probe: the authorization seam', () => {
       label: 'OpenAI',
       methods: [{ id: 'oauth', label: 'Sign in' }],
       run: async session => {
-        // A login waiting on a browser callback with no question on screen —
-        // the exact shape closing `/connect` has to be able to take down.
+        // A flow waiting with no question on screen: cancellation must still
+        // reach its signal listener.
         await new Promise<void>((_resolve, reject) => {
           session.signal.addEventListener('abort', () => { reject(new Error('withdrawn')) }, { once: true })
         })
@@ -252,8 +230,8 @@ describe('capability probe: the authorization seam', () => {
       interaction: { notify: () => {}, prompt: async () => '' },
     })
     withdrawal.abort()
-    // Not a throw: `/connect` reports a withdrawn sign-in as a withdrawal, and
-    // would have to invent that distinction if the seam raised here.
+    // Not a throw: the service reports a withdrawn sign-in as cancellation,
+    // which a consumer can present distinctly from failure.
     expect(await running).toEqual({ status: 'cancelled' })
   })
 })

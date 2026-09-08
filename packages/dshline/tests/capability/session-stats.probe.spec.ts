@@ -4,7 +4,7 @@
  * This is the compatibility evidence `tools/capability-probes.mjs` names for the
  * `sessionStats` seam, so it mounts the REAL `@deepseek-ai/dsh-session-stats`
  * over a real `SessionStore` and a real projection registry — never a
- * dshline-shaped fake. Four contracts are asserted, because `/usage`'s
+ * dshline-shaped fake. Five contracts are asserted, because `/usage`'s
  * performance section is built on exactly these and nothing else:
  *
  * 1. the unit registers a `sessionStats` key that dshline's own generic observer
@@ -17,11 +17,11 @@
  * 4. a step Harness counted but did not time yields no averages at all, rather
  *    than zero ones;
  * 5. a zero summed wall time is the ABSENCE of a contribution and not a
- *    measurement of zero — real streaming and a real tool call can both elapse
- *    and leave the total at zero, which is why `/usage` refuses to print it.
+ *    measurement of zero, which is why `/usage` refuses to print it.
  *
- * The fold itself is upstream's contract and upstream's test. What is under
- * test here is dshline's dependency on it.
+ * The fold itself is upstream's contract and upstream's test. The event stream
+ * here is synthetic but passed through real `Session` and projection objects;
+ * provider logging and actual streaming/tool execution are not claimed.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'

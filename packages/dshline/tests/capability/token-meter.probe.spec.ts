@@ -13,6 +13,10 @@
  * 3. a surface REPLACEMENT removes the shadowed nodes from that node set —
  *    which is what makes the entry list a picture of the model's current
  *    context rather than of the session's history.
+ *
+ * The projection and registry are real; the session events are compact,
+ * replacement-shaped fixtures, so producer-side logging and payload validation
+ * are not claimed here.
  */
 
 import { describe, expect, it } from 'vitest'

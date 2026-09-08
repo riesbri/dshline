@@ -60,23 +60,30 @@ Prefer a standard Harness surface over a concrete package or provider:
 | --- | --- | --- |
 | background work | `ctx.jobs` | Observe generic job snapshots and changes. |
 | delegated work | `ctx.subagents` | Observe provider-neutral lifecycle and discovery. |
+| live agent registry | `ctx.agents` | Resolve live local Agents and delegate fresh/resumed attachment through the published factory seam; do not own AgentLoop or persistence policy. |
 | orchestrated work | `ctx.workflowEngine` + durable `tool-workflow/*` records | Observe run identity, phases, and members; own no run handle. |
 | models | `ctx.llm` | Read registered provider/model metadata, and the configurable-provider directory of routes configuration can activate. |
+| default model | `ctx.agentDefaultModel` | Read or save the composition's default selection when the optional service is mounted; do not persist a second copy in dshline. |
 | user configuration | `ctx.settings` | Read redacted namespace descriptors; write path ops against the revision they were read at. |
 | secrets | `ctx.credentials` | Ask whether a reference or record is configured and writable; never hold a value. |
 | obtaining a credential | `ctx.authorization` | Render the seam's neutral notice and prompt vocabulary; own no login protocol. |
 | human commands | `ctx.commands` | Discover and execute the registered command contract. |
 | tools | `ctx.tools` | Render tool-owned presentation intents, not tool-name cases. |
 | human answers | `ctx.userQuestions` | Register a terminal answerer; claim a request this frontend can present, never assuming it was addressed only to this frontend. |
+| approvals | `ctx.approval` | Answer only requests owned by this frontend; let the waterfall fail closed for other agent identities. |
 | sessions | `ctx.sessionQuery` | Query Harness's live-preferred session corpus; do not build another database. Its full-text methods are abstract, so treat content search as optional. Its `SessionHeader.cwd` values are also the only working-directory authority: group them transiently, never store a directory list, a worktree registry, or a Git state cache. |
 | attachments | `ctx.fs` + `ctx.attachments` | Keep paths as session-local drafts; perform bounded reads through the active filesystem and publish durable image references as one batch. Never persist bytes, base64, or host paths. |
 | log-derived state | `ctx.sessionProjections` | Consume registered domain snapshots and changes. |
 | context occupancy | `ctx.sessionProjections` (`contextPressure`, `contextBreakdown`, `tokenUsage`) | Read the O(1) folds; never count tokens or tokenize. |
 | session statistics | `ctx.sessionProjections` (`sessionStats`) | Read the whole-log counts and wall times; derive nothing beyond one division over two published totals. Treat the unit as optional. |
+| request metadata | `Session.requestHeader()` | Read the logged route, system prompt, and tool counts for cache/usage views; do not maintain a parallel header. |
 | context composition per entry | `ctx.tokenMeter` | Ask for the per-node measurement only when an inspector needs it; its own contract calls it O(surface). |
+| plan mode | committed `plan/mode` events; Harness's `plan` projection as contract evidence | Fold committed mode events with `planModeAfter()`; do not maintain a mutable second state or read `ctx.planMode` as a presentation mirror. |
 | reducing context | `ctx.commands` (`/compact`) | Dispatch the registered command; observe `compaction/*` events. Never call `ctx.compaction`. |
 | agent composition | `ctx.agentPresets` | Read the roster, one preset's composition, and which preset a session actually runs; join or switch an agent through the seam, never a private registry. |
 | host composition | `ctx.dshHomePath`, `ctx.baseUrl`, `dsh plugin` | Read the profile roster from Harness's own home-path service and the booted profile from the Loader's base URL; mutate only by forwarding to `dsh plugin`, never by writing a profile manifest. |
+| subprocess | `ctx.subprocess` | Forward the launcher argv, environment, and timeout through the Harness runtime; do not reimplement launcher or profile policy. |
+| session title | `ctx.sessionTitle` | Rename through the live-session service; do not mutate a copied header or maintain a title store. |
 | skills | `ctx.skills` | Observe the effective per-scope catalog with `snapshot({ cwd, scope: agent })`; offer and inspect the resolved summaries. Never discover, load, or inject a skill body — a leading `/name` line is sent verbatim and `dsh-tool-skill` owns what it means. |
 | provider health | `ctx.subagents` | Ask the registry which providers exist before presenting a row that names one as usable; never infer availability from a row being enabled. |
 
@@ -696,8 +703,11 @@ lifecycle where none is needed.
 
 Because the row is now dshline's to mount, its shape is dshline's compatibility
 problem too: `tests/capability/authorization.probe.spec.ts` mounts the real
-service over a real abstract `CredentialProvider` subclass, and
-`tools/capability-probes.mjs` names it as the `authorization` seam's evidence.
+`AuthorizationService` over a minimal local credentials service implementing
+its published record surface, and `tools/capability-probes.mjs` names that
+orchestration as the `authorization` seam's evidence. The separate credentials
+probe covers the abstract `CredentialProvider` contract; neither fixture claims
+production storage policy.
 
 The seam surfaces themselves are written out structurally in
 `connect/harness.ts` rather than depended on as whole services, for the reason
@@ -1276,29 +1286,29 @@ work unmergeable. Once the two defaults agree, an ordinary unqualified install
 resolves a coherent pair again, which is the only thing the gate was ever
 protecting.
 
-Each Harness lane additionally runs `tools/capability-report.mjs`, which turns a
-seam's real Harness contract — a real `SessionQueryEngine`, a real
-`SubagentRuntime`, a real abstract `JobRegistry` subclass, a real
-`UserQuestionService`, a real abstract `WorkflowEngine` subclass over a real
-`Session`, never a dshline-shaped fake — into a named pass/fail
-per capability. Coverage today is initial, not exhaustive: `sessionQuery`,
-`jobs`, `subagents`, `sessionProjections`, `workflows`, `userQuestions`,
-`tokenMeter` (the real `TokenMeter` over a real `SessionStore`),
-`compaction` (a real `CompactionEngine` subclass), `skills` (the real
-scope-layered `SkillRegistry`, plus the real `dsh-tool-skill` pre-step
-boundary that turns a typed `/name` line into an injection), and
-`requestHeader` (the `Session.requestHeader()` fold `/cache` reads the latest
-recorded route, system prompt, and tool count from), chosen because
-each already has (or could cheaply gain) a test built against the real class
-rather than a hand-typed fake. An upstream change to one of these reads as
-`sessionQuery contract changed` rather than only a generic
-`pnpm typecheck failed`; a seam not yet in the table still has
-`pnpm typecheck`/`pnpm test` as its backstop. `tools/capability-probes.mjs` is
-a pointer table, not a second copy of the contract: it names which existing or
-purpose-built test already exercises each seam, so growing this coverage means
-adding a line to that table (or a small new probe under
-`packages/dshline/tests/capability/`), never teaching this module the seam's
-shape itself.
+Each Harness lane additionally runs `tools/capability-report.mjs`, which turns
+named evidence into a PASS, FAIL, or MISSING result per capability. Capability
+evidence is built against the real Harness contract at the strongest
+deterministic layer available: concrete service or runtime behavior where
+practical, base-class orchestration where that is the contract, or a minimal
+subclass when the seam is intentionally abstract. Integration probes then
+verify the production dshline consumer over that seam where relevant. The
+table points to generic surfaces production dshline consumes that can
+reasonably be exercised deterministically in-process; it is not a copied
+contract or a completeness claim about host/bootstrap-only surfaces. The
+pointer deliberately excludes `appExit`, `loader`, `cmdlineArgs`, `dshHomePath`,
+and `baseUrl`; these are launcher/Host-plane inputs outside the named in-process
+service inventory, and TUI-owned surfaces are not capability rows. The published
+consumer lane proves real install/boot integration at that Host boundary, while
+focused tests cover dshline's local forwarding and policy; this does not claim to
+exercise every `/profiles` or host-accessor behavior. An upstream change to a named seam reads as
+`sessionQuery contract changed` rather than only a generic `pnpm typecheck
+failed`; a seam not in this table still has `pnpm typecheck`/`pnpm test` as its
+backstop. `tools/capability-probes.mjs` remains a pointer table, not a second
+copy of the contract: it names which existing or purpose-built test supplies
+evidence, so growing the coverage means adding a line to that table (or a
+small new probe under `packages/dshline/tests/capability/`), never teaching
+this module the seam's shape itself.
 
 `userQuestions` is this radar's first proof against a real break: Harness's
 `ctx.userQuestions` registration shape moved, and `packages/dshline/src/questions.ts`
