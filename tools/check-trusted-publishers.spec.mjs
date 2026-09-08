@@ -11,7 +11,7 @@ function response(value, status = 200) {
 }
 
 const ENV = {
-  ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example.test/id-token?api-version=1',
+  ACTIONS_ID_TOKEN_REQUEST_URL: 'https://pipelines.actions.githubusercontent.com/id-token?api-version=1',
   ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'github-request-token',
 }
 
@@ -52,5 +52,13 @@ describe('checkTrustedPublishers()', () => {
   it('requires the workflow OIDC permission', async () => {
     await expect(checkTrustedPublishers({ env: {}, fetchImpl: vi.fn() }))
       .rejects.toThrow('the job needs id-token: write')
+    await expect(checkTrustedPublishers({
+      env: { ...ENV, ACTIONS_ID_TOKEN_REQUEST_TOKEN: '' },
+      fetchImpl: vi.fn(),
+    })).rejects.toThrow('the job needs id-token: write')
+    await expect(checkTrustedPublishers({
+      env: { ...ENV, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://evil.example.test/token' },
+      fetchImpl: vi.fn(),
+    })).rejects.toThrow('GitHub Actions HTTPS issuer')
   })
 })

@@ -39,10 +39,6 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const TARGET_FILE = join(repoRoot, 'HARNESS_TARGET')
-const BUNDLE_MANIFEST = join(repoRoot, 'packages', 'dshline', 'package.json')
-const WORKSPACE_MANIFEST = join(repoRoot, 'package.json')
-const MANIFESTS = [BUNDLE_MANIFEST, WORKSPACE_MANIFEST]
-
 /**
  * The same two manifests as path SEGMENTS, so a caller can resolve them
  * against a root other than this repository's. Only `pinTargetVersion` needs
@@ -51,6 +47,12 @@ const MANIFESTS = [BUNDLE_MANIFEST, WORKSPACE_MANIFEST]
  */
 const MANIFEST_PATHS = [['packages', 'dshline', 'package.json'], ['package.json']]
 const REGISTRY_HOST = 'https://registry.npmjs.org'
+const HARNESS_NUMERIC = '(?:0|[1-9][0-9]*)'
+const HARNESS_PRERELEASE = `(?:${HARNESS_NUMERIC}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)`
+const HARNESS_VERSION = new RegExp(
+  `^${HARNESS_NUMERIC}\\.${HARNESS_NUMERIC}\\.${HARNESS_NUMERIC}(?:-${HARNESS_PRERELEASE}(?:\\.${HARNESS_PRERELEASE})*)?(?![\\s\\S])`,
+  'u',
+)
 
 /**
  * The package a consumer installs, and therefore the one whose publication
@@ -131,7 +133,7 @@ export function parseTarget(text) {
   // A shape check, not a semver engine: nothing here ever orders or compares
   // two versions, so this only rejects a typo that could never match a real
   // published version.
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(fields.version)) {
+  if (!HARNESS_VERSION.test(fields.version)) {
     throw new Error(`HARNESS_TARGET: version must look like 1.2.3 or 1.2.3-tag.4, got: ${fields.version}`)
   }
   return { revision: fields.revision, version: fields.version }
@@ -139,10 +141,11 @@ export function parseTarget(text) {
 
 /**
  * Read the adopted target from disk.
+ * @param root - repository root whose target file should be read.
  * @returns the adopted target.
  */
-export async function readTarget() {
-  return parseTarget(await readFile(TARGET_FILE, 'utf8'))
+export async function readTarget(root = repoRoot) {
+  return parseTarget(await readFile(join(root, 'HARNESS_TARGET'), 'utf8'))
 }
 
 /**
@@ -178,9 +181,12 @@ export function targetUpdates(dependencies, version) {
  * @throws when the manifest carries no version, which means the checkout is not what we think it is.
  */
 export function sourceVersion(manifest) {
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest) || manifest.name !== '@deepseek-ai/dsh-root') {
+    throw new Error(`harness checkout root manifest must be @deepseek-ai/dsh-root (found ${JSON.stringify(manifest?.name ?? null)})`)
+  }
   const version = manifest.version
   if (typeof version !== 'string' || version === '') {
-    throw new Error(`harness checkout root manifest declares no version (found ${JSON.stringify(manifest.name ?? null)})`)
+    throw new Error(`harness checkout root manifest declares no version (found ${JSON.stringify(manifest.name)})`)
   }
   return version
 }
@@ -200,7 +206,13 @@ export function sourceVersion(manifest) {
  */
 export async function isPublished(name, version, fetchPackument = defaultFetchPackument) {
   const packument = await fetchPackument(name)
-  return Object.hasOwn(packument.versions ?? {}, version)
+  if (packument === null || typeof packument !== 'object' || Array.isArray(packument)) {
+    throw new Error(`registry returned an invalid packument for ${name}`)
+  }
+  if (packument.versions === null || typeof packument.versions !== 'object' || Array.isArray(packument.versions)) {
+    throw new Error(`registry returned an invalid versions map for ${name}`)
+  }
+  return Object.hasOwn(packument.versions, version)
 }
 
 /**
@@ -285,28 +297,21 @@ export function formatReport(target, problems) {
 /**
  * Collect every checked spec that is not literally the target version.
  * @param target - the adopted target.
+ * @param root - repository root whose manifests should be checked.
  * @returns one entry per disagreeing spec, with the manifest and field it came from.
  */
-async function collectProblems(target) {
+async function collectProblems(target, root = repoRoot) {
   const problems = []
-  for (const manifestPath of MANIFESTS) {
+  for (const relative of MANIFEST_PATHS) {
+    const manifestPath = join(root, ...relative)
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
     for (const field of CHECKED_FIELDS) {
       for (const update of targetUpdates(manifest[field] ?? {}, target.version)) {
-        problems.push({ manifest: relativeManifest(manifestPath), field, name: update.name, from: update.from })
+        problems.push({ manifest: relative.join('/'), field, name: update.name, from: update.from })
       }
     }
   }
   return problems
-}
-
-/**
- * A manifest path as it reads in a report, relative to the repository root.
- * @param manifestPath - the absolute path.
- * @returns the repository-relative path.
- */
-function relativeManifest(manifestPath) {
-  return manifestPath.slice(repoRoot.length + 1)
 }
 
 // Entry point: vitest imports the pure functions above, so the side-effecting
@@ -318,7 +323,8 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
     process.stderr.write(usage)
     process.exit(2)
   }
-  const target = await readTarget()
+  const targetRoot = process.env.RELEASE_ROOT ?? repoRoot
+  const target = await readTarget(targetRoot)
 
   if (flag === '--revision') {
     process.stdout.write(`${target.revision}\n`)
@@ -353,7 +359,7 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
       ? `dependencies already pinned to ${target.version}\n`
       : `pinned ${String(applied.length)} package(s) to ${target.version}; run \`pnpm install\` to refresh the lockfile\n`)
   } else if (flag === undefined) {
-    const problems = await collectProblems(target)
+    const problems = await collectProblems(target, targetRoot)
     process.stdout.write(formatReport(target, problems))
     process.exit(problems.length > 0 ? 1 : 0)
   } else {

@@ -333,10 +333,19 @@ GitHub Release. Configure both tokens before the first version run.
 The tag handoff refuses to create a second tag while a publish run is queued or
 running. Finish that release first; GitHub keeps only one pending run in a
 concurrency group and would otherwise silently discard an intermediate version.
-If a publish fails after only one package lands, correct the missing package's
-trusted-publisher mapping and rerun that same tagged workflow. Its publish-only
-release-age override lets pnpm see and skip the package already on npm; never create
-a replacement tag for a half-release.
+The publish job only crosses npm's irreversible boundary; a separate registry job
+waits for npm to serve the accepted versions, so rerunning failed verification never
+runs `npm publish` again. If publication fails after only one package lands, correct
+the missing package's trusted-publisher mapping and rerun that same tagged workflow:
+its per-package preflight skips a visible exact version and treats only npm's exact
+accepted/staged conflict as already accepted. Never create a replacement tag for a
+half-release.
+
+To recover a missing GitHub Release after both exact npm versions are visible, open
+**Actions → publish → Run workflow** from `main`, leave trusted-publisher mode
+empty, and enter the existing tag in **recovery-tag**. Recovery checks out that tag
+and performs read-only release checks before the contents-scoped job creates or
+reuses its generated-notes Release; it never publishes npm packages or moves a tag.
 
 If the Version Packages PR was merged but its tag job was skipped or failed before
 creating a tag, open **Actions → version → Run workflow**, select `main`, and enter

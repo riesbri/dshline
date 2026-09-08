@@ -48,6 +48,10 @@ describe('parseTarget()', () => {
     expect(() => parseTarget(`version ${TARGET.version}\nversion 0.1.2\n`)).toThrow(/declared twice/)
     expect(() => parseTarget('channel alpha\n')).toThrow(/unknown field: channel/)
     expect(() => parseTarget(`revision ${TARGET.revision}\nversion not-a-version\n`)).toThrow(/must look like/)
+    for (const version of ['01.1.1', '0.01.1', '0.1.01', '0.1.1-', '0.1.1..rc']) {
+      expect(() => parseTarget(`revision ${TARGET.revision}\nversion ${version}\n`), version).toThrow(/must look like/)
+    }
+    expect(() => parseTarget(`revision ${TARGET.revision}\nversion 0.1.1-rc.2\n\n`)).not.toThrow()
   })
 })
 
@@ -128,11 +132,12 @@ describe('sourceVersion()', () => {
     expect(sourceVersion({ name: '@deepseek-ai/dsh-root', version: '0.1.1-rc.2' })).toBe('0.1.1-rc.2')
   })
 
-  it('refuses a manifest with no version rather than comparing against undefined', () => {
+  it('refuses a non-Harness root or a manifest with no version', () => {
     // Silently reading `undefined` here would make the coherence guard pass
     // for any checkout that is not a Harness workspace at all.
     expect(() => sourceVersion({ name: '@deepseek-ai/dsh-root' })).toThrow(/declares no version/)
-    expect(() => sourceVersion({})).toThrow(/declares no version/)
+    expect(() => sourceVersion({})).toThrow(/must be @deepseek-ai\/dsh-root/)
+    expect(() => sourceVersion({ name: 'other', version: '0.1.1-rc.2' })).toThrow(/must be @deepseek-ai\/dsh-root/)
   })
 })
 
@@ -173,7 +178,10 @@ describe('isPublished()', () => {
     await expect(isPublished('@deepseek-ai/dsh', '0.1.3-alpha.1', fetchPackument)).resolves.toBe(false)
   })
 
-  it('reports a package with no versions at all as unpublished rather than throwing', async () => {
-    await expect(isPublished('@deepseek-ai/dsh', '0.1.1-rc.2', () => Promise.resolve({}))).resolves.toBe(false)
+  it('rejects a malformed packument rather than treating it as unpublished', async () => {
+    await expect(isPublished('@deepseek-ai/dsh', '0.1.1-rc.2', () => Promise.resolve({})))
+      .rejects.toThrow('invalid versions map')
+    await expect(isPublished('@deepseek-ai/dsh', '0.1.1-rc.2', () => Promise.resolve({ versions: [] })))
+      .rejects.toThrow('invalid versions map')
   })
 })

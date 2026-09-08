@@ -290,15 +290,19 @@ describe('boundary B: the gate precedes the immutable tag', () => {
 })
 
 describe('boundary C: the gate precedes the first irreversible npm write', () => {
-  it('runs before anything is published', async () => {
-    const job = extractJob(await readWorkflow('publish.yml'), 'publish')
-    const gate = stepIndex(job, GUARD)
-    const publishing = stepIndex(job, 'pnpm -r publish')
-    expect(gate, 'the publish job must run the release gate').toBeGreaterThanOrEqual(0)
-    expect(publishing, 'the publish job must still publish').toBeGreaterThanOrEqual(0)
-    // Defense in depth: `latest` can move between the green Version Packages
-    // PR, the tag, and this run.
-    expect(gate).toBeLessThan(publishing)
+  it('checks the release channel in both jobs and immediately before publishing', async () => {
+    const workflow = await readWorkflow('publish.yml')
+    const preflight = extractJob(workflow, 'release-preflight')
+    const publisher = extractJob(workflow, 'publish-to-npm')
+    const preflightGate = stepIndex(preflight, GUARD)
+    const publisherGate = stepIndex(publisher, GUARD)
+    const publishing = stepIndex(publisher, 'node tools/publish-packages.mjs')
+    expect(preflightGate, 'the preflight job must run the release gate').toBeGreaterThanOrEqual(0)
+    expect(publisherGate, 'the publish job must re-check the release channel').toBeGreaterThanOrEqual(0)
+    expect(publishing, 'the publish job must still publish').toBeGreaterThan(publisherGate)
+    expect(publisher).toContain('needs: release-preflight')
+    const beforePublisherGate = jobSteps(publisher).slice(0, publisherGate).join('\n')
+    expect(beforePublisherGate).not.toMatch(/publish-packages|pnpm publish|npm publish/u)
   })
 })
 
