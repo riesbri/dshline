@@ -16,7 +16,8 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
-import { describe, expect, it } from 'vitest'
+import { stripAnsi } from '@dshline/renderer'
+import { describe, expect, it, vi } from 'vitest'
 import { installQuestionProvider } from '../../src/questions.ts'
 import { TuiSlots } from '../../src/slots.ts'
 
@@ -37,6 +38,42 @@ describe('capability: userQuestions', () => {
       expect(bells).toBe(1)
       ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'enter' })
       await expect(answer).resolves.toEqual({ answers: [{ id: 'confirm', selected: ['yes'] }] })
+      expect(ctx.tuiSlots.activeOverlay).toBeUndefined()
+    } finally {
+      dispose()
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('carries a real multiSelect request and its custom supplement through the real service', async () => {
+    const ctx = new Context()
+    await ctx.plugin(TuiSlots)
+    await ctx.plugin(UserQuestionService)
+    const dispose = installQuestionProvider(ctx, () => {})
+    try {
+      const answer = ctx.userQuestions.ask({
+        questions: [{
+          id: 'stack',
+          question: 'Which layers?',
+          multiSelect: true,
+          options: [{ label: 'web' }, { label: 'api' }],
+        }],
+      })
+      const shown = (): string => stripAnsi(ctx.tuiSlots.activeOverlay?.render(80).join('\n') ?? '')
+      expect(shown()).toContain('[ ] web')
+      ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'text', text: ' ' })
+      ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'end' })
+      ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'enter' })
+      expect(shown()).toContain('kept alongside the selections')
+      ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'text', text: 'cli too' })
+      ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'enter' })
+      // The committed supplement lands on the waiting list one microtask later.
+      await vi.waitFor(() => { expect(shown()).toContain('Other…: cli too') })
+      // The receipt row is the finished answer; Enter confirms it in place.
+      ctx.tuiSlots.activeOverlay?.handleKey({ kind: 'key', name: 'enter' })
+      await expect(answer).resolves.toEqual({
+        answers: [{ id: 'stack', selected: ['web'], custom: 'cli too' }],
+      })
       expect(ctx.tuiSlots.activeOverlay).toBeUndefined()
     } finally {
       dispose()
