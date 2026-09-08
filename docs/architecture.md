@@ -60,6 +60,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | --- | --- | --- |
 | background work | `ctx.jobs` | Observe generic job snapshots and changes. |
 | delegated work | `ctx.subagents` | Observe provider-neutral lifecycle and discovery. |
+| live agent registry | `ctx.agents` | Resolve live local Agents and delegate fresh/resumed attachment through the published factory seam; do not own AgentLoop or persistence policy. |
 | orchestrated work | `ctx.workflowEngine` + durable `tool-workflow/*` records | Observe run identity, phases, and members; own no run handle. |
 | models | `ctx.llm` | Read registered provider/model metadata, and the configurable-provider directory of routes configuration can activate. |
 | default model | `ctx.agentDefaultModel` | Read or save the composition's default selection when the optional service is mounted; do not persist a second copy in dshline. |
@@ -77,7 +78,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | session statistics | `ctx.sessionProjections` (`sessionStats`) | Read the whole-log counts and wall times; derive nothing beyond one division over two published totals. Treat the unit as optional. |
 | request metadata | `Session.requestHeader()` | Read the logged route, system prompt, and tool counts for cache/usage views; do not maintain a parallel header. |
 | context composition per entry | `ctx.tokenMeter` | Ask for the per-node measurement only when an inspector needs it; its own contract calls it O(surface). |
-| plan mode | `plan/mode` events + `ctx.sessionProjections` (`plan`) | Read the logged mode through the projection; do not maintain a live mirror or call `ctx.planMode` from the presentation layer. |
+| plan mode | committed `plan/mode` events; Harness's `plan` projection as contract evidence | Fold committed mode events with `planModeAfter()`; do not maintain a mutable second state or read `ctx.planMode` as a presentation mirror. |
 | reducing context | `ctx.commands` (`/compact`) | Dispatch the registered command; observe `compaction/*` events. Never call `ctx.compaction`. |
 | agent composition | `ctx.agentPresets` | Read the roster, one preset's composition, and which preset a session actually runs; join or switch an agent through the seam, never a private registry. |
 | host composition | `ctx.dshHomePath`, `ctx.baseUrl`, `dsh plugin` | Read the profile roster from Harness's own home-path service and the booted profile from the Loader's base URL; mutate only by forwarding to `dsh plugin`, never by writing a profile manifest. |
@@ -1295,10 +1296,12 @@ verify the production dshline consumer over that seam where relevant. The
 table points to generic surfaces production dshline consumes that can
 reasonably be exercised deterministically in-process; it is not a copied
 contract or a completeness claim about host/bootstrap-only surfaces. The
-pointer deliberately excludes `agents`, `appExit`, `loader`, `cmdlineArgs`,
-`dshHomePath`, and `baseUrl`; TUI-owned surfaces are not capability rows. The
-agent factory and host-plane boot reads need a booting Host and remain the
-published consumer lane's responsibility. An upstream change to a named seam reads as
+pointer deliberately excludes `appExit`, `loader`, `cmdlineArgs`, `dshHomePath`,
+and `baseUrl`; these are launcher/Host-plane inputs outside the named in-process
+service inventory, and TUI-owned surfaces are not capability rows. The published
+consumer lane proves real install/boot integration at that Host boundary, while
+focused tests cover dshline's local forwarding and policy; this does not claim to
+exercise every `/profiles` or host-accessor behavior. An upstream change to a named seam reads as
 `sessionQuery contract changed` rather than only a generic `pnpm typecheck
 failed`; a seam not in this table still has `pnpm typecheck`/`pnpm test` as its
 backstop. `tools/capability-probes.mjs` remains a pointer table, not a second

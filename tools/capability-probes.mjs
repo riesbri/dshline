@@ -38,6 +38,11 @@ export const CAPABILITY_PROBES = [
     note: 'real query service/store list, filter, title, and trace paths; full-text search uses local abstract-contract fixtures rather than a production search backend',
   },
   {
+    name: 'agents',
+    files: ['packages/dshline/tests/capability/agents.probe.spec.ts'],
+    note: 'real AgentRegistry get/create/resume dispatch over entered agents and the published AgentFactory seam; local factory behavior does not prove AgentLoop creation, persistence, setup, or lifecycle policy',
+  },
+  {
     name: 'jobs',
     files: ['packages/dshline/tests/capability/jobs.probe.spec.ts'],
     note: 'real abstract JobRegistry contract plus HarnessWork observation over a local registry; concrete provider/controller policy is host-owned',
