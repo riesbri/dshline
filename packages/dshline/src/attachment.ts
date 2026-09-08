@@ -23,6 +23,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // frontend decides what a command LINE is by the same rule the registry resolves
 // one with.
 import { parseCommand } from '@deepseek-ai/dsh-commands'
+import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-cmdline'
 // `plan/mode` is folded below from the `SessionEventMap` merge this carries. Not
@@ -49,7 +50,7 @@ import { Composer, escapeControls, paint, SPINNER_INTERVAL_MS } from '@dshline/r
 import { CARD_DETAIL_CYCLE, ToolCards } from './cards.ts'
 import { chooseDelivery } from './delivery.ts'
 import { BUSY_ENTER_CHOICES, runEnterCommand } from './enter.ts'
-import { modelPhaseAfter, primaryActivity } from './activity.ts'
+import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from './activity.ts'
 import type { ModelPhase } from './activity.ts'
 import { installApprovalAnswerer } from './approval.ts'
 import { createCompletion } from './completion.ts'
@@ -1224,20 +1225,21 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
    * replayed session has to read exactly like the one that was watched happen, and
    * two projections would drift the first time either changed. The live path
    * commits each return immediately; the replay concatenates them and commits once.
+   *
+   * Durable only. Streamed assistant output does not arrive here at all — it is
+   * process-local presentation carried by `agent/assistant-stream`, whose
+   * listener is below — so this projection is exactly the committed transcript
+   * and reads identically live and replayed.
    * @param event - the committed event.
    * @param columns - the terminal's current width.
    * @returns lines to write into scrollback.
    */
   const project = (event: SessionEvent, columns: number): string[] => {
-    if (event.type === 'assistant/chunk') {
-      const { chunk } = event.data
-      // Reasoning is streamed as well as answered text. Dropping it left the
-      // screen showing nothing but a spinner for as long as a reasoning model
-      // thought, which reads as a hung process rather than a working one.
-      if (chunk.type === 'text-delta') return stream.push('text', chunk.text, columns)
-      if (chunk.type === 'reasoning-delta') return stream.push('reasoning', chunk.text, columns)
-      return []
-    }
+    // Log-only, and stated rather than left to the default: one model attempt
+    // that settled without committing a model-visible message. Whatever it
+    // streamed was transient, so it is not an Assistant reply and gets no
+    // transcript line — live or replayed.
+    if (event.type === 'assistant/attempt') return []
     // Logged only when the route or its capacity changes, and always before the
     // requests it applies to — so following it here attributes each message's
     // usage to the model that actually produced it, on the live path and on the
@@ -1272,18 +1274,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       lines.push(...stream.settle(event.data.message.content, columns))
       stream.reset()
     }
-    // An aborted turn can close without an `assistant/message`: the loop may
-    // throw on the abort before appending one. (A cancelled turn WITH visible
-    // content finalizes an `interrupted: true` message instead, which the
-    // branch above settles and resets.) Committing here is what keeps a reply
-    // interrupted with ctrl-c in the transcript when no assembled message
-    // followed, instead of vanishing from the live region at the moment it
-    // was cancelled.
-    if (event.type === 'turn/end') {
-      lines.push(...stream.finish(columns))
-      stream.reset()
-      cards.reset()
-    }
+    // The stream buffer is deliberately NOT touched here. A turn boundary used
+    // to be the last chance to salvage streamed text, because the old log could
+    // end a turn after streamed chunks with no assembled message at all. Every
+    // attempt now settles: a visible reply as `assistant/message`, a ctrl-c
+    // prefix as the same event with `interrupted: true`, and an attempt that
+    // produced no reply as the log-only `assistant/attempt`. Committing at the
+    // turn boundary would therefore write a failed attempt into scrollback as
+    // though the model had said it.
+    if (event.type === 'turn/end') cards.reset()
     // Projected here rather than written when the line is submitted, so a resumed
     // session shows its commands too: both lifecycle events are log-only, which
     // means they survive in the log and pass the replay filter, and this is the one
@@ -1356,10 +1355,45 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     if (event.type === 'tool/call' && cards.inFlight() === undefined) phase = 'waiting'
     phase = modelPhaseAfter(phase, event)
     commit(project(event, columns))
-    // Fed from the LIVE feed and not from `project`, which the replay also runs:
-    // the replay carries no `assistant/chunk` events — they are the streamed form
-    // of a message the log also stores assembled — so a timer behind it would
-    // measure every reopened turn as though the model had thought for no time.
+    draw()
+  }))
+
+  // Live assistant presentation, which is a different contract from the log
+  // above it: `agent/assistant-stream` frames are process-local and transient,
+  // and the loop appends the matching `assistant/message` or `assistant/attempt`
+  // BEFORE the terminal frame, so the durable settlement is always already
+  // projected by the time an attempt's `end` arrives here.
+  //
+  // Nothing in here is persisted and nothing here is a second transcript: the
+  // frames move the live region and the activity/timing readings, and the only
+  // rows they commit to scrollback are the completed lines of a reply the
+  // reader is watching arrive.
+  //
+  // Filtered by the exact attached Agent even though the scoped dispatch
+  // already narrows it: a subagent's frames reach this process too, and one
+  // window projects one Agent.
+  scope.own(ctx.on('agent/assistant-stream', ({ agent: source, frame }) => {
+    if (source !== agent) return
+    const columns = terminal.columns()
+    timer.observeFrame(frame)
+    phase = modelPhaseAfterFrame(phase, frame)
+    if (frame.type === 'chunk') {
+      const { chunk } = frame
+      // Reasoning is streamed as well as answered text. Dropping it left the
+      // screen showing nothing but a spinner for as long as a reasoning model
+      // thought, which reads as a hung process rather than a working one.
+      if (chunk.type === 'text-delta') commit(stream.push('text', chunk.text, columns))
+      else if (chunk.type === 'reasoning-delta') commit(stream.push('reasoning', chunk.text, columns))
+    } else if (frame.type === 'end') {
+      // The buffer belongs to exactly one attempt. A settled `assistant/message`
+      // has already emptied it through `project`; every other ending — a failed
+      // or retried attempt, a cancellation with nothing visible, an abandoned
+      // attempt with no durable record at all — leaves transient text that is
+      // not part of any reply, so it is dropped rather than committed. This is
+      // also what stops the next attempt from inheriting it and settling against
+      // a prefix the model never sent.
+      stream.reset()
+    }
     draw()
   }))
 
@@ -1459,7 +1493,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     const registeredCommand = parsed === undefined
       ? undefined
       : ctx.commands.list(agent).find(command => command.name === parsed.name)
-    if (imageDrafts.size > 0 && registeredCommand !== undefined && registeredCommand.input?.images !== true) {
+    // The generic admission flag, not an image-specific one: Harness decides
+    // whether a command may receive composer attachments at all. dshline still
+    // authors only the kind it owns — image drafts — and declines before
+    // dispatch rather than letting the registry reject the batch, so the drafts
+    // survive for a correction.
+    if (imageDrafts.size > 0 && registeredCommand !== undefined && registeredCommand.input?.attachments !== true) {
       commit([paint(`✗ /${parsed?.name ?? 'command'} does not accept image attachments; drafts were kept`, 'error')])
       draw()
       return
@@ -1473,8 +1512,8 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       draw()
     }
     try {
-      let commandImages: Parameters<typeof ctx.commands.execute>[2] = []
-      if (imageDrafts.size > 0 && registeredCommand?.input?.images === true) {
+      let commandAttachments: readonly CommandSubmitAttachment[] = []
+      if (imageDrafts.size > 0 && registeredCommand?.input?.attachments === true) {
         const attachments = ctx.get('attachments')
         const fs = ctx.get('fs')
         if (attachments === undefined || fs === undefined) {
@@ -1514,12 +1553,17 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           return
         }
         if (scope.closed) return
-        commandImages = encodeCommandImages(inputs)
+        // The submission envelope is discriminated, and dshline produces the
+        // one member it can author. A file receipt is the other variant of
+        // `CommandSubmitAttachment`, and staging files is a UI this frontend
+        // does not have — so the discriminator is added here rather than making
+        // the image helper aware of the commands package.
+        commandAttachments = encodeCommandImages(inputs).map(image => ({ type: 'image', ...image }))
       }
       execution = await ctx.commands.execute(
         agent,
         commandLine,
-        commandImages,
+        commandAttachments,
         admission === undefined
           ? AbortSignal.any([
             attachmentAbort.signal,
@@ -1981,11 +2025,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     for (const line of historyLines(replayed)) history.record(line)
     const columns = terminal.columns()
     const lines = replayed.flatMap(event => project(event, columns))
-    // The buffer is left holding nothing: a log can end mid-reply, and a partial
-    // line still owed from history would otherwise be committed on top of the
-    // FIRST line of the next turn.
-    lines.push(...stream.finish(columns))
-    stream.reset()
+    // Only the cards need clearing. A log can end mid-turn with a call whose
+    // result never landed, but it cannot end mid-reply as far as this buffer is
+    // concerned: the replay feeds it nothing but settled `assistant/message`
+    // events, each of which commits its own remainder and leaves it empty.
     cards.reset()
     commit([...lines, ...resumeBanner(replayed.length)])
     // The replay window is over. Anything an enter during it parked in

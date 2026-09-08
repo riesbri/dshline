@@ -2,10 +2,12 @@
  * Per-child semantic activity for Work rows.
  *
  * A live in-process subagent exposes a real child Agent, so its activity can be
- * folded with the exact vocabulary the main status line uses: the model phase
- * from its session events and the tool activity from its pending calls'
- * presentations. A remote run without a local Agent exposes neither, and the
- * observer simply never attaches — the row then shows no invented activity.
+ * folded with the exact vocabulary the main status line uses: the lifecycle
+ * phase from its session events, live model output from its own
+ * `agent/assistant-stream` frames, and the tool activity from its pending
+ * calls' presentations. A remote run without a local Agent exposes none of
+ * those, and the observer simply never attaches — the row then shows no
+ * invented activity.
  * @module dshline/work/activity
  */
 
@@ -14,7 +16,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { modelPhaseAfter, primaryActivity } from '../activity.ts'
+import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from '../activity.ts'
 import type { ActivityWord, ModelPhase } from '../activity.ts'
 import { PendingToolCalls } from '../tool-pending.ts'
 
@@ -113,15 +115,29 @@ export class ChildActivityObserver {
     this.status = child.status
     // Establish one correct starting snapshot from the CURRENT turn only, then
     // switch to live folding. One redraw covers the whole reconstruction; no
-    // historical event gets its own callback. `assistant/chunk` streaming and
-    // tool calls already in the session therefore appear immediately instead of
-    // being replayed event by event.
+    // historical event gets its own callback, so tool calls already in the
+    // session appear immediately instead of being replayed one at a time.
+    //
+    // The seed reconstructs lifecycle and pending calls, never `thinking` or
+    // `responding`: those come from live frames a stored log does not carry, so
+    // a child attached mid-reply reads `waiting` until its next frame arrives.
+    // Claiming otherwise would need the child's compacted streams expanded, and
+    // a row's activity word is not worth a walk over its history.
     const currentTurn = openTurnSuffix(child.session)
     for (const event of currentTurn) this.foldEvent(event)
     this.disposers.push(ctx.on('session/event', (session, event: SessionEvent) => {
       if (session !== child.session) return
       if (this.disposed) return
       this.foldEvent(event)
+      onChange()
+    }))
+    // The child's own live model activity, from the same agent-scoped frames the
+    // main status line reads for the attached Agent. A remote run publishes
+    // none, and a row then shows lifecycle and tool activity alone.
+    this.disposers.push(ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+      if (agent !== child) return
+      if (this.disposed) return
+      this.phase = modelPhaseAfterFrame(this.phase, frame)
       onChange()
     }))
     this.disposers.push(ctx.on('agent/status', (payload: { agent: Agent; status: AgentStatus }) => {

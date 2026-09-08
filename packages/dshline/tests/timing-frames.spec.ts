@@ -1,6 +1,7 @@
 /** Real-terminal frames for the persistent timing panel. */
 
 import { Context } from '@deepseek-ai/cordis'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { Composer, displayWidth, Screen } from '@dshline/renderer'
 import { describe, expect, it, vi } from 'vitest'
@@ -21,9 +22,9 @@ function event(time: number, type: string, data: unknown): SessionEvent {
   return { time, type, data } as unknown as SessionEvent
 }
 
-/** A streamed delta of one kind, at one moment. */
-function delta(time: number, type: 'reasoning-delta' | 'text-delta'): SessionEvent {
-  return event(time, 'assistant/chunk', { turn: 1, step: 0, chunk: { type, text: 'x' } })
+/** One live stream chunk of one kind, at one moment, within one attempt. */
+function delta(time: number, type: 'reasoning-delta' | 'text-delta'): AssistantStreamFrame {
+  return { type: 'chunk', attemptId: 's:1', revision: 1, index: 0, time, chunk: { type, text: 'x' } } as AssistantStreamFrame
 }
 
 /** Start one tool call. */
@@ -143,8 +144,8 @@ describe('the timing live panel on a real terminal', () => {
     const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
     const frame = terminal()
     frame.timer.observe(event(1_000, 'turn/start', { turn: 1 }))
-    frame.timer.observe(delta(2_000, 'reasoning-delta'))
-    frame.timer.observe(delta(4_000, 'reasoning-delta'))
+    frame.timer.observeFrame(delta(2_000, 'reasoning-delta'))
+    frame.timer.observeFrame(delta(4_000, 'reasoning-delta'))
     frame.timer.observe(call(4_500, 'a', 'bash'))
     frame.draw()
     const first = (await visible(frame.emulator)).join('\n')
@@ -211,8 +212,9 @@ describe('the timing live panel on a real terminal', () => {
   })
 
   it('shows a placeholder after resume instead of fabricating timing history', async () => {
-    // A resumed attachment deliberately has a fresh live-only fold. Its replay
-    // omits streamed chunks, so reconstructing a historical chart would be false.
+    // A resumed attachment deliberately has a fresh live-only fold. Model stream
+    // time exists only in the live frames the harness publishes for this
+    // process, so a replayed log has no honest breakdown to chart.
     const resumed = terminal()
     resumed.screen.commit(['● reply restored from the session log'])
     resumed.draw()
@@ -225,8 +227,8 @@ describe('the timing live panel on a real terminal', () => {
   it('does not commit a finished timing panel beneath the reply', async () => {
     const frame = terminal()
     frame.timer.observe(event(0, 'turn/start', { turn: 1 }))
-    frame.timer.observe(delta(1_000, 'text-delta'))
-    frame.timer.observe(delta(2_000, 'text-delta'))
+    frame.timer.observeFrame(delta(1_000, 'text-delta'))
+    frame.timer.observeFrame(delta(2_000, 'text-delta'))
     frame.timer.observe(event(3_000, 'turn/end', { turn: 1, reason: 'complete' }))
     frame.screen.commit(['● finished reply'])
     frame.draw()
@@ -349,8 +351,8 @@ describe('the timing live panel on a real terminal', () => {
       // arrives into something already on screen.
       frame.timer.observe(event(1_000, 'turn/start', { turn: 1 }))
       frame.draw()
-      frame.timer.observe(delta(2_000, 'reasoning-delta'))
-      frame.timer.observe(delta(4_000, 'reasoning-delta'))
+      frame.timer.observeFrame(delta(2_000, 'reasoning-delta'))
+      frame.timer.observeFrame(delta(4_000, 'reasoning-delta'))
       frame.draw()
       const rows = await visible(frame.emulator)
       // The measured duration is real from the very first frame: only the
@@ -359,7 +361,7 @@ describe('the timing live panel on a real terminal', () => {
       const partial = countGlyph(rows, '━')
       expect(partial).toBeGreaterThan(0)
       expect(partial).toBeLessThan(20)
-      // Streamed chunks redraw the panel many times inside one heartbeat; not
+      // Streamed frames redraw the panel many times inside one heartbeat; not
       // one of those renders may spend reveal progress.
       frame.draw()
       frame.draw()
@@ -385,8 +387,8 @@ describe('the timing live panel on a real terminal', () => {
       const frame = terminal()
       frame.timer.observe(event(1_000, 'turn/start', { turn: 1 }))
       frame.draw()
-      frame.timer.observe(delta(2_000, 'reasoning-delta'))
-      frame.timer.observe(delta(4_000, 'reasoning-delta'))
+      frame.timer.observeFrame(delta(2_000, 'reasoning-delta'))
+      frame.timer.observeFrame(delta(4_000, 'reasoning-delta'))
       frame.draw()
       const partial = countGlyph(await visible(frame.emulator), '━')
       expect(partial).toBeGreaterThan(0)
@@ -415,8 +417,8 @@ describe('the timing live panel on a real terminal', () => {
       const frame = terminal()
       frame.enabled.value = false
       frame.timer.observe(event(1_000, 'turn/start', { turn: 1 }))
-      frame.timer.observe(delta(2_000, 'reasoning-delta'))
-      frame.timer.observe(delta(4_000, 'reasoning-delta'))
+      frame.timer.observeFrame(delta(2_000, 'reasoning-delta'))
+      frame.timer.observeFrame(delta(4_000, 'reasoning-delta'))
       frame.enabled.value = true
       frame.draw()
       const row = (await visible(frame.emulator)).find(candidate => candidate.includes('reasoning')) ?? ''

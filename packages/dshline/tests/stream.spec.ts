@@ -145,12 +145,14 @@ describe('incremental commit', () => {
     expect(stream(['answer\n'])).toEqual(['', '● answer'])
   })
 
-  it('commits an interrupted reply instead of losing it with the live region', () => {
-    // ctrl-c during a turn: the loop throws before appending a message, so this
-    // is the only chance to keep what the user watched arrive.
+  it('commits an interrupted reply from the interrupted message that settles it', () => {
+    // ctrl-c mid-reply: Harness finalizes the delivered prefix as an ordinary
+    // `assistant/message` carrying `interrupted: true`, so the interrupted case
+    // needs no separate salvage — it settles through the same path a completed
+    // reply does, and the unfinished last line lands in scrollback.
     const buffer = new StreamBuffer()
     buffer.push('text', 'half a th', COLUMNS)
-    expect(plain(buffer.finish(COLUMNS))).toEqual(['', '● half a th'])
+    expect(plain(buffer.settle(text('half a th'), COLUMNS))).toEqual(['', '● half a th'])
     expect(plain(buffer.live(80))).toEqual([])
   })
 })
@@ -185,7 +187,9 @@ describe('reasoning', () => {
     buffer.setReasoningVisible(false)
     expect(buffer.live(COLUMNS)).toEqual([])
     expect(plain(buffer.push('reasoning', ' future\n', COLUMNS))).toEqual([])
-    expect(plain(buffer.finish(COLUMNS))).toEqual([])
+    // And the assembled message that settles the attempt adds no hidden rows
+    // either: the committed prefix stays, the hidden remainder never appears.
+    expect(plain(buffer.settle([{ type: 'reasoning', text: 'committed\npartial future\n' }], COLUMNS))).toEqual([])
   })
 
   it('hides assembled-only reasoning and leaves assistant text untouched', () => {

@@ -615,11 +615,13 @@ export class SessionUsage {
  * publishes.
  *
  * These come from the `tokenUsage` session projection, whose scope is the
- * agent's own model requests: it folds `assistant/chunk` usage samples and
- * `assistant/message` usage across the complete durable log, replacing a
- * repeated sample for one attempt and re-counting after `llm/retry-started`.
- * Compaction and surface replacement do not erase earlier billing, so a request
- * whose messages were later summarized away is still counted.
+ * agent's own model requests: it folds the usage every durable Assistant
+ * settlement reports — an `assistant/message`'s own record, or the last usage
+ * sample embedded in an `assistant/message` or `assistant/attempt` stream —
+ * across the complete durable log, replacing a repeated sample for one attempt
+ * and re-counting after `llm/retry-started`. Compaction and surface replacement
+ * do not erase earlier billing, so a request whose messages were later
+ * summarized away is still counted.
  *
  * An AUXILIARY provider call is not. A compaction's summarizer reports its own
  * usage on the `compaction/summary` event, which this projection does not fold —
@@ -629,8 +631,9 @@ export class SessionUsage {
  * This scope is Harness's, and dshline does not restate it as its own: the
  * pricing fold in {@link SessionUsage} observes finalized `assistant/message`
  * usage only, because it also needs the route and the moment to price by. The
- * two folds can therefore differ — an attempt that reported usage in a chunk and
- * then failed is counted here and nowhere else. See {@link usageInspection}.
+ * two folds can therefore differ — a failed attempt whose stream reported usage
+ * settles as `assistant/attempt` and is counted here and nowhere else. See
+ * {@link usageInspection}.
  */
 export interface UsageBuckets {
   /** Prompt tokens the provider billed as a cache miss. */
@@ -678,13 +681,13 @@ export interface UsageInspection {
  * buckets are therefore reported from Harness and the money from dshline.
  *
  * The two are NOT claimed to share one scope, and on an ordinary session they
- * need not. Harness folds `assistant/chunk` usage samples as well as finalized
- * messages, replacing a repeated sample for one attempt and re-counting after
- * `llm/retry-started`; dshline's pricing fold sees finalized `assistant/message`
- * usage only, because pricing needs the route and the moment beside the tokens.
- * A retried request therefore counts an attempt in the buckets that the money
- * never priced. Each figure is reported as what its own authority says, and
- * neither is divided into the other.
+ * need not. Harness folds every durable Assistant settlement's usage — a failed
+ * attempt's `assistant/attempt` included — replacing a repeated sample for one
+ * attempt and re-counting after `llm/retry-started`; dshline's pricing fold sees
+ * finalized `assistant/message` usage only, because pricing needs the route and
+ * the moment beside the tokens. A retried request therefore counts an attempt in
+ * the buckets that the money never priced. Each figure is reported as what its
+ * own authority says, and neither is divided into the other.
  *
  * When the projection is absent, the inspector falls back to dshline's own
  * totals rather than leaving a hole — without the cache split, and without

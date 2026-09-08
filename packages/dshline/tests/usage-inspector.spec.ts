@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -246,7 +247,7 @@ describe('the usage inspection', () => {
     expect(inspection.reading.costUsd).toBeGreaterThan(0)
   })
 
-  it('counts a retried attempt’s chunk sample that the pricing fold never sees', async () => {
+  it('counts a retried attempt’s embedded sample that the pricing fold never sees', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
@@ -254,19 +255,24 @@ describe('the usage inspection', () => {
     const session: Session = ctx.sessions.create()
     const usage = new SessionUsage(pricingFrom(undefined), [])
 
-    // The adopted generation's `tokenUsage` fold: a usage CHUNK is a sample for
-    // the attempt, `llm/retry-started` closes the replacement slot, and the
-    // retried attempt's finalized message then ADDS rather than replaces. The
+    // The adopted generation's `tokenUsage` fold: a failed attempt settles as
+    // the log-only `assistant/attempt`, whose embedded stream carries its usage
+    // sample; `llm/retry-started` closes the replacement slot, and the retried
+    // attempt's finalized message then ADDS rather than replaces. The
     // attachment's pricing fold observes `assistant/message` only, because it
     // needs the route and the moment beside the tokens — so the failed attempt's
     // 100 prompt tokens are Harness's alone.
     session.append('step/start', { turn: 1, step: 1 })
-    session.append('assistant/chunk', {
-      turn: 1, step: 1,
+    const failed = new AssistantStreamAccumulator()
+    failed.push({
+      time: Date.now(),
       chunk: {
         type: 'usage',
         usage: { inputTokens: 10, outputTokens: 1, cacheReadTokens: 90, cacheWriteTokens: 0 },
       },
+    })
+    session.append('assistant/attempt', {
+      turn: 1, step: 1, stream: [...failed.snapshot()],
     } as never)
     session.append('llm/retry-started', { turn: 1, step: 1 } as never)
     const reported = { inputTokens: 100, outputTokens: 5, cacheReadTokens: 900, cacheWriteTokens: 0 }

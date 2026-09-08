@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentOptions, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader, Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
@@ -43,14 +43,19 @@ function result(id: string): SessionEvent {
   })
 }
 
-/** A reasoning delta chunk. */
-function reasoning(text = 'thinking…'): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text } })
+/** One live chunk frame for the child's current attempt. */
+function frame(chunk: unknown): AssistantStreamFrame {
+  return { type: 'chunk', attemptId: 's:1', revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
 }
 
-/** A text delta chunk. */
-function text(): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'answer' } })
+/** A reasoning delta frame. */
+function reasoning(text = 'thinking…'): AssistantStreamFrame {
+  return frame({ type: 'reasoning-delta', index: 0, text })
+}
+
+/** A text delta frame. */
+function text(): AssistantStreamFrame {
+  return frame({ type: 'text-delta', index: 0, text: 'answer' })
 }
 
 /** A per-name resolved call presentation, proving classification rides the definition. */
@@ -188,9 +193,9 @@ describe('per-child semantic activity for Work', () => {
 
     rootCtx.emit('session/event', child.session, ev('turn/start', { turn: 1 }))
     expect(work.snapshot().subagents[0]?.activityWord).toBe('waiting')
-    rootCtx.emit('session/event', child.session, reasoning())
+    rootCtx.emit('agent/assistant-stream', { agent: child, frame: reasoning() })
     expect(work.snapshot().subagents[0]?.activityWord).toBe('thinking')
-    rootCtx.emit('session/event', child.session, text())
+    rootCtx.emit('agent/assistant-stream', { agent: child, frame: text() })
     expect(work.snapshot().subagents[0]?.activityWord).toBe('responding')
     rootCtx.emit('session/event', child.session, call('c1', 'read'))
     expect(work.snapshot().subagents[0]).toMatchObject({
@@ -804,7 +809,7 @@ describe('per-child semantic activity for Work', () => {
     // same figure would include the parent's spend.
     const seeded = makeChild('seeded', 'running', [
       ev('turn/start', { turn: 1 }),
-      ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'usage', usage: {} } }),
+      ev('assistant/attempt', { turn: 1, step: 1, stream: [{ type: 'chunk', time: 0, chunk: { type: 'usage', usage: {} } }] }),
       ev('turn/end', { turn: 1, reason: { kind: 'completed' } }),
     ], 3)
     const own = makeChild('own')

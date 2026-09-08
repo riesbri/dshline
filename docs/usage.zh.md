@@ -75,7 +75,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 空输入框会报告已暂存数量。发送后，transcript（文本记录）显示每张持久图片的显示名、尺寸与大小；不透明附件 id、图片字节和存储路径绝不会打印。重新打开会话时，这些行从日志中的持久 `ImageBlock` 引用重建。未发送的草稿是当前所附会话的进程内状态，开始或重新打开另一个会话时会被丢弃。
 
-明确声明为纯文本的已选模型会在读取任何图片前被拒绝。提供方未声明输入模态时，dshline 不根据名称猜测：图片交给 Harness，仍由 Harness 掌握权威。只有命令描述符声明 `input.images` 的已注册斜杠命令才接受暂存图片；命令报错会保留命令文本和图片，以便修正或重试。
+明确声明为纯文本的已选模型会在读取任何图片前被拒绝。提供方未声明输入模态时，dshline 不根据名称猜测：图片交给 Harness，仍由 Harness 掌握权威。只有命令描述符声明 `input.attachments` 的已注册斜杠命令才接受暂存图片；命令报错会保留命令文本和图片，以便修正或重试。
 
 `@path` 本身仍是文本文件引用。它告诉模型要通过文件系统工具检查哪个工作区路径；它绝不读取或附加文件。源码文件与目录并不是 Harness 图片附件，因此这一区分很重要。
 
@@ -252,7 +252,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.2-rc.1
+✓ Harness    0.1.3-alpha.2
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -278,9 +278,9 @@ Setup
 **Harness 比较两个精确版本。**dshline 一次只支持一个 Harness 世代：它面向的版本是每个 `dsh-*` 依赖被钉住的那个版本，你拥有的版本则从你的 profile 所组合的 `@deepseek-ai/dsh-base` 读出。不一致是一个 `⚠`，同时给出两者，以及会让它们重新一致的两条命令：
 
 ```
-⚠ Harness    0.1.3-alpha.1 installed · dshline targets 0.1.2-rc.1
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.3-alpha.2
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.2-rc.1
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.3-alpha.2
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
@@ -1301,7 +1301,7 @@ agent 工作时它留在那里，空闲时也留在那里。轮次时钟与进�
 
 条形按**最长**行缩放，而不是按这一轮。它们是跨度，不是份额：一个步骤内的工具调用彼此同时运行，因此它们的长度加起来可以超过这一轮，而差异不是空闲时间。标题里的挂钟时间是这一轮；条形只把行与行互相比较。
 
-它默认关闭，关闭期间它完全不贡献任何活动行。裸 `/timing` 翻转它——只有两个状态，列一份两项的清单反而是多余的一步——而 `/timing on` 或 `/timing off` 直接设置。在一轮进行中启用它，会显示已经在进行的测量。重新打开一个已保存的会话时以 `no turn measured yet` 开始：历史重放刻意省略了做出诚实分解所需的流式分块，因此面板不会用不完整的数据编造一个。
+它默认关闭，关闭期间它完全不贡献任何活动行。裸 `/timing` 翻转它——只有两个状态，列一份两项的清单反而是多余的一步——而 `/timing on` 或 `/timing off` 直接设置。在一轮进行中启用它，会显示已经在进行的测量。重新打开一个已保存的会话时以 `no turn measured yet` 开始：模型流式时间只存在于 Harness 为本进程发布的实时帧中，因此被重放的日志没有可绘制的诚实分解，面板也不会用不完整的数据编造一个。
 
 它以前叫 `/profile`，那是一个迟早要发生的命名冲突：Harness 的 **profile（配置文件）**是启动器启动的那个组合，而 `/profiles` 浏览的正是它们。这条命令是一只秒表，现在它这么说了。
 

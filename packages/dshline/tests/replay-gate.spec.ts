@@ -56,6 +56,40 @@ const REPLAYED_EVENTS: SessionEvent[] = [{
   surfaceOp: 'append',
 } as unknown as SessionEvent]
 
+/**
+ * A persisted turn whose first model attempt failed before it said anything.
+ *
+ * The v2 log shape a retry leaves behind: one log-only `assistant/attempt`
+ * carrying the compacted stream of the attempt that produced no reply, then the
+ * `assistant/message` that did. Replaying it must show the reply once — the
+ * attempt is not a second copy of it, and no legacy exclusion rule is needed to
+ * keep it out.
+ */
+const REPLAYED_RETRY: SessionEvent[] = [
+  { type: 'turn/start', data: { turn: 1 }, time: 1 } as unknown as SessionEvent,
+  {
+    type: 'assistant/attempt',
+    data: {
+      turn: 1,
+      step: 1,
+      stream: [{ type: 'text-chunks', time0: 2, index: 0, dt: [], texts: ['a false start'] }],
+    },
+    time: 2,
+  } as unknown as SessionEvent,
+  {
+    type: 'assistant/message',
+    data: {
+      turn: 1,
+      step: 1,
+      message: { content: [{ type: 'text', text: 'the settled answer' }] },
+      stream: [{ type: 'text-chunks', time0: 3, index: 0, dt: [], texts: ['the settled answer'] }],
+    },
+    time: 3,
+    surfaceOp: 'append',
+  } as unknown as SessionEvent,
+  { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } }, time: 4 } as unknown as SessionEvent,
+]
+
 /** A persisted assistant response with reasoning and visible answer text. */
 const REPLAYED_REASONING: SessionEvent[] = [{
   type: 'assistant/message',
@@ -267,6 +301,17 @@ describe('the replay input gate', () => {
       expect(agent.steer).not.toHaveBeenCalled()
       resolveRead()
     }
+  })
+
+  it('replays a retried turn as one reply, with the failed attempt drawn as nothing', async () => {
+    const { resolveRead, commits } = await fixture()
+    resolveRead(REPLAYED_RETRY)
+    await flush()
+    const rows = commits.flat().map(stripAnsi)
+    expect(rows.filter(row => row.includes('the settled answer'))).toHaveLength(1)
+    // The failed attempt's compacted stream is history, not a transcript line.
+    // Expanding it to draw one would recreate the event model v2 removed.
+    expect(rows.some(row => row.includes('a false start'))).toBe(false)
   })
 
   it('suppresses persisted reasoning while replaying but keeps the answer', async () => {

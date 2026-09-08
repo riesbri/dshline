@@ -235,9 +235,9 @@ export interface ContextSurveyorSpec {
  * The cache key is every input a node price depends on and nothing else — the
  * surface revision and the effective pricing route (see {@link
  * ContextSurveyor.revision}) — rather than the log length. So an inspector left
- * open through a streaming reply, a spinner, or a hundred chunk events measures
- * once, while a landed compaction or a route change is picked up on the next
- * paint. No timer and no polling: the overlay redraws on Harness's own change
+ * open through a streaming reply, a spinner, or a turn's worth of tool calls
+ * measures once, while a landed compaction or a route change is picked up on
+ * the next paint. No timer and no polling: the overlay redraws on Harness's own change
  * feed and this answers from the cache until a priced input moves.
  */
 export class ContextSurveyor {
@@ -284,8 +284,10 @@ export class ContextSurveyor {
    *   route METADATA and upstream documents it as taking no part in request
    *   reconstruction, while the header is the thing the meter actually reads.
    *
-   * Deliberately NOT the log length: that changes on every streamed chunk, which
-   * would remeasure the whole surface many times per second for no new fact.
+   * Deliberately NOT the log length: that moves on every committed event a turn
+   * logs — request headers, steps, tool calls and results, settled Assistant
+   * attempts — and remeasuring the whole surface for each would pay O(surface)
+   * repeatedly for no new priced fact.
    * @returns a string identity for the current priced inputs.
    */
   private revision(): string {

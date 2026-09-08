@@ -26,7 +26,8 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { createMessage } from '@deepseek-ai/dsh-llm'
+import { AssistantStreamAccumulator, createMessage } from '@deepseek-ai/dsh-llm'
+import type { AssistantStreamRecord, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -64,11 +65,27 @@ async function harness(withStats: boolean): Promise<{ ctx: Context; session: Ses
 }
 
 /**
+ * Compact one attempt's stream exactly the way the agent loop does.
+ *
+ * The projection reads its first-token time out of these records — there is no
+ * per-delta log event to read it from — so the accumulator is what makes this
+ * evidence about the real contract rather than about a hand-written shape.
+ * @param chunks - the model chunks and the moment each was delivered.
+ * @returns the compact records a durable Assistant settlement embeds.
+ */
+function compact(chunks: readonly { time: number; chunk: StreamChunk }[]): AssistantStreamRecord[] {
+  const accumulator = new AssistantStreamAccumulator()
+  for (const timed of chunks) accumulator.push(timed)
+  return [...accumulator.snapshot()]
+}
+
+/**
  * Append one fully timed step at controlled wall-clock times.
  *
  * The times are the projection's only input for its wall-time fields, and
  * `Session` stamps every event with `Date.now()`, so a fake clock is what makes
- * a real-projection assertion exact instead of "some small number of ms".
+ * a real-projection assertion exact instead of "some small number of ms". The
+ * first-token time is the one the settlement's own embedded stream carries.
  * @param session - the session to append to.
  * @param turn - the turn number.
  * @param startedAt - the moment `step/start` is logged.
@@ -78,12 +95,6 @@ function timedStep(session: Session, turn: number, startedAt: number, ttftMs = F
   vi.setSystemTime(startedAt)
   session.append('turn/start', { turn })
   session.append('step/start', { turn, step: 1 })
-  vi.setSystemTime(startedAt + ttftMs)
-  session.append('assistant/chunk', {
-    turn,
-    step: 1,
-    chunk: { type: 'text-delta', index: 0, text: 'a' },
-  } as never)
   vi.setSystemTime(startedAt + ttftMs + DECODE_MS)
   session.append('assistant/message', {
     turn,
@@ -93,6 +104,7 @@ function timedStep(session: Session, turn: number, startedAt: number, ttftMs = F
       content: [{ type: 'text', text: 'answer' }],
       source: { kind: 'model', provider: 'mock', model: 'mock' },
     }),
+    stream: compact([{ time: startedAt + ttftMs, chunk: { type: 'text-delta', index: 0, text: 'a' } }]),
     usage: { inputTokens: 10, outputTokens: OUTPUT_TOKENS },
   } as never, { surfaceOp: 'append' })
   session.append('step/end', { turn, step: 1 })
@@ -201,11 +213,14 @@ describe('capability: sessionStats', () => {
     session.append('turn/start', { turn: 1 })
     session.append('step/start', { turn: 1, step: 1 })
     session.append('tool/call', { turn: 1, step: 1, callId: 'a', name: 'read', arguments: '{}' } as never)
-    vi.setSystemTime(CLOCK_ORIGIN + 4_000)
-    session.append('assistant/chunk', {
+    vi.setSystemTime(CLOCK_ORIGIN + 6_000)
+    // The v2 shape of "streamed, then cancelled": one settled attempt that
+    // committed no model-visible message, carrying the partial stream it did
+    // deliver. It seeds a first-token time and still contributes no `llmMs`.
+    session.append('assistant/attempt', {
       turn: 1,
       step: 1,
-      chunk: { type: 'text-delta', index: 0, text: 'partial' },
+      stream: compact([{ time: CLOCK_ORIGIN + 4_000, chunk: { type: 'text-delta', index: 0, text: 'partial' } }]),
     } as never)
     vi.setSystemTime(CLOCK_ORIGIN + 10_000)
     session.append('step/end', { turn: 1, step: 1 })

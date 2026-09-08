@@ -187,10 +187,11 @@ read from `session.requestHeader()` because the header's provider and model are
 what select the routed adapter's image pricing the meter prices with. So an
 inspector left open through a streaming reply measures once, while a landed
 compaction or a route change is picked up on the next paint, and the log length —
-which moves on every chunk — is deliberately not part of the key. Only a
-SUCCESSFUL measurement is cached: an absent or refusing meter is retried, because
-the meter can be mounted after an inspector first read and a throw over a
-malformed log can be repaired by a later append. No timer exists for any of it.
+which moves on every committed event a turn logs — is deliberately not part of
+the key. Only a SUCCESSFUL measurement is cached: an absent or refusing meter is
+retried, because the meter can be mounted after an inspector first read and a
+throw over a malformed log can be repaired by a later append. No timer exists
+for any of it.
 
 The two vocabularies are never mixed. Projected occupancy and heuristic
 composition are presented side by side and never divided into each other, and

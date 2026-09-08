@@ -4,17 +4,22 @@
  * `attachSession` itself needs a plugin context, an agent, and a terminal, so
  * the coordination it performs — the 0→1 pending check before the phase
  * reducer, then the card projection — is exercised here with the exact same
- * order and the real `ToolCards`, `modelPhaseAfter`, and `primaryActivity`.
- * The point is to catch bugs in how those parts agree, not to re-test any of
- * them alone.
+ * order and the real `ToolCards`, `modelPhaseAfter`, `modelPhaseAfterFrame`,
+ * and `primaryActivity`. The point is to catch bugs in how those parts agree,
+ * not to re-test any of them alone.
+ *
+ * Two feeds, exactly as the attachment has: committed events carry the
+ * lifecycle and the tool cards, and live `agent/assistant-stream` frames carry
+ * the model's own output. Tool precedence has to hold across both.
  * @module dshline/tests/activity-flow
  */
 
 import { describe, expect, it } from 'vitest'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { modelPhaseAfter, primaryActivity } from '../src/activity.ts'
+import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from '../src/activity.ts'
 import type { ActivityWord, ModelPhase } from '../src/activity.ts'
 import { ToolCards } from '../src/cards.ts'
 
@@ -44,9 +49,19 @@ function lookup(views: Record<string, ToolCallView>): (name: string) => ToolDefi
 }
 
 /**
- * Fold one live event the way attachment.ts's `session/event` listener does:
- * the 0→1 pending check runs BEFORE the call is projected, then the phase
- * reducer, then the card projection pairs the call and its result by id.
+ * Fold one live frame the way attachment.ts's `agent/assistant-stream`
+ * listener does: the model phase alone, with the cards untouched.
+ * @param flow - the live activity state.
+ * @param frame - one live assistant-stream frame.
+ */
+function foldFrame(flow: Flow, frame: AssistantStreamFrame): void {
+  flow.phase = modelPhaseAfterFrame(flow.phase, frame)
+}
+
+/**
+ * Fold one committed event the way attachment.ts's `session/event` listener
+ * does: the 0→1 pending check runs BEFORE the call is projected, then the
+ * phase reducer, then the card projection pairs the call and its result by id.
  * @param flow - the live activity state.
  * @param event - one live session event.
  */
@@ -97,19 +112,24 @@ function result(id: string): SessionEvent {
   })
 }
 
-/** A reasoning delta chunk. */
-function reasoning(text = 'thinking…'): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text } })
+/** One live chunk frame carrying the given stream chunk. */
+function frame(chunk: unknown): AssistantStreamFrame {
+  return { type: 'chunk', attemptId: 's:1', revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
 }
 
-/** A reasoning block-start chunk. */
-function reasoningBlockStart(): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } })
+/** A reasoning delta frame. */
+function reasoning(text = 'thinking…'): AssistantStreamFrame {
+  return frame({ type: 'reasoning-delta', index: 0, text })
 }
 
-/** A text delta chunk. */
-function text(): SessionEvent {
-  return ev('assistant/chunk', { turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'answer' } })
+/** A reasoning block-start frame. */
+function reasoningBlockStart(): AssistantStreamFrame {
+  return frame({ type: 'block-start', index: 0, blockType: 'reasoning' })
+}
+
+/** A text delta frame. */
+function text(): AssistantStreamFrame {
+  return frame({ type: 'text-delta', index: 0, text: 'answer' })
 }
 
 describe('the live activity fold, end to end', () => {
@@ -117,13 +137,13 @@ describe('the live activity fold, end to end', () => {
     const flow = fresh({ read: { card: 'generic', title: 'Read f', kind: 'read' } })
     fold(flow, ev('turn/start', { turn: 1 }))
     expect(word(flow)).toBe('waiting')
-    fold(flow, reasoning())
+    foldFrame(flow, reasoning())
     expect(word(flow)).toBe('thinking')
     fold(flow, call('c1', 'read'))
     expect(word(flow)).toBe('reading')
     // A reasoning block opens while the read is still outstanding: the primary
     // word stays on the tool; the latent phase moves to thinking underneath.
-    fold(flow, reasoningBlockStart())
+    foldFrame(flow, reasoningBlockStart())
     expect(word(flow)).toBe('reading')
     fold(flow, result('c1'))
     expect(word(flow)).toBe('thinking')
@@ -135,7 +155,7 @@ describe('the live activity fold, end to end', () => {
       search: { card: 'generic', title: 'Look up', kind: 'search' },
     })
     fold(flow, ev('turn/start', { turn: 1 }))
-    fold(flow, text())
+    foldFrame(flow, text())
     expect(word(flow)).toBe('responding')
     fold(flow, call('c1', 'read'))
     fold(flow, call('c2', 'search'))
@@ -152,7 +172,7 @@ describe('the live activity fold, end to end', () => {
 
   it('does not resurrect a stale pre-tool phase after the tool drains', () => {
     const flow = fresh({ read: { card: 'generic', title: 'Read f', kind: 'read' } })
-    fold(flow, reasoning())
+    foldFrame(flow, reasoning())
     expect(word(flow)).toBe('thinking')
     fold(flow, call('c1', 'read'))
     fold(flow, result('c1'))
@@ -160,12 +180,26 @@ describe('the live activity fold, end to end', () => {
     expect(word(flow)).toBe('waiting')
   })
 
+  it('drops a failed attempt\'s phase without disturbing a pending tool', () => {
+    const flow = fresh({ read: { card: 'generic', title: 'Read f', kind: 'read' } })
+    fold(flow, ev('turn/start', { turn: 1 }))
+    fold(flow, call('c1', 'read'))
+    foldFrame(flow, reasoning())
+    // The tool still outranks the model while it runs.
+    expect(word(flow)).toBe('reading')
+    // The attempt settles with no visible message: the model produced nothing,
+    // so once the read drains the honest word is `waiting`, not `thinking`.
+    fold(flow, ev('assistant/attempt', { turn: 1, step: 1, stream: [] }))
+    fold(flow, result('c1'))
+    expect(word(flow)).toBe('waiting')
+  })
+
   it('lets stream activity that arrived during the tool win over the reset', () => {
     const flow = fresh({ read: { card: 'generic', title: 'Read f', kind: 'read' } })
-    fold(flow, reasoning())
+    foldFrame(flow, reasoning())
     fold(flow, call('c1', 'read'))
     // A new reasoning block began while the read was outstanding.
-    fold(flow, reasoningBlockStart())
+    foldFrame(flow, reasoningBlockStart())
     fold(flow, result('c1'))
     expect(word(flow)).toBe('thinking')
   })

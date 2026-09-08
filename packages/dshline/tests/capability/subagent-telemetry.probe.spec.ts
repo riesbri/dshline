@@ -30,6 +30,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm'
+import type { AssistantStreamRecord, TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -82,6 +84,24 @@ function work(ctx: Context, child: Session, options: Agent['options'] = {}): {
   }
 }
 
+/**
+ * One settled model attempt reporting provider usage, the v2 way.
+ *
+ * Under session format v2 a usage sample reaches the projection inside a
+ * durable Assistant settlement's own compact stream — there is no per-chunk log
+ * event — so this builds that stream with the accumulator the agent loop uses
+ * and appends the log-only settlement that carries it.
+ * @param session - the session to append to.
+ * @param turn - the turn owning the attempt.
+ * @param usage - the provider-reported usage the attempt's stream ends with.
+ */
+function reportUsage(session: Session, turn: number, usage: TokenUsage): void {
+  const accumulator = new AssistantStreamAccumulator()
+  accumulator.push({ time: Date.now(), chunk: { type: 'usage', usage } })
+  const stream = [...accumulator.snapshot()] as AssistantStreamRecord[]
+  session.append('assistant/attempt', { turn, step: 1, stream })
+}
+
 /** The lifecycle edge for a local child of the exact session under test. */
 function edge(child: Session): SubagentRunInfo {
   return { runId: 'run-1' as SubagentRunInfo['runId'], provider: 'spawn', id: child.id, local: true }
@@ -131,9 +151,9 @@ describe('capability: subagent telemetry projections', () => {
       vi.setSystemTime(ORIGIN + 50_000)
       child.append('turn/start', { turn: 2 })
       vi.setSystemTime(ORIGIN + 54_000)
-      child.append('assistant/chunk', {
-        turn: 2, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'work' },
-      })
+      // Any event inside the open turn advances the projection's own bound;
+      // this one is the child entering its first model step.
+      child.append('step/start', { turn: 2, step: 1 })
       const timing = projection.snapshot().subagents[0]?.timing
       expect(timing).toEqual({ settledMs: 42_000, active: { since: ORIGIN + 50_000, through: ORIGIN + 54_000 } })
       // Running: the open turn advances with the frame clock.
@@ -187,17 +207,11 @@ describe('capability: subagent telemetry projections', () => {
         mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 1 })
-      child.append('assistant/chunk', {
-        turn: 1, step: 1,
-        chunk: {
-          type: 'usage',
-          // `reasoningTokens` is already inside `outputTokens` by upstream's
-          // contract, which is why the row may sum the buckets at all.
-          usage: {
-            inputTokens: 4_000, outputTokens: 800, cacheReadTokens: 200,
-            cacheWriteTokens: 100, reasoningTokens: 300,
-          },
-        },
+      // `reasoningTokens` is already inside `outputTokens` by upstream's
+      // contract, which is why the row may sum the buckets at all.
+      reportUsage(child, 1, {
+        inputTokens: 4_000, outputTokens: 800, cacheReadTokens: 200,
+        cacheWriteTokens: 100, reasoningTokens: 300,
       })
       expect(projection.snapshot().subagents[0]?.tokens).toBe(5_100)
       projection.dispose()
@@ -219,10 +233,7 @@ describe('capability: subagent telemetry projections', () => {
       // length (dsh-subagent's `inheritedEventCount = seed.length`).
       const parent = ctx.sessions.create()
       parent.append('turn/start', { turn: 1 })
-      parent.append('assistant/chunk', {
-        turn: 1, step: 1,
-        chunk: { type: 'usage', usage: { inputTokens: 44_000, outputTokens: 1_000 } },
-      })
+      reportUsage(parent, 1, { inputTokens: 44_000, outputTokens: 1_000 })
       parent.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       const seed = parent.snapshotEvents()
       expect(seed).toHaveLength(3)
@@ -241,10 +252,7 @@ describe('capability: subagent telemetry projections', () => {
         mode: 'one-shot', provider: 'fork', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 2 })
-      child.append('assistant/chunk', {
-        turn: 2, step: 1,
-        chunk: { type: 'usage', usage: { inputTokens: 14_000, outputTokens: 1_000 } },
-      })
+      reportUsage(child, 2, { inputTokens: 14_000, outputTokens: 1_000 })
       vi.setSystemTime(ORIGIN + 42_000)
       child.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
 
