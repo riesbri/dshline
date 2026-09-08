@@ -132,14 +132,34 @@ export class ChildActivityObserver {
       onChange()
     }))
     // The child's own live model activity, from the same agent-scoped frames the
-    // main status line reads for the attached Agent. A remote run publishes
-    // none, and a row then shows lifecycle and tool activity alone.
-    this.disposers.push(ctx.on('agent/assistant-stream', ({ agent, frame }) => {
-      if (agent !== child) return
-      if (this.disposed) return
-      this.phase = modelPhaseAfterFrame(this.phase, frame)
-      onChange()
-    }))
+    // main status line reads for the attached Agent — but subscribed on the
+    // CHILD's context, not the runner's.
+    //
+    // `dsh-scope` admits events UP the scope chain: a listener tagged with an
+    // ancestor receives what a descendant dispatched. That is why the
+    // `session/event` listener above sees a child session from the runner's own
+    // context. It does not hold for these frames, because a subagent's AGENT
+    // scope is not linked under the parent agent's — verified against a live
+    // background and foreground subagent, whose frames were published in-process
+    // and reached a root listener while the runner's context saw none. The row
+    // would then animate and tick its duration while its activity word stayed
+    // `waiting` for the whole reply.
+    //
+    // `child.ctx` is the scope those frames are actually dispatched to, so it
+    // needs no assumption about how the two scopes are related. Registration is
+    // rejected once that context has unwound, which is a child that disposed
+    // between this observer's construction and here: there is no live activity
+    // left to report, and the row falls back to lifecycle and tool facts.
+    try {
+      this.disposers.push(child.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+        if (agent !== child) return
+        if (this.disposed) return
+        this.phase = modelPhaseAfterFrame(this.phase, frame)
+        onChange()
+      }))
+    } catch {
+      this.phase = 'waiting'
+    }
     this.disposers.push(ctx.on('agent/status', (payload: { agent: Agent; status: AgentStatus }) => {
       if (payload.agent !== child) return
       this.status = payload.status
