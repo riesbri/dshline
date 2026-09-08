@@ -154,6 +154,9 @@ jobs:
           name: dshline-npm-packages
           path: ${{ runner.temp }}/dshline-npm-packages
 
+      - name: the default Harness install must still be the adopted generation
+        run: node tools/check-release-harness.mjs
+
       - name: npm must trust this workflow for both packages
         run: node tools/check-trusted-publishers.mjs
 

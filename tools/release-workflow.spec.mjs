@@ -71,6 +71,24 @@ describe('publish workflow state machine', () => {
     expect(release).toContain('node tools/ensure-github-release.mjs')
   })
 
+  it('keeps the validated artifact handoff outside the OIDC publisher', async () => {
+    const workflow = await readWorkflow()
+    const preflight = extractJob(workflow, 'release-preflight')
+    const publisher = extractJob(workflow, 'publish-to-npm')
+    expect(preflight).toContain('pnpm run build')
+    expect(preflight).toContain('pnpm run typecheck')
+    expect(preflight).toContain('pnpm run test')
+    expect(preflight).toContain('pack --config.ignore-scripts=true')
+    expect(preflight).toContain('actions/upload-artifact@')
+    expect(preflight).toContain('name: dshline-npm-packages')
+    expect(publisher).toContain('needs: release-preflight')
+    expect(publisher).toContain('actions/download-artifact@')
+    expect(publisher).toContain('name: dshline-npm-packages')
+    expect(publisher).toContain('node tools/publish-packages.mjs')
+    expect(publisher).not.toMatch(/pnpm install|pnpm run build|pnpm run typecheck|pnpm run test|pack --/u)
+    expect(publisher).not.toMatch(/prepublish|prepare|postinstall|npm publish/u)
+  })
+
   it('cannot publish on a verification rerun or through manual recovery', async () => {
     const workflow = await readWorkflow()
     const publish = extractJob(workflow, 'publish-to-npm')
