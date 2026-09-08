@@ -17,7 +17,7 @@
 import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-query'
+import type { SessionEventReadRequest } from '@deepseek-ai/dsh-session-query'
 import { escapeControls } from '@dshline/renderer'
 import { promptText } from '../prompt.ts'
 import { SessionCatalog } from './catalog.ts'
@@ -105,8 +105,9 @@ export interface BrowseSpec {
  */
 export async function browseSessions(spec: BrowseSpec): Promise<SessionId | undefined> {
   const { ctx } = spec
+  const query = ctx.get('sessionQuery')
   const catalog = new SessionCatalog({
-    query: ctx.get('sessionQuery'),
+    query,
     invalidate: () => { ctx.tuiSlots.invalidate() },
     workspace: workspaceScope(spec.workspace),
     ...(spec.now === undefined ? {} : { now: spec.now }),
@@ -163,6 +164,9 @@ export async function browseSessions(spec: BrowseSpec): Promise<SessionId | unde
         events: () => catalog.events(),
         searchEvents: (sessionId, text) => { catalog.searchEvents(sessionId, text) },
         loadMoreEvents: () => { catalog.loadMoreEvents() },
+        ...(query === undefined ? {} : {
+          readEvent: (request: SessionEventReadRequest, signal?: AbortSignal) => query.readEvent(request, signal),
+        }),
         detail: sessionId => catalog.detail(sessionId),
         requestDetail: sessionId => { catalog.requestDetail(sessionId) },
         search: text => { catalog.search(text) },

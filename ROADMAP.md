@@ -68,7 +68,10 @@ next acceptance target, not a manually validated integration. See [Provider
 acceptance](docs/provider-acceptance.md). Work also establishes the broader
 control rule: it does not expose `ctx.jobs.kill()` because that method has
 model-facing reported-delivery semantics; a continuable subagent can expose a
-user-authorized interrupt only where `ctx.subagents` explicitly models it.
+user-authorized interrupt only where `ctx.subagents` explicitly models it. For
+the same reason Work offers no way to start a continuable child or send it a
+message: `sendMessage` models the parent *agent's* authority, and a human
+prompt-to-child seam is upstream work that has not been published.
 
 ### 2. Session projections and agent state
 

@@ -1,12 +1,13 @@
 /** Behavior tests for the bounded Sessions filter and event child panels. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Key, KeyName } from '@dshline/renderer'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionFiltersValue } from '../src/sessions/filters.ts'
 import type { EventSearchState } from '../src/sessions/model.ts'
 import {
+  createEventContextOverlay,
   createEventsOverlay,
   createFilterOverlay,
   type EventsOverlaySpec,
@@ -139,10 +140,12 @@ function mountEvents(initial: EventSearchState = { kind: 'idle' }): {
   readonly state: { value: EventSearchState }
   readonly searches: Array<{ sessionId: SessionId; query: string }>
   readonly loads: () => number
+  readonly opens: () => number[]
   readonly closes: () => number
 } {
   const state = { value: initial }
   const searches: Array<{ sessionId: SessionId; query: string }> = []
+  const opened: number[] = []
   let loads = 0
   let closes = 0
   const spec: EventsOverlaySpec = {
@@ -150,6 +153,7 @@ function mountEvents(initial: EventSearchState = { kind: 'idle' }): {
     events: () => state.value,
     searchEvents: (sessionId, query) => { searches.push({ sessionId, query }) },
     loadMoreEvents: () => { loads += 1 },
+    openContext: hit => { opened.push(hit.seq) },
     now: () => NOW,
     close: () => { closes += 1 },
     invalidate: () => {},
@@ -159,6 +163,7 @@ function mountEvents(initial: EventSearchState = { kind: 'idle' }): {
     state,
     searches,
     loads: () => loads,
+    opens: () => opened,
     closes: () => closes,
   }
 }
@@ -339,12 +344,13 @@ describe('the within-session events browser', () => {
     expect(view.loads()).toBe(0)
   })
 
-  it('leaves a selected hit inert on Enter', () => {
-    // Deliberate break: wiring hit Enter to close would imply an inspection
-    // surface this change deliberately does not provide.
+  it('opens the selected hit on Enter, and neither searches nor closes', () => {
+    // Deliberate break: leaving a hit inert would hide the published context
+    // read; wiring it to close would imply an action the hit never offered.
     const view = mountEvents(ready({ query: '' }))
     view.overlay.render(COLUMNS, ROWS)
     view.overlay.handleKey(key('enter'))
+    expect(view.opens()).toEqual([7])
     expect(view.closes()).toBe(0)
     expect(view.loads()).toBe(0)
     expect(view.searches).toEqual([])
@@ -360,5 +366,154 @@ describe('the within-session events browser', () => {
     expect(screen(view.overlay)).not.toContain('alpha█')
     view.overlay.handleKey(key('escape'))
     expect(view.closes()).toBe(1)
+  })
+})
+
+/** A raw windowed event the context reader draws. */
+function rawEvent(seq: number, type: string, data: unknown): { seq: number; type: string; data: unknown; time: number } {
+  return { seq, type, data, time: NOW - 1000 * seq }
+}
+
+/** The hit the context reader was opened over. */
+const CONTEXT_HIT = {
+  sessionId: TARGET,
+  seq: 7,
+  type: 'assistant/message',
+  time: NOW - 120_000,
+  snippet: 'alpha answer',
+}
+
+/** Mount an event-context reader over a controllable read. */
+function mountContext(): {
+  readonly overlay: SessionsChildOverlay
+  readonly reads: Array<{ sessionId: SessionId; seq: number; before: number; after: number }>
+  readonly resolve: (events: Array<{ seq: number; type: string; data: unknown; time: number }>) => void
+  readonly reject: (message: string) => void
+  readonly closes: () => number
+} {
+  const reads: Array<{ sessionId: SessionId; seq: number; before: number; after: number }> = []
+  let closes = 0
+  let resolveRead: (value: unknown) => void = () => {}
+  let rejectRead: (reason?: unknown) => void = () => {}
+  const overlay = createEventContextOverlay({
+    hit: CONTEXT_HIT,
+    read: (request, signal) => {
+      reads.push({
+        sessionId: request.sessionId,
+        seq: request.seq as number,
+        before: request.before ?? 0,
+        after: request.after ?? 0,
+      })
+      return new Promise((resolve, reject) => {
+        resolveRead = resolve
+        rejectRead = reject
+        signal?.addEventListener('abort', () => { rejectRead(new Error('aborted')) })
+      })
+    },
+    close: () => { closes += 1 },
+    invalidate: () => {},
+  })
+  return {
+    overlay,
+    reads,
+    resolve: events => {
+      resolveRead({
+        session: { id: TARGET },
+        inheritedEventCount: 0,
+        target: events[0],
+        events,
+        startSeq: events[0]?.seq ?? 0,
+        endSeq: events[events.length - 1]?.seq ?? 0,
+      })
+    },
+    reject: message => { rejectRead(new Error(message)) },
+    closes: () => closes,
+  }
+}
+
+describe('the event context reader', () => {
+  it('reads one bounded window around the hit, centred by before/after', async () => {
+    const view = mountContext()
+    expect(view.reads).toEqual([{ sessionId: TARGET, seq: 7, before: 4, after: 8 }])
+    view.resolve([
+      rawEvent(3, 'user/message', { content: [{ type: 'text', text: 'the prompt' }] }),
+      rawEvent(7, 'assistant/message', { content: [{ type: 'text', text: 'the alpha answer' }] }),
+      rawEvent(9, 'tool/call', { name: 'bash', arguments: '{"command":"ls"}' }),
+    ])
+    await vi.waitFor(() => {
+      expect(screen(view.overlay)).toContain('the alpha answer')
+    })
+    const drawn = screen(view.overlay)
+    expect(drawn).toContain('❯ 7 · assistant/message · the alpha answer')
+    expect(drawn).toContain('3 · user/message · the prompt')
+    expect(drawn).toContain('9 · tool/call · bash {"command":"ls"}')
+  })
+
+  it('draws an unknown event type without guessing at its payload', async () => {
+    const view = mountContext()
+    view.resolve([rawEvent(4, 'goal/change', { opaque: true })])
+    await vi.waitFor(() => {
+      expect(screen(view.overlay)).toContain('4 · goal/change')
+    })
+    expect(screen(view.overlay)).not.toContain('opaque')
+  })
+
+  it('escapes control characters in event text', async () => {
+    const view = mountContext()
+    view.resolve([rawEvent(7, 'user/message', { content: [{ type: 'text', text: 'a\u001b[2Jb' }] })])
+    await vi.waitFor(() => {
+      expect(screen(view.overlay)).toContain('7 · user/message')
+    })
+    expect(screen(view.overlay)).not.toContain('\u001b[2J')
+  })
+
+  it('moves within the landed window and reports failure truthfully', async () => {
+    const view = mountContext()
+    view.resolve([
+      rawEvent(3, 'user/message', { content: [{ type: 'text', text: 'one' }] }),
+      rawEvent(7, 'assistant/message', { content: [{ type: 'text', text: 'two' }] }),
+      rawEvent(8, 'assistant/message', { content: [{ type: 'text', text: 'three' }] }),
+    ])
+    await vi.waitFor(() => { expect(screen(view.overlay)).toContain('❯ 7') })
+    view.overlay.handleKey(key('down'))
+    expect(screen(view.overlay)).toContain('❯ 8')
+    view.overlay.handleKey(key('up'))
+    view.overlay.handleKey(key('up'))
+    expect(screen(view.overlay)).toContain('❯ 3')
+  })
+
+  it('shows the failure message when the read rejects', async () => {
+    const view = mountContext()
+    view.reject('cold log unavailable')
+    await vi.waitFor(() => {
+      expect(screen(view.overlay)).toContain('Read failed: cold log unavailable')
+    })
+  })
+
+  it('closes on escape and cancels its pending read', async () => {
+    const view = mountContext()
+    view.overlay.handleKey(key('escape'))
+    expect(view.closes()).toBe(1)
+    // The abort listener was registered: a late resolve must not land state.
+    view.resolve([])
+    expect(screen(view.overlay)).toContain('esc back')
+  })
+
+  it('a selected hit is opened by enter, and the trailing rows keep their actions', () => {
+    const opened: number[] = []
+    const state = { value: ready() }
+    const overlay = createEventsOverlay({
+      target: TARGET,
+      events: () => state.value,
+      searchEvents: () => {},
+      loadMoreEvents: () => {},
+      openContext: hit => { opened.push(hit.seq) },
+      now: () => NOW,
+      close: () => {},
+      invalidate: () => {},
+    })
+    expect(screen(overlay)).toContain('↵ context')
+    overlay.handleKey(key('enter'))
+    expect(opened).toEqual([7])
   })
 })

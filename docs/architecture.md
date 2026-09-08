@@ -1091,9 +1091,11 @@ here, and reopening a session is a human action the frontend may take. What
 Harness does NOT define is what should happen to a job or a delegated subagent
 whose owning agent disappears mid-flight, so the window refuses to reopen while
 either is attached, and refuses mid-turn, naming the reason rather than guessing.
-Renaming a session is deferred for the mirror-image reason: `ctx.sessionTitle`
-models explicit `user` authority, so it will be exposed when the browser has a
-text-entry mode, not as a side effect of listing titles.
+Renaming a session followed the same path once the browser gained a text-entry
+mode: `ctx.sessionTitle` models explicit `user` authority, so rename is exposed
+only for the session this window drives, never as a side effect of listing
+titles. Renaming a closed persisted session stays deferred — the service wields
+live session objects only.
 
 `ctx.jobs.kill()` is the current counterexample: successful cancellation moves
 the job to `stopping` and marks terminal delivery reported, which is a

@@ -10,9 +10,11 @@
 
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {
+  SessionEventReadRequest,
   SessionEventRecord,
   SessionEventSearchPage,
   SessionEventSearchRequest,
+  SessionEventWindow,
   SessionLineageTrace,
   SessionQueryErrorCode,
   SessionRecord,
@@ -74,6 +76,11 @@ export interface SessionQueryReads {
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionEventSearchPage>
+  /** One event and a bounded raw-log window around it. */
+  readEvent(
+    request: SessionEventReadRequest,
+    signal?: AbortSignal,
+  ): Promise<SessionEventWindow>
   /** Concrete ancestry and descendant tracing over the logical corpus. */
   traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>
 }

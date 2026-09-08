@@ -31,7 +31,7 @@
 - 把真实提供方支持当作上游约定验收测试，而不是提供方专用的 dshline 集成
 - 把已完成的 Codex 验收与未验证的 Claude Code 目标分开记录；两者都不需要提供方专用的 dshline 生产代码
 
-在 Harness 发布权威关联之前，任务与 subagent 保持分离。Codex 验收已完成；通过 `@deepseek-ai/dsh-subagent-claude-code`、`ctx.subagents` 与 `ctx.jobs` 的 Claude Code 是下一个验收目标，而不是已手动验证的集成。见 [Provider 验收](docs/provider-acceptance.md)。Work 还确立了更广的控制规则：它不暴露 `ctx.jobs.kill()`，因为该方法具有面向模型的「已报告交付」语义；可续的 subagent 只有在 `ctx.subagents` 明确建模时，才能暴露用户授权的中断。
+在 Harness 发布权威关联之前，任务与 subagent 保持分离。Codex 验收已完成；通过 `@deepseek-ai/dsh-subagent-claude-code`、`ctx.subagents` 与 `ctx.jobs` 的 Claude Code 是下一个验收目标，而不是已手动验证的集成。见 [Provider 验收](docs/provider-acceptance.md)。Work 还确立了更广的控制规则：它不暴露 `ctx.jobs.kill()`，因为该方法具有面向模型的「已报告交付」语义；可续的 subagent 只有在 `ctx.subagents` 明确建模时，才能暴露用户授权的中断。出于同样的原因，Work 不提供启动可续子 agent 或向其发话的途径：`sendMessage` 建模的是父 *agent* 的权威，而人类向子 agent 发话的 seam 是上游尚未发布的工作。
 
 ### 2. 会话投影与 agent 状态
 

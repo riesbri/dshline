@@ -1,6 +1,6 @@
 # Bilingual-pair consistency record (docs/i18n.md): the git blob hash of each side
 # as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
-#   pnpm run verify-docs --write ROADMAP.md
-ROADMAP.md: 232211c501e0ae33d7806056768290acf8f46ec5
-ROADMAP.zh.md: b689f1d8ae57588e6809b41aa1e43134e1e24906
+#   pnpm run verify-docs --write docs/harness-capability-coverage.md
+harness-capability-coverage.md: a012efd08ac482ceea1babaeb13c82712a231fea
+harness-capability-coverage.zh.md: 39bed20cf38c2e63c82c54b1e24f684c9e3d0378

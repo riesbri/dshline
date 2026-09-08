@@ -216,3 +216,156 @@ describe('plan-review questions', () => {
     expect(overlay()).toBeUndefined()
   })
 })
+
+
+/**
+ * Press keys in order onto the active overlay; `handleKey` takes exactly one.
+ * @param overlay - the active overlay, when one is mounted.
+ * @param keys - the keys to deliver.
+ * @returns nothing.
+ */
+function press(overlay: TuiOverlay | undefined, ...keys: Parameters<TuiOverlay['handleKey']>): void {
+  for (const k of keys) overlay?.handleKey(k)
+}
+
+describe('multi-select questions', () => {
+  it('answers with every checked label in the offered order', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{
+        id: 'q',
+        question: 'Which facets?',
+        multiSelect: true,
+        options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }],
+      }],
+    })
+    // Check C, then A: the answer still lists A before C.
+    const view = overlay()
+    press(view, { kind: 'key', name: 'down' }, { kind: 'key', name: 'down' }, { kind: 'text', text: ' ' })
+    press(view, { kind: 'key', name: 'up' }, { kind: 'key', name: 'up' }, { kind: 'text', text: ' ' })
+    press(view, { kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: ['A', 'C'] }] })
+  })
+
+  it('answers an empty confirmation with an empty selection', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{ id: 'q', question: 'Which?', multiSelect: true, options: [{ label: 'A' }] }],
+    })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: [] }] })
+  })
+
+  it('pairs a custom answer with the checked labels when Other… confirms', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{
+        id: 'q',
+        question: 'Which facets?',
+        multiSelect: true,
+        options: [{ label: 'A' }, { label: 'B' }],
+      }],
+    })
+    const view = overlay()
+    press(view, { kind: 'text', text: ' ' }, key('down'), key('down'), { kind: 'text', text: ' ' }, { kind: 'key', name: 'enter' })
+    // The checked A survived into the text overlay's question; the free-text
+    // field is now the active overlay.
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    press(overlay(), { kind: 'text', text: 'something else' }, { kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'q', selected: ['A'], custom: 'something else' }],
+    })
+  })
+
+  it('returns to the list with checks intact when the Other… field is dismissed', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{ id: 'q', question: 'Which?', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }] }],
+    })
+    press(overlay(), key('down'), key('down'), { kind: 'text', text: ' ' }, { kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    // Dismissing the text field is not an answer; the list returns.
+    overlay()?.handleKey({ kind: 'key', name: 'escape' })
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: [] }] })
+  })
+
+  it('rejects with ASK_ABORTED when the request is withdrawn mid-overlay', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const abort = new AbortController()
+    const answer = send({
+      signal: abort.signal,
+      questions: [{ id: 'q', question: 'Which?', multiSelect: true, options: [{ label: 'A' }] }],
+    })
+    abort.abort()
+    await expect(answer).rejects.toMatchObject({ code: 'ASK_ABORTED' })
+    expect(overlay()).toBeUndefined()
+  })
+})
+
+describe('custom answers on single-select questions', () => {
+  it('replaces the selection when Other… is answered with text', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{ id: 'q', question: 'Pick one', options: [{ label: 'A' }, { label: 'B' }] }],
+    })
+    press(overlay(), key('down'), key('down'), { kind: 'text', text: ' ' }, { kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    press(overlay(), { kind: 'text', text: 'neither of those' }, { kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'q', selected: [], custom: 'neither of those' }],
+    })
+  })
+
+  it('returns to the list when the Other… field is left empty', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{ id: 'q', question: 'Pick one', options: [{ label: 'A' }] }],
+    })
+    press(overlay(), key('down'), { kind: 'key', name: 'enter' })
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    // Empty text returns to the list, where confirming A is an ordinary answer.
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: ['A'] }] })
+  })
+})
+
+describe('optionless questions', () => {
+  it('acknowledges on empty enter, exactly as the OK row used to', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({ questions: [{ id: 'q', question: 'Ready?' }] })
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: ['ok'] }] })
+  })
+
+  it('turns typed text into the contract free-text answer', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({ questions: [{ id: 'q', question: 'What is missing?' }] })
+    press(overlay(), { kind: 'text', text: 'the endpoint URL' }, { kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({
+      answers: [{ id: 'q', selected: [], custom: 'the endpoint URL' }],
+    })
+  })
+})
+
+/**
+ * One decoded key press.
+ * @param name - the key.
+ * @returns the key event.
+ */
+function key(name: Extract<import('@dshline/renderer').Key, { kind: 'key' }>['name']):
+  import('@dshline/renderer').Key {
+  return { kind: 'key', name }
+}

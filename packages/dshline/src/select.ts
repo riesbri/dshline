@@ -286,7 +286,8 @@ export function createSelectOverlay(spec: SelectSpec): TuiOverlay {
 
 /**
  * The rows above the list: the query box when there is one, then the detail.
- * @param spec - the prompt being rendered.
+ * @param spec - the prompt being rendered; only the headline, detail, and
+ *   offered count are read, which is what the single- and multi-select share.
  * @param searchable - whether the picker offers a query box.
  * @param query - the typed query.
  * @param shown - choices the query left.
@@ -294,7 +295,7 @@ export function createSelectOverlay(spec: SelectSpec): TuiOverlay {
  * @returns the heading rows, ending in a separator when there are any.
  */
 function headingRows(
-  spec: SelectSpec,
+  spec: Pick<SelectSpec, 'title' | 'detail' | 'choices'>,
   searchable: boolean,
   query: string,
   shown: number,
@@ -481,6 +482,315 @@ export async function promptSelect(
       resolve(value)
     }
     const overlay = createSelectOverlay({
+      ...spec,
+      invalidate: () => { ctx.tuiSlots.invalidate() },
+      settle: finish,
+    })
+    dismiss = ctx.tuiSlots.pushOverlay(overlay)
+    if (spec.signal?.aborted === true) finish(undefined)
+    else spec.signal?.addEventListener('abort', () => { finish(undefined) }, { once: true })
+  })
+}
+
+/** How a multi-select overlay is built and what it reports. */
+export interface MultiSelectSpec {
+  /** Headline shown above the list. */
+  title: string
+  /** Concise identity shown in the shared root chrome. */
+  readonly view?: string
+  /** Optional supporting text between the title and the list. */
+  detail?: string
+  /** The rows; an empty list is a programming error and renders as such. */
+  choices: readonly SelectChoice[]
+  /** Values checked before the first frame, preserving continuity across a return visit. */
+  readonly initialChecked?: readonly string[]
+  /**
+   * Called once with the checked values in the offered order, or with undefined
+   * when the user cancelled. Confirming an empty set is an ordinary answer.
+   */
+  settle(values: string[] | undefined): void
+  /** Asks the runner to redraw after a move or a toggle. */
+  invalidate(): void
+}
+
+/**
+ * Build a multi-select overlay: the shared picker's viewport, query, and frame
+ * with toggling rows instead of one confirmable row.
+ *
+ * It lives beside {@link createSelectOverlay} rather than inside it because the
+ * two settle differently — one value against a set — and a union settlement
+ * would push that fork onto every existing caller. The internals that were
+ * extracted for testing (filtering, the counter, the heading, the viewport
+ * arithmetic) are reused; only the row rendering and the key map differ.
+ *
+ * `space` toggles in BOTH modes, searchable or not, because toggling is the
+ * gesture that defines the list. The cost is a multi-word query: a searchable
+ * multi-select cannot type a space into its query, so the matcher matches
+ * single words. Question choices are short labels, and a picker that hid its
+ * defining gesture behind a mode would be worse.
+ * @param spec - the prompt, choices, and settlement callback.
+ * @returns the overlay to push onto the slot registry.
+ */
+export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
+  const viewport = new RowViewport()
+  const searchable = spec.choices.length > SEARCHABLE_CHOICES
+  let query = ''
+  let cursor = 0
+  const checked = new Set<string>(spec.initialChecked ?? [])
+  let visible: readonly SelectChoice[] = spec.choices
+  let settled = false
+  const settle = (values: string[] | undefined): void => {
+    if (settled) return
+    settled = true
+    spec.settle(values)
+  }
+  const move = (amount: number): void => {
+    if (visible.length === 0) return
+    cursor = (cursor + amount + visible.length) % visible.length
+    spec.invalidate()
+  }
+  const toggle = (): void => {
+    const choice = visible[cursor]
+    if (choice === undefined) return
+    // The set, not the row: a query change reorders `visible`, so tracking by
+    // index would check and uncheck different rows as the filter moved.
+    if (checked.has(choice.value)) checked.delete(choice.value)
+    else checked.add(choice.value)
+    spec.invalidate()
+  }
+  const edit = (next: string): void => {
+    query = next
+    visible = searchable ? filterChoices(spec.choices, query) : spec.choices
+    cursor = 0
+    viewport.first()
+    spec.invalidate()
+  }
+  return {
+    render(columns, terminalRows = 24) {
+      const width = chromeWidth(columns)
+      const inner = width - BOX_CHROME_COLUMNS
+      visible = searchable ? filterChoices(spec.choices, query) : spec.choices
+      cursor = Math.min(cursor, Math.max(0, visible.length - 1))
+      const heading = headingRows(spec, searchable, query, visible.length, inner)
+      const capacity = terminalRows - SELECT_FIXED_ROWS - heading.length
+      if (capacity <= 0 || columns < SELECT_MIN_COLUMNS) {
+        return multiCompactFallback(visible[cursor], checked.size, columns, terminalRows)
+      }
+      const rendered = renderMultiChoices(visible, cursor, checked, inner)
+      viewport.update(rendered.rows.length, capacity)
+      if (rendered.selectedRow < viewport.start) viewport.move(rendered.selectedRow - viewport.start)
+      const selectedEnd = rendered.selectedRow + rendered.selectedHeight
+      const overshoot = selectedEnd - viewport.end
+      if (overshoot > 0) viewport.move(Math.min(overshoot, rendered.selectedRow - viewport.start))
+      const frame = [
+        '',
+        ...rootFrame({
+          columns,
+          context: paint(escapeControls(spec.view ?? spec.title), 'overlay-title'),
+          body: [...heading, ...rendered.rows.slice(viewport.start, viewport.end)],
+          footer: fitFooterHelp(
+            multiHelp(checked.size, searchable, query, visible.length > 0, footerBudget(columns)),
+            footerBudget(columns),
+          ),
+        }),
+      ]
+      return physicalRows(frame, columns).length <= terminalRows
+        ? frame
+        : multiCompactFallback(visible[cursor], checked.size, columns, terminalRows)
+    },
+    handleKey(key: Key) {
+      if (key.kind === 'text') {
+        // Space toggles (see the factory comment); every other character
+        // filters, exactly as the single-select picker behaves.
+        if (key.text === ' ') toggle()
+        else if (searchable) edit(query + key.text)
+        return
+      }
+      if (key.kind === 'paste') {
+        if (searchable) edit(query + key.text.replace(/\s+/gu, ' '))
+        return
+      }
+      switch (key.name) {
+        case 'up':
+          move(-1)
+          return
+        case 'down':
+          move(1)
+          return
+        case 'home':
+        case 'ctrl-a':
+          cursor = 0
+          viewport.first()
+          spec.invalidate()
+          return
+        case 'end':
+        case 'ctrl-e':
+          cursor = Math.max(0, visible.length - 1)
+          viewport.last()
+          spec.invalidate()
+          return
+        case 'backspace':
+          if (searchable) edit([...query].slice(0, -1).join(''))
+          return
+        case 'ctrl-u':
+          if (searchable) edit('')
+          return
+        case 'ctrl-w':
+          if (searchable) edit(query.replace(/\s*\S*$/u, ''))
+          return
+        case 'enter':
+          // The query only filters the view; the checked set is by value, so
+          // confirmation never depends on what the query left visible.
+          settle([...spec.choices
+            .map(choice => choice.value)
+            .filter(value => checked.has(value))])
+          return
+        case 'escape':
+          if (searchable && query !== '') {
+            edit('')
+            return
+          }
+          settle(undefined)
+          return
+        case 'ctrl-c':
+          settle(undefined)
+          return
+        default:
+          return
+      }
+    },
+  }
+}
+
+/**
+ * Draw the multi-select choices at a known width.
+ * @param choices - the choices the query left.
+ * @param cursor - the highlighted index among them.
+ * @param checked - values currently checked.
+ * @param inner - the frame's inner width in columns.
+ * @returns the rows and the highlighted row's index among them.
+ */
+function renderMultiChoices(
+  choices: readonly SelectChoice[],
+  cursor: number,
+  checked: ReadonlySet<string>,
+  inner: number,
+): Rendered {
+  if (choices.length === 0) {
+    // An empty view filters nothing away from the checked set; saying the view
+    // is empty is not saying the answer is empty.
+    return {
+      rows: [paint(truncateToWidth('Nothing matches that.', inner), 'muted')],
+      selectedRow: 0,
+      selectedHeight: 1,
+    }
+  }
+  const rows: string[] = []
+  let selectedRow = 0
+  let selectedHeight = 1
+  choices.forEach((choice, index) => {
+    const active = index === cursor
+    if (active) selectedRow = rows.length
+    const mark = checked.has(choice.value) ? '\u25c9' : '\u25cb'
+    const label = truncateToWidth(escapeControls(choice.label), inner - 4)
+    rows.push(active
+      ? paint(`\u276f ${mark} ${label}`, 'selection')
+      : `  ${mark} ${label}`)
+    if (active && choice.description !== undefined && choice.description !== '') {
+      rows.push(paint(`    ${truncateToWidth(escapeControls(choice.description), inner - 4)}`, 'muted'))
+      selectedHeight = 2
+    }
+  })
+  return { rows, selectedRow, selectedHeight }
+}
+
+/**
+ * The multi-select help line: the checked count leads, and whole segments drop
+ * from the front as the terminal narrows — the same ladder the single-select
+ * picker runs.
+ * @param checked - how many values are currently checked.
+ * @param searchable - whether the picker offers a query box.
+ * @param query - the typed query.
+ * @param selectable - whether any row can be toggled.
+ * @param columns - room available for the line.
+ * @returns the help text that fits.
+ */
+function multiHelp(
+  checked: number,
+  searchable: boolean,
+  query: string,
+  selectable: boolean,
+  columns: number,
+): string {
+  const leave = searchable && query !== '' ? 'esc clear' : 'esc cancel'
+  const parts = [
+    ...checked > 0 ? [`${String(checked)} checked`] : [],
+    ...selectable ? ['space toggle'] : [],
+    ...searchable ? ['type to filter'] : [],
+    'enter confirm',
+    leave,
+  ]
+  for (let from = 0; from < parts.length; from += 1) {
+    const line = parts.slice(from).join(' \u00b7 ')
+    if (displayWidth(line) <= columns) return line
+  }
+  return truncateToWidth(leave, columns)
+}
+
+/**
+ * An answerable multi-select fallback for a terminal too small to hold the
+ * frame. The highlighted choice and the checked count are kept, because the
+ * decision — which set to confirm — survives even when the list does not.
+ * @param choice - the highlighted choice, when there is one.
+ * @param checked - how many values are checked.
+ * @param columns - the terminal's width.
+ * @param rows - the terminal's height.
+ * @returns at most `rows` lines.
+ */
+function multiCompactFallback(
+  choice: SelectChoice | undefined,
+  checked: number,
+  columns: number,
+  rows: number,
+): string[] {
+  if (rows <= 0) return []
+  const width = Math.max(1, columns)
+  const label = choice === undefined ? 'nothing matches' : escapeControls(choice.label)
+  const count = checked > 0 ? ` (${String(checked)} checked)` : ''
+  const lines = [paint(truncateToWidth(`\u276f ${label}${count}`, width), 'selection')]
+  if (rows > 1) {
+    const hint = ['space \u00b7 enter \u00b7 esc', 'enter \u00b7 esc', 'esc']
+      .find(candidate => displayWidth(candidate) <= width)
+    if (hint !== undefined) lines.push(paint(hint, 'muted'))
+  }
+  return lines.slice(0, rows)
+}
+
+/**
+ * Show a multi-select list and wait for the answer.
+ *
+ * The push-await-dismiss dance is {@link promptSelect}'s, with the set
+ * settlement a question with `multiSelect` needs.
+ * @param ctx - context carrying the slot registry.
+ * @param spec - the prompt and its choices; settlement is this function's. An
+ *   optional `signal` takes the question down without an answer.
+ * @returns the checked values in the offered order, or undefined when the user
+ *   cancelled or the question was withdrawn.
+ */
+export async function promptMultiSelect(
+  ctx: Context,
+  spec: Omit<MultiSelectSpec, 'settle' | 'invalidate'> & { signal?: AbortSignal },
+): Promise<string[] | undefined> {
+  return new Promise<string[] | undefined>(resolve => {
+    let dismiss = (): void => {}
+    let settled = false
+    const finish = (values: string[] | undefined): void => {
+      if (settled) return
+      settled = true
+      dismiss()
+      resolve(values)
+    }
+    const overlay = createMultiSelectOverlay({
       ...spec,
       invalidate: () => { ctx.tuiSlots.invalidate() },
       settle: finish,

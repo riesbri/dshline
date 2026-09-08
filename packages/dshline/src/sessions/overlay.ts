@@ -24,6 +24,7 @@ import {
   wrapToWidth,
 } from '@dshline/renderer'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEventReadRequest, SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
@@ -42,6 +43,7 @@ import type {
 import { filterEntries, relativeAge, sessionFacts, sessionLabel } from './model.ts'
 import {
   CHILD_CLOSE_REQUESTED,
+  createEventContextOverlay,
   createEventsOverlay,
   createFilterOverlay,
   type SessionsChildOverlay,
@@ -111,6 +113,9 @@ export interface SessionsOverlaySpec {
   readonly searchEvents: (sessionId: SessionId, query: string) => void
   /** Append the next within-session event page. */
   readonly loadMoreEvents: () => void
+  /** The published windowed read a selected event hit opens; absent in a
+   *  deployment with no query engine, where no hit can exist either. */
+  readonly readEvent?: (request: SessionEventReadRequest, signal?: AbortSignal) => Promise<SessionEventWindow>
   /** Bounded detail already read for one session. */
   readonly detail: (sessionId: SessionId) => SessionDetail | undefined
   /** Ask for one session's bounded detail; called when its detail is disclosed. */
@@ -383,6 +388,16 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       events: spec.events,
       searchEvents: spec.searchEvents,
       loadMoreEvents: spec.loadMoreEvents,
+      openContext: hit => {
+        const read = spec.readEvent
+        if (read === undefined) return
+        pushChild(contextClose => createEventContextOverlay({
+          hit,
+          read,
+          close: contextClose,
+          invalidate: spec.invalidate,
+        }))
+      },
       now: spec.now,
       close: childClose,
       invalidate: spec.invalidate,
