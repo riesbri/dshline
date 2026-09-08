@@ -47,7 +47,8 @@ native terminal
 | 用户配置 | `ctx.settings` | 读取脱敏的命名空间描述符；对读取时的修订号执行写入路径操作。 |
 | 密钥 | `ctx.credentials` | 询问引用或记录是否已配置且可写；绝不持有值。 |
 | 获取凭据 | `ctx.authorization` | 渲染 seam 的中立通知与提示词汇；不拥有登录协议。 |
-| 人类命令 | `ctx.commands` | 发现并执行已注册的命令约定。 |
+| 人类命令 | `ctx.commands` | 发现并执行已注册的命令约定。附件准入属于注册表：派发前遵守 `input.attachments`，并且只提交本前端能够创作的那些带判别标签的附件种类。 |
+| 助手输出 | `session/event` 上持久的 `assistant/message` / `assistant/attempt`，加上实时的 `agent/assistant-stream` 帧 | 两个约定，彼此分开。结算事件是会话记录；帧只是所附着 Agent 的临时呈现。绝不把嵌入的流展开成实时事件流，绝不持久化帧，也绝不提交一次没有产生消息就结算的尝试。 |
 | 工具 | `ctx.tools` | 渲染工具拥有的呈现意图，而不是工具名的特例。 |
 | 人类应答 | `ctx.userQuestions` | 注册一个终端应答者；认领本前端能够呈现的请求，绝不假设该请求只发给了本前端。 |
 | 审批 | `ctx.approval` | 只回答属于本前端的请求；对于其他 agent 身份让 waterfall 失败关闭。 |

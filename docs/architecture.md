@@ -67,7 +67,8 @@ Prefer a standard Harness surface over a concrete package or provider:
 | user configuration | `ctx.settings` | Read redacted namespace descriptors; write path ops against the revision they were read at. |
 | secrets | `ctx.credentials` | Ask whether a reference or record is configured and writable; never hold a value. |
 | obtaining a credential | `ctx.authorization` | Render the seam's neutral notice and prompt vocabulary; own no login protocol. |
-| human commands | `ctx.commands` | Discover and execute the registered command contract. |
+| human commands | `ctx.commands` | Discover and execute the registered command contract. Attachment admission is the registry's: honour `input.attachments` before dispatch, and submit only the discriminated attachment kinds this frontend can author. |
+| assistant output | durable `assistant/message` / `assistant/attempt` on `session/event`, plus live `agent/assistant-stream` frames | Two contracts, kept apart. The settlements are the transcript; the frames are transient presentation for the attached Agent alone. Never expand an embedded stream into a live feed, never persist a frame, and never commit an attempt that settled without a message. |
 | tools | `ctx.tools` | Render tool-owned presentation intents, not tool-name cases. |
 | human answers | `ctx.userQuestions` | Register a terminal answerer; claim a request this frontend can present, never assuming it was addressed only to this frontend. |
 | approvals | `ctx.approval` | Answer only requests owned by this frontend; let the waterfall fail closed for other agent identities. |
