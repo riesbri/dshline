@@ -21,6 +21,7 @@ import type {
   DiffCallView,
   DiffResultView,
   FileDiff,
+  FileLocation,
   ReadResultView,
   SearchResultView,
   TerminalCallView,
@@ -28,12 +29,16 @@ import type {
   ToolCallView,
   ToolDefinition,
   ToolResultView,
+  WebFetchResultView,
   WebResultView,
+  WebSearchResultView,
+  WebSource,
 } from '@deepseek-ai/dsh-tools'
 import { diffRows } from './diff.ts'
 import {
   box,
   BOX_CHROME_COLUMNS,
+  displayWidth,
   escapeControls,
   hangingIndent,
   paint,
@@ -183,6 +188,12 @@ export interface InspectableToolCall {
   readonly name: string
   /** The call's own presented content, verbatim. */
   readonly content: readonly ContentBlock[]
+  /**
+   * The call's declared follow-along locations, when the view published any.
+   * Kept beside the content because either can be the thing a call card's row
+   * budget cut, and the inspector re-renders both.
+   */
+  readonly locations?: readonly FileLocation[]
 }
 
 /** Either retained shape the inspector ring holds, newest first. */
@@ -255,19 +266,19 @@ export class ToolCards extends PendingToolCalls {
     switch (view.card) {
       case 'terminal':
         return this.terminalCall(view, width, columns)
-      case 'diff':
-        return this.diffCall(view, columns)
+      case 'diff': {
+        const rendered = this.diffCall(view, columns)
+        if (rendered.truncated) this.rememberInspectableCall(call.name, undefined, view.locations)
+        return rendered.rows
+      }
       case 'generic': {
-        const rendered = this.genericCall(view.title, rawInputText(view.rawInput), view.kind, columns, view.content)
-        // Mirrors the result-side rule in `result()`: a call whose OWN content the
-        // row budget cut becomes inspectable, because those rows are committed
-        // into scrollback the moment this card's turn ends and are unreachable
-        // there. `hidden` never reports truncation (see `body()`), so it never
-        // arms this either.
-        if (rendered.truncated && view.content !== undefined) {
-          this.inspectables.unshift({ item: { kind: 'call', name: call.name, content: view.content }, offered: false })
-          this.inspectables.length = Math.min(this.inspectables.length, INSPECT_HISTORY)
-        }
+        const rendered = this.genericCall(view.title, rawInputText(view.rawInput), view.kind, columns, view.locations, view.content)
+        // Mirrors the result-side rule in `result()`: a call whose OWN content or
+        // location list the row budget cut becomes inspectable, because those
+        // rows are committed into scrollback the moment this card's turn ends
+        // and are unreachable there. `hidden` never reports truncation (see
+        // `body()` and `locationRows()`), so it never arms this either.
+        if (rendered.truncated) this.rememberInspectableCall(call.name, view.content, view.locations)
         return rendered.rows
       }
       default:
@@ -360,6 +371,33 @@ export class ToolCards extends PendingToolCalls {
   }
 
   /**
+   * Retain a call whose own presentation elided rows, newest first and bounded.
+   *
+   * Both the presented content and the declared locations are kept, because
+   * either can be the thing the row budget cut; the inspector re-renders the
+   * same sections at its own budget.
+   * @param name - the tool that made the call.
+   * @param content - the call's presented content, when the view declared any.
+   * @param locations - the call's follow-along locations, when the view declared any.
+   */
+  private rememberInspectableCall(
+    name: string,
+    content: readonly ContentBlock[] | undefined,
+    locations: readonly FileLocation[] | undefined,
+  ): void {
+    this.inspectables.unshift({
+      item: {
+        kind: 'call',
+        name,
+        content: content ?? [],
+        ...locations === undefined ? {} : { locations },
+      },
+      offered: false,
+    })
+    this.inspectables.length = Math.min(this.inspectables.length, INSPECT_HISTORY)
+  }
+
+  /**
    * Consume the inspect opportunity on the NEWEST retained card, if unseen.
    *
    * Only ever index 0. Searching the ring for the newest *unoffered* card would
@@ -447,9 +485,12 @@ export class ToolCards extends PendingToolCalls {
    */
   renderInspect(item: InspectableCard, columns: number): { rows: string[]; truncated: boolean } {
     // A call-shaped entry has no result to re-run `renderResult` against — it is
-    // the call's own `presentCall` content, so it re-renders through the same
-    // `body()` a generic call used, just at the inspector's budget.
-    if (item.kind === 'call') return this.body(textOf(item.content), columns, false, 'inspect')
+    // the call's own `presentCall` body, so it re-renders through the same
+    // `callSections` the card used, locations and content together under one
+    // budget, just at the inspector's far larger allowance.
+    if (item.kind === 'call') {
+      return this.callSections(item.locations, item.content, columns, 'inspect')
+    }
     const call = {
       name: item.name,
       args: item.args,
@@ -523,6 +564,7 @@ export class ToolCards extends PendingToolCalls {
    *   in its title — `grep`'s title names the pattern its `rawInput` repeats.
    * @param kind - the call category, for its icon.
    * @param columns - the terminal's current width.
+   * @param locations - the files the view declared the call touches, when any.
    * @param content - extra content blocks the view asked to show.
    * @returns rows to write into scrollback.
    */
@@ -531,6 +573,7 @@ export class ToolCards extends PendingToolCalls {
     detail: string,
     kind: string | undefined,
     columns: number,
+    locations?: readonly FileLocation[],
     content?: readonly ContentBlock[],
   ): Rendered {
     const icon = kind === undefined ? MARK.call : KIND_ICON[kind] ?? MARK.call
@@ -539,13 +582,54 @@ export class ToolCards extends PendingToolCalls {
     if (detail !== '' && this.detail === 'full') {
       rows.push(...hangingIndent(BODY_INDENT, BODY_INDENT, paint(escapeControls(detail), 'subdued'), columns))
     }
+    // Locations sit directly under the salient input rather than trailing the
+    // content: they are part of what the call IS (the files it touches), and rows
+    // after a long content body would be buried under it.
+    const sections = this.callSections(locations, content, columns, this.detail)
+    return { rows: ['', ...rows, ...sections.rows], truncated: sections.truncated }
+  }
+
+  /**
+   * A generic call's body sections — its declared locations, then its presented
+   * content — spending ONE row budget across both.
+   *
+   * The detail budgets bound the body of ONE card, not each section of it: an
+   * allowance per section would let a call that names many files and echoes much
+   * content show roughly two compact budgets before eliding, which is how the
+   * cap stops meaning anything. Locations come first, and the content spends
+   * whatever they leave; each section reports what the shared budget hid from
+   * it, and either one being cut leaves the card inspectable, so the compact
+   * card never silently discards metadata the harness published.
+   *
+   * Both the scrollback card and the inspector render through here, so the
+   * inspector reconstructs the same two sections at its own, far larger budget.
+   * @param locations - the files the view declared the call touches, when any.
+   * @param content - extra content blocks the view asked to show, when any.
+   * @param columns - the terminal's current width.
+   * @param detail - the detail level being drawn.
+   * @returns the section rows and whether the shared budget cut either section.
+   */
+  private callSections(
+    locations: readonly FileLocation[] | undefined,
+    content: readonly ContentBlock[] | undefined,
+    columns: number,
+    detail: RenderDetail,
+  ): Rendered {
+    if (detail === 'hidden') return { rows: [], truncated: false }
+    const budget = rowBudget(detail)
+    let remaining = budget
     let truncated = false
-    if (content !== undefined && content.length > 0) {
-      const body = this.body(textOf(content), columns, false, this.detail)
+    const rows: string[] = []
+    const declared = this.locationRows(locations, columns, detail, remaining)
+    rows.push(...declared.rows)
+    remaining -= declared.drawn
+    truncated = declared.elided > 0
+    if (content !== undefined) {
+      const body = this.body(textOf(content), columns, false, detail, remaining)
       rows.push(...body.rows)
-      truncated = body.truncated
+      truncated = body.truncated || truncated
     }
-    return { rows: ['', ...rows], truncated }
+    return { rows, truncated }
   }
 
   /**
@@ -623,15 +707,66 @@ export class ToolCards extends PendingToolCalls {
 
   /**
    * A diff call: its title alone, because the change is drawn once, at result time.
+   *
+   * Declared locations are the one addition, and they are not the change: they say
+   * where a follow-along UI would look (usually `path:line`), which the result-time
+   * diff body does not state.
    * @param view - the diff call view.
    * @param columns - the terminal's current width.
-   * @returns rows to write into scrollback.
+   * @returns rows to write into scrollback, and whether the location budget cut any.
    */
-  private diffCall(view: DiffCallView, columns: number): string[] {
-    return [
+  private diffCall(view: DiffCallView, columns: number): Rendered {
+    const rows = [
       '',
       ...hangingIndent(`${paint(KIND_ICON.edit ?? MARK.call, 'tool-icon')} `, BODY_INDENT, paint(escapeControls(view.title), 'tool-name'), columns),
     ]
+    // A diff call has no other body to compete with, so its locations take the
+    // whole allowance for themselves.
+    const declared = this.locationRows(view.locations, columns, this.detail, rowBudget(this.detail))
+    return { rows: [...rows, ...declared.rows], truncated: declared.elided > 0 }
+  }
+
+  /**
+   * The files a call declared it touches, one bounded row each.
+   *
+   * The declared list is the only source: locations are never inferred from
+   * arguments or diffs, because a tool that declared none may still have touched
+   * files, and a row claiming it did would be the frontend inventing a fact.
+   *
+   * Only the rows the budget will actually draw are formatted: the declared list
+   * can be arbitrarily long, and escaping, painting, and truncating rows the
+   * card is about to elide is work with no output. The visible prefix is known
+   * before any formatting, because a location is one structured row.
+   * @param locations - the locations the call view declared, when it did.
+   * @param columns - the terminal's current width.
+   * @param detail - the detail level being drawn, for the elision marker.
+   * @param budget - rows the section may draw, from the allowance the card
+   *   shares across its body sections.
+   * @returns the rows (this section's own elision marker included, which is
+   *   chrome rather than a spent row), how many rows the allowance spent, and
+   *   how many locations the budget hid.
+   */
+  private locationRows(
+    locations: readonly FileLocation[] | undefined,
+    columns: number,
+    detail: RenderDetail,
+    budget: number,
+  ): { rows: string[]; drawn: number; elided: number } {
+    if (detail === 'hidden' || locations === undefined || locations.length === 0) {
+      return { rows: [], drawn: 0, elided: 0 }
+    }
+    const shown = locations.slice(0, Math.max(0, budget))
+    const elided = locations.length - shown.length
+    const rows = shown.map(location => `${BODY_INDENT}${truncateToWidth(
+      paint(escapeControls(location.line === undefined
+        ? location.path
+        // The separator matches how a person names a position in an editor, which
+        // is also how the harness writes a location's meaning into the contract.
+        : `${location.path}:${String(location.line)}`), 'path'),
+      Math.max(1, columns - BODY_INDENT.length),
+    )}`)
+    if (elided > 0) rows.push(`${BODY_INDENT}${paint(elisionMarker(detail, `… ${String(elided)} more locations`), 'muted')}`)
+    return { rows, drawn: shown.length, elided }
   }
 
   /**
@@ -696,7 +831,7 @@ export class ToolCards extends PendingToolCalls {
     if (view.shape === 'paths') {
       const summary = `${total} ${view.total === 1 ? 'path' : 'paths'}`
       if (detail === 'hidden') return { rows: [`${head}${paint(summary, 'subdued')}`], truncated: false }
-      const { rows, elided } = this.limit(view.paths, detail)
+      const { rows, elided } = this.limit(view.paths, rowBudget(detail))
       return {
         rows: [
           `${head}${paint(summary, 'subdued')}`,
@@ -752,7 +887,7 @@ export class ToolCards extends PendingToolCalls {
     const { rows, elided } = this.limit(view.lines.map(line => {
       const number = paint(String(line.number).padStart(4), 'muted')
       return `${number} ${paint(escapeControls(line.text), 'subdued')}`
-    }), detail)
+    }), rowBudget(detail))
     return {
       rows: [
         head,
@@ -764,32 +899,105 @@ export class ToolCards extends PendingToolCalls {
   }
 
   /**
-   * A web retrieval: its sources, or its fetched text.
+   * A web retrieval: a search's cited sources with its provider answer, or a
+   * fetch's retrieval summary and body.
    * @param view - the web result view.
    * @param columns - the terminal's current width.
    * @param result - the logged result, for the fallback text.
+   * @param detail - the detail level being drawn.
    * @returns rows to write into scrollback.
    */
   private webResult(view: WebResultView, columns: number, result: ResultInput, detail: RenderDetail): Rendered {
+    // The unions are merge-extensible: an arm this frontend has never seen is
+    // checked for explicitly, so it degrades to the raw content instead of
+    // reading a field it does not carry.
+    if (view.kind === 'fetch') return this.webFetch(view, columns, result, detail)
     if (view.kind !== 'search') return this.body(textOf(result.content), columns, result.isError, detail)
+    return this.webSearch(view, columns, detail)
+  }
+
+  /**
+   * A completed web search: the provider's answer, then its sources in the order
+   * the harness listed them.
+   *
+   * Every field is read from the structured view and nothing else: a snippet is
+   * the provider's own, never re-derived from result text, and `publishedAt` is
+   * displayed without date parsing or reformatting — interpreting the string as
+   * a date would claim a precision it does not carry.
+   * @param view - the search result view.
+   * @param columns - the terminal's current width.
+   * @param detail - the detail level being drawn.
+   * @returns rows to write into scrollback.
+   */
+  private webSearch(view: WebSearchResultView, columns: number, detail: RenderDetail): Rendered {
     // The `+` marks a capped list, exactly as the search card does: without it a
     // truncated set of sources reads as the complete set.
     const count = `${String(view.sources.length)}${view.truncated ? '+' : ''}`
     const summary = `${count} ${view.sources.length === 1 && !view.truncated ? 'source' : 'sources'}`
     const head = `${BODY_INDENT}${paint(MARK.body, 'chrome')} ${paint(summary, 'subdued')}`
     if (detail === 'hidden') return { rows: [head], truncated: false }
-    const { rows, elided } = this.limit(view.sources.map(source => {
-      const title = source.title === undefined ? source.url : source.title
-      return `${paint(escapeControls(title), 'link')} ${paint(escapeControls(source.url), 'link-target')}`
-    }), detail)
-    return {
-      rows: [
-        head,
-        ...rows.map(row => `${BODY_INDENT}  ${truncateToWidth(row, columns - 4)}`),
-        ...elided > 0 ? [`${BODY_INDENT}  ${paint(elisionMarker(detail, `… ${String(elided)} more`), 'muted')}`] : [],
-      ],
-      truncated: elided > 0,
+    const out = [head]
+    // ONE budget across the answer and every source, not one per source — the
+    // same rule a bulk diff follows, and for the same reason: a search returning
+    // many sources must not bury the transcript under one card.
+    let remaining = rowBudget(detail)
+    let omitted = 0
+    const answer = view.answer === undefined ? '' : view.answer.trim()
+    if (answer !== '') {
+      const rows = hangingIndent(
+        `${BODY_INDENT}${paint(MARK.body, 'chrome')} `,
+        `${BODY_INDENT}  `,
+        paint(escapeControls(answer), 'subdued'),
+        columns,
+      )
+      const shown = rows.slice(0, remaining)
+      omitted += rows.length - shown.length
+      remaining -= shown.length
+      out.push(...shown)
     }
+    for (const source of view.sources) {
+      for (const row of webSourceRows(source, columns)) {
+        if (remaining <= 0) {
+          omitted += 1
+          continue
+        }
+        out.push(`${BODY_INDENT}  ${row}`)
+        remaining -= 1
+      }
+    }
+    if (omitted > 0) out.push(`${BODY_INDENT}  ${paint(elisionMarker(detail, `… ${String(omitted)} more rows`), 'muted')}`)
+    return { rows: out, truncated: omitted > 0 }
+  }
+
+  /**
+   * A completed web fetch: a retrieval summary from the structured view, then the
+   * fetched body.
+   *
+   * The summary is composed from the view's own fields, never parsed back out of
+   * the result text: the model-facing `Fetched …` envelope renders the same facts
+   * for the model, and the view is the authoritative copy for a UI.
+   * @param view - the fetch result view.
+   * @param columns - the terminal's current width.
+   * @param result - the logged result, for the body text.
+   * @param detail - the detail level being drawn.
+   * @returns rows to write into scrollback.
+   */
+  private webFetch(view: WebFetchResultView, columns: number, result: ResultInput, detail: RenderDetail): Rendered {
+    const separator = paint(' · ', 'muted')
+    const tail = [
+      separator + paint(String(view.statusCode), 'subdued'),
+      // The view's own truncation flag, never a length recomputed here: a body can
+      // fit the card entirely and still have been cut upstream, and that fact is
+      // not visible in the text.
+      ...view.truncated ? [separator + paint('truncated', 'warning')] : [],
+    ].join('')
+    // The status and the truncation marker are the parts a reader cannot do
+    // without, so the URL is what gives way when the row is tight.
+    const width = Math.max(1, columns - 4)
+    const url = truncateToWidth(paint(escapeControls(view.url), 'link-target'), Math.max(1, width - displayWidth(tail)))
+    const head = `${BODY_INDENT}${paint(MARK.body, 'chrome')} ${truncateToWidth(url + tail, width)}`
+    const body = this.body(textOf(result.content), columns, result.isError, detail)
+    return { rows: [head, ...body.rows], truncated: body.truncated }
   }
 
   /**
@@ -797,13 +1005,17 @@ export class ToolCards extends PendingToolCalls {
    * @param text - the result text, unescaped.
    * @param columns - the terminal's current width.
    * @param isError - whether the call failed, which colours it.
+   * @param detail - the detail level being drawn.
+   * @param budget - rows the section may draw; defaults to the detail's own
+   *   budget. A card that spends one allowance across several sections hands
+   *   each section only what the sections before it left.
    * @returns rows to write into scrollback.
    */
-  private body(text: string, columns: number, isError: boolean, detail: RenderDetail): Rendered {
+  private body(text: string, columns: number, isError: boolean, detail: RenderDetail, budget: number = rowBudget(detail)): Rendered {
     const trimmed = text.trim()
     if (trimmed === '' || detail === 'hidden') return { rows: [], truncated: false }
     const all = escapeControls(trimmed).split('\n')
-    const { rows, elided } = this.limit(all, detail)
+    const { rows, elided } = this.limit(all, budget)
     const role = isError ? 'error' : 'subdued'
     const out = rows.map((row, index) => (index === 0
       ? `${BODY_INDENT}${paint(MARK.body, 'chrome')} ${truncateToWidth(paint(row, role), columns - 4)}`
@@ -813,13 +1025,13 @@ export class ToolCards extends PendingToolCalls {
   }
 
   /**
-   * Cut a body to a detail level's row budget.
+   * Cut a body to a row budget.
    * @param rows - every row the body could show.
-   * @param detail - the detail level being drawn.
+   * @param budget - rows the section may draw, from the allowance the card
+   *   shares across its body sections.
    * @returns the retained rows and how many were dropped.
    */
-  private limit(rows: readonly string[], detail: RenderDetail): { rows: readonly string[]; elided: number } {
-    const budget = rowBudget(detail)
+  private limit(rows: readonly string[], budget: number): { rows: readonly string[]; elided: number } {
     if (rows.length <= budget) return { rows, elided: 0 }
     return { rows: rows.slice(0, budget), elided: rows.length - budget }
   }
@@ -862,6 +1074,39 @@ function rawInputText(rawInput: unknown): string {
   if (rawInput === undefined || rawInput === null) return ''
   if (typeof rawInput === 'string') return rawInput
   return JSON.stringify(rawInput) ?? ''
+}
+
+/**
+ * One web source's rows: its title with its url, then the optional fields
+ * beneath, in the order the contract lists them.
+ *
+ * An untitled source shows its url once: the fallback IS the url row, and a url
+ * beside itself carries no information. A field that arrives with an embedded
+ * newline is folded to one row rather than split, because the row budget counts
+ * rows, and one source field silently becoming several rows would spend budget
+ * the reader did not see being spent.
+ * @param source - the structured source, exactly as the harness published it.
+ * @param columns - the terminal's current width.
+ * @returns the source's rows, already truncated to fit.
+ */
+function webSourceRows(source: WebSource, columns: number): string[] {
+  const width = Math.max(1, columns - 4)
+  const oneLine = (text: string): string => escapeControls(text).replace(/\n/gu, ' ')
+  const rows = [
+    source.title === undefined
+      ? truncateToWidth(paint(oneLine(source.url), 'link'), width)
+      : truncateToWidth(`${paint(oneLine(source.title), 'link')} ${paint(oneLine(source.url), 'link-target')}`, width),
+  ]
+  if (source.snippet !== undefined && source.snippet.trim() !== '') {
+    rows.push(truncateToWidth(paint(oneLine(source.snippet.trim()), 'subdued'), width))
+  }
+  if (source.publishedAt !== undefined && source.publishedAt.trim() !== '') {
+    // Displayed without date parsing or reformatting: the provider value is
+    // preserved without interpreting it as a date, whose precision the
+    // contract never states.
+    rows.push(truncateToWidth(paint(`published ${oneLine(source.publishedAt.trim())}`, 'muted'), width))
+  }
+  return rows
 }
 
 /**
