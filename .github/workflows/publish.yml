@@ -168,7 +168,6 @@ jobs:
         env:
           PUBLISH_ARTIFACT_ROOT: ${{ runner.temp }}/dshline-npm-packages
           NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/empty-npmrc
-          npm_config_userconfig: ${{ runner.temp }}/empty-npmrc
           NPM_TOKEN: ''
           NODE_AUTH_TOKEN: ''
         run: node tools/publish-packages.mjs
