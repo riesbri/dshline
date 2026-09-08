@@ -105,7 +105,7 @@ describe('publishWorkspacePackages()', () => {
     const runPublish = vi.fn(item => ({
       status: 1,
       stdout: '',
-      stderr: `[E409] 409 Conflict - PUT https://registry.npmjs.org/${item.name.replace('/', '%2f')} - Cannot publish over previously staged version "${item.version}"`,
+      stderr: `[E409] 409 Conflict - PUT https://registry.npmjs.org/${encodeURIComponent(item.name)} - Cannot publish over previously staged version "${item.version}"`,
     }))
     const readPublished = vi.fn(async () => ({ kind: 'absent' }))
 
