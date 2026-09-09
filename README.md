@@ -20,7 +20,7 @@ An agent in your terminal — not instead of it. Finished output stays in your t
 ## See it in action
 
 <p align="center">
-  <img src=".github/assets/dshline-demo.gif" alt="Animated terminal walkthrough of dshline: choosing a model, browsing plugins, and following a subagent task." />
+  <video src=".github/assets/dshline-demo.mp4" controls muted loop playsinline aria-label="Terminal walkthrough of dshline: choosing a model and following a subagent task."></video>
 </p>
 
 ## Install
