@@ -287,12 +287,18 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   const exit = ctx.get('appExit')
   const startup = ctx.tuiStartup.options
   const terminal = acquireTerminal({ input: process.stdin, output: process.stdout })
-  // Taken with the terminal, and released with it. `Screen` is correct only
-  // while it is the sole writer, and a plugin that writes to descriptor 2
-  // directly is not something dshline can ask to stop — see ./stderr.ts for
-  // the writer this contains and why the descriptor, not the stream, is what
-  // moves. Registered before the screen exists, so no frame is ever drawn with
-  // the real descriptor still exposed.
+  // TEMPORARY: a compatibility shim for an upstream defect, not a dshline
+  // abstraction. `Screen` is correct only while it is the sole writer, and a
+  // subagent backend in the generation named by HARNESS_TARGET writes a
+  // delegated child's diagnostics straight to descriptor 2 for the life of the
+  // run — which on an interactive launch is this terminal. ./stderr.ts carries
+  // the write shape, why the descriptor rather than the stream is what moves,
+  // and the condition under which both files are deleted: the real fix is a
+  // Host-owned diagnostic seam upstream, and this goes away with the
+  // generation that provides one.
+  //
+  // Taken with the terminal and released with it, before the screen exists, so
+  // no frame is ever drawn with the real descriptor still exposed.
   ctx.effect(() => holdStderrOffTerminal(), 'dshline: foreign stderr writes')
   // Installed here, and before the screen exists, because this is the one
   // place already coupled to the real `process` streams — the renderer reads
