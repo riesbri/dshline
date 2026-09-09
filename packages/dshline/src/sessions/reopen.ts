@@ -102,7 +102,7 @@ export interface AttachSpec {
    * roster is mounted; called only when one is created. A resumed session
    * needs no equivalent — its header already carries whatever it was created
    * with, and Harness's `agentPreset` Session projection folds that with any
-   * later `agent-preset/selected` event, read inside `setup(agentCtx)`, not
+   * later `agent-preset/selected` event, read inside `setup(agentCtx, agent)`, not
    * here.
    */
   readonly newSessionPreset: () => string | undefined

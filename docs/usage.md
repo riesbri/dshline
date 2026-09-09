@@ -73,6 +73,8 @@ Pasting several lines inserts all of them and sends them as a single message.
 
 Staging reads no file and creates no attachment. On the next prompt, dshline resolves and reads each path through the active Harness filesystem with the deployment's byte limit, then asks `ctx.attachments` to validate and durably commit the complete batch before sending it. A failed or cancelled admission keeps the staged paths and restores the prompt; `ctrl-c` cancels admission without quitting. Successfully sending the prompt clears the draft.
 
+Enter on an empty composer sends the images on their own — the staged batch is the message, and it goes without an empty line of your own in front of it. Enter with nothing typed and nothing staged still does nothing.
+
 The empty composer reports the staged count. Once sent, the transcript shows each durable image's display name, dimensions, and size; the opaque attachment id, bytes, and storage path are never printed. Reopening a session reconstructs those rows from the durable `ImageBlock` references in its log. Unsent drafts are process-local to the attached session and are discarded when you start or reopen another session.
 
 An explicitly text-only selected model is refused before any image is read. When a provider does not declare its input modalities, dshline does not guess from its name: Harness receives the image and remains the authority. Registered slash commands accept staged images only when their command descriptor declares `input.attachments`; an error keeps both the command text and images for correction or retry.
@@ -283,7 +285,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.3-alpha.2
+✓ Harness    0.1.5-alpha.1
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -332,9 +334,9 @@ dependency is pinned to, and the version you have is read from the
 and both commands that would bring them together:
 
 ```
-⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.3-alpha.2
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.1
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.3-alpha.2
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.1
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
@@ -1123,7 +1125,7 @@ has room for the answer.
 │      ~28k  15%  tool result · read_file                    │
 │      ~18k  10%  assistant reply                            │
 │      ~14k   8%  your message                               │
-│       ~9k   5%  injected context · instructions            │
+│      ~12k   7%  system prompt                              │
 │                                                            │
 ╰─ ↑↓ select · ↵ inspect · c compact · esc close ────────────╯
 ```
@@ -1143,7 +1145,10 @@ conversation with one fixed density estimate; that estimate systematically
 underprices CJK text and JSON schemas, which is why the occupancy figure above
 is anchored to the provider instead. So the three shares divide their own sum,
 and they will not add up to the figure at the top. That is the honest
-arrangement, not a rounding error.
+arrangement, not a rounding error. `system` is the prompt actually in force —
+the last one still standing on the surface; a route that changes its prompt
+mid-conversation leaves the superseded ones counted under `messages`, because
+they are still occupying context.
 
 **The largest entries are what makes this more than a progress bar.** Harness
 prices every entry the model is currently carrying, and dshline sorts them and
@@ -1165,11 +1170,14 @@ shows what was there, and the model no longer sees it.
 
 `↵` opens one entry: what kind of context it is, how much of the conversation it
 accounts for, where in the session it came from, and a bounded preview of what
-the model is actually carrying. `share` says **of message context**, and means
-it: the denominator is the conversation alone, because that is what the per-entry
-meter prices. The system prompt and the tool schemas are counted by the other
-estimator above, and adding two different estimates together to reach one
-whole-context percentage would be inventing a number neither of them states.
+the model is actually carrying. The system prompt is one of these entries —
+`system prompt`, regularly the largest thing in a fresh session — because the
+session format keeps it on the same model-visible surface as everything else.
+`share` says **of message context**, and means it: the denominator is that
+surface alone, because that is what the per-entry meter prices. The tool schemas
+are counted by the other estimator above, and adding two different estimates
+together to reach one whole-context percentage would be inventing a number
+neither of them states.
 
 ```
 ╭─ dshline ────────────────────────────────── Context entry ─╮
@@ -1214,8 +1222,8 @@ provider serve from its cache?
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
-│  system prompt   present                                    │
 │  tools           26                                         │
+│  prompt updates  in-history                                 │
 │                                                             │
 │  Latest request header Harness recorded.                    │
 ╰─ esc close ─────────────────────────────────────────────────╯
@@ -1230,11 +1238,22 @@ the session moves to another model. The caption under the figures says that
 scope in one line.
 
 The bottom half is `Session.requestHeader()`, Harness's own fold of the request
-header. That header is the request state **outside** the conversation: the
-route, the rendered system prompt, and the assembled tool schemas. It is the
-**latest header Harness recorded**, not a promise about the next request — a
-step reassembles the system prompt and the tool list, and may pass them straight
-through, before any new header is logged.
+header. That header is the request state **outside** the conversation: the route
+and the assembled tool schemas. It is the **latest header Harness recorded**, not
+a promise about the next request — a step reassembles the tool list, and may pass
+it straight through, before any new header is logged.
+
+**The system prompt is not there, and that is a fact about Harness rather than a
+gap here.** In the adopted session format the rendered prompt is part of the
+conversation — a `system/message` entry on the model-visible surface, which is
+where `/context` shows it — instead of a field of the request header. So `/cache`
+reports the one prompt fact the request head still holds: `prompt updates`, how
+the recorded route takes a prompt that changes mid-conversation. `in-history`
+means a changed prompt is appended after the cached history rather than rewriting
+the first message, which is the difference between a prompt change a prefix cache
+survives and one it does not. The row appears only once Harness has recorded
+route metadata: before that, nothing is known, and `leading message` would be a
+route fact nobody logged.
 
 **Figures appear only when the provider reported a cache read.** Harness's cache
 counts are optional fields folded to zero when absent, so a route whose adapter
@@ -1253,8 +1272,8 @@ provider fact nobody reported:
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
-│  system prompt   present                                    │
 │  tools           31                                         │
+│  prompt updates  leading message                            │
 │                                                             │
 │  Latest request header Harness recorded.                    │
 ╰─ esc close ─────────────────────────────────────────────────╯

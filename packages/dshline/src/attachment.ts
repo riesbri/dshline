@@ -49,6 +49,7 @@ import type { Key, SubmitGesture } from '@dshline/renderer'
 import { Composer, escapeControls, paint, SPINNER_INTERVAL_MS } from '@dshline/renderer'
 import { CARD_DETAIL_CYCLE, ToolCards } from './cards.ts'
 import { chooseDelivery } from './delivery.ts'
+import type { Delivery } from './delivery.ts'
 import { BUSY_ENTER_CHOICES, runEnterCommand } from './enter.ts'
 import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from './activity.ts'
 import type { ModelPhase } from './activity.ts'
@@ -88,7 +89,7 @@ import {
   usageInspection,
 } from './usage.ts'
 import { createUsageOverlay } from './usage-overlay.ts'
-import { cacheInspection, cacheTransitionNote, requestHeaderReading } from './cache/model.ts'
+import { cacheInspection, cacheTransitionNote, requestHeaderReading, routeContextReading } from './cache/model.ts'
 import { createCacheOverlay } from './cache/overlay.ts'
 import { contextPreview, contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
 import { createContextOverlay } from './context/overlay.ts'
@@ -696,12 +697,13 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         const overlay = createCacheOverlay({
           // One projection cut per paint, the same one `/usage` reads, so the
           // two inspectors cannot report different buckets for one moment. The
-          // header beside it is Harness's own accessor, read the same way — no
-          // state of this frontend's own stands behind either figure, and no
+          // two records beside it are Harness's own accessors, read the same way
+          // — no state of this frontend's own stands behind any figure, and no
           // fact recorded before the newest header survives into the report.
           inspection: () => cacheInspection(
             projections.snapshot(),
             requestHeaderReading(agent.session),
+            routeContextReading(agent.session),
           ),
           close: () => dismiss(),
         })
@@ -1333,12 +1335,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // preset change must repaint its footer before the next key is interpreted.
   scope.own(ctx.on('commands/change', () => { ctx.tuiSlots.invalidate() }))
 
-  // `Inbox.splice` in @deepseek-ai/dsh-agent/inbox and the
-  // `agent/inbox/spliced` declaration in @deepseek-ai/dsh-agent/types both say
-  // the durable event commits before the live projection mutates, so this
-  // synchronous observer sees the pre-splice lists. It only requests a redraw:
-  // RedrawScheduler paints in the check phase after the event-loop turn settles,
-  // and the status getter then reads the current `agent.inbox` projection directly.
+  // Every durable event of THIS session, including `agent/inbox/spliced`. The
+  // adopted generation applies the committed event to the session-projection
+  // registry before `Session.append()` returns and publishes the Inbox's live
+  // notifications after that commit, so a synchronous observer here must not
+  // read pending state at all: it only requests a redraw. RedrawScheduler paints
+  // in the check phase after the event-loop turn settles, and the status getter
+  // then re-reads the authoritative `agent.inbox` — which is why this frontend
+  // needs no second inbox listener and keeps no pending count of its own.
   scope.own(ctx.on('session/event', (session, event: SessionEvent) => {
     if (session !== agent.session) return
     const columns = terminal.columns()
@@ -1420,6 +1424,115 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   }))
 
   /**
+   * Deliver one prompt to the attached Agent, admitting staged images first.
+   *
+   * Split out of {@link submit} because an attachment-only submission has no
+   * line to adjudicate: an empty line is not a command, cannot name a skill,
+   * and must not enter input history, so it reaches this directly while a typed
+   * line arrives here only after the command and skill decisions above are done
+   * with it.
+   * @param line - the already-trimmed prompt text; empty for an attachment-only send.
+   * @param submittedDelivery - the verb decided at the instant of submission.
+   */
+  const sendPrompt = async (line: string, submittedDelivery: Delivery): Promise<void> => {
+    let images: readonly ImageBlock[] = []
+    if (imageDrafts.size > 0) {
+      if (imageAdmission !== undefined) {
+        if (composer.isEmpty) composer.set(line)
+        commit([paint('· images are still being attached; nothing else was sent', 'muted')])
+        draw()
+        return
+      }
+      const attachments = ctx.get('attachments')
+      const fs = ctx.get('fs')
+      if (attachments === undefined || fs === undefined) {
+        // A profile can recompose between staging and send. The paths remain in
+        // this session and the text returns to the composer; pretending the
+        // message went without its images would be silent semantic loss.
+        composer.set(line)
+        commit([paint('✗ image attachment became unavailable; nothing was sent', 'error')])
+        draw()
+        return
+      }
+      if (w.modelInfo.inputModalities !== undefined && !w.modelInfo.inputModalities.includes('image')) {
+        if (composer.isEmpty) composer.set(line)
+        commit([paint(`✗ model ${selection.current?.model ?? 'selected'} does not support image input; nothing was sent`, 'error')])
+        draw()
+        return
+      }
+      const admission = new AbortController()
+      imageAdmission = admission
+      const batch = imageDrafts.items
+      const admissionSignal = AbortSignal.any([attachmentAbort.signal, admission.signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)])
+      let inputs
+      try {
+        inputs = await readImageDrafts(
+          batch,
+          fs,
+          workspace,
+          attachments.imageLimits.maxImageBytes,
+          attachments.imageLimits.maxMessageImageBytes,
+          admissionSignal,
+        )
+      } catch (error: unknown) {
+        if (scope.closed) return
+        if (imageAdmission === admission) imageAdmission = undefined
+        if (composer.isEmpty) composer.set(line)
+        if (admission.signal.aborted) {
+          commit([paint('· image attachment cancelled; nothing was sent', 'muted')])
+        } else {
+          commit([paint(`✗ ${imageFilesystemFailure(error)}; nothing was sent`, 'error')])
+        }
+        draw()
+        return
+      }
+      if (scope.closed) return
+      try {
+        const refs = await attachments.saveImages(inputs)
+        images = refs.map(attachment => ({ type: 'image', attachment }))
+        // The attachment provider publishes atomically but cannot be interrupted.
+        // Honour a reader cancellation that arrived while that publication ran
+        // before the now-durable refs can reach an Agent inbox.
+        admissionSignal.throwIfAborted()
+      } catch (error: unknown) {
+        if (scope.closed) return
+        // Do not overwrite text typed while a slow filesystem/provider was
+        // answering. The attempted line is already in session input history;
+        // when the composer is still empty, restore it directly as well.
+        if (composer.isEmpty) composer.set(line)
+        if (admission.signal.aborted) {
+          commit([paint('· image attachment cancelled; nothing was sent', 'muted')])
+          draw()
+        } else report(error)
+        return
+      } finally {
+        if (imageAdmission === admission) imageAdmission = undefined
+      }
+      // `saveImages` deliberately has no cancellation parameter: durable batch
+      // publication may finish after this attachment begins teardown. Never let
+      // that stale completion enqueue into the Agent the window has left.
+      if (scope.closed) return
+    }
+    // An attachment-only send carries no text block at all. An empty one is not
+    // the same message: it would put a blank turn of the reader's own words in
+    // front of the images, in the log and in every later replay of it.
+    const message = createUserMessage({
+      content: [...line === '' ? [] : [{ type: 'text' as const, text: line }], ...images],
+      source: { kind: 'user' },
+    })
+    // The reader's choice, not the agent's status. Both verbs were always
+    // available while a turn ran; picking `steer` because it was the one the
+    // status made obvious meant every busy submission joined the turn already in
+    // flight, and nothing ever asked for a follow-up. Harness still owns the
+    // scheduling and the durability of both — this decides only which of the two
+    // the line was meant for, and calls that verb once.
+    if (submittedDelivery === 'steer') agent.steer(message)
+    else agent.followup(message)
+    imageDrafts.clear()
+    draw()
+  }
+
+  /**
    * Handle one submitted line: a local gesture, a registered command, or a
    * prompt for the model.
    * @param text - the submitted line.
@@ -1427,8 +1540,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const submit = async (text: string, gesture: SubmitGesture = 'enter'): Promise<void> => {
     const line = text.trim()
     // The composer has already cleared a submitted buffer. Stop here rather than
-    // turning spaces or pasted blank lines into an empty model message.
-    if (line === '') return
+    // turning spaces or pasted blank lines into an empty model message — unless
+    // attachments are staged, which is a message with content even though nobody
+    // typed a word.
+    if (line === '' && imageDrafts.size === 0) return
     // This is the reader's choice at the instant of submission. Image admission
     // can wait on storage; its completion must not reinterpret the same key
     // against a later turn state or preference.
@@ -1437,6 +1552,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       preference: prefs.busyEnter,
       gesture,
     })
+    if (line === '') {
+      // Attachments and no words: the reader composed this message with the
+      // `/image` gesture instead of the keyboard. Nothing below has anything to
+      // decide about it — an empty line names no command and no skill, and
+      // recording it in input history would put a blank entry under `↑`.
+      await sendPrompt(line, submittedDelivery)
+      return
+    }
     // Parsed once, up front: the local gestures and the unknown-command guard below
     // have to agree on what a command line is, and the registry's parser is the
     // authority on that. A second rule written here would drift from it.
@@ -1649,98 +1772,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // instead of a contract, so this follows the same field Harness's own Web
       // client does and the limit is documented — see docs/architecture.md.
     }
-    let images: readonly ImageBlock[] = []
-    if (imageDrafts.size > 0) {
-      if (imageAdmission !== undefined) {
-        if (composer.isEmpty) composer.set(line)
-        commit([paint('· images are still being attached; nothing else was sent', 'muted')])
-        draw()
-        return
-      }
-      const attachments = ctx.get('attachments')
-      const fs = ctx.get('fs')
-      if (attachments === undefined || fs === undefined) {
-        // A profile can recompose between staging and send. The paths remain in
-        // this session and the text returns to the composer; pretending the
-        // message went without its images would be silent semantic loss.
-        composer.set(line)
-        commit([paint('✗ image attachment became unavailable; nothing was sent', 'error')])
-        draw()
-        return
-      }
-      if (w.modelInfo.inputModalities !== undefined && !w.modelInfo.inputModalities.includes('image')) {
-        if (composer.isEmpty) composer.set(line)
-        commit([paint(`✗ model ${selection.current?.model ?? 'selected'} does not support image input; nothing was sent`, 'error')])
-        draw()
-        return
-      }
-      const admission = new AbortController()
-      imageAdmission = admission
-      const batch = imageDrafts.items
-      const admissionSignal = AbortSignal.any([attachmentAbort.signal, admission.signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)])
-      let inputs
-      try {
-        inputs = await readImageDrafts(
-          batch,
-          fs,
-          workspace,
-          attachments.imageLimits.maxImageBytes,
-          attachments.imageLimits.maxMessageImageBytes,
-          admissionSignal,
-        )
-      } catch (error: unknown) {
-        if (scope.closed) return
-        if (imageAdmission === admission) imageAdmission = undefined
-        if (composer.isEmpty) composer.set(line)
-        if (admission.signal.aborted) {
-          commit([paint('· image attachment cancelled; nothing was sent', 'muted')])
-        } else {
-          commit([paint(`✗ ${imageFilesystemFailure(error)}; nothing was sent`, 'error')])
-        }
-        draw()
-        return
-      }
-      if (scope.closed) return
-      try {
-        const refs = await attachments.saveImages(inputs)
-        images = refs.map(attachment => ({ type: 'image', attachment }))
-        // The attachment provider publishes atomically but cannot be interrupted.
-        // Honour a reader cancellation that arrived while that publication ran
-        // before the now-durable refs can reach an Agent inbox.
-        admissionSignal.throwIfAborted()
-      } catch (error: unknown) {
-        if (scope.closed) return
-        // Do not overwrite text typed while a slow filesystem/provider was
-        // answering. The attempted line is already in session input history;
-        // when the composer is still empty, restore it directly as well.
-        if (composer.isEmpty) composer.set(line)
-        if (admission.signal.aborted) {
-          commit([paint('· image attachment cancelled; nothing was sent', 'muted')])
-          draw()
-        } else report(error)
-        return
-      } finally {
-        if (imageAdmission === admission) imageAdmission = undefined
-      }
-      // `saveImages` deliberately has no cancellation parameter: durable batch
-      // publication may finish after this attachment begins teardown. Never let
-      // that stale completion enqueue into the Agent the window has left.
-      if (scope.closed) return
-    }
-    const message = createUserMessage({
-      content: [{ type: 'text', text: line }, ...images],
-      source: { kind: 'user' },
-    })
-    // The reader's choice, not the agent's status. Both verbs were always
-    // available while a turn ran; picking `steer` because it was the one the
-    // status made obvious meant every busy submission joined the turn already in
-    // flight, and nothing ever asked for a follow-up. Harness still owns the
-    // scheduling and the durability of both — this decides only which of the two
-    // the line was meant for, and calls that verb once.
-    if (submittedDelivery === 'steer') agent.steer(message)
-    else agent.followup(message)
-    imageDrafts.clear()
-    draw()
+    await sendPrompt(line, submittedDelivery)
   }
 
   /**
@@ -1875,6 +1907,32 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     }
     if (action.key.kind !== 'key') return
     switch (action.key.name) {
+      // The composer reports an empty buffer's enter as `ignored` rather than as
+      // an empty submit, deliberately: what nothing means is the caller's
+      // business, and the renderer holds no Harness vocabulary to decide it.
+      // Here it means one thing — staged attachments are a message. The reader
+      // composed it with the `/image` gesture instead of the keyboard, and
+      // refusing to send it would leave the only way to send an image being to
+      // type something beside it.
+      case 'enter':
+      case 'ctrl-enter': {
+        if (imageDrafts.size === 0) return
+        completion.invalidate()
+        if (replaying !== undefined) {
+          // Same rule a typed line gets while the transcript is still arriving:
+          // nothing is sent, the drafts are untouched, and the reason is parked
+          // to be committed after the replay flood rather than above it.
+          replayNotes.push(paint(
+            `· still ${replaying} — nothing was sent; press enter again in a moment`,
+            'muted',
+          ))
+          draw()
+          return
+        }
+        draw()
+        submit('', action.key.name === 'ctrl-enter' ? 'accelerated' : 'enter').catch(report)
+        return
+      }
       case 'ctrl-c': {
         if (imageAdmission !== undefined) {
           imageAdmission.abort(new Error('Image attachment cancelled by the reader.'))

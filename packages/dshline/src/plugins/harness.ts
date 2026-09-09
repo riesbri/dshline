@@ -173,7 +173,7 @@ export interface AgentPresetsSeam {
   resolve(id?: string): Promise<AgentPresetRow>
   /** The preset id a joined agent is actually composed from, if any. */
   composedPreset(agentCtx: object): string | undefined
-  /** Join an unpublished agent to a preset's standing composition; the only supported call site is `setup(agentCtx)`. */
+  /** Join an unpublished agent to a preset's standing composition; the only supported call site is `setup(agentCtx, agent)`. */
   mount(agentCtx: object, id?: string): Promise<AgentPresetRow>
   /**
    * Re-link one agent to a different preset's standing composition.

@@ -56,6 +56,11 @@ export const CAPABILITY_PROBES = [
     note: 'real runtime lifecycle over a provider-neutral local backend, plus real subagentTiming/tokenUsage projections over synthetic Session events; no provider backend or discovery is claimed',
   },
   {
+    name: 'inbox',
+    files: ['packages/dshline/tests/capability/inbox.probe.spec.ts'],
+    note: 'production AgentLoop Agents from the Harness testkit: durable followup/steer splice targets, the driver claim, cancellation, and cross-Agent isolation behind dshline’s pending count; no LLM adapter is mounted, so request and settlement behavior is not claimed',
+  },
+  {
     name: 'sessionProjections',
     files: [
       'packages/dshline/tests/todos.spec.ts',

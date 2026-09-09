@@ -8,19 +8,32 @@
  *   cumulative fold of the provider's buckets in this frontend and `/cache` is
  *   not a second one — a second fold that disagreed with the first would leave a
  *   reader with two numbers and no way to tell which was billed.
- * - **The request header** is `Session.requestHeader()`, Harness's own
- *   incrementally-maintained fold of the log's `request/header` events. It is
- *   the LATEST header Harness recorded, which is a weaker fact than the header
- *   the next request will carry: a step reassembles the system prompt and the
- *   tool list and may pass them through `agent/request` before any new header is
- *   logged. This module reports what was recorded and nothing beyond it.
+ * - **The request head** is `Session.requestHeader()` and `Session.requestContext()`,
+ *   Harness's own incrementally-maintained folds of the log's `request/header`
+ *   and `request/context` events. They are the LATEST records Harness kept,
+ *   which is a weaker fact than what the next request will carry: a step
+ *   reassembles the tool list and may pass it through `agent/request` before any
+ *   new header is logged. This module reports what was recorded and nothing
+ *   beyond it.
  *
- * In particular there is no stability verdict here, and no history. The pinned
- * Harness generation publishes no prefix-stability projection, and reconstructing
- * one by scanning the log would make this frontend a second historical authority
- * over state Harness owns. A `request/header` event does not even mean the header
- * moved: upstream logs one on resume, and again after a surface replacement, with
- * the header unchanged. So `/cache` reports the latest recorded header and stops.
+ * The system prompt is deliberately absent. In Session format V3 it is durable
+ * conversation history — a `system/message` surface node — not a field of
+ * `EpochHeader`, which now carries call configuration and tool schemas only.
+ * There is no cheap authoritative "is a prompt attached" flag left to read, and
+ * folding the surface here to reconstruct one would make this frontend a second
+ * historical authority over state Harness owns. What `/cache` reports instead is
+ * the fact the removal exposed and a cache reader actually needs:
+ * {@link RouteContextReading.promptUpdate}, the route's declared handling of a
+ * system prompt that CHANGES mid-conversation. `'in-history'` means a changed
+ * prompt is appended after the cached history rather than rewriting message 0,
+ * which is the difference between a prompt change that survives a prefix cache
+ * and one that does not.
+ *
+ * In particular there is no stability verdict here, and no history. The adopted
+ * Harness generation publishes no prefix-stability projection, and a
+ * `request/header` event does not even mean the header moved: upstream logs one
+ * on resume, and again after a surface replacement, with the header unchanged.
+ * So `/cache` reports the latest recorded records and stops.
  *
  * It also never joins the two halves. The buckets are cumulative over the whole
  * session, across every route it used; the header is one record. Naming a header
@@ -29,7 +42,8 @@
  * @module dshline/cache/model
  */
 
-import type { EpochHeader, Session } from '@deepseek-ai/dsh-session'
+import type { EpochHeader, RequestContext, Session } from '@deepseek-ai/dsh-session'
+import type { SystemPromptUpdate } from '@deepseek-ai/dsh-llm'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-token-meter/client'
@@ -39,25 +53,50 @@ import { cacheReadShare, usageBuckets } from '../usage.ts'
 /**
  * The latest request header Harness recorded.
  *
- * Three facts, all read straight off {@link EpochHeader}: the route, whether a
- * rendered system prompt is attached, and how many tool schemas were assembled.
- * `EpochHeader` is the request state OUTSIDE derived history, so this describes
- * the head of a request and says nothing about the conversation under it.
+ * Two facts, both read straight off {@link EpochHeader}: the route, and how many
+ * tool schemas were assembled. `EpochHeader` is the request state OUTSIDE
+ * derived history, so this describes the head of a request and says nothing
+ * about the conversation under it — including the system prompt, which is a
+ * surface node of that conversation rather than a header field.
  *
- * Deliberately NOT called the next request's header. A step reassembles the
- * system prompt and the tool list, and may pass them through `agent/request`,
- * before a new header snapshot is logged — so the newest record is what this
- * describes, and the next request is free to carry something else.
+ * Deliberately NOT called the next request's header. A step reassembles the tool
+ * list, and may pass it through `agent/request`, before a new header snapshot is
+ * logged — so the newest record is what this describes, and the next request is
+ * free to carry something else.
  */
 export interface RequestHeaderReading {
   /** Whether any header was recorded yet — false before this session's first request. */
   readonly recorded: boolean
   /** The route, as `provider/model`, the form every Harness route id is written in. */
   readonly route: string | undefined
-  /** Whether that header carries a rendered system prompt. */
-  readonly system: boolean
   /** Model-visible tool schemas in that header; 0 for a tool-less request. */
   readonly tools: number
+}
+
+/**
+ * The latest route metadata Harness recorded, for the one cache-relevant fact
+ * it carries.
+ *
+ * `request/context` is logged only when the route, its capacity, or its
+ * system-prompt update mode changes, and upstream states it takes no part in
+ * request reconstruction or header equality — so it is read here for exactly
+ * one field and never joined to the header above it.
+ *
+ * `promptUpdate` is absence-defined rather than unknown: upstream documents an
+ * absent `systemPromptUpdate` as "only a leading system message is read". That
+ * is why {@link recorded} exists separately — before the first
+ * `request/context`, nothing is known, and reporting `leading` there would state
+ * a route fact nobody logged.
+ */
+export interface RouteContextReading {
+  /** Whether any route metadata was recorded yet. */
+  readonly recorded: boolean
+  /**
+   * How the recorded route takes a system prompt that changes mid-conversation.
+   * `'in-history'` reads the latest `system` message at any position; undefined
+   * on a recorded route means only the leading one is read.
+   */
+  readonly promptUpdate: SystemPromptUpdate | undefined
 }
 
 /** Everything `/cache` can truthfully report. */
@@ -70,14 +109,21 @@ export interface CacheInspection {
   readonly cacheReadShare: number | undefined
   /** The latest request header Harness recorded. */
   readonly header: RequestHeaderReading
+  /** The latest route metadata Harness recorded. */
+  readonly route: RouteContextReading
 }
 
 /** A reading for a session whose first request has not been built yet. */
 const NO_HEADER: RequestHeaderReading = {
   recorded: false,
   route: undefined,
-  system: false,
   tools: 0,
+}
+
+/** A reading for a session whose route metadata has not been logged yet. */
+const NO_ROUTE: RouteContextReading = {
+  recorded: false,
+  promptUpdate: undefined,
 }
 
 /**
@@ -100,8 +146,32 @@ export function requestHeaderReading(session: Session): RequestHeaderReading {
   return {
     recorded: true,
     route: `${header.config.provider}/${header.config.model}`,
-    system: header.system !== undefined && header.system.length > 0,
     tools: header.tools?.length ?? 0,
+  }
+}
+
+/**
+ * Read the latest route metadata Harness recorded.
+ *
+ * Guarded for the same reason {@link requestHeaderReading} is: the accessor
+ * folds `request/context` events and a malformed one throws there, and an
+ * inspector that reports nothing beats one that takes the frame down with it.
+ * @param session - the session whose log carries the route record.
+ * @returns the recorded route's cache-relevant facts, or nothing recorded.
+ */
+export function routeContextReading(session: Session): RouteContextReading {
+  let context: RequestContext | undefined
+  try {
+    context = session.requestContext()
+  } catch {
+    return NO_ROUTE
+  }
+  if (context === undefined) return NO_ROUTE
+  return {
+    recorded: true,
+    ...context.systemPromptUpdate === undefined
+      ? { promptUpdate: undefined }
+      : { promptUpdate: context.systemPromptUpdate },
   }
 }
 
@@ -113,11 +183,13 @@ export function requestHeaderReading(session: Session): RequestHeaderReading {
  * what one cut said.
  * @param snapshot - the authoritative projection cut, or undefined when the profile mounts no registry.
  * @param header - the latest request header Harness recorded.
+ * @param route - the latest route metadata Harness recorded.
  * @returns what `/cache` may report.
  */
 export function cacheInspection(
   snapshot: ProjectionSnapshot | undefined,
   header: RequestHeaderReading,
+  route: RouteContextReading,
 ): CacheInspection {
   const buckets = usageBuckets(snapshot)
   return {
@@ -125,6 +197,7 @@ export function cacheInspection(
     buckets,
     cacheReadShare: cacheReadShare(buckets),
     header,
+    route,
   }
 }
 

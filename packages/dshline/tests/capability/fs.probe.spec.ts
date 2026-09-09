@@ -1,7 +1,8 @@
 /**
  * Capability probe: `ctx.fs`, against the abstract contract and dshline use.
  *
- * dshline reads exactly two operations off the active filesystem:
+ * dshline reads exactly two operations off the active filesystem, and neither
+ * of them is this generation's new windowed `readByteRange`:
  * `resolve(path, { cwd, signal })` to turn a draft into a stable target, and
  * `readBytes(target, signal, maxBytes)` for the bounded read
  * `readImageDrafts` performs. `image-drafts.spec.ts` proves dshline's own
@@ -49,6 +50,15 @@ class MemoryFileSystem extends FileSystem {
     if (data === undefined) throw new Error(`capability probe: nothing stored at ${target.displayPath}`)
     if (data.byteLength > maxBytes) throw new Error('capability probe: read exceeded its bound')
     return data
+  }
+
+  override async readByteRange(): Promise<never> {
+    // Added to the abstract contract in this Harness generation. dshline's
+    // drafting path reads a whole bounded image through `readBytes`, so the
+    // windowed read is refused here rather than implemented: the probe
+    // documents what dshline consumes, and a convenient implementation would
+    // quietly claim a dependency it does not have.
+    throw new Error('capability probe: the drafting path consumes no windowed byte read')
   }
 
   override contains(): never {

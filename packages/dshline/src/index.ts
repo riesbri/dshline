@@ -20,8 +20,9 @@
  * old history is never silently rebuilt under today's default, and to the
  * deployment's own default WITH the substitution reported where no usable
  * `standard` exists), the roster's default on a fresh one — inside the one
- * supported `setup(agentCtx)` window. A profile that mounts no `agentPresets` seam at
- * all leaves that step a no-op; it does NOT by itself restore the old flat
+ * supported `setup(agentCtx, agent)` window, which is where Harness hands the
+ * unpublished Agent over explicitly. A profile that mounts no `agentPresets`
+ * seam at all leaves that step a no-op; it does NOT by itself restore the old flat
  * `dsh-base` tool set, since the disables in `cordis.patch.yml` apply
  * unconditionally. Removing the seam from an otherwise-stock composition
  * leaves an agent with no tools at all — the no-op only matters for a
@@ -197,7 +198,7 @@ async function run(
       // keeps the preset it was created with, not whatever is current default
       // today. The header is where Harness's own `agentPreset` Session
       // projection starts, and `mountAgentPreset` reads that projection inside
-      // `setup(agentCtx)`.
+      // `setup(agentCtx, agent)`.
       newSessionPreset: () => pluginsSeams(ctx).agentPresets?.defaultId,
       options: attachOptions(w),
       report: (kind, reason) => {

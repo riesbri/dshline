@@ -146,13 +146,17 @@ describe('the context inspector’s overview', () => {
         entry({ seq: 12, tokens: 9_000, share: 0.05, kind: 'context', tool: undefined, form: 'instructions' }),
         entry({ seq: 500, tokens: 5_000, share: 0.02, kind: 'summary', tool: undefined, replaced: true }),
         entry({ seq: 505, tokens: 4_000, share: 0.02, tool: 'read_file', replaced: true }),
+        // A surface node since Session format V3, and regularly the largest one
+        // in a fresh session — so it is named rather than left as `context entry`.
+        entry({ seq: 0, tokens: 3_000, share: 0.01, kind: 'system', tool: undefined }),
       ]),
     }).rows())
-    expect(body).toContain('Largest entries · estimated · 5 of 128')
+    expect(body).toContain('Largest entries · estimated · 6 of 128')
     expect(body).toContain('~42k  22%  tool result · run_shell_command')
     expect(body).toContain('assistant reply')
     expect(body).toContain('injected context · instructions')
     expect(body).toContain('compaction summary')
+    expect(body).toContain('system prompt')
     // A replaced result says only that: the durable log does not prove a
     // replacement was a reduction, and only a checkpoint proves who wrote one.
     expect(body).toContain('tool result · replaced · read_file')

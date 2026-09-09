@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { Context } from '@deepseek-ai/cordis'
+import { createSystemMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import SessionStore from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '@dshline/renderer'
 import { isTranscriptEvent, resumeBanner } from '../src/resume.ts'
+import { projectEvent } from '../src/transcript.ts'
 
 /**
  * A log event with just the fields the replay rule reads.
@@ -13,18 +17,22 @@ function event(type: string, surfaceOp?: string): SessionEvent {
   return { type, data: {}, ...surfaceOp === undefined ? {} : { surfaceOp } } as unknown as SessionEvent
 }
 
+/** Every surface-eligible event type of the adopted Session format. */
+const SURFACE_TYPES = ['system/message', 'user/message', 'assistant/message', 'tool/result']
+
 describe('what a resumed transcript replays', () => {
   it('replays what was appended to the surface', () => {
-    for (const type of ['user/message', 'assistant/message', 'tool/result']) {
+    for (const type of SURFACE_TYPES) {
       expect(isTranscriptEvent(event(type, 'append')), type).toBe(true)
     }
   })
 
   it('skips a replacement copy, which is model-only', () => {
-    // A compaction replaces a range so the model's history stays coherent. Replaying
-    // the replacement would show the user a summary in place of the exchange it
-    // summarised — conversation they already read, erased on reopening.
-    for (const type of ['user/message', 'assistant/message', 'tool/result']) {
+    // A compaction replaces a range so the model's history stays coherent, and a
+    // system-prompt normalization replaces a system node for the same reason.
+    // Replaying either would show the user a model-facing rewrite in place of
+    // what they actually saw.
+    for (const type of SURFACE_TYPES) {
       expect(isTranscriptEvent(event(type, 'replace')), type).toBe(false)
     }
   })
@@ -64,11 +72,81 @@ describe('what a resumed transcript replays', () => {
 
   it('replays a surface-eligible event carrying no surfaceOp', () => {
     // `isSurfaceEvent` requires the op to be present, so an event without one falls
-    // through to the general case and replays. Degenerate — the three surface types
+    // through to the general case and replays. Degenerate — the surface types
     // always carry one — and the safe direction: replaying something that was not
     // on the surface shows the user a line too many, where skipping it would hide
     // conversation they had.
     expect(isTranscriptEvent(event('user/message'))).toBe(true)
+  })
+
+  it('lets an appended system prompt through the gate, and draws nothing for it', () => {
+    // Session format V3 made the rendered system prompt a surface node, so it
+    // passes this predicate like any other append — and must still leave no mark
+    // on the transcript. Both halves are asserted together because that is the
+    // product rule: dshline does not print the deployment's standing
+    // instructions into a conversation nobody typed them into.
+    expect(isTranscriptEvent(event('system/message', 'append'))).toBe(true)
+    expect(projectEvent({
+      type: 'system/message',
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'sys-1',
+          role: 'system',
+          content: [{ type: 'text', text: 'You are a terminal agent.' }],
+          source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+        },
+      },
+    } as unknown as SessionEvent, 80)).toEqual([])
+  })
+})
+
+describe('a resumed V3 transcript, over a real Session log', () => {
+  it('replays the conversation and never the rendered system prompt', async () => {
+    // The whole replay rule against the real thing: a Session the adopted format
+    // validates, carrying the surface node 0 the loop appends before the first
+    // prompt, the normalizing replacement that follows a prompt edit, and the
+    // human turn between them. Harness owns the format and any migration into
+    // it; dshline only decides what a person sees, and a standing instruction
+    // block is not part of the conversation they had.
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const target: Session = ctx.sessions.create()
+
+    const head = target.append('system/message', {
+      turn: 1,
+      step: 1,
+      message: createSystemMessage('You are a terminal agent.', '@deepseek-ai/dsh-system-prompt'),
+    }, { surfaceOp: 'append' })
+    target.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'what changed here' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    // The prompt is re-rendered and the route cannot take an in-history change,
+    // so Harness rewrites the head node in place.
+    target.append('system/message', {
+      turn: 2,
+      step: 1,
+      message: createSystemMessage('You are a terminal agent. Be brief.', '@deepseek-ai/dsh-system-prompt'),
+    }, {
+      surfaceOp: { op: 'replace', startSeq: head.seq, endSeq: head.seq },
+      sourceEventSeqs: [head.seq],
+    })
+
+    const events = target.snapshotEvents()
+    // Three surface events, and only the two appends reach the projection.
+    expect(events.filter(isTranscriptEvent)).toHaveLength(2)
+    const lines = events
+      .filter(isTranscriptEvent)
+      .flatMap(candidate => projectEvent(candidate, 80))
+      .map(stripAnsi)
+      .join('\n')
+    expect(lines).toContain('what changed here')
+    expect(lines).not.toContain('You are a terminal agent')
+    expect(lines).not.toContain('Be brief')
+
+    await ctx.fiber.dispose()
   })
 })
 

@@ -59,11 +59,16 @@ export interface ContextOccupancy {
  * three — and are never divided into an occupancy figure.
  */
 export interface ContextComposition {
-  /** Estimated tokens of the newest request envelope's system prompt. */
+  /**
+   * Estimated tokens of the last nonempty surviving system prompt in surface
+   * order — the one actually in force. Superseded system nodes still on the
+   * surface are priced into {@link ContextComposition.messages}, because they
+   * are still occupying context.
+   */
   readonly system: number
-  /** Estimated tokens of its assembled tool schemas. */
+  /** Estimated tokens of the newest request envelope's assembled tool schemas. */
   readonly tools: number
-  /** Estimated tokens of the current model-visible conversation surface. */
+  /** Estimated tokens of every other visible surface node. */
   readonly messages: number
   /** The three added together, which is the only figure their shares divide. */
   readonly total: number
@@ -111,6 +116,10 @@ export function contextReading(snapshot: ProjectionSnapshot | undefined): Contex
     composition: breakdown === undefined
       ? undefined
       : {
+        // Straight off Harness's `contextBreakdown` projection, whose three
+        // figures are the authority for this split: the system share is the
+        // surviving prompt node it classifies, not a header field this frontend
+        // reads or a fold it repeats.
         system: breakdown.systemTokens,
         tools: breakdown.toolsTokens,
         messages: breakdown.messageTokens,
@@ -135,6 +144,17 @@ export function contextPressureTokens(reading: ContextReading): number | undefin
 
 /** What kind of context one current surface node is. */
 export type ContextEntryKind =
+  /**
+   * The rendered system prompt.
+   *
+   * A surface node like any other since Session format V3: the loop appends the
+   * first `system/message` as node 0 and a route that reads a later one appends
+   * changes after the cached history, so a session can carry several — of which
+   * the last nonempty one is in force. Named here because it is regularly the
+   * largest node in a fresh session, and reading `context entry` for it answered
+   * "what is occupying the context" with a shrug.
+   */
+  | 'system'
   /** A prompt the human typed. */
   | 'user'
   /** Producer-supplied context the model was given but nobody typed. */
@@ -165,12 +185,13 @@ export interface ContextEntry {
    * Share of the measured MESSAGE surface, 0 to 1; 0 when that total is 0.
    *
    * Deliberately not a share of the whole request context: the denominator is
-   * `TokenMeasurement.surfaceTokens`, which prices the conversation and nothing
-   * else. The system prompt and the tool schemas are priced by a different
-   * authority in a different vocabulary (see {@link ContextComposition}), and
-   * adding the two together to reach a whole-context percentage would be
-   * dshline inventing a total neither authority states. Presentation must say
-   * which context this divides.
+   * `TokenMeasurement.surfaceTokens`, which prices the model-visible message
+   * surface and nothing else. That surface now includes the system prompt's own
+   * node, but the tool schemas are still priced by a different authority in a
+   * different vocabulary (see {@link ContextComposition}), and adding the two
+   * together to reach a whole-context percentage would be dshline inventing a
+   * total neither authority states. Presentation must say which context this
+   * divides.
    */
   readonly share: number
   /** What kind of context this is. */
@@ -275,7 +296,10 @@ export class ContextSurveyor {
    * - the SURFACE revision — its node count and Harness's own monotonic
    *   `replaceGeneration`. Node count alone would serve a stale survey after a
    *   compaction, which SHRINKS the surface; the generation alone would miss an
-   *   ordinary append.
+   *   ordinary append. Together they also cover a system-prompt change, which is
+   *   a surface change since Session format V3 — an in-history route appends a
+   *   `system/message` node and an incapable one replaces the head — so there is
+   *   nothing extra to track for the prompt.
    * - the effective pricing ROUTE, read from the folded request envelope. It is
    *   what `measure()` prices with: the header's provider and model select the
    *   routed adapter's declared image pricing, so the same surface reprices when
@@ -471,6 +495,8 @@ function identityOf(
 ): Pick<ContextEntry, 'kind' | 'form' | 'tool' | 'turn' | 'step'> {
   const none = { form: undefined, tool: undefined, turn: undefined, step: undefined }
   switch (event.type) {
+    case 'system/message':
+      return { ...none, kind: 'system', turn: event.data.turn, step: event.data.step }
     case 'assistant/message':
       return { ...none, kind: 'assistant', turn: event.data.turn, step: event.data.step }
     case 'tool/result': {

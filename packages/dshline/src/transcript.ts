@@ -78,7 +78,8 @@ function marked(mark: string, text: string, columns: number): string[] {
  * Unrecognized event types return nothing rather than throwing: `SessionEventMap`
  * is merge-extensible, so any plugin may add a type this frontend has never seen,
  * and a frontend that failed on one would break the moment a deployment mounted
- * an unfamiliar plugin.
+ * an unfamiliar plugin. `system/message` is silent for a stated reason rather
+ * than by falling through, so removing that reason has to be a deliberate edit.
  * @param event - the committed event.
  * @param columns - the terminal's current width.
  * @returns lines to commit to scrollback.
@@ -126,6 +127,14 @@ export function projectEvent(event: SessionEvent, columns: number): string[] {
           return []
       }
     }
+    // The rendered system prompt is a surface node since Session format V3, so
+    // it reaches this projection like any other append. It contributes nothing
+    // on purpose: it is the deployment's standing instructions rather than
+    // something said in this conversation, and echoing it would open every fresh
+    // and every resumed transcript with a wall of prompt nobody typed. It is
+    // inspectable in `/context`, where it is named as the surface node it is.
+    case 'system/message':
+      return []
     default:
       return []
   }

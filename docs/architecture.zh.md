@@ -57,7 +57,8 @@ native terminal
 | 日志派生的状态 | `ctx.sessionProjections` | 消费已注册的领域快照与变更。 |
 | 上下文占用 | `ctx.sessionProjections`（`contextPressure`、`contextBreakdown`、`tokenUsage`） | 读取 O(1) 折叠；绝不自行计数 token 或分词。 |
 | 会话统计 | `ctx.sessionProjections`（`sessionStats`） | 读取全日志计数与墙钟时间；除了对两个已发布总量做一次除法之外不再推导任何东西。将该单元视为可选。 |
-| 请求元数据 | `Session.requestHeader()` | 为缓存/用量视图读取已记录的路由、系统提示与工具计数；不维护平行的 header。 |
+| 请求元数据 | `Session.requestHeader()` + `Session.requestContext()` | 为缓存/用量视图读取已记录的路由、工具计数，以及所记录路由的系统提示更新模式；不维护平行的 header。 |
+| 系统提示 | 持久的 `system/message` surface 节点 | 它是对话历史，不是请求元数据：用其他每个条目都在用的同一批权威把它当作 surface 条目来读，让它留在人类记录之外，并且不在 dshline 里保留任何自己的提示状态。 |
 | 逐条目的上下文组成 | `ctx.tokenMeter` | 只在检视器需要时索取逐节点测量；其自身约定称之为 O(surface)。 |
 | 计划模式 | 已提交的 `plan/mode` 事件；Harness 的 `plan` 投影作为约定证据 | 用 `planModeAfter()` 折叠已提交的模式事件；不维护可变的第二份状态，也不把 `ctx.planMode` 作为呈现镜像来读取。 |
 | 缩减上下文 | `ctx.commands`（`/compact`） | 派发已注册的命令；观察 `compaction/*` 事件。绝不调用 `ctx.compaction`。 |
@@ -117,7 +118,10 @@ dshline Todo presentation
 才可以索取它。dshline 把一次缓存的测量以节点价格所依赖的全部输入、且仅以这些输入为
 键：Harness 自己的 surface 修订号（节点数加上 `replaceGeneration`），以及生效的定价
 路线——后者读自 `session.requestHeader()`，因为 header 的 provider 与 model 正是选中
-计量所依据的适配器图片定价的东西。因此一个在流式回复期间一直开着的检视器只测量一次，
+计量所依据的适配器图片定价的东西。surface 修订号同样覆盖系统提示的变更：在被采纳的格式
+里那本身就是一次 surface 变更——支持 in-history 的路线追加一个 `system/message` 节点，
+不支持的则替换头节点——所以 dshline 不必为提示额外跟踪任何东西。因此一个在流式回复期间
+一直开着的检视器只测量一次，
 而落地的压缩（compaction）或路线变更会在下一次绘制时被采纳；而每记录一个已提交事件
 都会变动的日志长度，特意不进入这个键。只有**成功**的测量会被缓存：计量器缺失或拒绝时会
 重试，因为计量器可以在检视器首次读取之后才被挂载，而针对畸形日志抛出的错误也可能被
@@ -126,8 +130,8 @@ dshline Todo presentation
 两套词汇绝不混用。预测（projected）占用与启发式的组成并排呈现，且绝不相互相除；逐
 条目价格作为估算呈现，因为节点计量是按路线定价或启发式的，而不是提供方的分词器。为了
 让一个面板加得起来而把其中一套缩放成另一套，就是 dshline 在臆造记账——这也是逐条目
-份额被标注为**消息上下文**份额的原因：`surfaceTokens` 定价的是对话，而 envelope 由
-另一个权威定价。
+份额被标注为**消息上下文**份额的原因：`surfaceTokens` 定价的是模型可见的消息 surface
+（其中现在也包含系统提示自己的节点），而 envelope 由另一个权威定价。
 
 来源判定遵循同一条规则。`contextPressure.projectedTokens` 作为一个预测值呈现，而不是
 一个偶尔变得精确的提供方数字：与 `pressureTokens` 相等并不能证明 surface 没有动过，
@@ -375,7 +379,7 @@ dshline 不发起任何提供方 HTTP 请求，除了在一次显式的创建之
 
 agent 预设是 Harness 自己对"这个 agent 能做什么"的回答——一个由工具、提示词分节与委派后端
 构成的具名组合，通过 `ctx.agentPresets` 解析，并在其生命周期唯一受支持的那个点
-`setup(agentCtx)` 上加入某个 agent。`/plugins` 是这个 seam 的终端呈现：它列出名册，展示运行中
+`setup(agentCtx, agent)` 上加入某个 agent。`/plugins` 是这个 seam 的终端呈现：它列出名册，展示运行中
 agent 的预设实际组合的那些行，并通过与官方 Web 界面所做变更相同的权威执行变更。它不保留插件
 注册表、能力列表，也没有自己的提供方专用分支——正是本文档中每一个适配器都遵循的同一条规则，
 只是从"它能与哪些提供方对话"换成了"这个 agent 有哪些工具"。
