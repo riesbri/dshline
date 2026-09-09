@@ -39,6 +39,8 @@ interface Environment {
   models?: Record<string, { id: string; name: string }[]>
   /** Route keys the configurable directory publishes. */
   configurable?: string[]
+  /** Alpha-2 deferred catalog diagnostics, keyed by route. */
+  diagnostics?: Record<string, string>
   /** Whether the settings seam is mounted. */
   settings?: boolean
   /** The selection the window would open with. */
@@ -145,6 +147,9 @@ function harness(environment: Environment): Harness {
         settingsNs: 'llm-pi-ai',
         settingsPath: ['providers', provider],
         declared: false,
+        ...environment.diagnostics?.[provider] === undefined
+          ? {}
+          : { error: environment.diagnostics[provider] },
       })),
       listModels: async (provider: string) => {
         listedModels.push(provider)
@@ -267,6 +272,28 @@ describe('whether the guided flow opens at all', () => {
     })).toBe(false)
   })
 
+  it('opens when alpha-2 reports a selected route with no serviceable models', async () => {
+    const h = harness({
+      ...SETTLED,
+      refs: { openai: 'OPENAI_API_KEY' },
+      configured: ['OPENAI_API_KEY'],
+      diagnostics: { openai: 'model id is invalid' },
+      models: { openai: [] },
+    })
+    expect(await setupNeeded(h.ctx, h.selection)).toBe(true)
+    expect(h.listedModels).toEqual(['openai'])
+  })
+
+  it('stays out of the way when a deferred diagnostic leaves a model usable', async () => {
+    expect(await opens({
+      ...SETTLED,
+      refs: { openai: 'OPENAI_API_KEY' },
+      configured: ['OPENAI_API_KEY'],
+      diagnostics: { openai: 'one model is invalid' },
+      models: { openai: [{ id: 'usable', name: 'Usable' }] },
+    })).toBe(false)
+  })
+
   it('stays out of the way when the route names no credential reference', async () => {
     // An `llm-pi-ai` route activated by an account sign-in stores no
     // `apiKeyEnv` — that field carries no schema default — and a route
@@ -324,6 +351,21 @@ describe('the report reads Harness once', () => {
     expect(facts.credentialRef).toBe('OPENAI_API_KEY')
   })
 
+  it('keeps the full report aligned with the invalid-route startup gate', async () => {
+    const h = harness({
+      registered: ['openai'],
+      configurable: ['openai'],
+      selected: { provider: 'openai', model: 'broken' },
+      refs: { openai: 'OPENAI_API_KEY' },
+      configured: ['OPENAI_API_KEY'],
+      diagnostics: { openai: 'model id is invalid' },
+      models: { openai: [] },
+    })
+    const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current)
+    expect(facts.reason).toBe('configuration-invalid')
+    expect(await setupNeeded(h.ctx, h.selection)).toBe(true)
+  })
+
   it('agrees with the startup gate on the same environment', async () => {
     // Two paths to one answer: the gate reads one route, the report derives
     // from a whole pass, and they must never disagree.
@@ -356,6 +398,24 @@ describe('the guided flow', () => {
     expect(report).toContain('no provider route is active')
     await h.press(ESCAPE)
     await running
+  })
+
+  it('explains configuration repair when leaving an invalid selected route', async () => {
+    const h = harness({
+      registered: ['openai'],
+      configurable: ['openai'],
+      selected: { provider: 'openai', model: 'broken' },
+      refs: { openai: 'OPENAI_API_KEY' },
+      configured: ['OPENAI_API_KEY'],
+      diagnostics: { openai: 'model id is invalid' },
+      models: { openai: [] },
+    })
+    const running = run(h)
+    await settle()
+    expect(h.text()).toContain('no serviceable models')
+    await h.press(ESCAPE)
+    await running
+    expect(h.committed.join('\\n')).toContain('no serviceable models')
   })
 
   it('leaves on Not now, having written nothing', async () => {

@@ -124,6 +124,11 @@ describe('reading the configurable-provider directory', () => {
     expect(row.userOwned).toBe(false)
   })
 
+  it('retains an adapter diagnostic for a route whose catalog needs repair', async () => {
+    const row = only(await read({ directory: [{ ...OPENAI, error: 'model id is invalid' }] }))
+    expect(row.error).toBe('model id is invalid')
+  })
+
   it('calls a route active once an adapter has registered it', async () => {
     const state = await read({
       directory: [OPENAI],
@@ -358,6 +363,27 @@ describe('reading one route\'s readiness', () => {
         ns: 'llm-deepseek', revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY' }, user: {}, schema: DEEPSEEK_SCHEMA,
       }],
       refs: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } },
+    })).toEqual({ readiness: 'ready', ref: 'DEEPSEEK_API_KEY' })
+  })
+
+  it('marks a deferred-invalid route unusable only when no model remains', async () => {
+    expect(await readiness({
+      directory: [{ ...DEEPSEEK, error: 'model id is invalid' }],
+      registered: [{ id: 'deepseek-official', name: 'DeepSeek' }],
+      descriptors: [{
+        ns: 'llm-deepseek', revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY' }, user: {}, schema: DEEPSEEK_SCHEMA,
+      }],
+      refs: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } },
+      models: { 'deepseek-official': [] },
+    })).toEqual({ readiness: 'invalid', ref: 'DEEPSEEK_API_KEY' })
+    expect(await readiness({
+      directory: [{ ...DEEPSEEK, error: 'one model is invalid' }],
+      registered: [{ id: 'deepseek-official', name: 'DeepSeek' }],
+      descriptors: [{
+        ns: 'llm-deepseek', revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY' }, user: {}, schema: DEEPSEEK_SCHEMA,
+      }],
+      refs: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } },
+      models: { 'deepseek-official': [{ provider: 'deepseek-official', id: 'usable' }] },
     })).toEqual({ readiness: 'ready', ref: 'DEEPSEEK_API_KEY' })
   })
 

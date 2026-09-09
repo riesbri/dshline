@@ -250,32 +250,39 @@ The check uses the harness's own rule for what a command line looks like, so the
 
 `/setup` is the guided path from an installed dshline to a model that answers.
 It **runs by itself** on a launch that would otherwise reach the composer
-without a model it could send to. Four states count, and none of them asks an
-adapter for a catalog, so this costs no network:
+without a model it could send to. Five states count. Four use in-memory route,
+selection, and credential facts; the fifth asks only a route carrying an
+alpha-2 deferred catalog diagnostic for its own model list, so this costs no
+network:
 
 - no adapter has registered any provider route;
 - routes exist, but nothing resolved a model selection;
 - a selection exists, but names a route no adapter has registered — a
   remembered default whose provider has since left the profile;
-- the selected route names a credential that Harness reports as **absent**.
+- the selected route names a credential that Harness reports as **absent**;
+- Harness reports a deferred catalog diagnostic and that route advertises no
+  serviceable models.
 
-That last one is why a stock first install does not look healthy. Harness ships
-a default model *and* registers its route before any key exists, so the first
-three checks all pass while your first prompt would fail. Setup asks `/connect`
-for that one route's readiness — the same judgement behind the coloured dots in
-`/connect` — and opens only on a positive `missing`.
+The credential case is why a stock first install does not look healthy. Harness
+ships a default model *and* registers its route before any key exists, so the
+first three checks all pass while your first prompt would fail. Setup asks
+`/connect` for that one route's readiness — the same judgement behind the
+coloured dots in `/connect` — and opens on a positive `missing` or an unusable
+empty deferred catalog.
 
 **Uncertainty is never treated as failure.** A route that names no credential
 reference at all is not misconfigured: it is authenticating through an account
 sign-in or its provider's own discovery, and a signed-in `llm-pi-ai` route
 stores no reference. A store that cannot answer is unread, not unset. Both are
-left alone, as is a profile with no credential seam.
+left alone, as is a profile with no credential seam. A deferred catalog error is
+different only when its own list is empty; a non-empty list means unaffected
+models remain serviceable.
 
 Anything else launches straight into the session, and `/setup` still opens the
-flow on demand. The selection is judged by its **provider**, not its model id:
-whether a route still serves one exact model is a question only the picker's
-own listing can answer, and asking it at startup would mean a possible network
-call on every launch.
+flow on demand. The selection is judged by its **provider**, not its model id,
+except for that deferred-error check: a possible catalog read happens only for a
+route Harness already marked for repair, never on every launch. A route with no
+serviceable model leads to `/connect` repair instead of an empty `/model` picker.
 
 It writes a reading of your installation into ordinary scrollback, so you can
 scroll back to it and paste it into a bug report:
@@ -285,7 +292,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.5-alpha.1
+✓ Harness    0.1.5-alpha.2
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -299,6 +306,14 @@ the route is registered, so neither of those is a warning; the credential is:
 ✓ Models     deepseek-official/deepseek-v4-flash · 1 route active · deepseek-official
 ⚠ Provider   deepseek-official needs a credential · DEEPSEEK_API_KEY is not set
   Connect a provider below to sign in or store a key, or choose a model on another route.
+```
+
+When alpha-2 keeps a route registered but its deferred catalog has no
+serviceable models, setup names repair instead of opening an empty picker:
+
+```
+⚠ Models     1 route active · openai · openai/broken needs configuration repair
+  model id is invalid
 ```
 
 Then it offers what the mounted seams would actually accept, leading with
@@ -334,9 +349,9 @@ dependency is pinned to, and the version you have is read from the
 and both commands that would bring them together:
 
 ```
-⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.1
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.2
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.1
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.2
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```

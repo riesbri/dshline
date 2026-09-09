@@ -90,12 +90,29 @@ describe('readiness', () => {
     expect(providerReadiness(row)).toBe('unknown')
   })
 
+  it('marks an empty deferred catalog invalid, but preserves routes with usable models', () => {
+    expect(providerReadiness(provider({ error: 'model id is invalid', models: 0 }))).toBe('invalid')
+    expect(providerReadiness(provider({ error: 'one model is invalid', models: 1 }))).toBe('ready')
+    expect(providerReadiness(provider({ error: 'catalog unavailable', models: undefined }))).toBe('ready')
+  })
+
   it('says nothing about a route no adapter has registered', () => {
     expect(providerReadiness(provider({ state: 'dormant' }))).toBe('unknown')
   })
 })
 
 describe('what a row reports', () => {
+  it('retains a provider diagnostic before other route facts', () => {
+    const row = provider({ error: 'model id is invalid' })
+    expect(providerFacts(row)).toEqual([
+      'active',
+      'configuration needs repair: model id is invalid',
+      '12 models',
+      'key from file',
+    ])
+    expect(providerDetail(row)).toContain('configuration needs repair: model id is invalid')
+  })
+
   it('names the model count only for a live route that could be listed', () => {
     expect(providerFacts(provider())).toEqual(['active', '12 models', 'key from file'])
     expect(providerFacts(provider({ models: undefined }))).toEqual(['active', 'key from file'])

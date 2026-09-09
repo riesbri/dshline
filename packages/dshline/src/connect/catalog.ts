@@ -194,6 +194,7 @@ export class ConnectCatalog {
       settingsNs: entry.settingsNs,
       settingsPath: entry.settingsPath,
       declared: entry.declared,
+      ...entry.error === undefined ? {} : { error: entry.error },
       state,
       models: state === 'active' ? await countModels(this.spec.seams, entry.provider) : undefined,
       credential,
@@ -235,7 +236,7 @@ export async function readRouteCredential(
 
 /** One route's readiness, and the reference the verdict was reached through. */
 export interface ConnectRouteReadiness {
-  /** Whether the route's credential is present, missing, or unestablished. */
+  /** Whether the route is usable, credential-missing, configuration-invalid, or unestablished. */
   readonly readiness: ConnectReadiness
   /** The reference the route names, when it names one. */
   readonly ref: string | undefined
@@ -247,8 +248,10 @@ export interface ConnectRouteReadiness {
  * Deliberately narrow: the directory and the registry are synchronous
  * in-memory reads, `settings.describe()` is in-memory too, and
  * `credentials.describe()` on the shipped local provider is a map lookup over
- * a snapshot loaded once at mount. No adapter is asked for a catalog, no
- * endpoint is contacted, and no other route is examined.
+ * a snapshot loaded once at mount. No endpoint is contacted, and no other route
+ * is examined. A route carrying a deferred catalog diagnostic is the exception:
+ * its own model list is read to distinguish an unusable route from one with
+ * unaffected models still available.
  *
  * Total by construction. A provider nothing registered, a route the directory
  * does not declare configurable, and an absent settings or credential seam all
@@ -268,7 +271,22 @@ export async function readRouteReadiness(
   const credential = await readRouteCredential(descriptor, entry.settingsPath, seams.credentials)
   const registered = seams.llm.listProviders().some(candidate => candidate.id === provider)
   const configured = valueAt(descriptor?.value, entry.settingsPath) !== undefined
-  return { readiness: readinessOf(routeState(registered, configured), credential), ref: credential.ref }
+  // Alpha-2 can defer an invalid stored model catalog while keeping the route
+  // registered. Ask for its models only in that diagnostic case: an empty list
+  // is the authoritative proof that the selected route has nothing usable, while
+  // a non-empty list leaves unaffected models serviceable.
+  let models: number | undefined
+  if (registered && entry.error !== undefined) {
+    try {
+      models = (await seams.llm.listModels(provider)).length
+    } catch {
+      models = undefined
+    }
+  }
+  return {
+    readiness: readinessOf(routeState(registered, configured), credential, entry.error, models),
+    ref: credential.ref,
+  }
 }
 
 /**

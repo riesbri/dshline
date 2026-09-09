@@ -240,6 +240,9 @@ function setupDetail(facts: SetupFacts): string {
   if (facts.reason === 'credential-missing') {
     return 'A model is selected, but its route has no credential, so the next turn would fail.'
   }
+  if (facts.reason === 'configuration-invalid') {
+    return 'The selected route has no serviceable models, so its configuration needs repair.'
+  }
   return 'A model is selected and ready. Change it, connect another provider, or start the session.'
 }
 
@@ -260,6 +263,8 @@ function leavingLines(facts: SetupFacts): string[] {
       ? 'no model is selected yet · run /model, or /setup, when you want to'
       : facts.reason === 'unregistered-selection'
         ? 'the selected model names no registered route · run /model to choose another'
-        : 'the selected route still needs a credential · run /connect when you want to'
+        : facts.reason === 'configuration-invalid'
+          ? 'the selected route has no serviceable models · run /connect to repair it or choose another'
+          : 'the selected route still needs a credential · run /connect when you want to'
   return [paint(`· ${why}`, 'muted'), '']
 }

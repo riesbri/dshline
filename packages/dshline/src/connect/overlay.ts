@@ -386,7 +386,8 @@ function entryRow(
  * Only a confirmed answer earns a colour. A provider authenticating through its
  * library's own discovery, and a deployment with no credential provider to ask,
  * are both unmarked — reporting either as broken would be the frontend deciding
- * something Harness declined to say.
+ * something Harness declined to say. Alpha-2's empty deferred catalog is
+ * different: the adapter has confirmed that no serviceable model remains.
  * @param row - the row.
  * @returns one column of text.
  */
@@ -400,6 +401,7 @@ function readinessMark(row: ConnectRow): string {
     case 'ready':
       return paint('●', 'success')
     case 'missing':
+    case 'invalid':
       return paint('●', 'error')
     default:
       return paint('·', 'muted')
