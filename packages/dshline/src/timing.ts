@@ -416,7 +416,21 @@ export function timingLines(profile: TurnTiming | undefined, columns: number, ro
   return lines
 }
 
-/** Render measured rows after every untrusted label has been made safe. */
+/**
+ * Render measured rows after every untrusted label has been made safe.
+ *
+ * Every row returned is cut to `width`, and that cut is the load-bearing part
+ * rather than a tidy-up. The fields are budgeted from the DATA as well as from
+ * the width — `durationWidth` is however wide the longest measured span
+ * formats to — while the label width and the field gap have floors of one, so
+ * a long duration on a narrow terminal produces a row wider than the budget it
+ * was laid out for. `TuiSlots.compose` has already spent the live region's rows
+ * by then, and `Screen` re-wraps an overlong row into two: the region grows
+ * past the screen, its first rows can no longer be climbed to and erased, and
+ * the next redraw leaves root chrome in scrollback. The heading and the elision
+ * row above already cut for this reason; measured rows were the ones that did
+ * not.
+ */
 function spanLines(spans: readonly TurnSpan[], width: number): string[] {
   const safe = spans.map(span => escapeControls(span.label))
   const durations = spans.map(span => formatSpan(span.ms))
@@ -439,7 +453,10 @@ function spanLines(spans: readonly TurnSpan[], width: number): string[] {
     const durationText = durations[index] ?? ''
     const duration = `${' '.repeat(durationWidth - displayWidth(durationText))}${durationText}`
     if (barCells < MIN_BAR_CELLS) {
-      return `${INDENT}${paint(label, 'subdued')}${' '.repeat(gap)}${paint(duration, span.running ? 'timing-active' : 'subdued')}`
+      return truncateToWidth(
+        `${INDENT}${paint(label, 'subdued')}${' '.repeat(gap)}${paint(duration, span.running ? 'timing-active' : 'subdued')}`,
+        width,
+      )
     }
     // Any measured span rounds up to one cell, for the reason the context bar
     // does: a blank row beside a real duration reads as a drawing fault. A
@@ -451,7 +468,10 @@ function spanLines(spans: readonly TurnSpan[], width: number): string[] {
     // reads as spent bar rather than unspent scale.
     const fill = paint(BAR_FULL.repeat(cells), 'timing-active')
     const track = cells < barCells ? paint(BAR_EMPTY.repeat(barCells - cells), 'subdued') : ''
-    return `${INDENT}${paint(label, 'subdued')}${' '.repeat(gap)}${fill}${track}${' '.repeat(gap)}${paint(duration, span.running ? 'timing-active' : 'subdued')}`
+    return truncateToWidth(
+      `${INDENT}${paint(label, 'subdued')}${' '.repeat(gap)}${fill}${track}${' '.repeat(gap)}${paint(duration, span.running ? 'timing-active' : 'subdued')}`,
+      width,
+    )
   })
 }
 

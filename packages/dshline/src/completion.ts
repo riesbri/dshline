@@ -246,7 +246,16 @@ export function createCompletion(
     view: {
       render(columns, terminalRows = 24) {
         if (candidates.length === 0) return []
-        const width = chromeWidth(columns)
+        // Clamped to the terminal, not merely derived from it. `chromeWidth`
+        // floors at the shared chrome minimum, so below that floor it returns a
+        // width WIDER than the terminal it was asked about — and every row here
+        // is laid out against it. `compose` has already spent the live region's
+        // rows by the time `Screen` re-wraps an overlong row into two, so the
+        // region grows past the screen and the next redraw leaves root chrome in
+        // scrollback. This is the same correction the status line already
+        // carries, for the same reason: a presentation-only minimum independent
+        // of the terminal is not a narrower list, it is the duplicate-frame bug.
+        const width = Math.max(1, Math.min(columns, chromeWidth(columns)))
         // Six rows are what this list WANTS; what is left of the screen decides
         // what it gets. `terminalRows` is already net of the stream and the
         // composer above, so a ten-row prompt shrinks this list rather than
@@ -273,7 +282,10 @@ export function createCompletion(
           const note = candidate.note === undefined
             ? ''
             : ` ${paint(escapeControls(candidate.note), 'muted')}`
-          return `  ${mark} ${truncateToWidth(`${label}${note}`, Math.max(8, width - 4))}`
+          // `Math.max(1, …)`, never a floor of eight: the four columns of mark
+          // and indent are real, so a floor above what is left of the width
+          // draws past the right edge instead of drawing a shorter label.
+          return `  ${mark} ${truncateToWidth(`${label}${note}`, Math.max(1, width - 4))}`
         })
         // What is BELOW the window, not what the window omits. `candidates.length -
         // shown.length` is the same number at every scroll position — nine of
@@ -282,8 +294,16 @@ export function createCompletion(
         // position in the help line rather than by a second marker row, because a
         // completion list shares the live region with the composer.
         const below = candidates.length - (start + shown.length)
-        if (below > 0) rows.push(`    ${paint(`… ${String(below)} more`, 'muted')}`)
-        rows.push(`    ${paint(helpLine(cursor, candidates.length, Math.max(1, width - 4)), 'muted')}`)
+        // Cut like every other row. This one is the shortest and was the one
+        // left unbounded, so it outgrew the terminal first — `… 14 more` is
+        // thirteen columns whatever the width happens to be.
+        if (below > 0) {
+          rows.push(truncateToWidth(`    ${paint(`… ${String(below)} more`, 'muted')}`, width))
+        }
+        rows.push(truncateToWidth(
+          `    ${paint(helpLine(cursor, candidates.length, Math.max(1, width - 4)), 'muted')}`,
+          width,
+        ))
         return rows
       },
     },
