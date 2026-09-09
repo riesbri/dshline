@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,12 +7,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { RegistryReadError } from './verify-published.mjs'
 import { classifyPublishResult, PUBLISH_ARGUMENTS, publishWorkspacePackages } from './publish-packages.mjs'
 
+const CURRENT_RELEASE_VERSION = JSON.parse(readFileSync(new URL('../packages/renderer/package.json', import.meta.url), 'utf8')).version
+
 const PACKAGES = [
   { name: '@dshline/renderer', version: '0.20.0' },
   { name: '@dshline/dshline', version: '0.20.0' },
 ]
 
-function makeArtifacts(rendererDependency = '^0.20.0') {
+function makeArtifacts(rendererDependency = `^${CURRENT_RELEASE_VERSION}`) {
   const root = mkdtempSync(join(tmpdir(), 'dshline-release-artifacts-'))
   const definitions = [
     { file: 'renderer.tgz', name: '@dshline/renderer', dependencies: {} },
@@ -23,7 +25,7 @@ function makeArtifacts(rendererDependency = '^0.20.0') {
     mkdirSync(join(source, 'package'), { recursive: true })
     writeFileSync(join(source, 'package', 'package.json'), JSON.stringify({
       name: definition.name,
-      version: '0.20.0',
+      version: CURRENT_RELEASE_VERSION,
       dependencies: definition.dependencies,
     }))
     execFileSync('tar', ['-czf', join(root, definition.file), '-C', source, 'package'])
@@ -127,7 +129,7 @@ describe('publishWorkspacePackages()', () => {
     const runPublish = vi.fn(() => ({ status: 1, stdout: '', stderr: 'E401 auth failure' }))
 
     await expect(publishWorkspacePackages({ readPackage: readPublished, runPublish, write: () => {}, allowSourceDirectory: true }))
-      .rejects.toThrow('@dshline/renderer@0.20.0')
+      .rejects.toThrow(`@dshline/renderer@${CURRENT_RELEASE_VERSION}`)
   })
 
   it('requires an absolute artifact root outside explicit test mode', async () => {
@@ -157,7 +159,7 @@ describe('publishWorkspacePackages()', () => {
   })
 
   it('rejects an artifact with a mismatched renderer dependency before publishing', async () => {
-    const artifactRoot = makeArtifacts('^0.19.0')
+    const artifactRoot = makeArtifacts('^999.999.999')
     const runPublish = vi.fn(() => ({ status: 0, stdout: '', stderr: '' }))
     try {
       await expect(publishWorkspacePackages({
