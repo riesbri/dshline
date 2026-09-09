@@ -40,6 +40,7 @@ import type { CardDetail } from './cards.ts'
 import { pluginsSeams, sessionFacts } from './plugins/harness.ts'
 import type { AgentPresetsSeam } from './plugins/harness.ts'
 import { RedrawScheduler } from './redraw.ts'
+import { holdStderrOffTerminal } from './stderr.ts'
 import type { AttachTarget } from './sessions/reopen.ts'
 import type { TuiStartupOptions } from './startup.ts'
 import type { PeakWindow, PricingTable, UsageMode } from './usage.ts'
@@ -286,6 +287,13 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   const exit = ctx.get('appExit')
   const startup = ctx.tuiStartup.options
   const terminal = acquireTerminal({ input: process.stdin, output: process.stdout })
+  // Taken with the terminal, and released with it. `Screen` is correct only
+  // while it is the sole writer, and a plugin that writes to descriptor 2
+  // directly is not something dshline can ask to stop — see ./stderr.ts for
+  // the writer this contains and why the descriptor, not the stream, is what
+  // moves. Registered before the screen exists, so no frame is ever drawn with
+  // the real descriptor still exposed.
+  ctx.effect(() => holdStderrOffTerminal(), 'dshline: foreign stderr writes')
   // Installed here, and before the screen exists, because this is the one
   // place already coupled to the real `process` streams — the renderer reads
   // no ambient state of its own, so somebody who legitimately owns the
