@@ -536,9 +536,10 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         facts.push(`${bareStatus}${elapsed}`)
       } else if (current.compacting === true) {
         // Compaction is a model-free maintenance call, so it must not enter the
-        // busy branch: ctrl-c still quits an idle agent. It does need a visible
-        // state, though, because a summarizer can take longer than a local
-        // command and the durable start event is intentionally transcript-silent.
+        // busy branch: ctrl-c still quits an idle agent with no owned work. It
+        // does need a visible state, though, because a summarizer can take longer
+        // than a local command and the durable start event is intentionally
+        // transcript-silent.
         bareStatus = `${paint(spinnerFrame(current.tick), 'busy')}  ${paint('compacting', 'busy')}`
         facts.push(bareStatus)
       } else if (current.replay !== undefined) {

@@ -27,6 +27,8 @@ interface FixtureOptions {
   readonly cleanupFailure?: boolean
   /** Make the public Agent cancellation seam throw synchronously. */
   readonly cancelFailure?: boolean
+  /** Publish one owned nonterminal Job through the generic Work seam. */
+  readonly activeJob?: boolean
 }
 
 /** One assembled attachment and the controls needed by these tests. */
@@ -76,6 +78,15 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     }),
   }
   ctx.provide('commands', commands as never)
+  ctx.provide('jobs', {
+    list: () => options.activeJob
+      ? [{
+        id: 'job-1', kind: 'subagent', label: 'long child', status: 'running', startedAt: 0,
+        ownerSession: 'exit-test', reported: false,
+      }]
+      : [],
+    onJobsChanged: () => () => {},
+  } as never)
 
   const events: string[] = []
   const exit = vi.fn(() => { events.push('appExit') })
@@ -173,6 +184,25 @@ describe('attachment exit lifecycle', () => {
     f.globalQuit()
     expect(f.agent.cancel).toHaveBeenCalledOnce()
     expect(f.exit).toHaveBeenCalledOnce()
+  })
+
+  it('does not turn idle ctrl-c into exit while an owned Job remains active', async () => {
+    // A background one-shot is result-settled before its consumer-owned dispose
+    // finishes; its Job stays nonterminal through that interval. The generic Job
+    // snapshot, not the provider process, is the authority this guard consumes.
+    const f = await fixture({ activeJob: true })
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
+    expect(f.agent.cancel).not.toHaveBeenCalled()
+    expect(f.exit).not.toHaveBeenCalled()
+  })
+
+  it('cancels a running Agent instead of exiting on ctrl-c', async () => {
+    // This is the foreground result→dispose gap: the parent remains running
+    // while its tool awaits consumer-owned provider teardown.
+    const f = await fixture({ status: 'running' })
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
+    expect(f.agent.cancel).toHaveBeenCalledWith({ kind: 'user' })
+    expect(f.exit).not.toHaveBeenCalled()
   })
 
   it('cancels a running Agent before requesting app exit', async () => {
