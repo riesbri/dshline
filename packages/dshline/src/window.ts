@@ -539,12 +539,14 @@ const LEGACY_SESSION_PRESET = 'standard'
  *    history to protect, so the roster's current default applies, exactly
  *    like any other new session.
  *
- * The Agent is passed in rather than read off the context. Harness mints it —
- * including a resumed session's already-reconstructed log — before calling
- * `setup(agentCtx, agent)`, and that parameter is the only association the
- * adopted generation publishes: there is no ambient `Context.agent` to consult
- * and nothing here reconstructs one. So this reads the real session facts off
- * the Agent being composed rather than guessing from context.
+ * The Agent is passed in rather than read off the context, and it is required.
+ * Harness mints it — including a resumed session's already-reconstructed log —
+ * before calling `setup(agentCtx, agent)`, and that parameter is the only
+ * association the adopted generation publishes: there is no ambient
+ * `Context.agent` to consult, nothing here reconstructs one, and there is no
+ * supported call of `setup` that arrives without an Agent. So this reads the
+ * real session facts off the Agent being composed rather than guessing from
+ * context.
  *
  * A profile that mounts no `agentPresets` seam at all leaves this a no-op.
  * That restores dshline's old flat behavior only for a composition that
@@ -555,9 +557,8 @@ const LEGACY_SESSION_PRESET = 'standard'
  * otherwise-stock dshline composition leaves an agent with no tools at all,
  * not the old flat set back.
  * @param agentCtx - the unpublished agent's own scope context.
- * @param agent - the unpublished Agent being composed, as `setup` receives it;
- * only its session is read. Undefined only in a headless embedder that composes
- * a preset with no Agent in hand, which reads as a blank session.
+ * @param agent - the unpublished Agent being composed, exactly as `setup`
+ * receives it; only its session is read.
  * @param report - where to say that a legacy session could not be placed on
  * {@link LEGACY_SESSION_PRESET}; called only after the substitute preset has
  * actually mounted, so a failed resume never claims to have run under one.
@@ -566,12 +567,12 @@ const LEGACY_SESSION_PRESET = 'standard'
  */
 export async function mountAgentPreset(
   agentCtx: Context,
-  agent: Pick<Agent, 'session'> | undefined,
+  agent: Pick<Agent, 'session'>,
   report?: (lines: readonly string[]) => void,
 ): Promise<void> {
   const agentPresets = pluginsSeams(agentCtx).agentPresets
   if (agentPresets === undefined) return
-  const facts = sessionFacts(agentCtx, agent?.session)
+  const facts = sessionFacts(agentCtx, agent.session)
   const recorded = facts.presetId
   const chosen = recorded !== undefined || !facts.started
     ? { id: recorded ?? agentPresets.defaultId, caveat: [] as readonly string[] }

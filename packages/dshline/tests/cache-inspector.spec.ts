@@ -240,22 +240,26 @@ describe('the latest recorded route metadata', () => {
 
   it('reports a route that reads the latest system message wherever it sits', async () => {
     const target = await session()
-    logContext(target, { model: 'deepseek-v4-flash', systemPromptUpdate: 'in-history' })
+    logContext(target, {
+      provider: 'deepseek', model: 'deepseek-v4-flash', systemPromptUpdate: 'in-history',
+    })
 
     expect(routeContextReading(target)).toEqual({ recorded: true, promptUpdate: 'in-history' })
   })
 
   it('reports a recorded route with no declared mode as recorded and undeclared', async () => {
     const target = await session()
-    logContext(target, { model: 'deepseek-v4-flash' })
+    logContext(target, { provider: 'deepseek', model: 'deepseek-v4-flash' })
 
     expect(routeContextReading(target)).toEqual({ recorded: true, promptUpdate: undefined })
   })
 
   it('reads the newest record after the route changes', async () => {
     const target = await session()
-    logContext(target, { model: 'deepseek-v4-flash', systemPromptUpdate: 'in-history' })
-    logContext(target, { model: 'deepseek-v4-pro' })
+    logContext(target, {
+      provider: 'deepseek', model: 'deepseek-v4-flash', systemPromptUpdate: 'in-history',
+    })
+    logContext(target, { provider: 'deepseek', model: 'deepseek-v4-pro' })
 
     expect(routeContextReading(target)).toEqual({ recorded: true, promptUpdate: undefined })
   })

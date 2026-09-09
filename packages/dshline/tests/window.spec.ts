@@ -85,23 +85,23 @@ interface Facts {
  * Returned as a pair to be spread into {@link mountAgentPreset}, because the
  * adopted generation passes the Agent EXPLICITLY — there is no `Context.agent`
  * for a fixture to install, and a test that reached for one would be exercising
- * an association Harness removed.
+ * an association Harness removed. Both are always present: `setup` has no
+ * supported call without an Agent, so no fixture here manufactures one.
  *
  * The session facts are the two Harness projections, not a hand-folded log:
  * `agentPreset` already folds the creation header with every later
  * `agent-preset/selected`, so a test states the folded answer directly and
  * `mountAgentPreset` is exercised against the same authority `/plugins` reads.
  * @param agentPresets - the seam `ctx.get('agentPresets')` answers with.
- * @param facts - what the projections report, when a session already exists
- * (a resumed session; omitted for the defensive no-agent path).
+ * @param facts - what the projections report for this agent's session.
  * @returns the `setup` arguments, in order.
  */
 function composing(
   agentPresets: AgentPresetsSeam | undefined,
-  facts?: Facts,
-): [Context, { readonly session: Session } | undefined] {
-  const session = facts === undefined ? undefined : Session.create(SessionId('window-spec'))
-  const projections = session === undefined || facts === undefined ? undefined : {
+  facts: Facts,
+): [Context, { readonly session: Session }] {
+  const session = Session.create(SessionId('window-spec'))
+  const projections = {
     stateOf: (target: Session, key: 'agentPreset' | 'turnBoundary'): unknown => {
       if (target !== session) return undefined
       if (key === 'agentPreset') return facts.presetId ?? null
@@ -120,7 +120,7 @@ function composing(
       return undefined
     },
   } as unknown as Context
-  return [agentCtx, session === undefined ? undefined : { session }]
+  return [agentCtx, { session }]
 }
 
 describe('global window key routing', () => {
@@ -165,15 +165,6 @@ describe('mountAgentPreset', () => {
   it('mounts the roster default for a fresh session with nothing recorded yet', async () => {
     const { seam, mounted } = fakeAgentPresets('standard')
     await mountAgentPreset(...composing(seam, {}))
-    expect(mounted).toEqual(['standard'])
-  })
-
-  it('mounts the roster default when no Agent was handed over at all', async () => {
-    // The defensive path, not the one dshline's own setup exercises — Harness
-    // always passes the Agent to `setup` — but a headless embedder composing a
-    // preset with no Agent in hand must read as a blank session rather than throw.
-    const { seam, mounted } = fakeAgentPresets('standard')
-    await mountAgentPreset(...composing(seam, undefined))
     expect(mounted).toEqual(['standard'])
   })
 
@@ -227,7 +218,8 @@ describe('mountAgentPreset', () => {
     const ctx = {
       get: (name: string) => { calls.push(name); return undefined },
     } as unknown as Context
-    await expect(mountAgentPreset(ctx, undefined)).resolves.toBeUndefined()
+    const agent = { session: Session.create(SessionId('window-spec-no-seam')) }
+    await expect(mountAgentPreset(ctx, agent)).resolves.toBeUndefined()
     expect(calls).toContain('agentPresets')
   })
 })
