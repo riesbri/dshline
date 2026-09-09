@@ -1,14 +1,26 @@
 /**
- * The status line reads Harness's live Inbox instead of replaying its splice
- * events. These tests use the real upstream projection so replay-on-attach,
- * claims, cancellations, and notifications keep their Harness semantics.
+ * The status line reads the attached Agent's live Inbox instead of replaying
+ * its splice events or counting what this frontend submitted.
+ *
+ * The Inbox is Harness's own contract, and in the adopted generation its
+ * concrete storage belongs to the driver: there is no constructible Inbox for a
+ * frontend to stand up, and `hasPending`/`claim` are gone from the public
+ * surface. So these tests drive upstream's own published `createInboxStub()` —
+ * the structural double the Harness testkit exists to supply — over exactly the
+ * operations a UI may perform, and assert what the status row says about them.
+ *
+ * The durable half of the same contract, over a REAL production Agent and the
+ * real driver Inbox, is `capability/inbox.probe.spec.ts`: splice targets,
+ * claims, cancellation, and cross-Agent isolation. Splitting them keeps this
+ * file about presentation and that one about Harness semantics, rather than
+ * having one file pretend to prove both from a hand-built object.
  */
 
-import { Inbox } from '@deepseek-ai/dsh-agent'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
+import type { Inbox } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '@dshline/renderer'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { pendingUserInput } from '../src/steering.ts'
 import { createStatusView } from '../src/views.ts'
 
@@ -28,17 +40,15 @@ const injection = (text: string) => createUserMessage({
 })
 
 /**
- * Construct Harness's real projection over a detached, durable Session.
- * @returns the live inbox, its session, and observable notification callbacks.
+ * Drain one boundary list the way the driver's claim does — a pure deletion —
+ * through the only public operation a consumer of the Inbox contract has.
+ * @param inbox - the live inbox to drain.
+ * @param target - the boundary list to empty.
+ * @param count - how many messages the boundary takes.
+ * @returns the removed messages, in list order.
  */
-function harnessInbox() {
-  const session = Session.create(SessionId('steering-test'))
-  const notifications = {
-    inserted: vi.fn(),
-    discarded: vi.fn(),
-    claimed: vi.fn(),
-  }
-  return { session, notifications, inbox: new Inbox(session, notifications) }
+function drain(inbox: Inbox, target: 'next-turn' | 'next-step', count: number) {
+  return inbox.splice(target, 0, count, [])
 }
 
 /**
@@ -60,6 +70,9 @@ function statusFrames(inbox: Inbox): () => string {
     contextWindow: undefined,
     detail: 'compact',
     work: undefined,
+    // Re-read on every composition, never captured: the whole point of the
+    // segment is that it follows the authoritative inbox rather than a counter
+    // this frontend keeps.
     pending: pendingUserInput(inbox),
     todo: undefined,
     plan: false,
@@ -71,26 +84,22 @@ function statusFrames(inbox: Inbox): () => string {
 
 describe('pending user input from the live Inbox', () => {
   it('shows already-pending user prompts in the first attached status frame', () => {
-    const { session, inbox } = harnessInbox()
+    // Input can already be parked when a window attaches — Harness reconstructs
+    // the Inbox from the session's durable splices before the Agent is
+    // published — so the first frame must state it rather than starting at zero
+    // and catching up on the next mutation.
+    const inbox = createInboxStub()
     inbox.append('next-step', prompt('steer this turn'))
     inbox.append('next-turn', prompt('run after this turn'))
     inbox.append('next-step', injection('provider context'))
 
-    // A new Inbox reconstructs the same projection an attached or re-attached
-    // agent exposes before dshline composes its first frame.
-    const attached = new Inbox(session, {
-      inserted: vi.fn(),
-      discarded: vi.fn(),
-      claimed: vi.fn(),
-    })
-
     // One prompt on each list, so neither word alone is true and the segment
     // says `pending` rather than picking a side or spending two segments.
-    expect(statusFrames(attached)()).toContain('2 pending')
+    expect(statusFrames(inbox)()).toContain('2 pending')
   })
 
   it('names which list the input is parked on, and says pending only for a mixture', () => {
-    const { inbox } = harnessInbox()
+    const inbox = createInboxStub()
     const frame = statusFrames(inbox)
 
     // next-step alone: the running turn will take it at its next step.
@@ -104,13 +113,13 @@ describe('pending user input from the live Inbox', () => {
     expect(frame()).not.toContain('steering')
 
     // next-turn alone: a follow-up turn of its own, which is what `queued` means.
-    expect(inbox.claim('next-step', 1)).toHaveLength(1)
+    expect(drain(inbox, 'next-step', 1)).toHaveLength(1)
     expect(frame()).toContain('1 queued')
     expect(frame()).not.toContain('pending')
   })
 
   it('ignores plugin context on either list, whichever word is in force', () => {
-    const { inbox } = harnessInbox()
+    const inbox = createInboxStub()
     const frame = statusFrames(inbox)
 
     // Context the agent assembled is not a keystroke waiting to be answered for,
@@ -126,8 +135,8 @@ describe('pending user input from the live Inbox', () => {
     expect(frame()).toContain('1 queued')
   })
 
-  it('tracks insert, claim, and canceled discard on every redraw from the live Inbox', () => {
-    const { session, notifications, inbox } = harnessInbox()
+  it('tracks insert, drain, and cancellation on every redraw from the live Inbox', () => {
+    const inbox = createInboxStub()
     const frame = statusFrames(inbox)
     const synthetic = injection('assembled context')
     const queued = prompt('please adjust the answer')
@@ -137,28 +146,22 @@ describe('pending user input from the live Inbox', () => {
     expect(frame()).not.toContain('steering')
     inbox.append('next-step', queued)
     expect(frame()).toContain('1 steering')
-    expect(notifications.inserted).toHaveBeenCalledWith(synthetic)
-    expect(notifications.inserted).toHaveBeenCalledWith(queued)
 
-    expect(inbox.claim('next-step', 4)).toEqual([synthetic, queued])
+    // A step boundary takes the whole next-step batch, injection included.
+    expect(drain(inbox, 'next-step', 2)).toEqual([synthetic, queued])
     expect(frame()).not.toContain('steering')
-    expect(notifications.claimed).toHaveBeenCalledWith(synthetic, 4)
-    expect(notifications.claimed).toHaveBeenCalledWith(queued, 4)
 
+    // A cancelled prompt is a removal, not a claim, and the count follows it the
+    // same way — the segment holds no memory of what was submitted.
     const canceled = prompt('never mind')
     inbox.append('next-turn', canceled)
     expect(frame()).toContain('1 queued')
     expect(inbox.remove(canceled.id)).toBe(true)
     expect(frame()).not.toContain('queued')
-    expect(notifications.discarded).toHaveBeenCalledWith(canceled)
-    // The newest event, read as a point read rather than by materializing the log.
-    const newest = session.seq === 0 ? undefined : session.eventAt(SessionSeq(session.seq - 1))
-    expect(newest?.type).toBe('agent/inbox/spliced')
-    expect(newest?.data).toMatchObject({ outcome: 'canceled' })
   })
 
-  it('keeps a parked prompt exact when a mixed claim drains only an injection', () => {
-    const { inbox } = harnessInbox()
+  it('keeps a parked prompt exact when a mixed drain takes only an injection', () => {
+    const inbox = createInboxStub()
     const frame = statusFrames(inbox)
     const parked = prompt('take this next turn')
     const synthetic = injection('step-only context')
@@ -167,9 +170,11 @@ describe('pending user input from the live Inbox', () => {
     inbox.append('next-step', synthetic)
     expect(frame()).toContain('1 queued')
 
-    expect(inbox.claim('next-step', 8)).toEqual([synthetic])
+    // Draining next-step must not disturb the next-turn list: the two are
+    // separate boundaries, and a prompt parked for its own turn stays parked.
+    expect(drain(inbox, 'next-step', 1)).toEqual([synthetic])
     expect(frame()).toContain('1 queued')
-    expect(inbox.claim('next-turn', 9)).toEqual([parked])
+    expect(drain(inbox, 'next-turn', 1)).toEqual([parked])
     expect(frame()).not.toContain('queued')
   })
 })

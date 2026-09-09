@@ -13,10 +13,10 @@
  * durable source for a human transcript is append-origin events, which is what
  * `isAppendSurfaceEvent` narrows to.
  *
- * That narrowing covers only the three surface types, so tool CALLS would be
- * dropped with it — and a result card needs its call's arguments to render. The
- * rule is therefore stated the other way round: a surface-eligible event replays
- * only when it was an append, and everything else replays as it is.
+ * That narrowing covers only the surface types, so tool CALLS would be dropped
+ * with it — and a result card needs its call's arguments to render. The rule is
+ * therefore stated the other way round: a surface-eligible event replays only
+ * when it was an append, and everything else replays as it is.
  *
  * There is exactly one rule, and no Assistant special case inside it. The log's
  * Assistant records are settlements: `assistant/message` is the reply, and it is
@@ -24,6 +24,17 @@
  * — one model attempt that committed no reply — so it replays like any other
  * log-only event and the projection gives it no lines, which is where that fact
  * is written down.
+ *
+ * `system/message` is the fourth surface type and is governed by exactly the
+ * same rule, deliberately and with no exception added for it. Session format V3
+ * made the rendered system prompt durable conversation history — surface node 0,
+ * plus any in-history change, plus the logged replacements that normalize them —
+ * so the appends pass this gate and the replacements do not. Neither reaches the
+ * terminal, because `projectEvent` gives a system prompt no lines: it is the
+ * deployment's standing instructions, not something anybody said in this
+ * conversation, and printing it would open every resumed transcript with a wall
+ * of prompt the reader never wrote. `/context` is where it is inspectable, named
+ * as the surface node it now is.
  * @module dshline/resume
  */
 
@@ -37,9 +48,11 @@ import { paint } from '@dshline/renderer'
  * Whether an event belongs in a human transcript.
  *
  * A replacement copy is model-only: it exists so a compacted history still reads
- * correctly to the model, and replaying it would show the user a summary in place
- * of the exchange it summarised. Everything that is not surface-eligible — a tool
- * call, a turn ending — has no replacement semantics and simply replays.
+ * correctly to the model — or, for a `system/message`, so a normalized prompt
+ * still reads correctly to it — and replaying one would show the user a summary
+ * in place of the exchange it summarised. Everything that is not
+ * surface-eligible — a tool call, a turn ending — has no replacement semantics
+ * and simply replays.
  * @param event - one raw log event.
  * @returns whether to project it.
  */

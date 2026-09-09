@@ -98,7 +98,7 @@ describe('capability: tokenMeter', () => {
       content: [{ type: 'text', text: 'summary' }],
       source: { kind: 'plugin', plugin: 'compact', compactionId: 'probe-compaction' },
     } as never, {
-      surfaceOp: { op: 'replace', start: first, end: second },
+      surfaceOp: { op: 'replace', startSeq: first, endSeq: second },
       sourceEventSeqs: [first, second],
     })
 

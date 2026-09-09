@@ -550,6 +550,7 @@ function entryTitle(entry: ContextEntry): string {
  */
 function entryKindLabel(entry: ContextEntry): string {
   switch (entry.kind) {
+    case 'system': return 'system prompt'
     case 'user': return 'your message'
     case 'context': return 'injected context'
     case 'summary': return 'compaction summary'
@@ -599,8 +600,9 @@ function entryRows(
     // the number a reader would otherwise take for an exact token count.
     fact('context', `~${formatTokens(entry.tokens)} estimated`, width),
     // Named for the denominator it actually divides. `surfaceTokens` prices the
-    // conversation only, so calling this a share of "the context" would quietly
-    // fold in the system prompt and the tool schemas it never counted.
+    // model-visible message surface — every derived message including the
+    // system prompt's own node — and nothing else, so calling this a share of
+    // "the context" would quietly fold in the tool schemas it never counted.
     fact('share', `${String(Math.round(entry.share * 100))}% of message context`, width),
     fact('position', `${String(entry.position)} of ${String(survey.nodes)}`, width),
     ...entry.turn === undefined ? [] : [fact(

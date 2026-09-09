@@ -4,9 +4,15 @@
  * Two sections, two authorities, and the overlay never joins them. **Cache
  * accounting** is Harness's cumulative `tokenUsage` buckets, over the whole
  * session and every route it used. **Request header** is `Session.requestHeader()`
- * — the LATEST header Harness recorded, which is not a promise about the next
- * request: a step may reassemble the system prompt and tools before a new header
- * is logged. Neither section is presented as evidence about the other.
+ * and `Session.requestContext()` — the LATEST records Harness kept, which are not
+ * a promise about the next request: a step may reassemble the tools before a new
+ * header is logged. Neither section is presented as evidence about the other.
+ *
+ * The header section reports no system prompt. Under Session format V3 the
+ * prompt is a `system/message` surface node rather than a header field, so
+ * `/cache` names the one prompt fact the request head still holds: how the
+ * recorded route takes a prompt that changes mid-conversation. See
+ * `./model.ts`.
  *
  * There is no preference to set and nothing to mutate: `/cache` observes, and
  * every optimization gesture a cache inspector invites — warning on `/model`,
@@ -19,6 +25,7 @@ import type { Key } from '@dshline/renderer'
 import {
   BOX_CHROME_COLUMNS,
   displayWidth,
+  escapeControls,
   formatTokens,
   paint,
   truncateToWidth,
@@ -27,7 +34,7 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import type { TuiOverlay } from '../slots.ts'
 import { formatCacheShare } from '../usage.ts'
-import type { CacheInspection, RequestHeaderReading } from './model.ts'
+import type { CacheInspection, RequestHeaderReading, RouteContextReading } from './model.ts'
 import { hasCacheReads } from './model.ts'
 
 /** Rows outside the body: the leading blank and the two frame borders. */
@@ -39,7 +46,7 @@ const CACHE_MIN_COLUMNS = BOX_CHROME_COLUMNS + 10
 /**
  * Widest label plus its gap, so every value starts in one column.
  *
- * Sixteen is `uncached input` and `system prompt` with room to breathe. A
+ * Sixteen is `uncached input` and `prompt updates` with room to breathe. A
  * narrower column does not shorten anything, because `padEnd` is a minimum: it
  * just lets the longest label touch its own value while every other row keeps a
  * gap, which reads as a typo rather than as a column.
@@ -121,7 +128,11 @@ export function createCacheOverlay(spec: CacheOverlaySpec): TuiOverlay {
  * @returns painted rows, one per physical line.
  */
 function bodyRows(inspection: CacheInspection, width: number): string[] {
-  return [...accountingRows(inspection, width), '', ...headerRows(inspection.header, width)]
+  return [
+    ...accountingRows(inspection, width),
+    '',
+    ...headerRows(inspection.header, inspection.route, width),
+  ]
 }
 
 /**
@@ -196,16 +207,26 @@ function unavailable(inspection: CacheInspection): string {
 /**
  * The request-header section: what the newest recorded request head is made of.
  *
- * Three facts and no verdict. `EpochHeader` is the request state outside derived
- * history — the route, the rendered system prompt, the assembled tool schemas —
- * so these describe the head of a request and not the conversation under it. The
- * caption says `recorded` rather than `next` on purpose: a step may reassemble
- * the prompt and the tool list before a new header snapshot is logged.
+ * Facts and no verdict. `EpochHeader` is the request state outside derived
+ * history — the route and the assembled tool schemas — so these describe the head
+ * of a request and not the conversation under it, which is where the system
+ * prompt now lives. The caption says `recorded` rather than `next` on purpose: a
+ * step may reassemble the tool list before a new header snapshot is logged.
+ *
+ * The `prompt updates` row comes from `request/context` rather than the header,
+ * and appears only once Harness has recorded route metadata: before that, an
+ * absent update mode is unknown rather than `leading message`, and printing the
+ * default would state a route fact nobody logged.
  * @param header - the latest recorded header reading.
+ * @param route - the latest recorded route metadata.
  * @param width - display columns available inside the frame.
  * @returns painted rows.
  */
-function headerRows(header: RequestHeaderReading, width: number): string[] {
+function headerRows(
+  header: RequestHeaderReading,
+  route: RouteContextReading,
+  width: number,
+): string[] {
   const rows = [paint('Request header', 'section-heading')]
   if (!header.recorded) {
     return [...rows, ...note('No request header has been recorded in this session yet.', width)]
@@ -213,11 +234,27 @@ function headerRows(header: RequestHeaderReading, width: number): string[] {
   return [
     ...rows,
     fact('route', header.route ?? '', width),
-    fact('system prompt', header.system ? 'present' : 'none', width),
     fact('tools', String(header.tools), width),
+    ...route.recorded ? [fact('prompt updates', promptUpdateLabel(route), width)] : [],
     '',
     ...note('Latest request header Harness recorded.', width),
   ]
+}
+
+/**
+ * How the recorded route takes a mid-conversation system-prompt change, in words.
+ *
+ * Two answers, both of them upstream's: `in-history` is the declared mode that
+ * reads the latest `system` message wherever it sits, and its absence on a
+ * recorded route is documented to mean only the leading one is read. A mode this
+ * frontend has never seen is named rather than guessed at — `SystemPromptUpdate`
+ * is upstream's union to widen.
+ * @param route - the latest recorded route metadata.
+ * @returns the label for the `prompt updates` row.
+ */
+function promptUpdateLabel(route: RouteContextReading): string {
+  if (route.promptUpdate === undefined) return 'leading message'
+  return route.promptUpdate === 'in-history' ? 'in-history' : escapeControls(route.promptUpdate)
 }
 
 /**

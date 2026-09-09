@@ -3,12 +3,16 @@
  *
  * `delivery.spec.ts` proves the decision; this proves the decision reaches
  * Harness. The agent here is a double in one respect only — it does not run a
- * model — but its inbox is the REAL upstream `Inbox` over a real durable
- * `Session`, and its `followup`/`steer` are the same two-line splices the
- * upstream Agent's own wrappers are. So the assertions are about which
- * boundary list the message is on, not about which local function was called:
- * a routing change that called the right verb into the wrong list would fail
- * here and pass a spy.
+ * model — but its inbox is upstream's own published `createInboxStub()`, and
+ * its `followup`/`steer` are the same two boundary appends the upstream Agent's
+ * wrappers are. So the assertions are about which boundary list the message is
+ * on, not about which local function was called: a routing change that called
+ * the right verb into the wrong list would fail here and pass a spy.
+ *
+ * A stub rather than a constructed Inbox because the adopted generation owns
+ * that storage in the driver — `Inbox` is a contract, and the testkit exists to
+ * supply exactly this double. The durable half, over a production Agent, is
+ * `capability/inbox.probe.spec.ts`.
  *
  * Assembled the way `replay-gate.spec.ts` is, for the same reason — the
  * submission path runs from a keystroke through the composer, the replay gate,
@@ -18,10 +22,10 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
-import { Inbox } from '@deepseek-ai/dsh-agent'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import type { BusyEnter } from '../src/delivery.ts'
@@ -86,14 +90,13 @@ async function fixture(options: { busyEnter?: BusyEnter } = {}) {
     setExit: () => {},
   } as unknown as Window
 
-  const session = Session.create(SessionId('routing-test'))
-  const inbox = new Inbox(session, { inserted: vi.fn(), discarded: vi.fn(), claimed: vi.fn() })
+  const inbox = createInboxStub()
   const agent = {
     session: { id: 's-1', header: { cwd: '/ws' }, events: [] },
     status: 'idle' as 'idle' | 'running',
     inbox,
     // The upstream wrappers, verbatim in effect: `followup` is a next-turn
-    // append and `steer` is a next-step append, both through the real Inbox.
+    // append and `steer` is a next-step append, both through the Inbox contract.
     followup: vi.fn((message: UserMessage) => { inbox.append('next-turn', message) }),
     steer: vi.fn((message: UserMessage) => { inbox.append('next-step', message) }),
     cancel: vi.fn(() => { inbox.clear() }),

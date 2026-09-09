@@ -77,7 +77,8 @@ Prefer a standard Harness surface over a concrete package or provider:
 | log-derived state | `ctx.sessionProjections` | Consume registered domain snapshots and changes. |
 | context occupancy | `ctx.sessionProjections` (`contextPressure`, `contextBreakdown`, `tokenUsage`) | Read the O(1) folds; never count tokens or tokenize. |
 | session statistics | `ctx.sessionProjections` (`sessionStats`) | Read the whole-log counts and wall times; derive nothing beyond one division over two published totals. Treat the unit as optional. |
-| request metadata | `Session.requestHeader()` | Read the logged route, system prompt, and tool counts for cache/usage views; do not maintain a parallel header. |
+| request metadata | `Session.requestHeader()` + `Session.requestContext()` | Read the logged route and tool counts, and the recorded route's system-prompt update mode, for cache/usage views; do not maintain a parallel header. |
+| the system prompt | durable `system/message` surface nodes | It is conversation history, not request metadata: read it as a surface entry through the same authorities every other entry uses, keep it out of the human transcript, and hold no prompt state of dshline's own. |
 | context composition per entry | `ctx.tokenMeter` | Ask for the per-node measurement only when an inspector needs it; its own contract calls it O(surface). |
 | plan mode | committed `plan/mode` events; Harness's `plan` projection as contract evidence | Fold committed mode events with `planModeAfter()`; do not maintain a mutable second state or read `ctx.planMode` as a presentation mirror. |
 | reducing context | `ctx.commands` (`/compact`) | Dispatch the registered command; observe `compaction/*` events. Never call `ctx.compaction`. |
@@ -185,8 +186,11 @@ is that only an open inspector may ask for it. dshline keys a cached measurement
 on every input a node price depends on and nothing else: Harness's own surface
 revision (node count plus `replaceGeneration`) and the effective pricing route,
 read from `session.requestHeader()` because the header's provider and model are
-what select the routed adapter's image pricing the meter prices with. So an
-inspector left open through a streaming reply measures once, while a landed
+what select the routed adapter's image pricing the meter prices with. The surface
+revision also covers a system-prompt change, which is a surface change in the
+adopted format — an in-history route appends a `system/message` node, an
+incapable one replaces the head — so dshline tracks nothing extra for the prompt.
+So an inspector left open through a streaming reply measures once, while a landed
 compaction or a route change is picked up on the next paint, and the log length —
 which moves on every committed event a turn logs — is deliberately not part of
 the key. Only a SUCCESSFUL measurement is cached: an absent or refusing meter is
@@ -849,7 +853,7 @@ through.
 An agent preset is Harness's own answer to "what can this agent do" — a named
 composition of tools, prompt sections, and delegation backends, resolved
 through `ctx.agentPresets` and joined to an agent at the one supported point
-in its lifecycle, `setup(agentCtx)`. `/plugins` is the terminal presentation
+in its lifecycle, `setup(agentCtx, agent)`. `/plugins` is the terminal presentation
 of that seam: it lists the roster, shows the rows the running agent's preset
 actually composes, and carries out a change through the same authority a
 change made from the official web interface would use. It keeps no plugin

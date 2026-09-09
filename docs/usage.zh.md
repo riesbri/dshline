@@ -73,6 +73,8 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 暂存不会读取文件，也不会创建附件。下一条提示发送时，dshline 通过当前 Harness 文件系统解析并读取每个路径，读取受部署的字节上限约束；随后在发送前要求 `ctx.attachments` 校验并持久提交整个批次。准入失败或被取消会保留已暂存路径并恢复提示；`ctrl-c` 取消准入而不退出。提示成功发送后草稿才清空。
 
+在空输入框上按 enter 会单独发送这些图片——暂存的这一批就是消息本身，前面不会再加上一条你自己的空行。既没有输入内容也没有暂存图片时按 enter，仍然什么都不做。
+
 空输入框会报告已暂存数量。发送后，transcript（文本记录）显示每张持久图片的显示名、尺寸与大小；不透明附件 id、图片字节和存储路径绝不会打印。重新打开会话时，这些行从日志中的持久 `ImageBlock` 引用重建。未发送的草稿是当前所附会话的进程内状态，开始或重新打开另一个会话时会被丢弃。
 
 明确声明为纯文本的已选模型会在读取任何图片前被拒绝。提供方未声明输入模态时，dshline 不根据名称猜测：图片交给 Harness，仍由 Harness 掌握权威。只有命令描述符声明 `input.attachments` 的已注册斜杠命令才接受暂存图片；命令报错会保留命令文本和图片，以便修正或重试。
@@ -252,7 +254,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.3-alpha.2
+✓ Harness    0.1.5-alpha.1
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -278,9 +280,9 @@ Setup
 **Harness 比较两个精确版本。**dshline 一次只支持一个 Harness 世代：它面向的版本是每个 `dsh-*` 依赖被钉住的那个版本，你拥有的版本则从你的 profile 所组合的 `@deepseek-ai/dsh-base` 读出。不一致是一个 `⚠`，同时给出两者，以及会让它们重新一致的两条命令：
 
 ```
-⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.3-alpha.2
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.1
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.3-alpha.2
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.1
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
@@ -747,7 +749,7 @@ When to use    Before approving or merging a meaningful code change
 │      ~28k  15%  tool result · read_file                    │
 │      ~18k  10%  assistant reply                            │
 │      ~14k   8%  your message                               │
-│       ~9k   5%  injected context · instructions            │
+│      ~12k   7%  system prompt                              │
 │                                                            │
 ╰─ ↑↓ select · ↵ inspect · c compact · esc close ────────────╯
 ```
@@ -762,7 +764,9 @@ When to use    Before approving or merging a meaningful code change
 **组成（composition）全程是估算，而且它是一个组成而不是总计。**Harness 用一套固定
 的密度估算给系统提示词、工具 schema 与对话定价；该估算会系统性地低估 CJK 文本与
 JSON schema，这正是上面那个占用数字改为锚定到提供方的原因。所以这三项份额相除的是
-它们自己的和，它们不会加总成顶部那个数字。这是诚实的安排，不是舍入误差。
+它们自己的和，它们不会加总成顶部那个数字。这是诚实的安排，不是舍入误差。`system` 是
+真正生效的那份提示词——仍留在 surface 上的最后一份；一条在对话中途更换提示词的路线，
+会把被取代的那些留在 `messages` 里计数，因为它们仍然占着上下文。
 
 **最大条目才是让这里不只是一根进度条的东西。**Harness 给模型当前携带的每一个条目
 定价，dshline 从会话日志中对它们排序并命名：工具结果按 call id 与它自己的调用配对，
@@ -778,10 +782,12 @@ JSON schema，这正是上面那个占用数字改为锚定到提供方的原因
 而模型已经看不到它了。
 
 `↵` 打开一个条目：它是哪一类上下文、占了对话的多少、来自会话的什么位置，以及模型
-实际携带内容的有界预览。`share` 写的是 **of message context**（占消息上下文），而且
-就是这个意思：分母只是对话本身，因为那正是逐条目计量所定价的范围。系统提示词与工具
-schema 由上面那套另外的估算统计，而把两种不同的估算加在一起去得出一个整体上下文
-百分比，等于是在编造一个两者都没有给出的数字。
+实际携带内容的有界预览。系统提示词就是这些条目之一——`system prompt`，在一个新会话里
+常常是其中最大的一条——因为会话格式把它和其他一切放在同一个模型可见 surface 上。
+`share` 写的是 **of message context**（占消息上下文），而且就是这个意思：分母只是
+那个 surface 本身，因为那正是逐条目计量所定价的范围。工具 schema 由上面那套另外的
+估算统计，而把两种不同的估算加在一起去得出一个整体上下文百分比，等于是在编造一个
+两者都没有给出的数字。
 
 ```
 ╭─ dshline ────────────────────────────────── Context entry ─╮
@@ -824,8 +830,8 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
-│  system prompt   present                                    │
 │  tools           26                                         │
+│  prompt updates  in-history                                 │
 │                                                             │
 │  Latest request header Harness recorded.                    │
 ╰─ esc close ─────────────────────────────────────────────────╯
@@ -837,9 +843,18 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 到另一个模型，总计仍保持总计。数字下方的说明文字用一行说清这个范围。
 
 下半部分是 `Session.requestHeader()`，即 Harness 自己对请求头的折叠。那个请求头是**对
-话之外**的请求状态：路由、渲染后的系统提示词，以及组装好的工具 schema。它是
-**Harness 记录的最新请求头**，而不是对下一个请求的承诺——某一步会重新组装系统提示词与
-工具列表，也可能直接把它们透传出去，而这些都发生在新的请求头被记录之前。
+话之外**的请求状态：路由，以及组装好的工具 schema。它是 **Harness 记录的最新请求头**，
+而不是对下一个请求的承诺——某一步会重新组装工具列表，也可能直接把它透传出去，而这些都
+发生在新的请求头被记录之前。
+
+**系统提示词不在这里，而这是关于 Harness 的事实，不是这里的缺口。**在被采纳的会话格式
+里，渲染后的提示词是对话的一部分——模型可见 surface 上的一个 `system/message` 条目，也
+就是 `/context` 展示它的地方——而不是请求头的一个字段。所以 `/cache` 报告请求头仍然握有
+的那一个提示词事实：`prompt updates`，即所记录的路由如何处理在对话中途变更的提示词。
+`in-history` 意味着变更后的提示词会被追加在已缓存的历史之后，而不是重写第一条消息，这
+正是一次提示词变更能否被前缀缓存留存的分界。这一行只在 Harness 已经记录过路由元数据之
+后才出现：在那之前什么都不知道，而 `leading message` 会是一个没有任何人记录过的路由
+事实。
 
 **只有当提供方报告了缓存读取时，数字才会出现。** Harness 的缓存计数是可选字段，缺失时
 折叠为零，所以适配器不报告缓存读取的路由，与缓存已经变冷的路由无法区分。`/cache` 宁可
@@ -857,8 +872,8 @@ schema 由上面那套另外的估算统计，而把两种不同的估算加在�
 │                                                             │
 │  Request header                                             │
 │  route           deepseek/deepseek-v4-flash                 │
-│  system prompt   present                                    │
 │  tools           31                                         │
+│  prompt updates  leading message                            │
 │                                                             │
 │  Latest request header Harness recorded.                    │
 ╰─ esc close ─────────────────────────────────────────────────╯

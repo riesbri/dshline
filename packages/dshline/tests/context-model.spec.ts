@@ -98,7 +98,24 @@ function toolResult(callId: string, text: string): SessionEvent {
 function replacement(event: SessionEvent): SessionEvent {
   return {
     ...(event as unknown as Record<string, unknown>),
-    surfaceOp: { op: 'replace', start: 0, end: 0 },
+    surfaceOp: { op: 'replace', startSeq: 0, endSeq: 0 },
+  } as unknown as SessionEvent
+}
+
+/** A rendered system prompt, which is a surface node of its own since V3. */
+function systemMessage(text: string): SessionEvent {
+  return {
+    type: 'system/message',
+    seq: 0,
+    time: 1,
+    surfaceOp: 'append',
+    data: {
+      turn: 1, step: 1,
+      message: {
+        id: 's', role: 'system', content: [{ type: 'text', text }],
+        source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+      },
+    },
   } as unknown as SessionEvent
 }
 
@@ -229,6 +246,33 @@ describe('resolving the largest context entries', () => {
     )
     expect(entries[0]).toMatchObject({ seq: 3, kind: 'tool-result', tool: 'run_shell_command', turn: 3, step: 2 })
     expect(entries[1]).toMatchObject({ seq: 2, kind: 'tool-result', tool: 'read_file' })
+  })
+
+  it('names a system prompt as itself rather than as an unrecognized entry', () => {
+    // Session format V3 put the rendered prompt on the surface, so `/context`
+    // resolves it like any other node. Falling through to `other` would answer
+    // "what is occupying the context" with `context entry` for what is regularly
+    // the largest node in a fresh session.
+    const session = sessionOf([systemMessage('You are a terminal agent.'), userMessage('hello')])
+    const entries = resolveEntries(
+      session,
+      measurement([{ seq: 0, tokens: 900 }, { seq: 1, tokens: 5 }]),
+      8,
+    )
+    expect(entries[0]).toMatchObject({ seq: 0, kind: 'system', turn: 1, step: 1, replaced: false })
+    // Its content is previewable through Harness's own per-node projection, the
+    // same way every other node's is.
+    expect(contextPreview(session, SessionSeq(0)))
+      .toEqual({ text: 'You are a terminal agent.', truncated: false, available: true })
+  })
+
+  it('reports a normalized system prompt as a replacement, without renaming it', () => {
+    // Harness rewrites the head system node in place when a route cannot take an
+    // in-history change. That is a generic surface replacement, and `/context`
+    // says exactly that much: the node is still the system prompt.
+    const session = sessionOf([replacement(systemMessage('Revised instructions.'))])
+    const entries = resolveEntries(session, measurement([{ seq: 0, tokens: 120 }]), 8)
+    expect(entries[0]).toMatchObject({ kind: 'system', replaced: true })
   })
 
   it('leaves a tool name absent rather than guessing when no call carries the id', () => {
@@ -397,6 +441,47 @@ describe('the context surveyor', () => {
     generation = 1
     surveyor.read()
     expect(measured).toBe(2)
+  })
+
+  it('remeasures when the system prompt changes, through Harness’s own surface revision', () => {
+    // Session format V3 makes a system-prompt change a surface change: a route
+    // that reads a later `system` message APPENDS a node, and one that cannot
+    // REPLACES the head. Both already move the two facts this cache keys on, so
+    // no counter of dshline's own is needed to notice a prompt edit.
+    let nodes = [0, 1]
+    let generation = 0
+    let measured = 0
+    const events = [systemMessage('first'), userMessage('a'), systemMessage('second')]
+    const session = {
+      seq: events.length,
+      eventAt: (seq: number) => events[seq],
+      surface: {
+        get nodes() { return nodes },
+        get replaceGeneration() { return generation },
+      },
+    } as unknown as Session
+    const surveyor = new ContextSurveyor({
+      meter: () => ({
+        measure: () => {
+          measured += 1
+          return measurement([{ seq: 0, tokens: 1 }])
+        },
+      }),
+      session,
+      limit: 8,
+    })
+    surveyor.read()
+    surveyor.read()
+    expect(measured).toBe(1)
+    // An in-history prompt change: one more node on the surface.
+    nodes = [0, 1, 2]
+    surveyor.read()
+    expect(measured).toBe(2)
+    // A normalized prompt: the head node is replaced in place, so the count is
+    // unchanged and only Harness's replacement generation says anything moved.
+    generation = 1
+    surveyor.read()
+    expect(measured).toBe(3)
   })
 
   it('retries an absent meter instead of caching its absence forever', () => {

@@ -161,6 +161,12 @@ function submit(dispatch: ((key: Key) => void) | undefined, line: string): void 
   dispatch?.({ kind: 'key', name: 'enter' })
 }
 
+/** Press enter on an empty composer, which is how an attachment-only send is made. */
+function submitEmpty(dispatch: ((key: Key) => void) | undefined): void {
+  expect(dispatch).toBeDefined()
+  dispatch?.({ kind: 'key', name: 'enter' })
+}
+
 /** Drain command/admission promises scheduled by the input handler. */
 async function flush(): Promise<void> {
   await new Promise<void>(resolve => { setImmediate(resolve) })
@@ -191,6 +197,55 @@ describe('image attachment submission', () => {
       { type: 'image', attachment: expect.objectContaining({ attachmentId: 'opaque-0', name: '界 面.png' }) },
     ])
     expect(f.frame()).not.toContain('1 image')
+  })
+
+  it('sends an attachment-only message, with no empty text block in front of it', async () => {
+    // A staged image IS content, so enter on an empty composer is a real
+    // submission rather than the blank line the guard exists to swallow. The
+    // message carries the image alone: an empty text block would put a turn of
+    // the reader's own words that they never typed into the durable log, and
+    // into every replay of it.
+    const f = await fixture()
+    submit(f.dispatch(), '/image one.png')
+    await flush()
+    expect(f.frame()).toContain('1 image')
+
+    submitEmpty(f.dispatch())
+    await flush()
+
+    expect(f.saves).toHaveBeenCalledOnce()
+    expect(f.agent.followup).toHaveBeenCalledOnce()
+    const message = f.agent.followup.mock.calls[0]?.[0] as { content: Array<Record<string, unknown>> }
+    expect(message.content).toEqual([
+      { type: 'image', attachment: expect.objectContaining({ attachmentId: 'opaque-0', name: 'one.png' }) },
+    ])
+    expect(f.frame()).not.toContain('1 image')
+  })
+
+  it('still swallows an empty submission when nothing is staged', async () => {
+    // The other half of the same guard: spaces and pasted blank lines must not
+    // become an empty model message, and nothing about attachments changes that
+    // when there are none.
+    const f = await fixture()
+    submitEmpty(f.dispatch())
+    await flush()
+    submit(f.dispatch(), '   ')
+    await flush()
+    expect(f.agent.followup).not.toHaveBeenCalled()
+    expect(f.saves).not.toHaveBeenCalled()
+  })
+
+  it('routes an attachment-only send by the same queue-or-steer decision', async () => {
+    // The delivery verb is decided from the gesture and the agent's status, not
+    // from whether a word was typed.
+    const f = await fixture()
+    f.agent.status = 'running'
+    submit(f.dispatch(), '/image one.png')
+    await flush()
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-enter' })
+    await flush()
+    expect(f.agent.steer).toHaveBeenCalledOnce()
+    expect(f.agent.followup).not.toHaveBeenCalled()
   })
 
   it('restores the prompt and keeps the draft when reading fails, then retries safely', async () => {

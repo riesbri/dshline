@@ -48,7 +48,7 @@ function compact(session: Session, options: { manual: boolean }): {
     id: 'm-3', role: 'user', content: [{ type: 'text', text: 'the story so far' }],
     source: { kind: 'plugin', plugin: 'compact', compactionId },
   } as never, {
-    surfaceOp: { op: 'replace', start: first.seq, end: second.seq },
+    surfaceOp: { op: 'replace', startSeq: first.seq, endSeq: second.seq },
     sourceEventSeqs: [first.seq, second.seq],
   })
   const end = session.append('compaction/end', { compactionId, turn: null, ...owner })

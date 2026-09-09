@@ -22,7 +22,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { ModelSelectionRef, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelectionRef, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { LlmModelReasoningInfo, ModelModality } from '@deepseek-ai/dsh-llm'
 // Carries the Context merges this module reads but does not otherwise import
@@ -491,9 +491,9 @@ export function attachOptions(w: Window): Omit<ResumeAgentOptions, 'resumeSessio
   const current = w.selection.current
   return {
     ...current === undefined ? {} : { agentOptions: { provider: current.provider, model: current.model } },
-    setup: async agentCtx => {
+    setup: async (agentCtx, agent) => {
       installModelSelection(agentCtx, w.selection)
-      await mountAgentPreset(agentCtx, w.commit)
+      await mountAgentPreset(agentCtx, agent, w.commit)
     },
   }
 }
@@ -539,10 +539,14 @@ const LEGACY_SESSION_PRESET = 'standard'
  *    history to protect, so the roster's current default applies, exactly
  *    like any other new session.
  *
- * `agentCtx.agent` is set before `setup` runs (dsh-agent-loop mints the
- * Agent, including a resumed session's already-reconstructed log, before
- * calling `setup(prepared.agent.ctx)`), so this reads the real session
- * facts rather than guessing from context.
+ * The Agent is passed in rather than read off the context, and it is required.
+ * Harness mints it — including a resumed session's already-reconstructed log —
+ * before calling `setup(agentCtx, agent)`, and that parameter is the only
+ * association the adopted generation publishes: there is no ambient
+ * `Context.agent` to consult, nothing here reconstructs one, and there is no
+ * supported call of `setup` that arrives without an Agent. So this reads the
+ * real session facts off the Agent being composed rather than guessing from
+ * context.
  *
  * A profile that mounts no `agentPresets` seam at all leaves this a no-op.
  * That restores dshline's old flat behavior only for a composition that
@@ -553,6 +557,8 @@ const LEGACY_SESSION_PRESET = 'standard'
  * otherwise-stock dshline composition leaves an agent with no tools at all,
  * not the old flat set back.
  * @param agentCtx - the unpublished agent's own scope context.
+ * @param agent - the unpublished Agent being composed, exactly as `setup`
+ * receives it; only its session is read.
  * @param report - where to say that a legacy session could not be placed on
  * {@link LEGACY_SESSION_PRESET}; called only after the substitute preset has
  * actually mounted, so a failed resume never claims to have run under one.
@@ -561,11 +567,12 @@ const LEGACY_SESSION_PRESET = 'standard'
  */
 export async function mountAgentPreset(
   agentCtx: Context,
+  agent: Pick<Agent, 'session'>,
   report?: (lines: readonly string[]) => void,
 ): Promise<void> {
   const agentPresets = pluginsSeams(agentCtx).agentPresets
   if (agentPresets === undefined) return
-  const facts = sessionFacts(agentCtx, agentCtx.agent?.session)
+  const facts = sessionFacts(agentCtx, agent.session)
   const recorded = facts.presetId
   const chosen = recorded !== undefined || !facts.started
     ? { id: recorded ?? agentPresets.defaultId, caveat: [] as readonly string[] }
