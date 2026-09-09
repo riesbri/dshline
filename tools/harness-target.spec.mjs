@@ -14,9 +14,12 @@ import { readFile } from 'node:fs/promises'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  compatProblems,
   formatReport,
   isPublished,
+  parseCompat,
   parseTarget,
+  readCompat,
   sourceVersion,
   targetUpdates,
 } from './harness-target.mjs'
@@ -183,5 +186,83 @@ describe('isPublished()', () => {
       .rejects.toThrow('invalid versions map')
     await expect(isPublished('@deepseek-ai/dsh', '0.1.1-rc.2', () => Promise.resolve({ versions: [] })))
       .rejects.toThrow('invalid versions map')
+  })
+})
+
+describe('HARNESS_COMPAT, the register of temporary workarounds', () => {
+  it('reads shim records and ignores comments and blank lines', () => {
+    expect(parseCompat([
+      '# why this one exists',
+      '',
+      'shim packages/dshline/src/stderr.ts 0.1.5-alpha.1',
+      'shim packages/dshline/src/other.ts 0.1.5-alpha.1 # trailing note',
+    ].join('\n'))).toEqual([
+      { path: 'packages/dshline/src/stderr.ts', confirmed: '0.1.5-alpha.1' },
+      { path: 'packages/dshline/src/other.ts', confirmed: '0.1.5-alpha.1' },
+    ])
+  })
+
+  it('refuses a malformed, duplicated, or unknown record rather than guessing', () => {
+    expect(() => parseCompat('shim packages/a.ts\n')).toThrow(/expected "shim <path> <version>"/)
+    expect(() => parseCompat('shim packages/a.ts 0.1.5 extra\n')).toThrow(/expected "shim <path> <version>"/)
+    expect(() => parseCompat('workaround packages/a.ts 0.1.5\n')).toThrow(/unknown field: workaround/)
+    expect(() => parseCompat('shim packages/a.ts main\n')).toThrow(/not a version/)
+    expect(() => parseCompat('shim packages/a.ts 0.1.5\nshim packages/a.ts 0.1.6\n')).toThrow(/recorded twice/)
+  })
+
+  it('treats an absent register as an empty one, so an older tag still checks', async () => {
+    // `publish.yml` runs this check with RELEASE_ROOT pointing at a released
+    // tag, which may predate the file. A repository carrying no workarounds is
+    // also the state the register exists to return to.
+    // This directory is a real one that carries no register.
+    await expect(readCompat(new URL('.', import.meta.url).pathname)).resolves.toEqual([])
+  })
+
+  it('fails while a record names a generation other than the adopted one', async () => {
+    // The whole point. Advancing HARNESS_TARGET cannot go green until someone
+    // has confirmed the upstream behavior is still there, or deleted the shim.
+    const shims = [{ path: 'tools/harness-target.mjs', confirmed: '0.1.1-rc.1' }]
+    await expect(compatProblems({ ...TARGET }, shims)).resolves.toEqual([
+      { path: 'tools/harness-target.mjs', confirmed: '0.1.1-rc.1', reason: 'unconfirmed' },
+    ])
+  })
+
+  it('passes a record confirmed against the adopted generation', async () => {
+    const shims = [{ path: 'tools/harness-target.mjs', confirmed: TARGET.version }]
+    await expect(compatProblems({ ...TARGET }, shims)).resolves.toEqual([])
+  })
+
+  it('fails a record whose module is gone, so the register cannot outlive the shim', async () => {
+    const shims = [{ path: 'packages/dshline/src/deleted.ts', confirmed: TARGET.version }]
+    await expect(compatProblems({ ...TARGET }, shims)).resolves.toEqual([
+      { path: 'packages/dshline/src/deleted.ts', confirmed: TARGET.version, reason: 'missing' },
+    ])
+  })
+
+  it('names the decision in the report rather than only the failure', () => {
+    const report = formatReport(TARGET, [], [
+      { path: 'packages/dshline/src/stderr.ts', confirmed: '0.1.1-rc.1', reason: 'unconfirmed' },
+    ])
+    expect(report).toContain('1 temporary shim in HARNESS_COMPAT')
+    expect(report).toContain('packages/dshline/src/stderr.ts last confirmed against 0.1.1-rc.1')
+    expect(report).toContain(`bump the record to ${TARGET.version}`)
+  })
+
+  it('the committed register agrees with the committed target', async () => {
+    // The same claim the blocking lane makes, asserted here so a stale record
+    // fails in seconds rather than in a CI job.
+    const target = parseTarget(await readFile(new URL('../HARNESS_TARGET', import.meta.url), 'utf8'))
+    await expect(compatProblems(target, await readCompat())).resolves.toEqual([])
+  })
+
+  it('every recorded shim says it is temporary in its own first lines', async () => {
+    // A register entry is a reminder to revisit; the module is where the
+    // behavior and the removal condition live. One without the other is how a
+    // workaround gets read as a design decision.
+    for (const shim of await readCompat()) {
+      const source = await readFile(new URL(`../${shim.path}`, import.meta.url), 'utf8')
+      expect(source.slice(0, 400), shim.path).toMatch(/TEMPORARY/)
+      expect(source, shim.path).toContain('HARNESS_COMPAT')
+    }
   })
 })

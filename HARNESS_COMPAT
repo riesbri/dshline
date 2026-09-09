@@ -1,0 +1,42 @@
+# Temporary compatibility shims for defects in the adopted Harness generation.
+#
+# dshline supports one Harness generation at a time and deletes obsolete
+# assumptions rather than carrying them behind a compatibility layer
+# (HARNESS_TARGET explains why). Occasionally a generation ships a defect
+# dshline has to work around locally until upstream fixes it. Such a workaround
+# is not architecture, and the failure mode is not that it is wrong — it is
+# that it is forgotten, kept forever, and eventually read as a design decision
+# by whoever finds it next.
+#
+# This file is the list of them, and it exists to force a decision at the one
+# moment a decision is possible: adopting the next generation. Each record
+# names a shim and the generation it was last confirmed to still be needed
+# against. `node tools/harness-target.mjs` — the coherence check the
+# Harness-Sync proposal, the blocking `Harness target` lane, and every release
+# already run — fails while a record names a generation other than the adopted
+# one.
+#
+# So advancing HARNESS_TARGET fails until the adopter answers, per shim:
+#
+#   - does the new generation still perform the offending behavior?
+#     yes → bump this record's version, deliberately, in the migration commit
+#     no  → delete the shim, its wiring, its tests, and this record
+#
+# The check is a string comparison between two files in this repository. It
+# deliberately does NOT parse upstream source: a check that read a backend's
+# internals would couple every build to their layout and would break on a
+# refactor that fixed nothing. Confirming the behavior is the adopter's job,
+# once per generation, with the upstream checkout the migration already has in
+# front of it.
+#
+#   shim <path> <generation the shim was last confirmed against>
+#
+# The path is the shim's own module, and that module's header is where the
+# behavior, the reasoning, and the removal condition are written down. This
+# file holds no second copy of them.
+
+# A subagent backend forwards a delegated child process's stderr straight to
+# file descriptor 2 for the life of the run, which on an interactive launch is
+# the terminal the live region is drawn on. Read the module header before
+# touching this record.
+shim packages/dshline/src/stderr.ts 0.1.5-alpha.1

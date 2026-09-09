@@ -30,15 +30,27 @@
  *   node tools/harness-target.mjs --pin              # rewrite dependency pins to the target version
  *   node tools/harness-target.mjs --published        # has npm published the target version yet?
  *   node tools/harness-target.mjs --verify-source .harness   # is that checkout the adopted generation?
+ *
+ * The no-flag run also fails while `HARNESS_COMPAT` records a temporary shim
+ * confirmed against some other generation — see {@link parseCompat}.
  * @module tools/harness-target
  */
 
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const TARGET_FILE = join(repoRoot, 'HARNESS_TARGET')
+/**
+ * The register of temporary workarounds for defects in the adopted generation.
+ *
+ * Separate from `HARNESS_TARGET` rather than folded into it: that file's format
+ * is two `key value` lines precisely so a migration can edit it without
+ * understanding a parser, and records carrying a path would erode that. Its
+ * header points here instead, and this module is what makes the two coherent.
+ */
+const COMPAT_FILE = 'HARNESS_COMPAT'
 /**
  * The same two manifests as path SEGMENTS, so a caller can resolve them
  * against a root other than this repository's. Only `pinTargetVersion` needs
@@ -270,27 +282,121 @@ export async function pinTargetVersion(version, fields = PINNED_FIELDS, root = r
 }
 
 /**
+ * One temporary workaround for a defect in the adopted Harness generation.
+ * @typedef {object} CompatShim
+ * @property {string} path - the shim's own module, repository-relative.
+ * @property {string} confirmed - the generation it was last confirmed to still be needed against.
+ */
+
+/**
+ * Parse `HARNESS_COMPAT`.
+ *
+ * `shim <path> <version>` records and comments, in the same read-at-a-glance
+ * spirit as `HARNESS_TARGET`. No description field: the shim's own module
+ * header is where the behavior and the removal condition are written down, and
+ * a second copy here would be the one that goes stale.
+ * @param text - the file's contents.
+ * @returns the recorded shims, in file order.
+ * @throws when a record is malformed or names a path twice — never a partial register.
+ */
+export function parseCompat(text) {
+  /** @type {CompatShim[]} */
+  const shims = []
+  for (const raw of text.split('\n')) {
+    const line = raw.replace(/#.*$/, '').trim()
+    if (line === '') continue
+    const [key, path, confirmed, ...rest] = line.split(/\s+/)
+    if (key !== 'shim') throw new Error(`${COMPAT_FILE}: unknown field: ${key}`)
+    if (path === undefined || confirmed === undefined || rest.length > 0) {
+      throw new Error(`${COMPAT_FILE}: expected "shim <path> <version>", got: ${line}`)
+    }
+    if (!HARNESS_VERSION.test(confirmed)) {
+      throw new Error(`${COMPAT_FILE}: ${path} confirmed against something that is not a version: ${confirmed}`)
+    }
+    if (shims.some(shim => shim.path === path)) throw new Error(`${COMPAT_FILE}: ${path} recorded twice`)
+    shims.push({ path, confirmed })
+  }
+  return shims
+}
+
+/**
+ * Read the register, treating its absence as an empty one.
+ *
+ * Absence is not an error: a released tag predating this file is checked with
+ * `RELEASE_ROOT` pointing at it, and a repository carrying no workarounds is
+ * the state this register exists to return to.
+ * @param root - repository root whose register should be read.
+ * @returns the recorded shims, or none.
+ */
+export async function readCompat(root = repoRoot) {
+  try {
+    return parseCompat(await readFile(join(root, COMPAT_FILE), 'utf8'))
+  } catch (error) {
+    if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return []
+    throw error
+  }
+}
+
+/**
+ * Every recorded shim that the adopted generation has not been reconciled with.
+ *
+ * Two ways a record can be wrong, and both are worth failing on. A shim
+ * confirmed against another generation means a migration moved the target
+ * without deciding what to do about the workaround — which is the whole reason
+ * the register exists. A record whose module is gone means the workaround was
+ * deleted and its entry was not, so the next migration would be asked to
+ * reconfirm a file nobody can read.
+ * @param target - the adopted target.
+ * @param shims - the recorded shims.
+ * @param root - repository root the paths resolve against.
+ * @returns one entry per unreconciled record; empty when the register agrees with the target.
+ */
+export async function compatProblems(target, shims, root = repoRoot) {
+  const problems = []
+  for (const shim of shims) {
+    const present = await stat(join(root, shim.path)).then(() => true, () => false)
+    if (!present) problems.push({ ...shim, reason: 'missing' })
+    else if (shim.confirmed !== target.version) problems.push({ ...shim, reason: 'unconfirmed' })
+  }
+  return problems
+}
+
+/**
  * Render the coherence report.
  * @param target - the adopted target.
  * @param problems - `{ manifest, field, name, from }` entries whose spec is not the target version.
+ * @param shims - `{ path, confirmed, reason }` entries from {@link compatProblems}.
  * @returns the report text, ending in a newline.
  */
-export function formatReport(target, problems) {
+export function formatReport(target, problems, shims = []) {
   const lines = [`Harness target ${target.version} @ ${target.revision.slice(0, 8)}`]
   if (problems.length === 0) {
     lines.push(`✓ every dsh-* dependency, devDependency, and peerDependency is exactly ${target.version}`)
+  } else {
+    lines.push(`✗ ${String(problems.length)} dsh-* spec${problems.length === 1 ? '' : 's'} not exactly ${target.version}:`)
+    for (const problem of problems) {
+      lines.push(`  ${problem.manifest} (${problem.field}): ${problem.name} ${problem.from}`)
+    }
+    lines.push('run `node tools/harness-target.mjs --pin && pnpm install` for dependencies.')
+    if (problems.some(problem => problem.field === 'peerDependencies')) {
+      lines.push('peerDependencies are never rewritten by a tool: a peer range is the public')
+      lines.push('compatibility promise, and one generation means one exact version, not a range.')
+    }
+  }
+  if (shims.length === 0) {
     return [...lines, ''].join('\n')
   }
-  lines.push(`✗ ${String(problems.length)} dsh-* spec${problems.length === 1 ? '' : 's'} not exactly ${target.version}:`)
-  for (const problem of problems) {
-    lines.push(`  ${problem.manifest} (${problem.field}): ${problem.name} ${problem.from}`)
+  // Named as a decision rather than as a failure: the tool cannot tell whether
+  // the workaround is still needed, and guessing would be worse than stopping.
+  lines.push(`✗ ${String(shims.length)} temporary shim${shims.length === 1 ? '' : 's'} in ${COMPAT_FILE} not reconciled with ${target.version}:`)
+  for (const shim of shims) {
+    lines.push(shim.reason === 'missing'
+      ? `  ${shim.path} is recorded but does not exist — delete the record`
+      : `  ${shim.path} last confirmed against ${shim.confirmed}`)
   }
-  const peersWrong = problems.some(problem => problem.field === 'peerDependencies')
-  lines.push('run `node tools/harness-target.mjs --pin && pnpm install` for dependencies.')
-  if (peersWrong) {
-    lines.push('peerDependencies are never rewritten by a tool: a peer range is the public')
-    lines.push('compatibility promise, and one generation means one exact version, not a range.')
-  }
+  lines.push(`read each module's header, then either delete the shim with its wiring,`)
+  lines.push(`its tests and its ${COMPAT_FILE} record, or bump the record to ${target.version}`)
+  lines.push('to state deliberately that this generation still needs it.')
   return [...lines, ''].join('\n')
 }
 
@@ -360,8 +466,12 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
       : `pinned ${String(applied.length)} package(s) to ${target.version}; run \`pnpm install\` to refresh the lockfile\n`)
   } else if (flag === undefined) {
     const problems = await collectProblems(target, targetRoot)
-    process.stdout.write(formatReport(target, problems))
-    process.exit(problems.length > 0 ? 1 : 0)
+    // The same run, because they are the same question asked of two files: is
+    // this repository coherent with the generation it says it adopts. A
+    // migration that bumps the target sees both answers at once.
+    const shims = await compatProblems(target, await readCompat(targetRoot), targetRoot)
+    process.stdout.write(formatReport(target, problems, shims))
+    process.exit(problems.length + shims.length > 0 ? 1 : 0)
   } else {
     process.stderr.write(`unknown flag: ${flag}\n${usage}`)
     process.exit(2)

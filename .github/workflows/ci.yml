@@ -196,6 +196,16 @@ jobs:
             echo "version=$(node tools/harness-target.mjs --version)"
           } >> "$GITHUB_OUTPUT"
 
+      # Two files in THIS repository against the target above: every dsh-*
+      # spec is exactly the adopted version, and every temporary workaround in
+      # HARNESS_COMPAT has been reconciled with it. Nothing here reads upstream
+      # source, so it costs a second and couples this lane to no external
+      # layout — it exists so a hand-edited HARNESS_TARGET is caught here
+      # rather than at release, which is where the Harness-Sync proposal and
+      # the publish lane already run the same check.
+      - name: this repository is coherent with the adopted target
+        run: node tools/harness-target.mjs
+
       - name: check out the adopted harness revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

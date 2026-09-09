@@ -34,6 +34,15 @@
 # to match, and edit the two lines below. Never advance it to a revision
 # dshline does not already work against — a green `Harness target` is the claim
 # this file makes.
+#
+# One more thing belongs to that commit. HARNESS_COMPAT lists the temporary
+# workarounds dshline carries for defects in the generation named below, each
+# recorded against the generation it was last confirmed to still be needed
+# against. The same coherence check that reads this file fails while a record
+# names a different generation, so advancing this pointer forces a decision on
+# every one of them: confirm the upstream behavior is still there, or delete
+# the workaround. A workaround nobody is made to revisit is a workaround that
+# becomes permanent.
 
 revision 5dda764ed3aa172535a7967b06ff95d9cbfe536a
 version 0.1.5-alpha.1

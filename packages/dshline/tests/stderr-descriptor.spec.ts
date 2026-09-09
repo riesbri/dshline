@@ -13,11 +13,14 @@
  * 1. `writeFileSync(process.stderr.fd, …)` resolves the property at call time,
  *    so a raw write follows the substituted descriptor, and the substitution is
  *    exactly reversible.
- * 2. Where `process.stderr` is a socket-backed stream — a pipe here, and a
- *    terminal in production, both `net.Socket` writing through a libuv handle
- *    opened once — `write` does NOT re-resolve the property, so the ordinary
- *    stream path is untouched by the substitution. This is the case the shim
- *    actually runs in.
+ * 2. Where `process.stderr` is a socket-backed stream, `write` does NOT
+ *    re-resolve the property, so the ordinary stream path is untouched by the
+ *    substitution. The case driven here is a PIPE. Production is a terminal,
+ *    which is the same stream family — `tty.WriteStream` extends `net.Socket`
+ *    — but this suite cannot allocate a pty, so the production case is
+ *    inferred from the pipe rather than observed. That inference is stated
+ *    where the shim relies on it, in `src/stderr.ts`, rather than dressed up
+ *    as a measurement here.
  * 3. Where `process.stderr` is a FILE, Node uses `SyncWriteStream`, which
  *    writes through `this.fd` on every call — so substituting it would capture
  *    the ordinary stream path too. That is not a hazard in production only
@@ -139,9 +142,8 @@ console.log('ok')
 
 describe.skipIf(process.platform === 'win32')('substituting the descriptor process.stderr reports', () => {
   it('holds the raw path and leaves a socket-backed stream path alone', async () => {
-    // A pipe, which is the same stream family a terminal gets: `net.Socket`
-    // writing through a handle opened once, rather than through the property.
-    // This is the configuration the shim actually engages in.
+    // A pipe: socket-backed, like the terminal the shim actually engages on,
+    // and the closest configuration this suite can allocate to it.
     const child = await drive(shimSequence, path => `2>&1 1>/dev/null | cat > ${JSON.stringify(path)}`)
     expect(child.status, child.stdout).toBe(0)
 

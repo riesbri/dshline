@@ -26,9 +26,20 @@ that backend or branches on a provider: what is contained is a write shape.
 **This is a temporary compatibility shim, not a dshline abstraction.** The real
 fix is upstream — a delegated child's diagnostics belong on a Host-owned
 diagnostic seam, not on a frontend's terminal. `src/stderr.ts` carries the
-removal condition in its own header: it is deleted, with its wiring and its two
-specs, when `HARNESS_TARGET` advances to a generation whose subagent backends no
-longer write raw child diagnostics to the frontend's terminal.
+removal condition in its own header, and the shim is registered in a new root
+file, `HARNESS_COMPAT`, so it cannot quietly become permanent.
+
+That register lists each temporary workaround with the generation it was last
+confirmed to still be needed against, and `node tools/harness-target.mjs` — the
+coherence check the Harness-Sync adoption proposal, the blocking `Harness
+target` lane and every release already run — fails while a record names any
+generation other than the adopted one. So advancing `HARNESS_TARGET` cannot go
+green until the adopter decides, per shim: confirm the upstream behavior is
+still there and bump the record deliberately, or delete the shim with its
+wiring, its tests and its record. A record whose module no longer exists fails
+too, so the register cannot outlive what it describes. The check is a string
+comparison between two files in this repository — it parses no upstream source,
+so nothing couples a build to a backend's internal layout.
 
 Patching `process.stderr.write` would not catch the forward — it never touches
 the stream — but it reads `process.stderr.fd` on every write, so that is what
