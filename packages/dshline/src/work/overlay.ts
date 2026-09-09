@@ -524,19 +524,20 @@ const CHILD_RANK = {
  */
 function childSegments(item: SubagentWorkItem, name: string): RowSegment[] {
   const segments: RowSegment[] = []
-  if (item.activityWord !== undefined) {
-    segments.push({ text: escapeControls(item.activityWord), separator: ' · ', rank: CHILD_RANK.word })
-    if (item.activityTitle !== undefined && item.activityTitle !== '') {
+  const activityWord = item.state === 'stopping' ? 'stopping' : item.activityWord
+  if (activityWord !== undefined) {
+    segments.push({ text: escapeControls(activityWord), separator: ' · ', rank: CHILD_RANK.word })
+    if (item.state !== 'stopping' && item.activityTitle !== undefined && item.activityTitle !== '') {
       segments.push({ text: escapeControls(item.activityTitle), separator: ' ', rank: CHILD_RANK.title })
     }
   }
-  if (item.route !== undefined) {
+  if (item.state === 'running' && item.route !== undefined) {
     segments.push({ text: escapeControls(routeLabel(item.route)), separator: ' · ', rank: CHILD_RANK.route })
   }
   // The backend earns overview space only when the row has no observable
   // activity to show instead: for a provider-managed run it is the fact that
   // EXPLAINS the silence, and for a local child it is detail-stage material.
-  if (item.activityWord === undefined && escapeControls(item.provider) !== name) {
+  if (activityWord === undefined && escapeControls(item.provider) !== name) {
     segments.push({ text: escapeControls(item.provider), separator: ' · ', rank: CHILD_RANK.backend })
   }
   return segments
@@ -690,11 +691,12 @@ function subagentRows(
     heading(`Subagent · ${escapeControls(identity)}`),
     blank(),
   ]
-  const headline = item.activityWord === undefined
+  const headlineWord = item.state === 'stopping' ? 'stopping' : item.activityWord
+  const headline = headlineWord === undefined
     ? 'active'
-    : item.activityTitle === undefined || item.activityTitle === ''
-      ? item.activityWord
-      : `${item.activityWord} · ${item.activityTitle}`
+    : item.state === 'stopping' || item.activityTitle === undefined || item.activityTitle === ''
+      ? headlineWord
+      : `${headlineWord} · ${item.activityTitle}`
   rows.push({
     kind: 'row',
     key: 'state',
@@ -704,7 +706,7 @@ function subagentRows(
     role: 'subdued',
   })
   rows.push(blank())
-  if (item.route !== undefined) {
+  if (item.state === 'running' && item.route !== undefined) {
     rows.push(fact('model', routeLabel(item.route), width))
     // Only when the effective route genuinely carries one. An adapter that
     // resolves no reasoning effort has none, and a blank row claiming otherwise
@@ -716,13 +718,13 @@ function subagentRows(
   rows.push(fact('backend', item.provider, width))
   // No paragraph about what the seam does or does not carry: an opaque backend
   // simply says who manages the detail, in the same two columns as every other fact.
-  if (item.activityWord === undefined) rows.push(fact('activity', 'provider-managed', width))
+  if (headlineWord === undefined) rows.push(fact('activity', 'provider-managed', width))
   const duration = subagentDuration(item, Date.now())
   // The label names which clock this is. Harness's projection measures the
   // child's own active turns; the fallback measures how long this lifecycle
   // epoch has been open, which is a different and weaker statement.
   rows.push(fact(duration.kind === 'active' ? 'active time' : 'elapsed', formatElapsed(duration.ms), width))
-  if (item.tokens !== undefined) rows.push(fact('tokens', formatTokens(item.tokens), width))
+  if (item.state === 'running' && item.tokens !== undefined) rows.push(fact('tokens', formatTokens(item.tokens), width))
   if (item.mode !== undefined) rows.push(fact('mode', item.mode, width))
   const membership = findMembership(item.id, workflows)
   if (membership !== undefined) {
@@ -732,9 +734,9 @@ function subagentRows(
     rows.push(fact('member', membership.member.label, width))
   }
   rows.push(blank())
-  if (item.interruptible) rows.push(fact('interrupt', 'available', width))
+  if (item.state === 'running' && item.interruptible) rows.push(fact('interrupt', 'available', width))
   rows.push(fact('session', item.id, width))
-  if (item.agentStatus !== undefined) rows.push(fact('agent status', item.agentStatus, width))
+  if (item.state === 'running' && item.agentStatus !== undefined) rows.push(fact('agent status', item.agentStatus, width))
   if (item.residency !== undefined) {
     rows.push(fact('residency', item.residency === 'resident' ? 'live session' : 'stored session', width))
   }
@@ -863,7 +865,9 @@ function fitSegments(name: string, segments: readonly RowSegment[], width: numbe
 
 /** The help truthful for this stage, the focused row, and the current authority. */
 function stageHelp(stage: Stage, focused: StageRow | undefined, item: WorkItem | undefined): string {
-  const interrupt = item?.source === 'subagent' && item.interruptible ? ' · k interrupt' : ''
+  const interrupt = item?.source === 'subagent' && item.state === 'running' && item.interruptible
+    ? ' · k interrupt'
+    : ''
   const enter = focused?.open === undefined ? '' : ' · ↵ inspect'
   const exit = stage.kind === 'list' ? ' · esc close' : ' · esc back'
   return `↑↓ select${enter}${interrupt}${exit}`

@@ -33,6 +33,7 @@ import type {
 } from '@deepseek-ai/dsh-workflow/types'
 import type {
   SubagentListEntry,
+  SubagentRunDisposedInfo,
   SubagentRunEndInfo,
   SubagentRunInfo,
   SubagentRuntime,
@@ -81,7 +82,7 @@ interface LiveSubagent {
    * never materialized; the row degrades to backend, label, and elapsed.
    * Mutated only by {@link HarnessWork.attachChild}, which is the sole owner.
    */
-  activity?: ChildActivityObserver
+  activity?: ChildActivityObserver | undefined
   /**
    * The exact live child Agent, when one was resolvable. Held by object
    * identity beside the observer and released the moment Harness disposes it,
@@ -89,6 +90,8 @@ interface LiveSubagent {
    * disposed Agent's session is not a fact about work in flight.
    */
   child?: Agent | undefined
+  /** Harness's published lifecycle phase for this run epoch. */
+  state: 'running' | 'stopping'
 }
 
 /** Services and lifecycle observers the work projection consumes. */
@@ -118,6 +121,8 @@ export interface WorkCapabilities {
   readonly onSubagentStart?: (listener: (info: SubagentRunInfo) => void) => () => void
   /** Ask the scoped parent context for lifecycle ends. */
   readonly onSubagentEnd?: (listener: (info: SubagentRunEndInfo) => void) => () => void
+  /** Ask the scoped parent context for successful disposal observations. */
+  readonly onSubagentDisposed?: (listener: (info: SubagentRunDisposedInfo) => void) => () => void
   /**
    * Optional workflow projection. Owned here so consumers keep one snapshot and
    * one disposal, while the ownership rule that makes it safe stays in its own
@@ -147,7 +152,7 @@ export class HarnessWork {
   private listingGeneration = 0
 
   constructor(private readonly capabilities: WorkCapabilities) {
-    const { jobs, subagents, agent, onSubagentStart, onSubagentEnd } = capabilities
+    const { jobs, subagents, agent, onSubagentStart, onSubagentEnd, onSubagentDisposed } = capabilities
     this.workflows = capabilities.workflows === undefined
       ? undefined
       : new HarnessWorkflows(capabilities.workflows)
@@ -166,6 +171,7 @@ export class HarnessWork {
           provider: info.provider,
           local: info.local,
           startedAt: Date.now(),
+          state: 'running',
         }
         this.liveSubagents.set(run.runId, run)
         this.attachChild(run)
@@ -174,8 +180,20 @@ export class HarnessWork {
       }))
       if (onSubagentEnd !== undefined) this.disposers.push(onSubagentEnd(info => {
         const run = this.liveSubagents.get(String(info.runId))
-        run?.activity?.dispose()
-        if (run !== undefined) run.child = undefined
+        if (run === undefined) return
+        run.activity?.dispose()
+        run.activity = undefined
+        run.child = undefined
+        run.state = 'stopping'
+        this.refreshSubagents()
+        capabilities.invalidate()
+      }))
+      if (onSubagentDisposed !== undefined) this.disposers.push(onSubagentDisposed(info => {
+        const run = this.liveSubagents.get(String(info.runId))
+        if (run === undefined) return
+        run.activity?.dispose()
+        run.activity = undefined
+        run.child = undefined
         this.liveSubagents.delete(String(info.runId))
         this.refreshSubagents()
         capabilities.invalidate()
@@ -188,6 +206,7 @@ export class HarnessWork {
         this.disposers.push(agent.ctx.on('agent/created', payload => {
           const id = String(payload.agent.session.id)
           for (const run of this.liveSubagents.values()) {
+            if (run.state !== 'running') continue
             if (run.local && run.id === id && run.child === undefined) this.attachChild(run)
           }
         }))
@@ -216,6 +235,7 @@ export class HarnessWork {
       run.child = undefined
     }
     this.liveSubagents.clear()
+    this.discovered.clear()
     for (const dispose of this.disposers.splice(0)) dispose()
   }
 
@@ -256,7 +276,7 @@ export class HarnessWork {
     try {
       // One-shot runs have no service-level interrupt operation. Pretending they
       // do would lie about a capability that only their holder owns.
-      if (subagents === undefined || !item.interruptible) {
+      if (subagents === undefined || item.state !== 'running' || !item.interruptible) {
         return { kind: 'unsupported', message: 'This subagent cannot be interrupted here.' }
       }
       subagents.interrupt(item.id as Parameters<SubagentRuntime['interrupt']>[0], {
@@ -282,6 +302,7 @@ export class HarnessWork {
    * route and projections from the same instance the activity fold is watching.
    */
   private attachChild(run: LiveSubagent): void {
+    if (run.state !== 'running') return
     const { agents, agent, resolveTool, invalidate } = this.capabilities
     if (agents === undefined) return
     if (!run.local) return
@@ -382,20 +403,22 @@ export class HarnessWork {
   /** Convert a published lifecycle edge, enriching it only with discovery data. */
   private subagentItem(run: LiveSubagent): SubagentWorkItem {
     const discovered = this.discovered.get(run.id)
-    const reading = run.activity?.reading()
-    const route = childRoute(run.child)
-    const projected = this.childProjections(run.child)
+    const child = run.state === 'running' ? run.child : undefined
+    const activity = run.state === 'running' ? run.activity : undefined
+    const reading = activity?.reading()
+    const route = childRoute(child)
+    const projected = this.childProjections(child)
     const timing = projected?.values.subagentTiming
-    const tokens = childTokens(run.child, projected)
+    const tokens = childTokens(child, projected)
     return {
       id: run.id,
       source: 'subagent',
       runId: run.runId,
       provider: run.provider,
       local: run.local,
-      state: 'running',
+      state: run.state,
       startedAt: run.startedAt,
-      interruptible: discovered?.mode === 'continuable',
+      interruptible: run.state === 'running' && discovered?.mode === 'continuable',
       ...discovered?.label === undefined ? {} : { label: discovered.label },
       ...discovered?.mode === undefined ? {} : { mode: discovered.mode },
       ...discovered?.residency === undefined ? {} : { residency: discovered.residency },
@@ -586,6 +609,7 @@ export function createHarnessWork(ctx: Context, agent: Agent, invalidate: () => 
         // edges by the delegating parent, so another session cannot leak into this UI.
         onSubagentStart: (listener: (info: SubagentRunInfo) => void) => agent.ctx.on('subagent/start', listener),
         onSubagentEnd: (listener: (info: SubagentRunEndInfo) => void) => agent.ctx.on('subagent/end', listener),
+        onSubagentDisposed: (listener: (info: SubagentRunDisposedInfo) => void) => agent.ctx.on('subagent/disposed', listener),
       },
   })
 }

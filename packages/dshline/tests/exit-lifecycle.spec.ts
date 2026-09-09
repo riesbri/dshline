@@ -29,6 +29,8 @@ interface FixtureOptions {
   readonly cancelFailure?: boolean
   /** Publish one owned nonterminal Job through the generic Work seam. */
   readonly activeJob?: boolean
+  /** Publish a subagent that has settled but is awaiting disposal observation. */
+  readonly activeStoppingSubagent?: boolean
 }
 
 /** One assembled attachment and the controls needed by these tests. */
@@ -40,6 +42,7 @@ interface Fixture {
   readonly events: string[]
   readonly agent: { readonly status: 'idle' | 'running'; readonly cancel: ReturnType<typeof vi.fn> }
   readonly commandSignal: () => AbortSignal | undefined
+  readonly publishStoppingSubagent: () => void
 }
 
 /** Let the attachment's submitted command reach its Harness double. */
@@ -57,6 +60,13 @@ function submit(dispatch: ((key: Key) => void) | undefined, line: string): void 
 /** Build one fresh attached session with captured exit and command seams. */
 async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   const ctx = new RealContext()
+  const lifecycle = new Map<string, (info: unknown) => void>()
+  const parentCtx = {
+    on: (name: string, listener: (info: unknown) => void) => {
+      lifecycle.set(name, listener)
+      return () => {}
+    },
+  }
   await ctx.plugin(TuiSlots)
   ctx.provide('tools', { get: () => undefined })
   ctx.provide('userQuestions', {} as never)
@@ -87,6 +97,12 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
       : [],
     onJobsChanged: () => () => {},
   } as never)
+  if (options.activeStoppingSubagent) {
+    ctx.provide('subagents', {
+      listChildren: async () => [],
+      interrupt: vi.fn(),
+    } as never)
+  }
 
   const events: string[] = []
   const exit = vi.fn(() => { events.push('appExit') })
@@ -129,6 +145,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     setExit,
   } as unknown as Window
   const agent = {
+    ctx: parentCtx,
     session: { id: 'exit-test', header: { cwd: '/workspace' }, events: [] },
     status: options.status ?? 'idle',
     inbox: { nextStep: [], nextTurn: [] },
@@ -154,6 +171,12 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     events,
     agent,
     commandSignal: () => commandSignal,
+    publishStoppingSubagent: () => {
+      lifecycle.get('subagent/start')?.({ runId: 'stopping-run', provider: 'probe', id: 'stopping-child', local: false })
+      lifecycle.get('subagent/end')?.({
+        runId: 'stopping-run', provider: 'probe', id: 'stopping-child', local: false, stopReason: 'completed',
+      })
+    },
   }
 }
 
@@ -191,6 +214,14 @@ describe('attachment exit lifecycle', () => {
     // finishes; its Job stays nonterminal through that interval. The generic Job
     // snapshot, not the provider process, is the authority this guard consumes.
     const f = await fixture({ activeJob: true })
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
+    expect(f.agent.cancel).not.toHaveBeenCalled()
+    expect(f.exit).not.toHaveBeenCalled()
+  })
+
+  it('keeps idle ctrl-c attached while a subagent waits for disposal confirmation', async () => {
+    const f = await fixture({ activeStoppingSubagent: true })
+    f.publishStoppingSubagent()
     f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
     expect(f.agent.cancel).not.toHaveBeenCalled()
     expect(f.exit).not.toHaveBeenCalled()

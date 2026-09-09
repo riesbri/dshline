@@ -11,7 +11,7 @@ import { createEmulator } from '../../../tests/emulator.ts'
 import { HarnessWork } from '../src/work/index.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { JobWorkItem, SubagentWorkItem, WorkInterruptResult, WorkSnapshot } from '../src/work/model.ts'
-import { activeWorkCount, workItemKey, workSummary } from '../src/work/model.ts'
+import { activeWorkCount, workItemKey, workMark, workSummary } from '../src/work/model.ts'
 
 /** The root agent shape the capability contracts use for ownership. */
 const agent = { session: { id: 'root' } } as unknown as Agent
@@ -139,6 +139,7 @@ describe('generic Harness Work capability projection', () => {
   it('uses direct-child discovery and generic lifecycle edges for subagents', async () => {
     let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
     let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
+    let disposed: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
     let children = 0
     const subagents = {
       listChildren: async () => { children += 1; return [CONTINUABLE_CHILD] },
@@ -149,6 +150,7 @@ describe('generic Harness Work capability projection', () => {
       subagents,
       onSubagentStart: listener => { started = listener as typeof started; return () => {} },
       onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+      onSubagentDisposed: listener => { disposed = listener as typeof disposed; return () => {} },
       invalidate: () => {},
     })
     await settled()
@@ -160,10 +162,68 @@ describe('generic Harness Work capability projection', () => {
       residency: 'resident', hasChildren: false, interruptible: true, local: false,
     }])
     ended?.({ runId: 'r1', provider: 'provider-中文', id: 'child', local: false, stopReason: 'completed' })
+    expect(work.snapshot().subagents).toMatchObject([{ runId: 'r1', state: 'stopping', interruptible: false }])
+    disposed?.({ runId: 'r1', provider: 'provider-中文', id: 'child', local: false })
     expect(work.snapshot().subagents).toEqual([])
   })
 
   it('keeps sequential lifecycle epochs of one durable child distinct', async () => {
+    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
+    let disposed: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    const work = new HarnessWork({
+      agent,
+      subagents: { listChildren: async () => [] } as unknown as SubagentRuntime,
+      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
+      onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+      onSubagentDisposed: listener => { disposed = listener as typeof disposed; return () => {} },
+      invalidate: () => {},
+    })
+    // A cold-resumed continuable child opens a NEW epoch under the same durable
+    // session id: the first epoch must fully settle before the second begins.
+    started?.({ runId: 'epoch-1', provider: 'codex', id: 'child', local: true })
+    expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['epoch-1'])
+    ended?.({ runId: 'epoch-1', provider: 'codex', id: 'child', local: true, stopReason: 'completed' })
+    expect(work.snapshot().subagents[0]?.state).toBe('stopping')
+    disposed?.({ runId: 'epoch-1', provider: 'codex', id: 'child', local: true })
+    expect(work.snapshot().subagents).toEqual([])
+    started?.({ runId: 'epoch-2', provider: 'codex', id: 'child', local: true })
+    expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['epoch-2'])
+    expect(work.snapshot().subagents[0]?.id).toBe('child')
+    expect(workItemKey(subagentItem({ id: 'child', runId: 'epoch-1' }))).toBe('subagent:epoch-1')
+    expect(workItemKey(subagentItem({ id: 'child', runId: 'epoch-2' }))).toBe('subagent:epoch-2')
+    work.dispose()
+  })
+
+  it('retains and removes exact lifecycle epochs by runId', () => {
+    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
+    let disposed: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    const work = new HarnessWork({
+      agent,
+      subagents: { listChildren: async () => [] } as unknown as SubagentRuntime,
+      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
+      onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+      onSubagentDisposed: listener => { disposed = listener as typeof disposed; return () => {} },
+      invalidate: () => {},
+    })
+    started?.({ runId: 'run-a', provider: 'codex', id: 'same-child', local: false })
+    started?.({ runId: 'run-b', provider: 'codex', id: 'same-child', local: false })
+    ended?.({ runId: 'run-a', provider: 'codex', id: 'same-child', local: false, stopReason: 'completed' })
+    ended?.({ runId: 'run-a', provider: 'codex', id: 'same-child', local: false, stopReason: 'completed' })
+    expect(work.snapshot().subagents.map(row => [row.runId, row.state])).toEqual([
+      ['run-a', 'stopping'], ['run-b', 'running'],
+    ])
+    disposed?.({ runId: 'unknown', provider: 'codex', id: 'same-child', local: false })
+    disposed?.({ runId: 'run-a', provider: 'codex', id: 'same-child', local: false })
+    disposed?.({ runId: 'run-a', provider: 'codex', id: 'same-child', local: false })
+    expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['run-b'])
+    ended?.({ runId: 'unknown', provider: 'codex', id: 'same-child', local: false, stopReason: 'completed' })
+    expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['run-b'])
+    work.dispose()
+  })
+
+  it('keeps an epoch stopping when successful disposal is never observed', () => {
     let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
     let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
     const work = new HarnessWork({
@@ -173,17 +233,9 @@ describe('generic Harness Work capability projection', () => {
       onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
       invalidate: () => {},
     })
-    // A cold-resumed continuable child opens a NEW epoch under the same durable
-    // session id: the first epoch must fully settle before the second begins.
-    started?.({ runId: 'epoch-1', provider: 'codex', id: 'child', local: true })
-    expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['epoch-1'])
-    ended?.({ runId: 'epoch-1', provider: 'codex', id: 'child', local: true, stopReason: 'completed' })
-    expect(work.snapshot().subagents).toEqual([])
-    started?.({ runId: 'epoch-2', provider: 'codex', id: 'child', local: true })
-    expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['epoch-2'])
-    expect(work.snapshot().subagents[0]?.id).toBe('child')
-    expect(workItemKey(subagentItem({ id: 'child', runId: 'epoch-1' }))).toBe('subagent:epoch-1')
-    expect(workItemKey(subagentItem({ id: 'child', runId: 'epoch-2' }))).toBe('subagent:epoch-2')
+    started?.({ runId: 'run-a', provider: 'codex', id: 'child', local: false })
+    ended?.({ runId: 'run-a', provider: 'codex', id: 'child', local: false, stopReason: 'completed' })
+    expect(work.snapshot().subagents).toMatchObject([{ runId: 'run-a', state: 'stopping' }])
     work.dispose()
   })
 
@@ -260,6 +312,38 @@ describe('generic Harness Work capability projection', () => {
     expect(invalidated).toBe(0)
   })
 
+  it('keeps late discovery enrichment from authoring lifecycle after disposal', async () => {
+    const pending: Array<(entries: readonly typeof CONTINUABLE_CHILD[]) => void> = []
+    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
+    let disposed: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    const work = new HarnessWork({
+      agent,
+      subagents: {
+        listChildren: () => new Promise(resolve => { pending.push(resolve) }),
+      } as unknown as SubagentRuntime,
+      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
+      onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+      onSubagentDisposed: listener => { disposed = listener as typeof disposed; return () => {} },
+      invalidate: () => {},
+    })
+    const resolveAll = (): void => {
+      for (const resolve of pending.splice(0)) resolve([CONTINUABLE_CHILD])
+    }
+
+    started?.({ runId: 'run-a', provider: 'codex', id: 'child', local: false })
+    ended?.({ runId: 'run-a', provider: 'codex', id: 'child', local: false, stopReason: 'completed' })
+    resolveAll()
+    await settled()
+    expect(work.snapshot().subagents).toMatchObject([{ runId: 'run-a', state: 'stopping', interruptible: false }])
+
+    disposed?.({ runId: 'run-a', provider: 'codex', id: 'child', local: false })
+    resolveAll()
+    await settled()
+    expect(work.snapshot().subagents).toEqual([])
+    work.dispose()
+  })
+
   it('renders running jobs as non-interruptible and never calls jobs.kill', () => {
     let kills = 0
     const jobs = {
@@ -289,6 +373,21 @@ describe('generic Harness Work capability projection', () => {
       kind: 'unsupported', message: 'This subagent cannot be interrupted here.',
     })
     expect(calls).toHaveLength(1)
+  })
+
+  it('removes interrupt authority from stopping continuable rows', () => {
+    const calls: unknown[][] = []
+    const subagents = {
+      listChildren: async () => [],
+      interrupt: (...args: unknown[]) => { calls.push(args) },
+    } as unknown as SubagentRuntime
+    const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
+    const stopping = subagentItem({ mode: 'continuable', state: 'stopping', interruptible: true })
+    expect(work.interrupt(stopping)).toEqual({
+      kind: 'unsupported', message: 'This subagent cannot be interrupted here.',
+    })
+    expect(calls).toEqual([])
+    work.dispose()
   })
 })
 
@@ -409,6 +508,30 @@ describe('the Work live-region overlay', () => {
     expect(at(30)).not.toContain('readin')
     // The backend never took overview space away from any of that.
     for (const columns of [80, 70, 60, 40, 30]) expect(at(columns)).not.toContain('spawn')
+  })
+
+  it('gives stopping lifecycle precedence over stale activity in overview and detail', () => {
+    const snapshot: WorkSnapshot = {
+      ...EMPTY,
+      available: true,
+      subagents: [subagentItem({
+        state: 'stopping', busy: true, mode: 'continuable', activityWord: 'reading', activityTitle: 'work.ts',
+        route: { provider: 'openai-codex', model: 'gpt-x' }, interruptible: true, label: 'review repository',
+      })],
+    }
+    expect(workMark(snapshot.subagents[0]!)).toBe('stopping')
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overview = overlay.render(80, 12).map(stripAnsi).join('\n')
+    expect(overview).toContain('review repository · stopping')
+    expect(overview).not.toContain('reading')
+    expect(overview).not.toContain('openai-codex')
+    expect(overview).not.toContain('k interrupt')
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const detail = overlay.render(80, 24).map(stripAnsi).join('\n')
+    expect(detail).toContain('stopping')
+    expect(detail).not.toContain('reading · work.ts')
+    expect(detail).not.toContain('openai-codex/gpt-x')
+    expect(detail).not.toContain('interrupt  available')
   })
 
   it('pluralizes snapshot counts in the compact headline', () => {
@@ -843,6 +966,11 @@ describe('how much work is attached to a session', () => {
       subagents: [subagentItem({ id: 'a', runId: 'a' })],
       jobs: [jobItem({ id: 'j1' }), jobItem({ id: 'j2' })],
     })).toBe(3)
+    expect(activeWorkCount({
+      ...EMPTY,
+      available: true,
+      subagents: [subagentItem({ state: 'stopping', interruptible: false })],
+    })).toBe(1)
   })
 })
 

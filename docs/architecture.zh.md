@@ -203,7 +203,7 @@ Goal 是一个具有两个权威的已知投影领域，dshline 分别从各自�
 
 ## Work：第一个通用适配器
 
-Harness Work 是遵循这一模型的第一个适配器。它通过 `/work` 与一个可选状态摘要，在独立分区中呈现 `ctx.jobs`、`ctx.subagents` 与 Harness 工作流（workflow）运行。它用 `list()` 读取任务快照并观察 `onJobsChanged()`；它不消费面向模型的 `read()` 游标。它观察 subagent 生命周期边沿，并且只从 Harness 发布的 `listChildren()` 事实中丰富。没有权威关联 id，它不合并两个权威，也不发明提供方未暴露的标签或活动运行。
+Harness Work 是遵循这一模型的第一个适配器。它通过 `/work` 与一个可选状态摘要，在独立分区中呈现 `ctx.jobs`、`ctx.subagents` 与 Harness 工作流（workflow）运行。它用 `list()` 读取任务快照并观察 `onJobsChanged()`；它不消费面向模型的 `read()` 游标。它观察 `subagent/start`、`subagent/end` 与 `subagent/disposed`，并且只从 Harness 发布的 `listChildren()` 事实中丰富。没有权威关联 id，它不合并两个权威，也不发明提供方未暴露的标签或活动运行。
 
 三个权威，一个投影层：
 
@@ -219,7 +219,7 @@ tool-workflow/* + workflow/*    → Workflows
 
 这条所有权规则也换来了 Work 所做的唯一那一条关联。`WorkflowAgentInfo` 在 subagent seam 上发布每个成员的 `childId`，因此一个工作流成员与一个 subagent 生命周期期可证明是同一个子级；成员把该子级呈现在它的工作流之下，而不是在扁平的 Subagents 分区里重复一遍，而从成员导航过去到达的是同一套 subagent 呈现。没有其他任何一对记录被联接，并且已结束的成员会释放该联接。
 
-动画规则出自同一套纪律。弧线转子意味着 dshline 持有正在计算的证据——一个 Harness 报告为 `running` 的存活进程内子级 Agent。处于 `running` 的任务是一条注册表记录而不是一次观察，而没有发布进程内子级的提供方并不通过通用 seam 暴露中间活动，因此两者都保持静态。工作流只在它自己的某个成员在动时才动，因为引擎在两次 `agent()` 调用之间不发布属于自己的执行信号。`ctx.workflowEngine` 暴露 `start()`，别无其他可供 UI 触及的东西，所以 Work 观察工作流运行，不对它们提供任何控制。
+动画规则出自同一套纪律。弧线转子意味着 dshline 持有正在计算的证据——一个 Harness 报告为 `running` 的存活进程内子级 Agent。`subagent/end` 之后，Work 将该行保留为 `stopping`，直到 `subagent/disposed` 证明成功静默；它在第一个边沿就移除活动与控制，而不是推断资源状态。处于 `running` 的任务是一条注册表记录而不是一次观察，而没有发布进程内子级的提供方并不通过通用 seam 暴露中间活动，因此两者都保持静态。工作流只在它自己的某个成员在动时才动，因为引擎在两次 `agent()` 调用之间不发布属于自己的执行信号。`ctx.workflowEngine` 暴露 `start()`，别无其他可供 UI 触及的东西，所以 Work 观察工作流运行，不对它们提供任何控制。
 
 人工验证的 Codex 提供方是这些通用约定的验收证明，而不是直接的 dshline 集成。通过 `@deepseek-ai/dsh-subagent-claude-code`、`ctx.subagents` 与 `ctx.jobs` 的 Claude Code 是合乎逻辑的下一个目标，但尚未人工验证。两者以及未来提供方的必需路径记录在 [Provider 验收](provider-acceptance.md)。
 

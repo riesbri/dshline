@@ -254,16 +254,34 @@ describe('the owned-workflow projection', () => {
     expect(unrelated[0]?.members[0]?.subagent).toBeUndefined()
   })
 
-  it('releases the child join once the member has settled', () => {
+  it('keeps a stopping child joined until its workflow member settles', () => {
+    const driver = harness()
+    openRun(driver)
+    driver.append(session, record('tool-workflow/agent-start', {
+      runId: 'run-1', seq: 1, label: 'renderer', childId: 'child-1',
+    }))
+    const stopping = subagentItem({ id: 'child-1', state: 'stopping' })
+    const items = driver.workflows.items([stopping])
+    expect(items[0]?.members[0]?.subagent?.state).toBe('stopping')
+    expect(workflowClaimedChildren(items)).toEqual(new Set(['child-1']))
+    expect(looseSubagents({ ...EMPTY, workflows: items, subagents: [stopping] })).toEqual([])
+  })
+
+  it('releases the child join once the member has settled, even while disposal remains', () => {
     const driver = harness()
     openRun(driver)
     driver.append(session, record('tool-workflow/agent-start', {
       runId: 'run-1', seq: 1, label: 'renderer', childId: 'child-1',
     }))
     driver.append(session, record('tool-workflow/agent-end', { runId: 'run-1', seq: 1, outcome: 'completed' }))
-    const items = driver.workflows.items([subagentItem({ id: 'child-1' })])
+    const stopping = subagentItem({ id: 'child-1', state: 'stopping' })
+    const items = driver.workflows.items([stopping])
     expect(items[0]?.members[0]?.subagent).toBeUndefined()
     expect(workflowClaimedChildren(items).size).toBe(0)
+    // The retained epoch is now a flat lifecycle row, not a child of a settled
+    // workflow member; disposal removes that row from the next snapshot.
+    expect(looseSubagents({ ...EMPTY, workflows: items, subagents: [stopping] })).toEqual([stopping])
+    expect(looseSubagents({ ...EMPTY, workflows: items, subagents: [] })).toEqual([])
   })
 
   it('reconstructs the same state from a replayed record sequence', () => {

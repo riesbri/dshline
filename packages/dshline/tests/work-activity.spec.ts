@@ -173,11 +173,13 @@ function harness(
   work: HarnessWork
   start: (info: { runId: string; provider: string; id: string; local: boolean }) => void
   end: (info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void
+  disposed: (info: { runId: string; provider: string; id: string; local: boolean }) => void
   invalidations: () => number
 } {
   let invalidations = 0
   let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
   let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
+  let disposed: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
   const root = { session: { id: 'root' }, ctx: rootCtx } as unknown as Agent
   const work = new HarnessWork({
     agent: root,
@@ -189,6 +191,7 @@ function harness(
     resolveTool: lookup(views),
     onSubagentStart: listener => { started = listener as typeof started; return () => {} },
     onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+    onSubagentDisposed: listener => { disposed = listener as typeof disposed; return () => {} },
     invalidate: () => { invalidations += 1 },
     ...projections === undefined ? {} : { projections: projections as never },
   })
@@ -196,6 +199,7 @@ function harness(
     work,
     start: info => started?.(info),
     end: info => ended?.(info),
+    disposed: info => disposed?.(info),
     invalidations: () => invalidations,
   }
 }
@@ -300,21 +304,69 @@ describe('per-child semantic activity for Work', () => {
 
   it('disposes observers with the epoch and lets late events repaint nothing', () => {
     const rootCtx = new Context()
+    const child = makeChild('child', 'running')
+    logRoute(child, { provider: 'openai-codex', model: 'gpt-x' })
+    const registry = new Map([['child', child]])
+    const { projections } = projectionRegistry({ child: {
+      subagentTiming: { settledMs: 5_000 },
+      tokenUsage: { uncachedInputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    } })
+    const { work, start, end, disposed, invalidations } = harness(rootCtx, {
+      read: { card: 'generic', title: 'overlay.ts', kind: 'read' },
+    }, registry, projections)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    const afterStart = invalidations()
+    rootCtx.emit('session/event', child.session, call('c1', 'read'))
+    expect(invalidations()).toBeGreaterThan(afterStart)
+    end({ runId: 'r1', provider: 'spawn', id: 'child', local: true, stopReason: 'completed' })
+    expect(work.snapshot().subagents).toMatchObject([{ runId: 'r1', state: 'stopping' }])
+    expect(work.snapshot().subagents[0]?.busy).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.activityWord).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.route).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.agentStatus).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.timing).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.tokens).toBeUndefined()
+    const retained = (work as unknown as { liveSubagents: Map<string, { activity?: unknown; child?: unknown }> }).liveSubagents
+    expect(retained.get('r1')?.activity).toBeUndefined()
+    expect(retained.get('r1')?.child).toBeUndefined()
+    const afterEnd = invalidations()
+    // A late event for the settled epoch must not repaint a live region.
+    rootCtx.emit('session/event', child.session, call('c2', 'read'))
+    expect(invalidations()).toBe(afterEnd)
+    disposed({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    expect(work.snapshot().subagents).toEqual([])
+    work.dispose()
+  })
+
+  it('does not reattach a child when agent/created arrives after subagent/end', () => {
+    const rootCtx = new Context()
     const child = makeChild('child')
     const registry = new Map([['child', child]])
     const { work, start, end, invalidations } = harness(rootCtx, {
       read: { card: 'generic', title: 'overlay.ts', kind: 'read' },
     }, registry)
     start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
-    const afterStart = invalidations()
     rootCtx.emit('session/event', child.session, call('c1', 'read'))
-    expect(invalidations()).toBeGreaterThan(afterStart)
+    expect(work.snapshot().subagents[0]).toMatchObject({ activityWord: 'reading', busy: false })
+
     end({ runId: 'r1', provider: 'spawn', id: 'child', local: true, stopReason: 'completed' })
-    expect(work.snapshot().subagents).toEqual([])
+    expect(work.snapshot().subagents[0]).toMatchObject({ runId: 'r1', state: 'stopping' })
+    expect(work.snapshot().subagents[0]?.activityWord).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.route).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.agentStatus).toBeUndefined()
     const afterEnd = invalidations()
-    // A late event for the settled epoch must not repaint a live region.
+
+    // The registry still has the same child, but a late publication must not
+    // reopen an observer for the retained stopping epoch.
+    rootCtx.emit('agent/created', { agent: child })
     rootCtx.emit('session/event', child.session, call('c2', 'read'))
+    rootCtx.emit('agent/status', { agent: child, status: 'running' })
     expect(invalidations()).toBe(afterEnd)
+    expect(work.snapshot().subagents[0]).toMatchObject({ runId: 'r1', state: 'stopping' })
+    expect(work.snapshot().subagents[0]?.activityWord).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.busy).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.route).toBeUndefined()
+    expect(work.snapshot().subagents[0]?.agentStatus).toBeUndefined()
     work.dispose()
   })
 

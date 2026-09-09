@@ -96,8 +96,8 @@ export interface SubagentWorkItem extends WorkItemBase {
    * nothing about where the provider's model traffic goes.
    */
   readonly local: boolean
-  /** An open lifecycle edge is Work's authoritative active-row source. */
-  readonly state: 'running'
+  /** Harness lifecycle state retained until successful disposal observation. */
+  readonly state: 'running' | 'stopping'
   /** Durable descriptor mode, when direct-child discovery has resolved it. */
   readonly mode?: 'one-shot' | 'continuable'
   /**
@@ -297,7 +297,9 @@ export function subagentDuration(
   item: SubagentWorkItem,
   now: number,
 ): { readonly ms: number; readonly kind: 'active' | 'elapsed' } {
-  if (item.timing === undefined) return { ms: Math.max(0, now - item.startedAt), kind: 'elapsed' }
+  if (item.state === 'stopping' || item.timing === undefined) {
+    return { ms: Math.max(0, now - item.startedAt), kind: 'elapsed' }
+  }
   return { ms: activeElapsedMs(item.timing, item.busy === true, now), kind: 'active' }
 }
 
@@ -340,7 +342,10 @@ export function memberMark(member: WorkflowMemberItem): WorkMark {
  */
 export function workMark(item: WorkItem): WorkMark {
   if (item.source === 'job') return item.state === 'stopping' ? 'stopping' : 'record'
-  if (item.source === 'subagent') return item.busy === true ? 'executing' : 'active'
+  if (item.source === 'subagent') {
+    if (item.state === 'stopping') return 'stopping'
+    return item.busy === true ? 'executing' : 'active'
+  }
   switch (item.state) {
     case 'completed':
       return 'completed'

@@ -905,17 +905,19 @@ A row's mark says how much dshline actually knows about it:
 | `◜◠◝◞◟◡` | Observed execution: a live in-process child Agent that Harness says is running |
 | `●` | An active lifecycle whose internals are not observable |
 | `•` | A background job record exists |
-| `◐` | A job is stopping |
+| `◐` | A job or subagent is stopping |
 | `✓` `✗` `⊘` | Completed, failed, cancelled |
 
 Only the arc spinner animates, and it is the same one the status line uses.
-That is the whole rule: animation means evidence of running computation. A Job
-in `running` is a registry record rather than an observation, so it stays
-quiet — and so does a subagent run whose provider published no in-process
-child. An external provider such as Codex or Claude Code manages its own model
-and tool traffic and does not expose it through the generic subagent seam, so
-dshline shows that run's lifecycle and elapsed time and invents no activity
-for it.
+That is the whole rule: animation means evidence of running computation. A
+subagent moves from `executing` or `active` to `stopping` when its result or
+Activation has settled, and remains in the view until Harness confirms disposal;
+`stopping` is not a claim about an operating-system process. A Job in `running`
+is a registry record rather than an observation, so it stays quiet — and so does
+a subagent run whose provider published no in-process child. An external provider
+such as Codex or Claude Code manages its own model and tool traffic and does not
+expose it through the generic subagent seam, so dshline shows that run's
+lifecycle and elapsed time and invents no activity for it.
 
 A live in-process child does carry a semantic activity word — `waiting`,
 `thinking`, `responding`, `reading`, `searching`, `fetching`, `editing`,

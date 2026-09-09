@@ -630,10 +630,10 @@ No Harness session corpus is mounted in this profile.
 | `◜◠◝◞◟◡` | 观察到的执行：Harness 表明正在运行的存活进程内子级 Agent |
 | `●` | 活动的生命周期，但其内部不可观察 |
 | `•` | 存在一条后台任务记录 |
-| `◐` | 任务正在停止 |
+| `◐` | 任务或 subagent 正在停止 |
 | `✓` `✗` `⊘` | 已完成、失败、已取消 |
 
-只有弧线转子会动，而且它就是状态行使用的那一个。整条规则就是这样：动画意味着有正在计算的证据。处于 `running` 的任务是一条注册表记录而不是一次观察，所以它保持安静——提供方没有发布进程内子级的 subagent 运行同样如此。像 Codex 或 Claude Code 这样的外部提供方自己管理其模型与工具流量，并不通过通用 subagent seam 暴露它们，因此 dshline 显示该运行的生命周期与已用时间，不为它编造任何活动。
+只有弧线转子会动，而且它就是状态行使用的那一个。整条规则就是这样：动画意味着有正在计算的证据。subagent 的结果或 Activation 结算后，会从 `executing` 或 `active` 变为 `stopping`，并一直保留在视图中，直到 Harness 确认 disposal；`stopping` 不声称存在某个操作系统进程正在停止。处于 `running` 的任务是一条注册表记录而不是一次观察，所以它保持安静——提供方没有发布进程内子级的 subagent 运行同样如此。像 Codex 或 Claude Code 这样的外部提供方自己管理其模型与工具流量，并不通过通用 subagent seam 暴露它们，因此 dshline 显示该运行的生命周期与已用时间，不为它编造任何活动。
 
 存活的进程内子级确实携带语义活动词——`waiting`、`thinking`、`responding`、`reading`、`searching`、`fetching`、`editing`、`running`、`working`——并且当运行中的工具自己的呈现给它取了标题时，还有如 `overlay.ts` 这样的简短操作。两者都由状态行读取的同一组 Harness 会话事件与工具呈现折叠而来；绝不根据工具名猜测。
 

@@ -340,8 +340,9 @@ Harness Work is the first adapter following this model. It presents `ctx.jobs`,
 `ctx.subagents`, and Harness workflow runs in separate sections through `/work`
 and an optional status summary. It reads job snapshots with `list()` and
 observes `onJobsChanged()`; it does not consume the model-facing `read()`
-cursor. It observes subagent lifecycle edges and enriches only from
-`listChildren()` facts that Harness publishes. It neither merges two authorities
+cursor. It observes `subagent/start`, `subagent/end`, and
+`subagent/disposed`; it enriches only from `listChildren()` facts that Harness
+publishes. It neither merges two authorities
 without an authoritative correlation id nor invents labels or active runs that a
 provider did not expose.
 
@@ -385,13 +386,15 @@ of records is joined, and a settled member releases the join.
 
 The animation rule follows from the same discipline. The arc spinner means
 dshline holds evidence of running computation — a live in-process child Agent
-Harness reports as `running`. A Job in `running` is a registry record rather
-than an observation, and a provider that publishes no in-process child exposes
-no intermediate activity through the generic seam, so both stay static. A
-workflow animates only while one of its own members does, because the engine
-publishes no execution signal of its own between `agent()` calls. `ctx.workflowEngine`
-exposes `start()` and nothing else a UI could reach, so Work observes workflow
-runs and offers no control over them.
+Harness reports as `running`. After `subagent/end`, Work keeps the row as
+`stopping` until `subagent/disposed` proves successful quiescence; it drops live
+activity and control at the first edge rather than inferring resource state. A
+Job in `running` is a registry record rather than an observation, and a provider
+that publishes no in-process child exposes no intermediate activity through the
+generic seam, so both stay static. A workflow animates only while one of its own
+members does, because the engine publishes no execution signal of its own between
+`agent()` calls. `ctx.workflowEngine` exposes `start()` and nothing else a UI
+could reach, so Work observes workflow runs and offers no control over them.
 
 The manually validated Codex provider is an acceptance proof for these generic
 contracts, not a direct dshline integration. Claude Code through
