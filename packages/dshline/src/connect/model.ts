@@ -236,7 +236,7 @@ export interface ConnectAction {
 }
 
 /**
- * How confidently a row can be said to be usable right now.
+ * How confidently a provider row's credential posture can be stated.
  *
  * Three states rather than two, because "we cannot tell" is a real answer here:
  * a deployment without a credential provider, or a route that authenticates
@@ -308,9 +308,12 @@ export function filterRows<T extends ConnectRow>(rows: readonly T[], query: stri
 }
 
 /**
- * Whether a provider row is usable, as far as Harness will say.
+ * Read the credential readiness for a provider row.
+ *
+ * A provider diagnostic remains separate from this credential judgement; a
+ * `ready` result does not validate the selected model.
  * @param row - the provider row.
- * @returns the readiness mark.
+ * @returns the credential readiness mark.
  */
 export function providerReadiness(row: ConnectProviderRow): ConnectReadiness {
   return readinessOf(row.state, row.credential)
