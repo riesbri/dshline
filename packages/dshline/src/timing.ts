@@ -417,19 +417,36 @@ export function timingLines(profile: TurnTiming | undefined, columns: number, ro
 }
 
 /**
+ * The smallest truthful thing a measured row can say: something was here.
+ *
+ * One column, and the same mark the panel's elision row uses, so a row that
+ * cannot state a fact still accounts for itself rather than vanishing.
+ */
+const ELLIPSIS = '\u2026'
+
+/**
  * Render measured rows after every untrusted label has been made safe.
  *
- * Every row returned is cut to `width`, and that cut is the load-bearing part
- * rather than a tidy-up. The fields are budgeted from the DATA as well as from
- * the width — `durationWidth` is however wide the longest measured span
- * formats to — while the label width and the field gap have floors of one, so
- * a long duration on a narrow terminal produces a row wider than the budget it
- * was laid out for. `TuiSlots.compose` has already spent the live region's rows
- * by then, and `Screen` re-wraps an overlong row into two: the region grows
- * past the screen, its first rows can no longer be climbed to and erased, and
- * the next redraw leaves root chrome in scrollback. The heading and the elision
- * row above already cut for this reason; measured rows were the ones that did
- * not.
+ * No row may be wider than `width`, and no DURATION may be cut to get there.
+ * Both halves matter, and they pull against each other.
+ *
+ * The geometry half is absolute. `TuiSlots.compose` budgets the live region in
+ * logical rows, and `Screen` re-wraps an overlong row into two AFTER that
+ * budget is spent — so one row a column too wide is one row of overflow no
+ * view's own accounting can see, and once the region is taller than the screen
+ * its first rows can no longer be climbed to and erased. That is how root
+ * chrome ends up in scrollback.
+ *
+ * The truthfulness half is this file's existing rule, and cutting the row's
+ * right edge would break it: the duration sits there, so a plain
+ * `truncateToWidth` turns `2h 41m` into `2h 4` — not a narrower fact but a
+ * different, entirely plausible one. The heading ladder above gives up whole
+ * facts for exactly this reason.
+ *
+ * So the fields are not cut, the FORM is chosen. The widest form that fits is
+ * picked once for the whole panel rather than per row, because every field is
+ * padded to a shared width and a panel where some rows carried a bar and
+ * others did not would be ragged for a reason no reader could see.
  */
 function spanLines(spans: readonly TurnSpan[], width: number): string[] {
   const safe = spans.map(span => escapeControls(span.label))
@@ -445,19 +462,41 @@ function spanLines(spans: readonly TurnSpan[], width: number): string[] {
   const barCells = width - indentWidth - labelWidth - durationWidth - gap * 2
   const longest = Math.max(...spans.map(span => span.ms), 1)
 
+  // The ladder, richest first, with each rung's exact drawn width. `gap` and
+  // `labelWidth` have floors of one, so the arithmetic above can ask for more
+  // columns than there are — which is precisely what these predictions catch.
+  const form = barCells >= MIN_BAR_CELLS
+      && indentWidth + labelWidth + gap + barCells + gap + durationWidth <= width
+    ? 'bar'
+    : indentWidth + labelWidth + gap + durationWidth <= width
+      ? 'labelled'
+      : indentWidth + durationWidth <= width
+        ? 'indented-duration'
+        : durationWidth <= width
+          // The indent is alignment with the status line, and alignment is the
+          // one thing here worth less than a whole duration.
+          ? 'duration'
+          : 'elided'
+
+  if (form === 'elided') {
+    // Not even a bare duration fits, and half of one would read as another.
+    const mark = indentWidth + 1 <= width ? `${INDENT}${ELLIPSIS}` : ELLIPSIS
+    return spans.map(() => truncateToWidth(paint(mark, 'subdued'), Math.max(0, width)))
+  }
+
   return spans.map((span, index) => {
+    const durationText = durations[index] ?? ''
+    const duration = paint(
+      `${' '.repeat(durationWidth - displayWidth(durationText))}${durationText}`,
+      span.running ? 'timing-active' : 'subdued',
+    )
+    if (form === 'duration') return duration
+    if (form === 'indented-duration') return `${INDENT}${duration}`
     const cut = truncateToWidth(safe[index] ?? '', labelWidth)
     // Padded by DISPLAY width, not by string length: a label with a wide
     // character measures two columns per unit, and `padEnd` counts units.
-    const label = `${cut}${' '.repeat(labelWidth - displayWidth(cut))}`
-    const durationText = durations[index] ?? ''
-    const duration = `${' '.repeat(durationWidth - displayWidth(durationText))}${durationText}`
-    if (barCells < MIN_BAR_CELLS) {
-      return truncateToWidth(
-        `${INDENT}${paint(label, 'subdued')}${' '.repeat(gap)}${paint(duration, span.running ? 'timing-active' : 'subdued')}`,
-        width,
-      )
-    }
+    const label = paint(`${cut}${' '.repeat(labelWidth - displayWidth(cut))}`, 'subdued')
+    if (form === 'labelled') return `${INDENT}${label}${' '.repeat(gap)}${duration}`
     // Any measured span rounds up to one cell, for the reason the context bar
     // does: a blank row beside a real duration reads as a drawing fault. A
     // freshly arrived bar starts from that same single cell and grows to its
@@ -468,10 +507,7 @@ function spanLines(spans: readonly TurnSpan[], width: number): string[] {
     // reads as spent bar rather than unspent scale.
     const fill = paint(BAR_FULL.repeat(cells), 'timing-active')
     const track = cells < barCells ? paint(BAR_EMPTY.repeat(barCells - cells), 'subdued') : ''
-    return truncateToWidth(
-      `${INDENT}${paint(label, 'subdued')}${' '.repeat(gap)}${fill}${track}${' '.repeat(gap)}${paint(duration, span.running ? 'timing-active' : 'subdued')}`,
-      width,
-    )
+    return `${INDENT}${label}${' '.repeat(gap)}${fill}${track}${' '.repeat(gap)}${duration}`
   })
 }
 

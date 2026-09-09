@@ -31,6 +31,14 @@ const VISIBLE_ROWS = 6
  */
 const CHROME_ROWS = 2
 
+/**
+ * Columns every row spends before any candidate text: two of indent, the
+ * selection mark, and one of separation. Shared by the label budget, the
+ * help-line budget, and the width below which the list has nothing to draw, so
+ * the prefix is one number rather than a `4` repeated at each of them.
+ */
+const ROW_PREFIX_COLUMNS = 4
+
 /** Marker on the highlighted row. */
 const CURSOR = '›'
 
@@ -256,6 +264,16 @@ export function createCompletion(
         // carries, for the same reason: a presentation-only minimum independent
         // of the terminal is not a narrower list, it is the duplicate-frame bug.
         const width = Math.max(1, Math.min(columns, chromeWidth(columns)))
+        // Every row here carries a fixed four-column prefix — two of indent, the
+        // selection mark, one of separation — before any candidate text. Below
+        // the width where that prefix plus one column of label fits, the list
+        // has no row to offer: `  › ` alone names no candidate, and a row cut
+        // down to it would spend a live row saying nothing while the composer
+        // beside it is what the keystrokes are actually going to. So the list
+        // stands down, exactly as it does when the screen leaves it no rows.
+        // Typing one more character narrows the candidates, and at an ordinary
+        // width that is how it comes back.
+        if (width < ROW_PREFIX_COLUMNS + 1) return []
         // Six rows are what this list WANTS; what is left of the screen decides
         // what it gets. `terminalRows` is already net of the stream and the
         // composer above, so a ten-row prompt shrinks this list rather than
@@ -282,10 +300,17 @@ export function createCompletion(
           const note = candidate.note === undefined
             ? ''
             : ` ${paint(escapeControls(candidate.note), 'muted')}`
-          // `Math.max(1, …)`, never a floor of eight: the four columns of mark
-          // and indent are real, so a floor above what is left of the width
-          // draws past the right edge instead of drawing a shorter label.
-          return `  ${mark} ${truncateToWidth(`${label}${note}`, Math.max(1, width - 4))}`
+          // Budgeted against what the prefix leaves, never against a floor of
+          // its own: the prefix's columns are real, so a label budget larger
+          // than what remains draws past the right edge instead of drawing a
+          // shorter label. Then the WHOLE row is cut, because the budget is the
+          // guarantee for the payload while the row is what the terminal draws
+          // — cutting the assembled row is what makes the bound true of the
+          // prefix as well, not only of the text after it.
+          return truncateToWidth(
+            `  ${mark} ${truncateToWidth(`${label}${note}`, width - ROW_PREFIX_COLUMNS)}`,
+            width,
+          )
         })
         // What is BELOW the window, not what the window omits. `candidates.length -
         // shown.length` is the same number at every scroll position — nine of
@@ -301,7 +326,7 @@ export function createCompletion(
           rows.push(truncateToWidth(`    ${paint(`… ${String(below)} more`, 'muted')}`, width))
         }
         rows.push(truncateToWidth(
-          `    ${paint(helpLine(cursor, candidates.length, Math.max(1, width - 4)), 'muted')}`,
+          `    ${paint(helpLine(cursor, candidates.length, Math.max(1, width - ROW_PREFIX_COLUMNS)), 'muted')}`,
           width,
         ))
         return rows
