@@ -233,15 +233,18 @@ function setupDetail(facts: SetupFacts): string {
   if (!hasActiveRoute(facts.connect)) {
     return 'No provider route is active yet, so there is no model to send a turn to.'
   }
+  const selectedDiagnostic = facts.connect.kind === 'ready' && facts.selected !== undefined
+    ? facts.connect.providers.find(row => row.provider === facts.selected?.provider)?.error
+    : undefined
+  if (selectedDiagnostic !== undefined) {
+    return 'Harness reports a configuration diagnostic for the selected provider. Review it in /connect.'
+  }
   if (facts.reason === 'no-selection') return 'A provider route is active, but no model is selected yet.'
   if (facts.reason === 'unregistered-selection') {
     return 'The selected model names a route no adapter has registered, so the next turn would fail.'
   }
   if (facts.reason === 'credential-missing') {
     return 'A model is selected, but its route has no credential, so the next turn would fail.'
-  }
-  if (facts.reason === 'configuration-invalid') {
-    return 'The selected route has no serviceable models, so its configuration needs repair.'
   }
   return 'A model is selected and ready. Change it, connect another provider, or start the session.'
 }
@@ -263,8 +266,6 @@ function leavingLines(facts: SetupFacts): string[] {
       ? 'no model is selected yet · run /model, or /setup, when you want to'
       : facts.reason === 'unregistered-selection'
         ? 'the selected model names no registered route · run /model to choose another'
-        : facts.reason === 'configuration-invalid'
-          ? 'the selected route has no serviceable models · run /connect to repair it or choose another'
-          : 'the selected route still needs a credential · run /connect when you want to'
+        : 'the selected route still needs a credential · run /connect when you want to'
   return [paint(`· ${why}`, 'muted'), '']
 }

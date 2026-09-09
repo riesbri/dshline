@@ -250,39 +250,37 @@ The check uses the harness's own rule for what a command line looks like, so the
 
 `/setup` is the guided path from an installed dshline to a model that answers.
 It **runs by itself** on a launch that would otherwise reach the composer
-without a model it could send to. Five states count. Four use in-memory route,
-selection, and credential facts; the fifth asks only a route carrying an
-alpha-2 deferred catalog diagnostic for its own model list, so this costs no
-network:
+without a model it could send to. Four states count, and startup uses only route,
+selection, and credential facts:
 
 - no adapter has registered any provider route;
 - routes exist, but nothing resolved a model selection;
 - a selection exists, but names a route no adapter has registered — a
   remembered default whose provider has since left the profile;
-- the selected route names a credential that Harness reports as **absent**;
-- Harness reports a deferred catalog diagnostic and that route advertises no
-  serviceable models.
+- the selected route names a credential that Harness reports as **absent**.
 
 The credential case is why a stock first install does not look healthy. Harness
 ships a default model *and* registers its route before any key exists, so the
 first three checks all pass while your first prompt would fail. Setup asks
 `/connect` for that one route's readiness — the same judgement behind the
-coloured dots in `/connect` — and opens on a positive `missing` or an unusable
-empty deferred catalog.
+coloured dots in `/connect` — and opens on a positive `missing`.
 
 **Uncertainty is never treated as failure.** A route that names no credential
 reference at all is not misconfigured: it is authenticating through an account
 sign-in or its provider's own discovery, and a signed-in `llm-pi-ai` route
 stores no reference. A store that cannot answer is unread, not unset. Both are
-left alone, as is a profile with no credential seam. A deferred catalog error is
-different only when its own list is empty; a non-empty list means unaffected
-models remain serviceable.
+left alone, as is a profile with no credential seam.
+
+Alpha-2 can also report a provider configuration diagnostic. dshline displays
+that diagnostic and offers `/connect` for review or repair. Unaffected models may
+remain serviceable; the advisory model catalog does not prove whether the
+selected model will execute. Exact provider/model validity remains with the
+Harness adapter.
 
 Anything else launches straight into the session, and `/setup` still opens the
-flow on demand. The selection is judged by its **provider**, not its model id,
-except for that deferred-error check: a possible catalog read happens only for a
-route Harness already marked for repair, never on every launch. A route with no
-serviceable model leads to `/connect` repair instead of an empty `/model` picker.
+flow on demand. The selection is judged by its **provider**, not its model id.
+Startup does not turn catalog membership into an execution whitelist or perform
+an exact-model preflight that belongs to the adapter.
 
 It writes a reading of your installation into ordinary scrollback, so you can
 scroll back to it and paste it into a bug report:
@@ -308,20 +306,20 @@ the route is registered, so neither of those is a warning; the credential is:
   Connect a provider below to sign in or store a key, or choose a model on another route.
 ```
 
-When alpha-2 keeps a route registered but its deferred catalog has no
-serviceable models, setup names repair instead of opening an empty picker:
+When alpha-2 reports a provider diagnostic for the selected model, setup keeps
+that fact visible without treating the catalog as execution validation:
 
 ```
-⚠ Models     1 route active · openai · openai/broken needs configuration repair
-  model id is invalid
+⚠ Models     openai/broken · 1 route active · Harness reports a configuration diagnostic
+  selected model is invalid
+  Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.
 ```
 
 Then it offers what the mounted seams would actually accept, leading with
-whatever is missing: **Choose a model** first once a route is registered — by
-then it is the step between you and a working session — except when the
-credential is the problem, where **Connect a provider** leads instead, because
-picking a different model on the same unauthenticated route would fix nothing.
-Then the other one, then a way out. Backing out at
+whatever is missing: **Review provider configuration** when Harness has supplied
+a diagnostic, **Choose a model** when the selection is the missing piece, then a
+way out. Exact model validity is checked by the adapter when a turn executes.
+Backing out at
 any point writes nothing; there is no saved "already set up" flag anywhere,
 because each run re-reads Harness from scratch.
 

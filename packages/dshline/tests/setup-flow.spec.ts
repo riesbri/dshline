@@ -251,9 +251,8 @@ describe('whether the guided flow opens at all', () => {
   })
 
   it('judges the selection by its provider, not by the model id', async () => {
-    // Whether the route still serves that exact model is a `listModels`
-    // question, and asking it would put a possible network call in front of
-    // every launch. The picker answers it when the reader opens it.
+    // Exact model validity belongs to the Harness adapter that executes the
+    // request, not to this startup topology check.
     expect(await opens({ ...SETTLED, selected: { provider: 'openai', model: 'retired-model' } })).toBe(false)
   })
 
@@ -272,26 +271,19 @@ describe('whether the guided flow opens at all', () => {
     })).toBe(false)
   })
 
-  it('opens when alpha-2 reports a selected route with no serviceable models', async () => {
+  it('does not infer selected-model validity from another model in the advisory catalog', async () => {
     const h = harness({
       ...SETTLED,
+      selected: { provider: 'openai', model: 'broken' },
       refs: { openai: 'OPENAI_API_KEY' },
       configured: ['OPENAI_API_KEY'],
-      diagnostics: { openai: 'model id is invalid' },
-      models: { openai: [] },
-    })
-    expect(await setupNeeded(h.ctx, h.selection)).toBe(true)
-    expect(h.listedModels).toEqual(['openai'])
-  })
-
-  it('stays out of the way when a deferred diagnostic leaves a model usable', async () => {
-    expect(await opens({
-      ...SETTLED,
-      refs: { openai: 'OPENAI_API_KEY' },
-      configured: ['OPENAI_API_KEY'],
-      diagnostics: { openai: 'one model is invalid' },
+      diagnostics: { openai: 'selected model is invalid' },
       models: { openai: [{ id: 'usable', name: 'Usable' }] },
-    })).toBe(false)
+    })
+    // The provider diagnostic remains available to Connect, but startup does
+    // not turn its advisory catalog into exact-model validation.
+    expect(await setupNeeded(h.ctx, h.selection)).toBe(false)
+    expect(h.listedModels).toEqual([])
   })
 
   it('stays out of the way when the route names no credential reference', async () => {
@@ -321,8 +313,8 @@ describe('whether the guided flow opens at all', () => {
   })
 
   it('asks no adapter for a catalog while deciding', async () => {
-    // The one performance claim worth pinning: no `listModels`, no discovery,
-    // nothing that could reach a network at launch.
+    // Startup readiness uses route and credential facts only: no catalog or
+    // discovery query is made while deciding whether setup should open.
     const h = harness({ ...SETTLED, refs: { openai: 'OPENAI_API_KEY' } })
     await setupNeeded(h.ctx, h.selection)
     expect(h.listedModels).toEqual([])
@@ -351,19 +343,21 @@ describe('the report reads Harness once', () => {
     expect(facts.credentialRef).toBe('OPENAI_API_KEY')
   })
 
-  it('keeps the full report aligned with the invalid-route startup gate', async () => {
+  it('keeps the provider diagnostic in the full report without changing readiness', async () => {
     const h = harness({
       registered: ['openai'],
       configurable: ['openai'],
       selected: { provider: 'openai', model: 'broken' },
       refs: { openai: 'OPENAI_API_KEY' },
       configured: ['OPENAI_API_KEY'],
-      diagnostics: { openai: 'model id is invalid' },
-      models: { openai: [] },
+      diagnostics: { openai: 'selected model is invalid' },
+      models: { openai: [{ id: 'usable', name: 'Usable' }] },
     })
     const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current)
-    expect(facts.reason).toBe('configuration-invalid')
-    expect(await setupNeeded(h.ctx, h.selection)).toBe(true)
+    expect(facts.reason).toBeUndefined()
+    if (facts.connect.kind !== 'ready') throw new Error('expected a ready Connect reading')
+    expect(facts.connect.providers[0]?.error).toBe('selected model is invalid')
+    expect(await setupNeeded(h.ctx, h.selection)).toBe(false)
   })
 
   it('agrees with the startup gate on the same environment', async () => {
@@ -400,22 +394,23 @@ describe('the guided flow', () => {
     await running
   })
 
-  it('explains configuration repair when leaving an invalid selected route', async () => {
+  it('shows a provider diagnostic and offers Connect repair without preflighting the model', async () => {
     const h = harness({
       registered: ['openai'],
       configurable: ['openai'],
       selected: { provider: 'openai', model: 'broken' },
       refs: { openai: 'OPENAI_API_KEY' },
       configured: ['OPENAI_API_KEY'],
-      diagnostics: { openai: 'model id is invalid' },
-      models: { openai: [] },
+      diagnostics: { openai: 'selected model is invalid' },
+      models: { openai: [{ id: 'usable', name: 'Usable' }] },
     })
     const running = run(h)
     await settle()
-    expect(h.text()).toContain('no serviceable models')
+    expect(h.text()).toContain('Harness reports a configuration diagnostic')
+    expect(h.text()).toContain('Review provider configuration')
+    expect(h.committed.join('\\n')).toContain('selected model is invalid')
     await h.press(ESCAPE)
     await running
-    expect(h.committed.join('\\n')).toContain('no serviceable models')
   })
 
   it('leaves on Not now, having written nothing', async () => {

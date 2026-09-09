@@ -90,10 +90,9 @@ describe('readiness', () => {
     expect(providerReadiness(row)).toBe('unknown')
   })
 
-  it('marks an empty deferred catalog invalid, but preserves routes with usable models', () => {
-    expect(providerReadiness(provider({ error: 'model id is invalid', models: 0 }))).toBe('invalid')
+  it('keeps readiness credential-based while retaining a provider diagnostic', () => {
+    expect(providerReadiness(provider({ error: 'selected model is invalid', models: 0 }))).toBe('ready')
     expect(providerReadiness(provider({ error: 'one model is invalid', models: 1 }))).toBe('ready')
-    expect(providerReadiness(provider({ error: 'catalog unavailable', models: undefined }))).toBe('ready')
   })
 
   it('says nothing about a route no adapter has registered', () => {

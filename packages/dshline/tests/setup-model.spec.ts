@@ -29,11 +29,7 @@ import type { ConnectProviderRow, ConnectSignInRow, ConnectState } from '../src/
  * @param state - where it stands with the model registry.
  * @returns the row.
  */
-function route(
-  provider: string,
-  state: ConnectProviderRow['state'],
-  overrides: Partial<ConnectProviderRow> = {},
-): ConnectProviderRow {
+function route(provider: string, state: ConnectProviderRow['state']): ConnectProviderRow {
   return {
     kind: 'provider',
     provider,
@@ -46,7 +42,6 @@ function route(
     credential: { field: 'apiKeyEnv', ref: undefined, info: undefined },
     userOwned: false,
     revision: 1,
-    ...overrides,
   }
 }
 
@@ -309,33 +304,23 @@ describe('the setup report', () => {
     expect(setupChecks(facts({ reason: 'no-route' })).some(check => check.name === 'Provider')).toBe(false)
   })
 
-  it('reports a deferred-invalid selected route as needing configuration repair', () => {
-    const invalid = route('openai', 'active', { error: 'model id is invalid', models: 0 })
+  it('reports a provider diagnostic without inferring exact model validity', () => {
+    const diagnostic = { ...route('openai', 'active'), error: 'selected model is invalid' }
     const checks = setupChecks(facts({
-      connect: reading({ providers: [invalid] }),
+      connect: reading({ providers: [diagnostic] }),
       selected: { provider: 'openai', model: 'broken' },
-      reason: 'configuration-invalid',
+      reason: undefined,
     }))
     const models = row(checks, 'Models')
     expect(models.mark).toBe('⚠')
-    expect(models.text).toContain('configuration repair')
-    expect(models.text).toContain('model id is invalid')
-    expect(row(setupChecks(facts({
-      connect: reading({ providers: [invalid] }),
+    expect(models.text).toContain('Harness reports a configuration diagnostic')
+    expect(models.text).toContain('selected model is invalid')
+    expect(models.text).toContain('exact model validity')
+    expect(setupSteps(facts({
+      connect: reading({ providers: [diagnostic] }),
       selected: { provider: 'openai', model: 'broken' },
-      reason: 'configuration-invalid',
-    })), 'Models').text).not.toContain('ready')
-  })
-
-  it('does not offer an empty model picker for the sole invalid route', () => {
-    const invalid = route('openai', 'active', { error: 'model id is invalid', models: 0 })
-    const steps = setupSteps(facts({
-      connect: reading({ providers: [invalid] }),
-      selected: { provider: 'openai', model: 'broken' },
-      reason: 'configuration-invalid',
-    }))
-    expect(steps.map(step => step.id)).toEqual(['connect', 'skip'])
-    expect(steps[0]?.description).toContain('repair')
+      reason: undefined,
+    })).map(step => step.id)).toEqual(['connect', 'model', 'skip'])
   })
 
   it('names the selected model when a turn could be sent', () => {
@@ -435,7 +420,6 @@ describe('the trigger', () => {
     // Uncertainty is never turned into failure — an OAuth-authorized route, a
     // provider-native posture, and an unreadable store all land here.
     expect(setupReason(['openai'], selected, 'unknown')).toBeUndefined()
-    expect(setupReason(['openai'], selected, 'invalid')).toBe('configuration-invalid')
     expect(setupReason(['openai'], selected, undefined)).toBeUndefined()
   })
 
@@ -448,8 +432,8 @@ describe('the trigger', () => {
   })
 
   it('is decided at provider granularity, never by model id', () => {
-    // Refining this would mean `listModels`, and a possible network call in
-    // front of every launch. The picker answers it when the reader opens it.
+    // Exact model validity belongs to the Harness adapter that executes the
+    // request, not to this startup topology check.
     expect(setupReason(['openai'], { provider: 'openai' })).toBeUndefined()
   })
 
@@ -469,6 +453,11 @@ describe('when the model step is the missing piece', () => {
   it('is true only with a route to serve it and a selection that cannot', () => {
     expect(needsModelChoice(facts({ connect: active, reason: 'no-selection' }))).toBe(true)
     expect(needsModelChoice(facts({ connect: active, reason: 'unregistered-selection' }))).toBe(true)
+  })
+
+  it('does not treat an empty advisory catalog as execution invalidity', () => {
+    const emptyCatalog = reading({ providers: [{ ...route('openai', 'active'), models: 0 }] })
+    expect(needsModelChoice(facts({ connect: emptyCatalog, reason: 'no-selection' }))).toBe(true)
   })
 
   it('is false when a usable model is already selected', () => {

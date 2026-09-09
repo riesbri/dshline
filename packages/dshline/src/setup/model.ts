@@ -62,8 +62,6 @@ export type SetupReason =
    * `unknown` is never turned into a fault — see {@link readinessOf}.
    */
   | 'credential-missing'
-  /** The selected route is registered but its deferred catalog has no usable models. */
-  | 'configuration-invalid'
 
 /** Something setup can hand the reader on to. */
 export type SetupStepId =
@@ -85,19 +83,18 @@ export interface SetupStep {
  * Why this launch would reach the composer without a model it can send to.
  *
  * The topology states come from the registry and the selection ref `/model`
- * writes. The selected route's Connect readiness adds credential facts and, only
- * for a deferred catalog diagnostic, its own model count; no network is called.
+ * writes. The selected route's Connect readiness adds credential facts; a
+ * provider diagnostic stays presentation data and does not become a validity
+ * judgement.
  *
  * Route registration alone is NOT the question, which is what the first
  * version of this got wrong: a registered route is only what `/model` offers
  * FROM, and a launch reaches the composer with whatever `selection.current`
  * resolved to, which may be nothing or may name a route nothing registered.
  *
- * The selection is checked at PROVIDER granularity and no finer, except that an
- * alpha-2 deferred catalog diagnostic asks `listModels` whether that route has
- * any serviceable model left. A non-empty result keeps the route usable because
- * unaffected models may remain available; an empty result opens repair instead
- * of sending a request that Harness will reject.
+ * The selection is checked at PROVIDER granularity and no finer. Exact model
+ * validity remains with the Harness adapter that executes the request; the
+ * selector catalog is not an execution whitelist.
  * @param registered - route keys an adapter has registered, from `listProviders`.
  * @param selected - the selection the next turn would use, if any.
  * @param credential - readiness of the selected route, from Connect's own
@@ -121,7 +118,6 @@ export function setupReason(
   // Harness reports as positively absent counts; `ready` and `unknown` both
   // leave the launch alone.
   if (credential === 'missing') return 'credential-missing'
-  if (credential === 'invalid') return 'configuration-invalid'
   return undefined
 }
 
@@ -141,11 +137,6 @@ export function hasActiveRoute(connect: ConnectState): boolean {
  */
 export function needsModelChoice(facts: SetupFacts): boolean {
   if (!hasActiveRoute(facts.connect)) return false
-  if (facts.connect.kind !== 'ready') return false
-  const modelAvailable = facts.connect.providers.some(
-    row => row.state === 'active' && (row.models === undefined || row.models > 0),
-  )
-  if (!modelAvailable) return false
   return facts.reason === 'no-selection' || facts.reason === 'unregistered-selection'
 }
 
@@ -292,13 +283,18 @@ function modelsCheck(
   }
   const routes = `${String(active.length)} route${active.length === 1 ? '' : 's'} active`
     + ` · ${active.map(row => row.provider).join(', ')}`
-  if (reason === 'configuration-invalid' && selected !== undefined) {
-    const route = active.find(row => row.provider === selected.provider)
+  const selectedRoute = selected === undefined
+    ? undefined
+    : active.find(row => row.provider === selected.provider)
+  if (selectedRoute?.error !== undefined && selected !== undefined) {
     return {
       mark: '⚠',
       name: 'Models',
-      detail: `${routes} · ${selected.provider}/${selected.model} needs configuration repair`,
-      notes: [route?.error ?? 'The selected route has no serviceable models.'],
+      detail: `${selected.provider}/${selected.model} · ${routes} · Harness reports a configuration diagnostic`,
+      notes: [
+        selectedRoute.error,
+        'Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.',
+      ],
     }
   }
   if (reason === 'no-selection') {
@@ -397,25 +393,26 @@ export function setupSteps(facts: SetupFacts): SetupStep[] {
   const connect = facts.connect
   const steps: SetupStep[] = []
   const active = hasActiveRoute(connect)
-  const modelAvailable = connect.kind === 'ready'
-    && connect.providers.some(row => row.state === 'active' && (row.models === undefined || row.models > 0))
+  const selectedDiagnostic = connect.kind === 'ready' && facts.selected !== undefined
+    ? connect.providers.find(row => row.provider === facts.selected?.provider)?.error
+    : undefined
   const canConfigure = connect.kind === 'ready'
     && (connect.capabilities.settings || connect.capabilities.credentials || connect.capabilities.authorization)
   // Whichever step is actually missing leads. With a model selected on a route
   // that cannot authenticate, that is connecting; otherwise, once a route can
   // serve a turn, it is choosing what to send — burying THAT under "connect
   // another provider" is how a first run stalls one keystroke short of working.
-  if (canConfigure && (facts.reason === 'credential-missing' || facts.reason === 'configuration-invalid')) {
+  if (canConfigure && (selectedDiagnostic !== undefined || facts.reason === 'credential-missing')) {
     steps.push({
       id: 'connect',
-      label: 'Connect a provider',
-      description: facts.reason === 'configuration-invalid'
-        ? 'Opens /connect to repair the selected route or configure another one'
-        : 'Opens /connect: sign in to an account, or store the key this route needs',
+      label: selectedDiagnostic === undefined ? 'Connect a provider' : 'Review provider configuration',
+      description: selectedDiagnostic === undefined
+        ? 'Opens /connect: sign in to an account, or store the key this route needs'
+        : 'Opens /connect to review or repair the selected provider configuration',
     })
   }
-  if (active && modelAvailable) {
-    const modelLabel = facts.reason === 'credential-missing' || facts.reason === 'configuration-invalid'
+  if (active) {
+    const modelLabel = facts.reason === 'credential-missing'
       ? 'Choose a model on another route'
       : 'Choose a model'
     steps.push({
@@ -424,7 +421,7 @@ export function setupSteps(facts: SetupFacts): SetupStep[] {
       description: 'Opens /model over the routes that are active now',
     })
   }
-  if (canConfigure && facts.reason !== 'credential-missing' && facts.reason !== 'configuration-invalid') {
+  if (canConfigure && selectedDiagnostic === undefined && facts.reason !== 'credential-missing') {
     steps.push({
       id: 'connect',
       label: active ? 'Connect another provider' : 'Connect a provider',

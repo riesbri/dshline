@@ -238,14 +238,14 @@ export interface ConnectAction {
 /**
  * How confidently a row can be said to be usable right now.
  *
- * Four states rather than two, because "we cannot tell" is a real answer here:
+ * Three states rather than two, because "we cannot tell" is a real answer here:
  * a deployment without a credential provider, or a route that authenticates
  * through its provider's own ambient discovery, is not misconfigured. Only a
- * reference the seam confirms is missing, or a deferred catalog with no usable
- * model, earns the negative mark — the same rule the official Models page
- * applies to its dots.
+ * reference the seam confirms is missing earns the negative mark — the same
+ * rule the official Models page applies to its dots. Provider diagnostics are
+ * displayed separately and do not change this credential readiness judgement.
  */
-export type ConnectReadiness = 'ready' | 'missing' | 'invalid' | 'unknown'
+export type ConnectReadiness = 'ready' | 'missing' | 'unknown'
 
 /**
  * Normalize text for matching: case-folded, with runs of space collapsed.
@@ -313,14 +313,13 @@ export function filterRows<T extends ConnectRow>(rows: readonly T[], query: stri
  * @returns the readiness mark.
  */
 export function providerReadiness(row: ConnectProviderRow): ConnectReadiness {
-  return readinessOf(row.state, row.credential, row.error, row.models)
+  return readinessOf(row.state, row.credential)
 }
 
 /**
- * The readiness judgement itself, over the route state, credential, and any
- * deferred catalog diagnostic.
+ * The readiness judgement itself, over the route state and credential.
  *
- * Split out from {@link providerReadiness} so a caller holding those facts
+ * Split out from {@link providerReadiness} so a caller holding those two facts
  * without a whole row — the first-launch check, which reads ONE route rather
  * than the browser's whole listing — reaches the same verdict through the same
  * code. A second implementation of route readiness is exactly the duplicated
@@ -332,22 +331,15 @@ export function providerReadiness(row: ConnectProviderRow): ConnectReadiness {
  * has no `apiKeyEnv`, because that field carries no schema default — and a
  * reference the store could not answer for is unread, not unset. Both are
  * supported postures, so both stay unmarked rather than being called a fault.
- * A deferred catalog diagnostic is actionable only when the adapter reports no
- * serviceable models; an affected route may still have usable models.
  * @param state - where the route stands with the model registry.
  * @param credential - what was read about the reference it names.
- * @param error - the adapter's deferred configuration diagnostic, when any.
- * @param models - serviceable models advertised by the active route, when read.
  * @returns the readiness mark.
  */
 export function readinessOf(
   state: ConnectRouteState,
   credential: ConnectCredentialReading,
-  error?: string,
-  models?: number,
 ): ConnectReadiness {
   if (state !== 'active') return 'unknown'
-  if (error !== undefined && models === 0) return 'invalid'
   const { ref, info } = credential
   if (ref === undefined) return 'unknown'
   if (info === undefined) return 'unknown'

@@ -366,25 +366,32 @@ describe('reading one route\'s readiness', () => {
     })).toEqual({ readiness: 'ready', ref: 'DEEPSEEK_API_KEY' })
   })
 
-  it('marks a deferred-invalid route unusable only when no model remains', async () => {
-    expect(await readiness({
-      directory: [{ ...DEEPSEEK, error: 'model id is invalid' }],
-      registered: [{ id: 'deepseek-official', name: 'DeepSeek' }],
-      descriptors: [{
-        ns: 'llm-deepseek', revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY' }, user: {}, schema: DEEPSEEK_SCHEMA,
-      }],
-      refs: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } },
-      models: { 'deepseek-official': [] },
-    })).toEqual({ readiness: 'invalid', ref: 'DEEPSEEK_API_KEY' })
-    expect(await readiness({
-      directory: [{ ...DEEPSEEK, error: 'one model is invalid' }],
+  it('keeps readiness credential-based when a provider reports a model diagnostic', async () => {
+    const listed: string[] = []
+    const seams = seamsFor({
+      directory: [{ ...DEEPSEEK, error: 'selected model is invalid' }],
       registered: [{ id: 'deepseek-official', name: 'DeepSeek' }],
       descriptors: [{
         ns: 'llm-deepseek', revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY' }, user: {}, schema: DEEPSEEK_SCHEMA,
       }],
       refs: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } },
       models: { 'deepseek-official': [{ provider: 'deepseek-official', id: 'usable' }] },
-    })).toEqual({ readiness: 'ready', ref: 'DEEPSEEK_API_KEY' })
+    })
+    const watched = {
+      ...seams,
+      llm: {
+        ...seams.llm,
+        listModels: async (provider: string) => {
+          listed.push(provider)
+          return [{ provider, id: 'usable' }]
+        },
+      },
+    }
+    // The usable catalog entry is advisory data, not evidence that the selected
+    // model is valid. Startup readiness therefore does not query or infer from it.
+    expect(await readRouteReadiness(watched, 'deepseek-official'))
+      .toEqual({ readiness: 'ready', ref: 'DEEPSEEK_API_KEY' })
+    expect(listed).toEqual([])
   })
 
   it('answers unknown for a route that names no reference', async () => {
