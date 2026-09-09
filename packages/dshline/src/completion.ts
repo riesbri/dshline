@@ -31,6 +31,14 @@ const VISIBLE_ROWS = 6
  */
 const CHROME_ROWS = 2
 
+/**
+ * Columns every row spends before any candidate text: two of indent, the
+ * selection mark, and one of separation. Shared by the label budget, the
+ * help-line budget, and the width below which the list has nothing to draw, so
+ * the prefix is one number rather than a `4` repeated at each of them.
+ */
+const ROW_PREFIX_COLUMNS = 4
+
 /** Marker on the highlighted row. */
 const CURSOR = '›'
 
@@ -246,7 +254,26 @@ export function createCompletion(
     view: {
       render(columns, terminalRows = 24) {
         if (candidates.length === 0) return []
-        const width = chromeWidth(columns)
+        // Clamped to the terminal, not merely derived from it. `chromeWidth`
+        // floors at the shared chrome minimum, so below that floor it returns a
+        // width WIDER than the terminal it was asked about — and every row here
+        // is laid out against it. `compose` has already spent the live region's
+        // rows by the time `Screen` re-wraps an overlong row into two, so the
+        // region grows past the screen and the next redraw leaves root chrome in
+        // scrollback. This is the same correction the status line already
+        // carries, for the same reason: a presentation-only minimum independent
+        // of the terminal is not a narrower list, it is the duplicate-frame bug.
+        const width = Math.max(1, Math.min(columns, chromeWidth(columns)))
+        // Every row here carries a fixed four-column prefix — two of indent, the
+        // selection mark, one of separation — before any candidate text. Below
+        // the width where that prefix plus one column of label fits, the list
+        // has no row to offer: `  › ` alone names no candidate, and a row cut
+        // down to it would spend a live row saying nothing while the composer
+        // beside it is what the keystrokes are actually going to. So the list
+        // stands down, exactly as it does when the screen leaves it no rows.
+        // Typing one more character narrows the candidates, and at an ordinary
+        // width that is how it comes back.
+        if (width < ROW_PREFIX_COLUMNS + 1) return []
         // Six rows are what this list WANTS; what is left of the screen decides
         // what it gets. `terminalRows` is already net of the stream and the
         // composer above, so a ten-row prompt shrinks this list rather than
@@ -273,7 +300,17 @@ export function createCompletion(
           const note = candidate.note === undefined
             ? ''
             : ` ${paint(escapeControls(candidate.note), 'muted')}`
-          return `  ${mark} ${truncateToWidth(`${label}${note}`, Math.max(8, width - 4))}`
+          // Budgeted against what the prefix leaves, never against a floor of
+          // its own: the prefix's columns are real, so a label budget larger
+          // than what remains draws past the right edge instead of drawing a
+          // shorter label. Then the WHOLE row is cut, because the budget is the
+          // guarantee for the payload while the row is what the terminal draws
+          // — cutting the assembled row is what makes the bound true of the
+          // prefix as well, not only of the text after it.
+          return truncateToWidth(
+            `  ${mark} ${truncateToWidth(`${label}${note}`, width - ROW_PREFIX_COLUMNS)}`,
+            width,
+          )
         })
         // What is BELOW the window, not what the window omits. `candidates.length -
         // shown.length` is the same number at every scroll position — nine of
@@ -282,8 +319,16 @@ export function createCompletion(
         // position in the help line rather than by a second marker row, because a
         // completion list shares the live region with the composer.
         const below = candidates.length - (start + shown.length)
-        if (below > 0) rows.push(`    ${paint(`… ${String(below)} more`, 'muted')}`)
-        rows.push(`    ${paint(helpLine(cursor, candidates.length, Math.max(1, width - 4)), 'muted')}`)
+        // Cut like every other row. This one is the shortest and was the one
+        // left unbounded, so it outgrew the terminal first — `… 14 more` is
+        // thirteen columns whatever the width happens to be.
+        if (below > 0) {
+          rows.push(truncateToWidth(`    ${paint(`… ${String(below)} more`, 'muted')}`, width))
+        }
+        rows.push(truncateToWidth(
+          `    ${paint(helpLine(cursor, candidates.length, Math.max(1, width - ROW_PREFIX_COLUMNS)), 'muted')}`,
+          width,
+        ))
         return rows
       },
     },
