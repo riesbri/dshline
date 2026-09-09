@@ -1966,6 +1966,18 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           }
           return
         }
+        // An idle parent can still own a background Job or continuable child.
+        // `ctrl-c` is the interrupt-or-quit boundary, not the explicit `ctrl-d`
+        // exit boundary, so do not retire the session while Harness still
+        // publishes owned work. The Job/subagent snapshot is the generic
+        // authority here; never infer ownership from provider processes.
+        const snapshot = work.snapshot()
+        if (activeWorkCount(snapshot) > 0) {
+          const summary = workSummary(snapshot) ?? 'active work'
+          commit([paint(`· ${summary} still attached to this session.`, 'muted')])
+          draw()
+          return
+        }
         w.requestExit()
         return
       }
