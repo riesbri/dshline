@@ -305,20 +305,20 @@ describe('the setup report', () => {
   })
 
   it('reports a provider diagnostic without inferring exact model validity', () => {
-    const diagnostic = { ...route('openai', 'active'), error: 'selected model is invalid' }
+    const diagnostic = { ...route('openai', 'active'), error: 'broken override for another-model' }
     const checks = setupChecks(facts({
       connect: reading({ providers: [diagnostic] }),
-      selected: { provider: 'openai', model: 'broken' },
+      selected: { provider: 'openai', model: 'healthy' },
       reason: undefined,
     }))
     const models = row(checks, 'Models')
     expect(models.mark).toBe('⚠')
     expect(models.text).toContain('Harness reports a configuration diagnostic')
-    expect(models.text).toContain('selected model is invalid')
+    expect(models.text).toContain('broken override for another-model')
     expect(models.text).toContain('exact model validity')
     expect(setupSteps(facts({
       connect: reading({ providers: [diagnostic] }),
-      selected: { provider: 'openai', model: 'broken' },
+      selected: { provider: 'openai', model: 'healthy' },
       reason: undefined,
     })).map(step => step.id)).toEqual(['connect', 'model', 'skip'])
   })

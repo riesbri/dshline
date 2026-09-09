@@ -271,11 +271,11 @@ Setup
   Connect a provider below to sign in or store a key, or choose a model on another route.
 ```
 
-当 alpha-2 为选中的模型报告提供方诊断时，setup 会保留这个事实，但不会把目录当作执行验证：
+当 alpha-2 为选中的提供方报告配置诊断时，setup 会保留这个事实，但不会把目录当作执行验证：
 
 ```
-⚠ Models     openai/broken · 1 route active · Harness reports a configuration diagnostic
-  selected model is invalid
+⚠ Models     openai/healthy · 1 route active · Harness reports a configuration diagnostic
+  broken override for another-model
   Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.
 ```
 

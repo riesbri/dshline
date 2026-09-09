@@ -124,9 +124,9 @@ describe('reading the configurable-provider directory', () => {
     expect(row.userOwned).toBe(false)
   })
 
-  it('retains an adapter diagnostic for a route whose catalog needs repair', async () => {
-    const row = only(await read({ directory: [{ ...OPENAI, error: 'model id is invalid' }] }))
-    expect(row.error).toBe('model id is invalid')
+  it('retains a provider diagnostic for a route whose configuration needs repair', async () => {
+    const row = only(await read({ directory: [{ ...OPENAI, error: 'broken override for another-model' }] }))
+    expect(row.error).toBe('broken override for another-model')
   })
 
   it('calls a route active once an adapter has registered it', async () => {
@@ -369,7 +369,7 @@ describe('reading one route\'s readiness', () => {
   it('keeps readiness credential-based when a provider reports a model diagnostic', async () => {
     const listed: string[] = []
     const seams = seamsFor({
-      directory: [{ ...DEEPSEEK, error: 'selected model is invalid' }],
+      directory: [{ ...DEEPSEEK, error: 'broken override for another-model' }],
       registered: [{ id: 'deepseek-official', name: 'DeepSeek' }],
       descriptors: [{
         ns: 'llm-deepseek', revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY' }, user: {}, schema: DEEPSEEK_SCHEMA,

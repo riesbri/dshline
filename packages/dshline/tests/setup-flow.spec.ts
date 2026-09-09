@@ -271,13 +271,13 @@ describe('whether the guided flow opens at all', () => {
     })).toBe(false)
   })
 
-  it('does not infer selected-model validity from another model in the advisory catalog', async () => {
+  it('keeps provider diagnostics separate from exact model validity', async () => {
     const h = harness({
       ...SETTLED,
-      selected: { provider: 'openai', model: 'broken' },
+      selected: { provider: 'openai', model: 'healthy' },
       refs: { openai: 'OPENAI_API_KEY' },
       configured: ['OPENAI_API_KEY'],
-      diagnostics: { openai: 'selected model is invalid' },
+      diagnostics: { openai: 'broken override for another-model' },
       models: { openai: [{ id: 'usable', name: 'Usable' }] },
     })
     // The provider diagnostic remains available to Connect, but startup does
@@ -347,16 +347,16 @@ describe('the report reads Harness once', () => {
     const h = harness({
       registered: ['openai'],
       configurable: ['openai'],
-      selected: { provider: 'openai', model: 'broken' },
+      selected: { provider: 'openai', model: 'healthy' },
       refs: { openai: 'OPENAI_API_KEY' },
       configured: ['OPENAI_API_KEY'],
-      diagnostics: { openai: 'selected model is invalid' },
+      diagnostics: { openai: 'broken override for another-model' },
       models: { openai: [{ id: 'usable', name: 'Usable' }] },
     })
     const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current)
     expect(facts.reason).toBeUndefined()
     if (facts.connect.kind !== 'ready') throw new Error('expected a ready Connect reading')
-    expect(facts.connect.providers[0]?.error).toBe('selected model is invalid')
+    expect(facts.connect.providers[0]?.error).toBe('broken override for another-model')
     expect(await setupNeeded(h.ctx, h.selection)).toBe(false)
   })
 
@@ -398,17 +398,17 @@ describe('the guided flow', () => {
     const h = harness({
       registered: ['openai'],
       configurable: ['openai'],
-      selected: { provider: 'openai', model: 'broken' },
+      selected: { provider: 'openai', model: 'healthy' },
       refs: { openai: 'OPENAI_API_KEY' },
       configured: ['OPENAI_API_KEY'],
-      diagnostics: { openai: 'selected model is invalid' },
+      diagnostics: { openai: 'broken override for another-model' },
       models: { openai: [{ id: 'usable', name: 'Usable' }] },
     })
     const running = run(h)
     await settle()
     expect(h.text()).toContain('Harness reports a configuration diagnostic')
     expect(h.text()).toContain('Review provider configuration')
-    expect(h.committed.join('\\n')).toContain('selected model is invalid')
+    expect(h.committed.join('\\n')).toContain('broken override for another-model')
     await h.press(ESCAPE)
     await running
   })

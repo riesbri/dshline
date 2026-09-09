@@ -91,8 +91,8 @@ describe('readiness', () => {
   })
 
   it('keeps readiness credential-based while retaining a provider diagnostic', () => {
-    expect(providerReadiness(provider({ error: 'selected model is invalid', models: 0 }))).toBe('ready')
-    expect(providerReadiness(provider({ error: 'one model is invalid', models: 1 }))).toBe('ready')
+    expect(providerReadiness(provider({ error: 'broken override for another-model', models: 0 }))).toBe('ready')
+    expect(providerReadiness(provider({ error: 'broken override for another-model', models: 1 }))).toBe('ready')
   })
 
   it('says nothing about a route no adapter has registered', () => {
@@ -102,14 +102,14 @@ describe('readiness', () => {
 
 describe('what a row reports', () => {
   it('retains a provider diagnostic before other route facts', () => {
-    const row = provider({ error: 'model id is invalid' })
+    const row = provider({ error: 'broken override for another-model' })
     expect(providerFacts(row)).toEqual([
       'active',
-      'configuration needs repair: model id is invalid',
+      'configuration needs repair: broken override for another-model',
       '12 models',
       'key from file',
     ])
-    expect(providerDetail(row)).toContain('configuration needs repair: model id is invalid')
+    expect(providerDetail(row)).toContain('configuration needs repair: broken override for another-model')
   })
 
   it('names the model count only for a live route that could be listed', () => {

@@ -306,12 +306,12 @@ the route is registered, so neither of those is a warning; the credential is:
   Connect a provider below to sign in or store a key, or choose a model on another route.
 ```
 
-When alpha-2 reports a provider diagnostic for the selected model, setup keeps
+When alpha-2 reports a provider diagnostic for the selected provider, setup keeps
 that fact visible without treating the catalog as execution validation:
 
 ```
-⚠ Models     openai/broken · 1 route active · Harness reports a configuration diagnostic
-  selected model is invalid
+⚠ Models     openai/healthy · 1 route active · Harness reports a configuration diagnostic
+  broken override for another-model
   Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.
 ```
 
