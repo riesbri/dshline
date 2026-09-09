@@ -1502,8 +1502,8 @@ packages:
   jju@1.4.0:
     resolution: {integrity: sha512-8wb9Yw966OSxApiCt0K3yNJL8pnNeIv+OEq2YMidz4FKP6nonSRoOXc80iXY4JaN2FC11B9qsNmDsm+ZOfMROA==}
 
-  js-yaml@4.3.1:
-    resolution: {integrity: sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ==}
+  js-yaml@4.3.2:
+    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
 
   jsonc-parser@3.3.1:
@@ -1822,7 +1822,7 @@ snapshots:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/cordis-plugin-loader': 1.0.3(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/cosmokit': 1.8.3
-      js-yaml: 4.3.1
+      js-yaml: 4.3.2
 
   '@deepseek-ai/cordis-plugin-loader@1.0.3(@deepseek-ai/cordis@4.0.2)':
     dependencies:
@@ -1893,7 +1893,7 @@ snapshots:
       '@deepseek-ai/dsh-tools': 0.1.5-alpha.1(239eb910b4462b7c15b6b44661457a15)
       '@deepseek-ai/dsh-typert-protocol': 0.1.5-alpha.1(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/schemastery': 3.18.2
-      js-yaml: 4.3.1
+      js-yaml: 4.3.2
       zod: 4.4.3
 
   '@deepseek-ai/dsh-agent@0.1.5-alpha.1(288d2f4271bc6bef491bb5a5c084f12c)':
@@ -2771,7 +2771,7 @@ snapshots:
 
   jju@1.4.0: {}
 
-  js-yaml@4.3.1:
+  js-yaml@4.3.2:
     dependencies:
       argparse: 2.0.1
 
