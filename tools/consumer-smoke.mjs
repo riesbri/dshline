@@ -18,8 +18,10 @@
  *
  * `--bootstrap` proves the other advertised sequence, the one a new user
  * actually types: install both packages, run `dshline`, answer the first-run
- * question, end up in a session. The two modes answer two different questions
- * and are kept apart on purpose:
+ * question, end up in a session. CI supplies `--launcher-version` to both
+ * modes so ordinary merge gates use the exact adopted Harness generation;
+ * a hand-run `pnpm test:consumer` may omit it and fall back to npm `latest`.
+ * The two modes answer two different questions and are kept apart on purpose:
  *
  * - the default mode asks whether the plugin code IN THIS COMMIT installs and
  *   boots against this Harness line, so it installs the packed tarball (and

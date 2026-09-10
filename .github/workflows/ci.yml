@@ -353,22 +353,18 @@ jobs:
       # pre-creates the profile — the harness initializes and installs it from
       # inside the wrapper's first run, while a real terminal answers the
       # question — and the session it continues into has to reach `ready`.
-      #
-      # Deliberately NOT pinned to the adopted target, unlike the step above.
-      # The two steps install different plugins: that one packs THIS commit, so
-      # the adopted generation is the only launcher it can be paired with; this
-      # one lets the harness install `@dshline/dshline` from the registry, which
-      # is the PREVIOUS release, built for whatever generation was adopted when
-      # it shipped. Pinning that pair to a generation dshline has only just
-      # adopted asks whether an already-published plugin supports a Harness it
-      # was never released for — a pair no user can install, and one every
-      # migration commit would fail by construction. Following `latest` on both
-      # sides reproduces what a new user actually gets, which is the question
-      # this step exists to ask; what it proves is THIS commit's wrapper driving
-      # the first-run lifecycle.
+      # The launcher is pinned to the same exact adopted target as the smoke
+      # above; only the plugin installation remains registry-backed because the
+      # wrapper asks the harness to install `@dshline/dshline` during first run.
+      # This keeps the merge gate deterministic while still proving THIS commit's
+      # wrapper driving the first-run lifecycle. A hand-run `pnpm test:consumer`
+      # may omit the flag and inspect the npm default; default-install coherence
+      # is a release-channel question owned by `.github/workflows/release-channel.yml`.
       - name: first run from nothing, beside the published launcher
         if: steps.published.outputs.published == 'true'
-        run: node tools/consumer-smoke.mjs --bootstrap
+        env:
+          TARGET_VERSION: ${{ steps.target.outputs.version }}
+        run: node tools/consumer-smoke.mjs --bootstrap --launcher-version "$TARGET_VERSION"
 
       - name: consumer verdict
         if: always()
@@ -379,7 +375,7 @@ jobs:
           {
             if [ "$PUBLISHED" = "true" ]; then
               echo "Consumer path validated against @deepseek-ai/dsh@$TARGET_VERSION"
-              echo 'First-run path validated against the published pair (latest launcher, latest plugin).'
+              echo "First-run path validated with @deepseek-ai/dsh@$TARGET_VERSION and the registry plugin selected by the wrapper."
             else
               echo "@deepseek-ai/dsh@$TARGET_VERSION is not on npm yet — consumer path NOT validated this run."
               echo 'This is publication lag, not an incompatibility: dshline targets an upstream'

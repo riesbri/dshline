@@ -120,6 +120,21 @@ describe('the adopted target lane is deterministic', () => {
   })
 })
 
+describe('the published consumer lane uses the adopted launcher', () => {
+  it('pins both smoke paths to the target output', async () => {
+    const job = extractJob(await readWorkflow(), 'harness-published')
+    const smokeSteps = job.split('\n      - ').filter(step => step.includes('node tools/consumer-smoke.mjs'))
+    expect(smokeSteps).toHaveLength(2)
+    expect(smokeSteps.map(step => step.match(/run:\s*(node tools\/consumer-smoke\.mjs[^\n]+)/u)?.[1])).toEqual([
+      'node tools/consumer-smoke.mjs --launcher-version "$TARGET_VERSION"',
+      'node tools/consumer-smoke.mjs --bootstrap --launcher-version "$TARGET_VERSION"',
+    ])
+    for (const step of smokeSteps) {
+      expect(step).toMatch(/TARGET_VERSION:\s*\$\{\{\s*steps\.target\.outputs\.version\s*\}\}/u)
+    }
+  })
+})
+
 describe('the obsolete multi-line compatibility machinery is gone', () => {
   it('carries no Minimum floor, no dist-tag lanes, and no rolling sync automation', async () => {
     const workflow = await readWorkflow()
