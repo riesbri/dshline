@@ -350,8 +350,8 @@ and both commands that would bring them together:
 ⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-rc.1
   dshline supports one Harness generation at a time.
   Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-rc.1
-  Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
-  does not by itself land on the installed generation, and this report cannot tell you which release would.
+  Or move to a dshline release that explicitly targets the generation you have installed, if one exists —
+  updating dshline does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
 
 Only the first of those is deterministic, and the wording says so. The version

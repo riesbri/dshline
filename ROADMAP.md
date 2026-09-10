@@ -311,10 +311,10 @@ Raster image attachment is now Harness-native:
 - registered commands receive images only when their descriptor opts in, and
   explicit text-only model metadata stops admission before I/O
 
-Still ahead: arbitrary file attachments. Harness `0.1.2-rc.1` exposes durable
-image attachments but no equivalent file-attachment contract. `@path` therefore
-remains the honest textual file-reference gesture rather than implying bytes
-were attached.
+Still ahead for dshline: staging arbitrary file attachments. Harness exposes a
+durable file-attachment contract alongside image attachments, but dshline's
+composer currently stages only images. `@path` therefore remains the honest
+textual file-reference gesture rather than implying bytes were attached.
 
 ### 7. Permissions and approvals
 
@@ -488,7 +488,8 @@ does not promise is that any older prerelease generation keeps working.
   reported and `↑` brings a discarded prompt back.
 - **`@path` inserts text, not an attachment.** Completion names a path for the
   model to read; `/image` is the explicit gesture that durably attaches supported
-  raster content. Harness has no arbitrary-file attachment contract yet.
+  raster content. Harness exposes a durable file-attachment contract, but dshline
+  does not stage files yet.
 - **Tool calls are not reviewed by default.** The Harness deployment decides
   sandbox and approval policy; see [Usage → Permissions and the sandbox](docs/usage.md#permissions-and-the-sandbox).
 - **A goal can start without a `/goal` command.** `/goal <objective>` starts a
