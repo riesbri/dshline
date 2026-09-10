@@ -271,7 +271,7 @@ sign-in or its provider's own discovery, and a signed-in `llm-pi-ai` route
 stores no reference. A store that cannot answer is unread, not unset. Both are
 left alone, as is a profile with no credential seam.
 
-Alpha-2 can also report a provider configuration diagnostic. dshline displays
+Harness can also report a provider configuration diagnostic. dshline displays
 that diagnostic and offers `/connect` for review or repair. Unaffected models may
 remain serviceable; the advisory model catalog does not prove whether the
 selected model will execute. Exact provider/model validity remains with the
@@ -290,7 +290,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.5-alpha.2
+✓ Harness    0.1.5-rc.1
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -301,12 +301,12 @@ On a stock first install it reads like this instead — the model is selected an
 the route is registered, so neither of those is a warning; the credential is:
 
 ```
-✓ Models     deepseek-official/deepseek-v4-flash · 1 route active · deepseek-official
+✓ Models     deepseek-official/deepseek-flash · 1 route active · deepseek-official
 ⚠ Provider   deepseek-official needs a credential · DEEPSEEK_API_KEY is not set
   Connect a provider below to sign in or store a key, or choose a model on another route.
 ```
 
-When alpha-2 reports a provider diagnostic for the selected provider, setup keeps
+When Harness reports a provider diagnostic for the selected provider, setup keeps
 that fact visible without treating the catalog as execution validation:
 
 ```
@@ -347,9 +347,9 @@ dependency is pinned to, and the version you have is read from the
 and both commands that would bring them together:
 
 ```
-⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.2
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-rc.1
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.2
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-rc.1
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```

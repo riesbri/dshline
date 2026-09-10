@@ -39,7 +39,7 @@ interface Environment {
   models?: Record<string, { id: string; name: string }[]>
   /** Route keys the configurable directory publishes. */
   configurable?: string[]
-  /** Alpha-2 deferred catalog diagnostics, keyed by route. */
+  /** Harness deferred catalog diagnostics, keyed by route. */
   diagnostics?: Record<string, string>
   /** Whether the settings seam is mounted. */
   settings?: boolean

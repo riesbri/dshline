@@ -88,7 +88,7 @@ function facts(overrides: Partial<SetupFacts> = {}): SetupFacts {
   return {
     node: '24.4.0',
     dshline: '0.17.0',
-    harness: { kind: 'match', version: '0.1.5-alpha.2' },
+    harness: { kind: 'match', version: '0.1.5-rc.1' },
     profile: 'dshline',
     connect: reading(),
     selected: undefined,
@@ -126,14 +126,14 @@ function row(all: ReturnType<typeof setupChecks>, name: string): { mark: string;
 
 describe('comparing Harness generations', () => {
   it('matches only on exact equality, as the repository target check does', () => {
-    expect(compareGenerations('0.1.5-alpha.2', '0.1.5-alpha.2')).toEqual({ kind: 'match', version: '0.1.5-alpha.2' })
-    expect(compareGenerations('0.1.5-alpha.2', '0.1.2-rc.1'))
-      .toEqual({ kind: 'mismatch', adopted: '0.1.5-alpha.2', installed: '0.1.2-rc.1' })
+    expect(compareGenerations('0.1.5-rc.1', '0.1.5-rc.1')).toEqual({ kind: 'match', version: '0.1.5-rc.1' })
+    expect(compareGenerations('0.1.5-rc.1', '0.1.2-rc.1'))
+      .toEqual({ kind: 'mismatch', adopted: '0.1.5-rc.1', installed: '0.1.2-rc.1' })
   })
 
   it('claims nothing when either side could not be read, keeping the half it has', () => {
-    expect(compareGenerations('0.1.5-alpha.2', undefined))
-      .toEqual({ kind: 'unknown', adopted: '0.1.5-alpha.2', installed: undefined })
+    expect(compareGenerations('0.1.5-rc.1', undefined))
+      .toEqual({ kind: 'unknown', adopted: '0.1.5-rc.1', installed: undefined })
     expect(compareGenerations(undefined, '0.1.2-rc.1'))
       .toEqual({ kind: 'unknown', adopted: undefined, installed: '0.1.2-rc.1' })
     expect(compareGenerations(undefined, undefined))
@@ -149,26 +149,26 @@ describe('the setup report', () => {
   })
 
   it('ticks a matching Harness generation and names it', () => {
-    expect(row(setupChecks(facts()), 'Harness')).toEqual({ mark: '✓', text: '0.1.5-alpha.2' })
+    expect(row(setupChecks(facts()), 'Harness')).toEqual({ mark: '✓', text: '0.1.5-rc.1' })
   })
 
   it('warns on a mismatch with both versions and both alignment commands', () => {
     const harness = row(
-      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-alpha.2', installed: '0.1.2-rc.1' } })),
+      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-rc.1', installed: '0.1.2-rc.1' } })),
       'Harness',
     )
     expect(harness.mark).toBe('⚠')
     expect(harness.text).toContain('0.1.2-rc.1 installed')
-    expect(harness.text).toContain('dshline targets 0.1.5-alpha.2')
+    expect(harness.text).toContain('dshline targets 0.1.5-rc.1')
     // The one deterministic direction: the targeted version is a fact the
     // report already holds, so installing it is stated as an instruction.
     expect(harness.text).toContain('Install the generation this dshline targets')
-    expect(harness.text).toContain('npm install -g @deepseek-ai/dsh@0.1.5-alpha.2')
+    expect(harness.text).toContain('npm install -g @deepseek-ai/dsh@0.1.5-rc.1')
   })
 
   it('does not claim that updating dshline fixes a mismatch', () => {
     const harness = row(
-      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-alpha.2', installed: '0.1.2-rc.1' } })),
+      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-rc.1', installed: '0.1.2-rc.1' } })),
       'Harness',
     )
     // The other direction exists, but nothing here can establish that any
@@ -184,7 +184,7 @@ describe('the setup report', () => {
 
   it('marks an unreadable generation unknown rather than good or bad', () => {
     const unknown = row(
-      setupChecks(facts({ harness: { kind: 'unknown', adopted: '0.1.5-alpha.2', installed: undefined } })),
+      setupChecks(facts({ harness: { kind: 'unknown', adopted: '0.1.5-rc.1', installed: undefined } })),
       'Harness',
     )
     expect(unknown.mark).toBe('·')

@@ -462,7 +462,7 @@ seam 能重新链接一个已组合 Host 的 bundle 层，而发明一个正是�
 
 **触发条件问的是这次启动能不能发送一个回合，而不是有没有路由存在。**只看路由注册是错的问题：一条已注册的路由只是 `/model` 从中提供选项的来源，而输入框打开时用的是 `selection.current` 解析出来的东西。因此 `setupReason` 读取窗口已经持有的两样东西——`ctx.llm.listProviders()` 与 `/model` 写入的那个 selection ref——并给出三种状态之一：什么都没注册、什么都没选中，或者选中的东西所指的路由没有被任何适配器注册（一个其提供方已离开该 profile 的、被记住的默认值）。
 
-只看拓扑仍然会说一次全新安装是健康的，而它不是：`dsh-base` 组合了一个默认选择（`deepseek-official/deepseek-v4-flash`），而 `llm-deepseek` 无条件调用 `registerAdapter`，因此三项检查全部通过，而第一个请求会以 `MISSING_CREDENTIAL` 失败。所以当拓扑看起来完整时，还会再问一个问题——问 Connect，而不是问第二套算法。`readinessOf` 从 `providerReadiness` 中被提取出来，而 `readRouteReadiness` 只读一条路由：目录条目、该命名空间的 descriptor，以及一次 `credentials.describe()`。只有肯定的 `missing` 才会打开 setup；`ready` 与两种 `unknown`（路由没有命名引用、存储无法回答）都放过这次启动，因为不确定不是失败。
+只看拓扑仍然会说一次全新安装是健康的，而它不是：`dsh-base` 组合了一个默认选择（`deepseek-official/deepseek-flash`），而 `llm-deepseek` 无条件调用 `registerAdapter`，因此三项检查全部通过，而第一个请求会以 `MISSING_CREDENTIAL` 失败。所以当拓扑看起来完整时，还会再问一个问题——问 Connect，而不是问第二套算法。`readinessOf` 从 `providerReadiness` 中被提取出来，而 `readRouteReadiness` 只读一条路由：目录条目、该命名空间的 descriptor，以及一次 `credentials.describe()`。只有肯定的 `missing` 才会打开 setup；`ready` 与两种 `unknown`（路由没有命名引用、存储无法回答）都放过这次启动，因为不确定不是失败。
 
 代价是一次目录查找、一次 `settings.describe()`（内存内，实测 35 个命名空间中位数约 1.2 ms），以及一次凭据查找——在随附的本地 provider 上那是对挂载时载入的快照的一次 map 读取。不会向任何适配器索取目录。它刻意止步于**提供方**粒度：某条路由是否仍然提供那个确切的模型 id，只有 `listModels` 能回答，而去问它会在每次启动前放上一次可能的网络调用，只为细化一个选择器本来就会给出的判定。任何地方都没有首次运行标记——一个存下来的「已完成设置」标志是可能与它所声称描述的配置不一致的重复状态，而每次启动都重新询问实时状态则不会。
 
