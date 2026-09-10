@@ -13,7 +13,8 @@
  * @module dshline/sessions/model
  */
 
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 
 /**
  * How Harness can produce a session, as far as presentation is concerned.
@@ -115,8 +116,15 @@ export type ContentState =
 export interface EventHitEntry {
   /** Session that owns the matching event. */
   readonly sessionId: SessionId
-  /** Monotonic event sequence number within the session. */
-  readonly seq: number
+  /**
+   * Monotonic event sequence number within the session.
+   *
+   * Kept as Harness's own branded {@link SessionSeq} rather than widened to
+   * `number`: the value is passed back verbatim to `readEvent()` when the hit is
+   * disclosed, and preserving the type means that call needs no cast that would
+   * let a non-sequence number reach the read seam.
+   */
+  readonly seq: SessionSeq
   /** Harness event discriminant. */
   readonly type: string
   /** Event time in Unix epoch milliseconds. */
@@ -147,6 +155,33 @@ export type EventSearchState =
   | { readonly kind: 'unsupported' }
   /** The event search failed; the message is Harness's own and is untrusted. */
   | { readonly kind: 'failed'; readonly message: string }
+
+/**
+ * The state of the ONE search hit whose surrounding context is disclosed.
+ *
+ * Deliberately not part of {@link EventSearchState}: reading a hit's context
+ * loads a raw-log window, so a search that fetched context for every row would
+ * pay a read per row the cursor touched. It is requested when a hit is opened
+ * and never while hits are landing, moving, or drawing.
+ *
+ * The `sessionId` and `seq` are carried so a stale read can be recognised and
+ * discarded rather than painted under the wrong hit: {@link SessionCatalog}
+ * exposes this state only for the exact hit it belongs to.
+ */
+export type EventContextState =
+  /** No context has been requested. */
+  | { readonly kind: 'idle' }
+  /** A read for this exact hit is in flight. */
+  | { readonly kind: 'loading'; readonly sessionId: SessionId; readonly seq: SessionSeq }
+  /** The target event plus its bounded raw-log window. */
+  | {
+    readonly kind: 'ready'
+    readonly sessionId: SessionId
+    readonly seq: SessionSeq
+    readonly window: SessionEventWindow
+  }
+  /** The read failed; the message is Harness's own and is untrusted. */
+  | { readonly kind: 'failed'; readonly sessionId: SessionId; readonly seq: SessionSeq; readonly message: string }
 
 /** One flattened row in a bounded session-lineage tree. */
 export type LineageRow =

@@ -27,7 +27,13 @@ import { CHILD_CLOSE_REQUESTED, type SessionsChildOverlay } from './panels.ts'
 import { planResume } from './plan.ts'
 
 export type { SessionCatalogSpec, SessionQueryReads } from './catalog.ts'
-export { CATALOG_LIMIT, CONTENT_SEARCH_LIMIT, SessionCatalog } from './catalog.ts'
+export {
+  CATALOG_LIMIT,
+  CONTENT_SEARCH_LIMIT,
+  EVENT_CONTEXT_AFTER,
+  EVENT_CONTEXT_BEFORE,
+  SessionCatalog,
+} from './catalog.ts'
 export type {
   AgeChoice,
   OriginChoice,
@@ -39,6 +45,7 @@ export { equalFilters, EVERY_WORKSPACE, NO_FILTERS, workspaceScope } from './fil
 export type {
   CatalogState,
   ContentState,
+  EventContextState,
   EventHitEntry,
   EventSearchState,
   LineageState,
@@ -163,6 +170,8 @@ export async function browseSessions(spec: BrowseSpec): Promise<SessionId | unde
         events: () => catalog.events(),
         searchEvents: (sessionId, text) => { catalog.searchEvents(sessionId, text) },
         loadMoreEvents: () => { catalog.loadMoreEvents() },
+        requestEventContext: (sessionId, seq) => { catalog.requestEventContext(sessionId, seq) },
+        eventContext: (sessionId, seq) => catalog.eventContext(sessionId, seq),
         detail: sessionId => catalog.detail(sessionId),
         requestDetail: sessionId => { catalog.requestDetail(sessionId) },
         search: text => { catalog.search(text) },

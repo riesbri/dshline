@@ -126,7 +126,6 @@ future capability that replaces domain state for a whole session needs it.
 
 Still ahead for Sessions:
 
-- inspecting a within-session search hit's context through `readEvent()`
 - renaming a closed persisted session, once a narrower Harness mutation surface
   exists — the generic title service wields live session objects only
 - a "recent activity" filter, if Harness ever publishes a predicate for it —
@@ -169,6 +168,18 @@ which was a deletion rather than a feature:
   offering them under one row's title said otherwise. A ctrl gesture rather
   than a bare `f` because every printable character is search input here
 - archive stayed out, for the upstream reasons under Known limits
+
+Sessions 3.1 turned a search hit into an explicit, on-demand context read,
+without a second index or a log scan as the cursor moves:
+
+- `↵` on a normal event hit opens a bounded inspector through `readEvent()`,
+  showing the exact target event plus eight raw events on each side, clamped to
+  the log's ends — the target marked, neighbors in order, and every event's text
+  taken from Harness's own `extractSessionEventText()`
+- `searchEvents()` still discovers hits and `readEvent()` is paid only when one
+  is explicitly opened, so rendering or moving through results reads no log
+- `Load more…` and `Refresh` keep their existing Enter behavior, and closing the
+  inspector restores the search's query, results, selection, and viewport
 
 ### 4. Connect — merged
 

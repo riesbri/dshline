@@ -2,12 +2,14 @@
 
 import { describe, expect, it } from 'vitest'
 import { Screen } from '@dshline/renderer'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { NO_FILTERS } from '../src/sessions/filters.ts'
-import type { ContentState, EventSearchState, SessionEntry } from '../src/sessions/model.ts'
+import type { ContentState, EventContextState, EventSearchState, SessionEntry } from '../src/sessions/model.ts'
 import { createSessionsOverlay } from '../src/sessions/overlay.ts'
-import { createEventsOverlay, createFilterOverlay } from '../src/sessions/panels.ts'
+import { createEventContextOverlay, createEventsOverlay, createFilterOverlay } from '../src/sessions/panels.ts'
 
 /** The width used by the real-terminal regression frames. */
 const COLUMNS = 80
@@ -59,6 +61,8 @@ function terminal(rows: number, options: {
     events: () => ({ kind: 'idle' }),
     searchEvents: () => {},
     loadMoreEvents: () => {},
+    requestEventContext: () => {},
+    eventContext: () => ({ kind: 'idle' }),
     detail: () => ({ events: 214, lastActivityAt: NOW - 600_000 }),
     requestDetail: () => {},
     search: () => {},
@@ -162,6 +166,54 @@ describe('the Sessions browser on a real terminal', () => {
     emulator.dispose()
   })
 
+  it.each([80, 40])('bounds the event context inspector at %i columns', async columns => {
+    // Deliberate break: drawing the whole measured window regardless of height
+    // wraps the inspector's bottom border into committed scrollback.
+    const rows = 15
+    const emulator = createEmulator(columns, rows)
+    const screen = new Screen(emulator.target)
+    screen.commit(['CONTEXT-TRANSCRIPT-SENTINEL'])
+    const events: SessionEvent[] = Array.from({ length: 12 }, (_unused, index) => ({
+      type: 'user/message',
+      seq: SessionSeq(index),
+      time: NOW + index * 1_000,
+      data: { content: [{ type: 'text', text: `终端宽度 context line ${String(index)}` }], source: { kind: 'user' } },
+    } as unknown as SessionEvent))
+    const target = events[6]!
+    const context: EventContextState = {
+      kind: 'ready',
+      sessionId: 'dshline-one' as SessionId,
+      seq: target.seq,
+      window: {
+        session: {
+          version: SESSION_FORMAT_VERSION,
+          id: 'dshline-one' as SessionId,
+          createdAt: NOW,
+          isSeeded: false,
+        } as SessionHeader,
+        inheritedEventCount: 0,
+        target,
+        events,
+        startSeq: events[0]!.seq,
+        endSeq: events.at(-1)!.seq,
+      } as unknown as SessionEventWindow,
+    }
+    const overlay = createEventContextOverlay({
+      context: () => context,
+      now: () => NOW,
+      close: () => {},
+      invalidate: () => {},
+    })
+    screen.setLive(overlay.render(columns, rows))
+    const frame = await emulator.screen()
+    expect(frame.length).toBeLessThanOrEqual(rows)
+    expect(frame.join('\n')).toContain('Sessions · context')
+    expect(frame.join('\n')).toContain('终端')
+    const all = await emulator.scrollback()
+    expect(all.filter(line => line.includes('CONTEXT-TRANSCRIPT-SENTINEL'))).toHaveLength(1)
+    emulator.dispose()
+  })
+
   it('keeps an ultra-compact browser out of scrollback in a four-row terminal', async () => {
     const rows = 4
     const { emulator, draw } = terminal(rows)
@@ -192,6 +244,8 @@ describe('the Sessions browser on a real terminal', () => {
       events: () => ({ kind: 'idle' }),
       searchEvents: () => {},
       loadMoreEvents: () => {},
+      requestEventContext: () => {},
+      eventContext: () => ({ kind: 'idle' }),
       detail: () => undefined,
       requestDetail: () => {},
       search: () => {},
@@ -287,9 +341,10 @@ describe('the Sessions browser on a real terminal', () => {
       events: () => state,
       searchEvents: () => {},
       loadMoreEvents: () => {},
-      home: '/home/dev',
+      readEvent: () => {},
+      eventContext: () => ({ kind: 'idle' }),
+      push: () => {},
       now: () => NOW,
-      currentSessionId: undefined,
       close: () => {},
       invalidate: () => {},
     })

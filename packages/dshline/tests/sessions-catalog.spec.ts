@@ -1,13 +1,15 @@
 /** Tests for reading the Harness session corpus, and for degrading when it cannot. */
 
 import { describe, expect, it } from 'vitest'
-import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
-import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import { SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
+import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_QUERY_READ_WINDOW_MAX, SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import type {
+  SessionEventReadRequest,
   SessionEventSearchHit,
   SessionEventSearchPage,
   SessionEventRecord,
+  SessionEventWindow,
   SessionLineageTrace,
   SessionRecord,
   SessionSearchExecContext,
@@ -17,7 +19,7 @@ import type {
   SessionTitleObservationResult,
 } from '@deepseek-ai/dsh-session-query'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
-import { SessionCatalog } from '../src/sessions/catalog.ts'
+import { EVENT_CONTEXT_AFTER, EVENT_CONTEXT_BEFORE, SessionCatalog } from '../src/sessions/catalog.ts'
 import { NO_FILTERS } from '../src/sessions/filters.ts'
 import { flattenLineage } from '../src/sessions/lineage.ts'
 
@@ -142,7 +144,7 @@ function eventHit(sessionId: string, seq: number): SessionEventSearchHit {
 type Reads = Partial<SessionQueryReads>
 
 /**
- * A session-query engine narrowed to the seven reads the catalog uses.
+ * A session-query engine narrowed to the eight reads the catalog uses.
  * @param reads - the behaviours this test needs.
  * @returns the fake engine.
  */
@@ -157,6 +159,7 @@ function engine(reads: Reads): SessionQueryReads {
       session: record(request.sessionId).header,
       items: [],
     } as SessionEventSearchPage)),
+    readEvent: reads.readEvent ?? (async request => window(request.sessionId, request.seq)),
     traceSession: reads.traceSession ?? (async sessionId => ({
       target: record(sessionId),
       ancestors: [],
@@ -165,6 +168,35 @@ function engine(reads: Reads): SessionQueryReads {
       root: record(sessionId),
     })),
   }
+}
+
+/**
+ * One raw event for a context-window fixture.
+ * @param seq - the event sequence number.
+ * @param type - the event discriminant.
+ * @param data - the event payload.
+ * @returns the event.
+ */
+function sessionEvent(seq: number, type: string, data: unknown = {}): SessionEvent {
+  return { type, seq: SessionSeq(seq), time: 2_000 + seq, data } as unknown as SessionEvent
+}
+
+/**
+ * A single-target window as the real read would return it.
+ * @param sessionId - the owning session.
+ * @param seq - the target sequence number.
+ * @param events - the full window, defaulting to just the target.
+ * @returns the window.
+ */
+function window(sessionId: string, seq: number, events: SessionEvent[] = [sessionEvent(seq, 'turn/start')]): SessionEventWindow {
+  return {
+    session: header(sessionId),
+    inheritedEventCount: 0,
+    target: events.find(event => event.seq === SessionSeq(seq)) ?? events[0]!,
+    events,
+    startSeq: SessionSeq(events[0]?.seq ?? seq),
+    endSeq: SessionSeq(events.at(-1)?.seq ?? seq),
+  } as unknown as SessionEventWindow
 }
 
 describe('listing the corpus', () => {
@@ -1244,6 +1276,173 @@ describe('searching within one session', () => {
   })
 })
 
+describe('reading one hit’s context', () => {
+  it('passes the exact hit and a bounded before/after to readEvent', async () => {
+    const requests: SessionEventReadRequest[] = []
+    const catalog = new SessionCatalog({
+      query: engine({
+        readEvent: async request => {
+          requests.push(request)
+          return window(request.sessionId, request.seq, [
+            sessionEvent(request.seq - 1, 'step/start'),
+            sessionEvent(request.seq, 'user/message', { content: [{ type: 'text', text: 'the match' }] }),
+            sessionEvent(request.seq + 1, 'step/end'),
+          ])
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.requestEventContext('a' as SessionId, SessionSeq(5))
+    await settled()
+    expect(requests).toEqual([{
+      sessionId: 'a',
+      seq: 5,
+      before: EVENT_CONTEXT_BEFORE,
+      after: EVENT_CONTEXT_AFTER,
+    }])
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(5))).toMatchObject({
+      kind: 'ready',
+      sessionId: 'a',
+      seq: 5,
+      window: { startSeq: 4, endSeq: 6, target: { seq: 5 } },
+    })
+  })
+
+  it('keeps the window comfortably inside Harness’s accepted maximum', () => {
+    // The engine rejects a request above this, so the constants must stay below
+    // it rather than silently failing at the call site.
+    expect(EVENT_CONTEXT_BEFORE).toBeGreaterThan(0)
+    expect(EVENT_CONTEXT_AFTER).toBeGreaterThan(0)
+    expect(EVENT_CONTEXT_BEFORE).toBeLessThan(SESSION_QUERY_READ_WINDOW_MAX)
+    expect(EVENT_CONTEXT_AFTER).toBeLessThan(SESSION_QUERY_READ_WINDOW_MAX)
+  })
+
+  it('reports a failed context read truthfully', async () => {
+    const missing = Object.assign(new Error('event not found'), {
+      code: 'SESSION_QUERY_EVENT_NOT_FOUND',
+    })
+    const catalog = new SessionCatalog({
+      query: engine({ readEvent: async () => { throw missing } }),
+      invalidate: () => {},
+    })
+    catalog.requestEventContext('a' as SessionId, SessionSeq(9))
+    await settled()
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(9))).toEqual({
+      kind: 'failed',
+      sessionId: 'a',
+      seq: 9,
+      message: 'event not found',
+    })
+  })
+
+  it('reports idle for a context that belongs to a different hit', async () => {
+    const catalog = new SessionCatalog({
+      query: engine({ readEvent: async request => window(request.sessionId, request.seq) }),
+      invalidate: () => {},
+    })
+    catalog.requestEventContext('a' as SessionId, SessionSeq(4))
+    await settled()
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(4))).toMatchObject({ kind: 'ready' })
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(5))).toEqual({ kind: 'idle' })
+    expect(catalog.eventContext('b' as SessionId, SessionSeq(4))).toEqual({ kind: 'idle' })
+  })
+
+  it('never lets a superseded read win', async () => {
+    const first = deferred<SessionEventWindow>()
+    let firstSignal: AbortSignal | undefined
+    const catalog = new SessionCatalog({
+      query: engine({
+        readEvent: async (request, signal) => {
+          if (request.seq === SessionSeq(1)) {
+            firstSignal = signal
+            return first.promise
+          }
+          return window('a', 2, [sessionEvent(2, 'turn/start')])
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.requestEventContext('a' as SessionId, SessionSeq(1))
+    catalog.requestEventContext('a' as SessionId, SessionSeq(2))
+    first.resolve(window('a', 1))
+    await settled()
+    expect(firstSignal?.aborted).toBe(true)
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(2))).toMatchObject({ kind: 'ready', seq: 2 })
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(1))).toEqual({ kind: 'idle' })
+  })
+
+  it('swallows a backend abort reported for a superseded read', async () => {
+    const first = deferred<SessionEventWindow>()
+    let firstSignal: AbortSignal | undefined
+    const catalog = new SessionCatalog({
+      query: engine({
+        readEvent: async (request, signal) => {
+          if (request.seq === SessionSeq(1)) {
+            firstSignal = signal
+            return first.promise
+          }
+          return window('a', 2, [sessionEvent(2, 'turn/start')])
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.requestEventContext('a' as SessionId, SessionSeq(1))
+    catalog.requestEventContext('a' as SessionId, SessionSeq(2))
+    first.reject(Object.assign(new Error('cancelled'), { code: 'SESSION_QUERY_ABORTED' }))
+    await settled()
+    expect(firstSignal?.aborted).toBe(true)
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(2))).toMatchObject({ kind: 'ready', seq: 2 })
+  })
+
+  it('aborts an in-flight context read on disposal so it cannot repaint', async () => {
+    const pending = deferred<SessionEventWindow>()
+    let signal: AbortSignal | undefined
+    const catalog = new SessionCatalog({
+      query: engine({
+        readEvent: async (_request, readSignal) => {
+          signal = readSignal
+          return pending.promise
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.requestEventContext('a' as SessionId, SessionSeq(3))
+    catalog.dispose()
+    pending.resolve(window('a', 3))
+    await settled()
+    expect(signal?.aborted).toBe(true)
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(3))).toMatchObject({ kind: 'loading' })
+  })
+
+  it('performs no context read while searching or reading event state', async () => {
+    // The whole disclosure model: discovery is `searchEvents()`, and a raw-log
+    // window is paid for only when a hit is activated.
+    // Deliberate break: refreshing context while hits land makes a plain search
+    // read a session log per result row.
+    let contextReads = 0
+    const catalog = new SessionCatalog({
+      query: engine({
+        searchEvents: async request => ({
+          session: record(request.sessionId).header,
+          items: [eventHit(request.sessionId, 1)],
+        }),
+        readEvent: async request => {
+          contextReads += 1
+          return window(request.sessionId, request.seq)
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.searchEvents('a' as SessionId, 'needle')
+    await settled()
+    expect(catalog.events().kind).toBe('ready')
+    catalog.loadMoreEvents()
+    await settled()
+    expect(catalog.eventContext('a' as SessionId, SessionSeq(1))).toEqual({ kind: 'idle' })
+    expect(contextReads).toBe(0)
+  })
+})
+
 describe('tracing bounded lineage', () => {
   it('flattens ancestors, target, and children and folds their titles', async () => {
     const trace: SessionLineageTrace = {
@@ -1350,7 +1549,7 @@ describe('tracing bounded lineage', () => {
     expect(catalog.lineage('old' as SessionId)).toEqual({ kind: 'idle' })
   })
 
-  it('dispose aborts listing, content, event, and lineage reads together', () => {
+  it('dispose aborts listing, content, event, context, and lineage reads together', () => {
     const signals: AbortSignal[] = []
     const never = new Promise<never>(() => {})
     const catalog = new SessionCatalog({
@@ -1358,6 +1557,7 @@ describe('tracing bounded lineage', () => {
         filterSessions: async (_filters, signal) => { signals.push(signal!); return never },
         searchSessions: async (_request, exec) => { signals.push(exec!.signal!); return never },
         searchEvents: async (_request, exec) => { signals.push(exec!.signal!); return never },
+        readEvent: async (_request, signal) => { signals.push(signal!); return never },
         traceSession: async (_sessionId, signal) => { signals.push(signal!); return never },
       }),
       invalidate: () => {},
@@ -1365,9 +1565,10 @@ describe('tracing bounded lineage', () => {
     catalog.applyFilters({ ...NO_FILTERS, origin: 'own' })
     catalog.search('content')
     catalog.searchEvents('a' as SessionId, 'event')
+    catalog.requestEventContext('a' as SessionId, SessionSeq(7))
     catalog.requestLineage('a' as SessionId)
     catalog.dispose()
-    expect(signals).toHaveLength(4)
+    expect(signals).toHaveLength(5)
     expect(signals.every(signal => signal.aborted)).toBe(true)
   })
 

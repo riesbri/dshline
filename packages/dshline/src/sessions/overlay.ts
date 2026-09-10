@@ -23,7 +23,7 @@ import {
   truncateToWidth,
   wrapToWidth,
 } from '@dshline/renderer'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
@@ -32,6 +32,7 @@ import { createLineageOverlay } from './lineage-overlay.ts'
 import type {
   CatalogState,
   ContentState,
+  EventContextState,
   EventSearchState,
   LineageState,
   SessionDetail,
@@ -111,6 +112,10 @@ export interface SessionsOverlaySpec {
   readonly searchEvents: (sessionId: SessionId, query: string) => void
   /** Append the next within-session event page. */
   readonly loadMoreEvents: () => void
+  /** Read bounded context for one disclosed search hit. */
+  readonly requestEventContext: (sessionId: SessionId, seq: SessionSeq) => void
+  /** The catalog's context state for one exact search hit. */
+  readonly eventContext: (sessionId: SessionId, seq: SessionSeq) => EventContextState
   /** Bounded detail already read for one session. */
   readonly detail: (sessionId: SessionId) => SessionDetail | undefined
   /** Ask for one session's bounded detail; called when its detail is disclosed. */
@@ -383,6 +388,9 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       events: spec.events,
       searchEvents: spec.searchEvents,
       loadMoreEvents: spec.loadMoreEvents,
+      readEvent: spec.requestEventContext,
+      eventContext: spec.eventContext,
+      push: pushChild,
       now: spec.now,
       close: childClose,
       invalidate: spec.invalidate,
