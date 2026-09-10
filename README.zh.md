@@ -20,7 +20,7 @@ agent（智能体）在你的终端里，而不是取代你的终端。完成后
 ## 实际效果
 
 <p align="center">
-  <video src=".github/assets/dshline-demo.mp4" controls muted loop playsinline aria-label="dshline 的终端演示：选择模型并跟进一个 subagent 任务。"></video>
+  <img src=".github/assets/dshline-demo.gif" alt="dshline 的终端动画演示：选择模型、浏览插件，以及跟进一个 subagent 任务。" />
 </p>
 
 ## 安装

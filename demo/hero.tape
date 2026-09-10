@@ -9,17 +9,9 @@ Set TypingSpeed 35ms
 Set Shell zsh
 Set CursorBlink false
 
-# Recording-only setup
-Hide
-Type `alias dshline='cd /Users/richi/Documents/Projects/deepseek/deepseek-harness && DSH_HOME="$HOME/.dsh" node --import tsx/esm apps/cli/src/bin.ts --profile dshline'`
-Enter
-Type "clear"
-Enter
-Show
-
 # Launch
-Sleep 700ms
-Type "dshline"
+Sleep 1s
+Type "pnpm dsh --profile dshline"
 Enter
 Sleep 3s
 
