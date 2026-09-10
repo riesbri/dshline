@@ -17,9 +17,9 @@ Please read this page before opening a pull request. It is short.
   geometry behavior, terminal restoration, or unreadable output are especially
   valuable. Include your terminal, operating system, width in columns, and a
   screenshot where useful.
-- **Cross-platform and Unicode evidence.** Windows terminal testing, macOS
-  terminals other than Ghostty, Linux PTY coverage, and CJK/wide-character
-  correctness all protect the native terminal model.
+- **Cross-platform and Unicode evidence.** macOS terminals other than Ghostty,
+  Windows terminals other than Windows Terminal, Linux PTY coverage, and
+  CJK/wide-character correctness all protect the native terminal model.
 - **Sessions, attachments, and focused UX.** Improvements should use Harness
   authority rather than add a parallel database, provider connection, or
   full-screen transcript.
