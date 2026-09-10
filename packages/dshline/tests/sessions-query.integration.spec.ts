@@ -334,6 +334,37 @@ describe('the Sessions catalog over the real session-query engine', () => {
     await ctx.fiber.dispose()
   })
 
+  it('reads a real bounded event window around one hit', async () => {
+    // The disclosure path against the adopted engine: the concrete `readEvent()`
+    // returns the exact target plus the raw events physically around it, clamped
+    // to the log's ends, and the catalog surfaces exactly that window.
+    const ctx = await harness(SearchingSessionQuery)
+    const session = ctx.sessions.create(SessionId('dshline-int-event-context'), {
+      meta: { cwd: FIRST_WORKSPACE },
+    })
+    session.append('turn/start', { turn: 0 })
+    const wanted = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'the surrounding events matter' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    session.append('turn/end', { turn: 0, reason: { kind: 'completed' } })
+
+    const catalog = new SessionCatalog({ query: ctx.sessionQuery, invalidate: () => {} })
+    catalog.requestEventContext(session.id, wanted.seq)
+    await settled()
+    const state = catalog.eventContext(session.id, wanted.seq)
+    expect(state.kind).toBe('ready')
+    if (state.kind !== 'ready') return
+    expect(state.window.target.seq).toBe(wanted.seq)
+    expect(state.window.target.type).toBe('user/message')
+    // The three-event log is shorter than the bound on either side, so the whole
+    // log is the window and both ends are clamped rather than padded.
+    expect(state.window.events.map(one => one.seq)).toEqual([0, 1, 2])
+    expect(state.window.startSeq).toBe(0)
+    expect(state.window.endSeq).toBe(2)
+    await ctx.fiber.dispose()
+  })
+
   it('refuses to reopen a session the store still holds live', async () => {
     // End to end: the record the real engine produced is the record the resume
     // policy reads, and a live id cannot be resumed because the store refuses a

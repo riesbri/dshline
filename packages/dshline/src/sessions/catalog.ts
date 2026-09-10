@@ -8,11 +8,13 @@
  * @module dshline/sessions/catalog
  */
 
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type {
+  SessionEventReadRequest,
   SessionEventRecord,
   SessionEventSearchPage,
   SessionEventSearchRequest,
+  SessionEventWindow,
   SessionLineageTrace,
   SessionQueryErrorCode,
   SessionRecord,
@@ -37,6 +39,7 @@ import { flattenLineage } from './lineage.ts'
 import type {
   CatalogState,
   ContentState,
+  EventContextState,
   EventHitEntry,
   EventSearchState,
   LineageRow,
@@ -74,6 +77,14 @@ export interface SessionQueryReads {
     request: SessionEventSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionEventSearchPage>
+  /**
+   * One exact event plus a bounded raw-log window around it.
+   *
+   * The concrete read behind explicit disclosure: it is the only method here
+   * that returns full event bodies, and it is called for one hit at a time,
+   * never while search results are merely being listed or navigated.
+   */
+  readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>
   /** Concrete ancestry and descendant tracing over the logical corpus. */
   traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>
 }
@@ -104,6 +115,22 @@ export const CATALOG_LIMIT = 200
 
 /** Full-text results requested from either search service per page. */
 export const CONTENT_SEARCH_LIMIT = 50
+
+/**
+ * Raw events read on each side of one disclosed search hit.
+ *
+ * A typical turn spends about six to ten raw events on structure and content
+ * (`turn/start`, `step/start`, `assistant/attempt`, the user and assistant
+ * messages, tool calls and results, `step/end`, `turn/end`), so eight on each
+ * side spans roughly the surrounding turn without pulling the whole session.
+ * It is comfortably inside Harness's own `SESSION_QUERY_READ_WINDOW_MAX` of 50,
+ * which the engine validates on every request — a larger window here would fail
+ * the read rather than silently degrade.
+ */
+export const EVENT_CONTEXT_BEFORE = 8
+
+/** Raw events read after one disclosed search hit; see {@link EVENT_CONTEXT_BEFORE}. */
+export const EVENT_CONTEXT_AFTER = 8
 
 /** Typed capability code for a deployment without either full-text surface. */
 const SEARCH_DISABLED: SessionQueryErrorCode = 'SESSION_QUERY_SEARCH_DISABLED'
@@ -292,6 +319,7 @@ export class SessionCatalog {
   private base: CatalogState
   private contentState: ContentState = { kind: 'idle' }
   private eventState: EventSearchState = { kind: 'idle' }
+  private eventContextState: EventContextState = { kind: 'idle' }
   private lineageState: LineageState = { kind: 'idle' }
   private filterValue: SessionFiltersValue = NO_FILTERS
   /**
@@ -311,11 +339,13 @@ export class SessionCatalog {
   private filterGeneration = 0
   private searchGeneration = 0
   private eventGeneration = 0
+  private eventContextGeneration = 0
   private lineageGeneration = 0
   private listingAbort: AbortController | undefined
   private titleAbort: AbortController | undefined
   private searchAbort: AbortController | undefined
   private eventAbort: AbortController | undefined
+  private eventContextAbort: AbortController | undefined
   private lineageAbort: AbortController | undefined
   private contentChain: ContentChain | undefined
   private eventChain: EventChain | undefined
@@ -350,6 +380,23 @@ export class SessionCatalog {
   /** The within-session event search's current state. */
   events(): EventSearchState {
     return this.eventState
+  }
+
+  /**
+   * The disclosed context for one exact search hit.
+   *
+   * A stored context belongs to exactly one `(sessionId, seq)` pair. Asking for
+   * any other hit reports `idle` rather than the previous reading, so a stale
+   * window can never be drawn under the wrong row.
+   * @param sessionId - the hit's owning session.
+   * @param seq - the hit's event sequence number.
+   * @returns its context state, or idle when the stored context is another hit's.
+   */
+  eventContext(sessionId: SessionId, seq: SessionSeq): EventContextState {
+    if (this.eventContextState.kind === 'idle') return this.eventContextState
+    return this.eventContextState.sessionId === sessionId && this.eventContextState.seq === seq
+      ? this.eventContextState
+      : { kind: 'idle' }
   }
 
   /**
@@ -580,6 +627,47 @@ export class SessionCatalog {
   }
 
   /**
+   * Read one disclosed hit's exact target event plus its bounded raw-log window.
+   *
+   * The single full-event read the browser performs, and the reason nothing
+   * else may call it: it is requested only when a person activates a hit, so
+   * discovery (`searchEvents()`), pagination, rendering, and cursor movement
+   * stay cheap. A newer request supersedes and aborts the previous one, and the
+   * generation guard keeps a read that settles late from painting under a hit
+   * the reader has already left.
+   * @param sessionId - the hit's owning session.
+   * @param seq - the hit's event sequence number.
+   */
+  requestEventContext(sessionId: SessionId, seq: SessionSeq): void {
+    const query = this.spec.query
+    if (query === undefined) return
+    const generation = (this.eventContextGeneration += 1)
+    this.eventContextAbort?.abort()
+    const abort = new AbortController()
+    this.eventContextAbort = abort
+    this.eventContextState = { kind: 'loading', sessionId, seq }
+    this.spec.invalidate()
+    void (async (): Promise<void> => {
+      try {
+        const request: SessionEventReadRequest = {
+          sessionId,
+          seq,
+          before: EVENT_CONTEXT_BEFORE,
+          after: EVENT_CONTEXT_AFTER,
+        }
+        const window = await query.readEvent(request, abort.signal)
+        if (this.stale(generation, this.eventContextGeneration)) return
+        this.eventContextState = { kind: 'ready', sessionId, seq, window }
+      } catch (error: unknown) {
+        if (this.stale(generation, this.eventContextGeneration)) return
+        if (errorCode(error) === SEARCH_ABORTED) return
+        this.eventContextState = { kind: 'failed', sessionId, seq, message: reason(error) }
+      }
+      this.spec.invalidate()
+    })()
+  }
+
+  /**
    * Request and flatten the selected session's lineage.
    * @param sessionId - the selected session.
    */
@@ -652,16 +740,19 @@ export class SessionCatalog {
     this.filterGeneration += 1
     this.searchGeneration += 1
     this.eventGeneration += 1
+    this.eventContextGeneration += 1
     this.lineageGeneration += 1
     this.listingAbort?.abort()
     this.titleAbort?.abort()
     this.searchAbort?.abort()
     this.eventAbort?.abort()
+    this.eventContextAbort?.abort()
     this.lineageAbort?.abort()
     this.listingAbort = undefined
     this.titleAbort = undefined
     this.searchAbort = undefined
     this.eventAbort = undefined
+    this.eventContextAbort = undefined
     this.lineageAbort = undefined
   }
 

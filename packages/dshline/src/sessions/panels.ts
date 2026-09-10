@@ -9,7 +9,8 @@ import {
   truncateToWidth,
   wrapToWidth,
 } from '@dshline/renderer'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { extractSessionEventText, type SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
@@ -19,7 +20,7 @@ import type {
   SessionFiltersValue,
   WorkspaceChoice,
 } from './filters.ts'
-import type { EventHitEntry, EventSearchState } from './model.ts'
+import type { EventContextState, EventHitEntry, EventSearchState } from './model.ts'
 import { relativeAge } from './model.ts'
 
 /** Rows outside a child panel's scrolling body. */
@@ -27,6 +28,12 @@ const PANEL_FIXED_ROWS = 4
 
 /** Rows outside the events browser's scrolling body, including its query row. */
 const EVENTS_FIXED_ROWS = 5
+
+/** Rows outside the context inspector's scrolling body: summary, borders, spacer. */
+const CONTEXT_FIXED_ROWS = 5
+
+/** Columns an event's semantic text is indented under its metadata row. */
+const CONTEXT_INDENT = 4
 
 /** Narrowest terminal that can show a useful two-column browser row. */
 const PANEL_MIN_COLUMNS = BOX_CHROME_COLUMNS + 24
@@ -70,6 +77,17 @@ export interface EventsOverlaySpec {
   readonly searchEvents: (sessionId: SessionId, query: string) => void
   /** Append the next event-search page. */
   readonly loadMoreEvents: () => void
+  /**
+   * Read bounded context for one hit.
+   *
+   * The only read this overlay calls on activation of an ordinary hit; it is
+   * never called while hits land, render, or move under the cursor.
+   */
+  readonly readEvent: (sessionId: SessionId, seq: SessionSeq) => void
+  /** The catalog's context state for one exact hit. */
+  readonly eventContext: (sessionId: SessionId, seq: SessionSeq) => EventContextState
+  /** Push a child overlay onto the slot stack; the browser stays mounted beneath. */
+  readonly push: (overlay: (childClose: () => void) => TuiOverlay) => void
   /** Current time for relative event ages. */
   readonly now: () => number
   /** Ask the stack owner to remove this child. */
@@ -224,22 +242,44 @@ export function createEventsOverlay(spec: EventsOverlaySpec): SessionsChildOverl
     selected = (selected + amount + length) % length
     spec.invalidate()
   }
+  /**
+   * Disclose one hit's bounded surrounding context.
+   *
+   * The read and the child it presents are requested together, from this one
+   * explicit activation, so nothing above pays for a raw-log window it is not
+   * showing.
+   * @param hit - the activated result row.
+   */
+  const openContext = (hit: EventHitEntry): void => {
+    spec.readEvent(hit.sessionId, hit.seq)
+    spec.push(childClose => createEventContextOverlay({
+      context: () => spec.eventContext(hit.sessionId, hit.seq),
+      now: spec.now,
+      close: childClose,
+      invalidate: spec.invalidate,
+    }))
+  }
   const activate = (): void => {
-    if (selected !== visible.length || trailing === undefined) return
-    if (trailing.kind === 'more') {
-      if (loadingFrom !== undefined) return
-      loadingFrom = visible.length
-      const state = spec.events()
-      loadingRevision = state.kind === 'ready' ? state.revision : undefined
-      spec.loadMoreEvents()
-      spec.invalidate()
-    } else if (trailing.kind === 'refresh') {
-      const state = spec.events()
-      if (state.kind === 'ready') {
-        submitted = state.query
-        spec.searchEvents(spec.target, state.query)
+    if (selected === visible.length) {
+      if (trailing === undefined) return
+      if (trailing.kind === 'more') {
+        if (loadingFrom !== undefined) return
+        loadingFrom = visible.length
+        const state = spec.events()
+        loadingRevision = state.kind === 'ready' ? state.revision : undefined
+        spec.loadMoreEvents()
+        spec.invalidate()
+      } else if (trailing.kind === 'refresh') {
+        const state = spec.events()
+        if (state.kind === 'ready') {
+          submitted = state.query
+          spec.searchEvents(spec.target, state.query)
+        }
       }
+      return
     }
+    const hit = visible[selected]
+    if (hit !== undefined) openContext(hit)
   }
 
   return {
@@ -284,7 +324,7 @@ export function createEventsOverlay(spec: EventsOverlaySpec): SessionsChildOverl
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
           footer: fitFooterHelp(
-            eventHelp(selected === visible.length ? trailing : undefined),
+            eventHelp(selected < visible.length, selected === visible.length ? trailing : undefined),
             footerBudget(columns),
           ),
         }),
@@ -344,6 +384,154 @@ export function createEventsOverlay(spec: EventsOverlaySpec): SessionsChildOverl
           }
           close()
           return
+        case 'ctrl-c':
+          close()
+          return
+        default:
+          return
+      }
+    },
+  }
+}
+
+/** What the bounded context inspector needs from its parent browser. */
+export interface EventContextOverlaySpec {
+  /**
+   * The catalog's current context state for this exact hit.
+   *
+   * The catalog has already narrowed this to the hit the panel was opened for,
+   * so the inspector draws what it returns and does not re-identify the hit.
+   */
+  readonly context: () => EventContextState
+  /** Current time for relative event ages. */
+  readonly now: () => number
+  /** Ask the stack owner to remove this child. */
+  readonly close: () => void
+  /** Redraw after scrolling. */
+  readonly invalidate: () => void
+}
+
+/** Rendered context rows and the physical row span holding the target event. */
+interface RenderedContext {
+  readonly headline: string
+  readonly rows: readonly string[]
+  /** First physical row of the target event, or -1 when it is not shown. */
+  readonly targetRow: number
+  /** Exclusive end of the target event's rows, or -1 when it is not shown. */
+  readonly targetEndRow: number
+}
+
+/**
+ * Create a bounded, scrollable inspector over one hit and its neighbors.
+ *
+ * The window is already bounded by the catalog's read, and this panel bounds it
+ * again to the terminal: only whole committed-frame rows are drawn, the rest
+ * scroll, and the target is marked rather than left for the reader to find. The
+ * content itself is Harness's own semantic extraction, escaped before it is
+ * measured so an event payload can never drive the terminal.
+ * @param spec - target hit, catalog state, and owner controls.
+ * @returns a bounded child overlay that closes on esc or ctrl-c.
+ */
+export function createEventContextOverlay(spec: EventContextOverlaySpec): SessionsChildOverlay {
+  const viewport = new RowViewport()
+  let closed = false
+  let positioned = false
+  /**
+   * The last ready presentation, kept against the window and width that made it.
+   *
+   * A ready window is immutable, but the semantic text inside one event is not
+   * bounded by the event count: a single tool result can be large. Re-running
+   * Harness's extraction, escaping, and wrapping over the whole window on every
+   * arrow-key redraw is work with no output, so it is done once per window per
+   * width. The relative ages are fixed at that first paint; a resize or a new
+   * window is what recomputes, exactly as `tool-output.ts` and
+   * `plan-review.ts` cache their immutable documents.
+   */
+  let cachedPresentation: { readonly window: SessionEventWindow; readonly inner: number; readonly rendered: RenderedContext } | undefined
+
+  /**
+   * The window's presentation at one width, rendering only when either changed.
+   * @param state - the catalog's current context state.
+   * @param inner - the frame's inner width.
+   * @returns the rendered context.
+   */
+  const presentation = (state: EventContextState, inner: number): RenderedContext => {
+    if (state.kind !== 'ready') return renderEventContext(state, inner, spec.now())
+    const cached = cachedPresentation
+    if (cached !== undefined && cached.window === state.window && cached.inner === inner) return cached.rendered
+    const rendered = renderEventContext(state, inner, spec.now())
+    cachedPresentation = { window: state.window, inner, rendered }
+    return rendered
+  }
+
+  const close = (): void => {
+    if (closed) return
+    closed = true
+    spec.close()
+  }
+
+  return {
+    [CHILD_CLOSE_REQUESTED]: () => closed,
+    render(columns, terminalRows = 24) {
+      if (terminalRows <= CONTEXT_FIXED_ROWS || columns < PANEL_MIN_COLUMNS) {
+        return compactPanel('Context', columns, terminalRows)
+      }
+      const inner = chromeWidth(columns) - BOX_CHROME_COLUMNS
+      const capacity = terminalRows - CONTEXT_FIXED_ROWS
+      if (capacity <= 0) return compactPanel('Context', columns, terminalRows)
+      const state = spec.context()
+      const rendered = presentation(state, inner)
+      viewport.update(rendered.rows.length, capacity)
+      if (!positioned && rendered.targetRow >= 0) {
+        // Open on the match, not on whichever neighbor happens to come first:
+        // the reader asked for THIS event, and a short terminal can otherwise
+        // show eight preceding events and never the highlighted one. The whole
+        // target block is brought into view where it fits, and positioning
+        // happens once so scrolling afterwards is not snapped back on redraw.
+        if (rendered.targetEndRow > viewport.end) viewport.move(rendered.targetEndRow - viewport.end)
+        if (rendered.targetRow < viewport.start) viewport.move(rendered.targetRow - viewport.start)
+        positioned = true
+      }
+      // Positioning can leave rows hidden ABOVE with none below, and End can
+      // leave rows hidden above with none below too; help is truthful only when
+      // it looks in both directions.
+      const scrollable = viewport.start > 0 || viewport.end < rendered.rows.length
+      const frame = [
+        '',
+        ...rootFrame({
+          columns,
+          context: paint('Sessions · context', 'overlay-title'),
+          body: [
+            rendered.headline,
+            '',
+            ...rendered.rows.slice(viewport.start, viewport.end),
+          ],
+          footer: fitFooterHelp(
+            contextHelp(state, scrollable),
+            footerBudget(columns),
+          ),
+        }),
+      ]
+      return physicalRows(frame, columns).length <= terminalRows
+        ? frame
+        : compactPanel('Context', columns, terminalRows)
+    },
+    handleKey(key: Key) {
+      if (closed || key.kind !== 'key') return
+      switch (key.name) {
+        case 'up':
+          if (viewport.move(-1)) spec.invalidate()
+          return
+        case 'down':
+          if (viewport.move(1)) spec.invalidate()
+          return
+        case 'home':
+          if (viewport.first()) spec.invalidate()
+          return
+        case 'end':
+          if (viewport.last()) spec.invalidate()
+          return
+        case 'escape':
         case 'ctrl-c':
           close()
           return
@@ -484,10 +672,87 @@ function eventQueryRow(query: string, inner: number): string {
   return `${paint(prompt, 'prompt-mark')}${typed}`
 }
 
-/** Choose truthful event help for the selected continuation row. */
-function eventHelp(trailing: Trailing | undefined): string {
-  const action = trailing?.kind === 'more' ? '↵ load more' : trailing?.kind === 'refresh' ? '↵ refresh' : undefined
+/**
+ * Choose truthful event help for the selected row.
+ *
+ * A hit opens context; the trailing row keeps its own continuation actions.
+ * @param selectedHit - whether a real result row, not the trailing row, is selected.
+ * @param trailing - the continuation row, when it is selected.
+ * @returns the help line before fitting.
+ */
+function eventHelp(selectedHit: boolean, trailing: Trailing | undefined): string {
+  const action = trailing?.kind === 'more'
+    ? '↵ load more'
+    : trailing?.kind === 'refresh'
+      ? '↵ refresh'
+      : selectedHit ? '↵ context' : undefined
   return ['type query', 'tab search', '↑↓ move', ...action === undefined ? [] : [action], 'esc back'].join(' · ')
+}
+
+/**
+ * Turn one disclosed hit's context state into a headline and scrolling rows.
+ *
+ * Every displayed fact is Harness's: the event type, its sequence number, the
+ * time it was recorded (shown as a relative age), and the body produced by
+ * Harness's own {@link extractSessionEventText}. An event with no semantic text
+ * — a structural boundary or an unknown declaration-merged type — deliberately
+ * contributes only its metadata row rather than a stringified payload.
+ * @param state - the catalog's context state for this hit.
+ * @param inner - the frame's inner width.
+ * @param now - the clock the relative ages are inscribed against.
+ * @returns the headline, the physical rows, and the target's row index.
+ */
+function renderEventContext(state: EventContextState, inner: number, now: number): RenderedContext {
+  switch (state.kind) {
+    case 'idle':
+      return { headline: paint(truncateToWidth('No event context.', inner), 'muted'), rows: [], targetRow: -1, targetEndRow: -1 }
+    case 'loading':
+      return {
+        headline: paint(truncateToWidth('Reading surrounding events…', inner), 'muted'),
+        rows: [],
+        targetRow: -1,
+        targetEndRow: -1,
+      }
+    case 'failed':
+      return {
+        headline: paint(truncateToWidth(`Context failed: ${escapeControls(state.message)}`, inner), 'error'),
+        rows: [],
+        targetRow: -1,
+        targetEndRow: -1,
+      }
+    case 'ready': {
+      const { window } = state
+      const extent = `seq ${String(window.startSeq)}–${String(window.endSeq)} · `
+        + `${String(window.events.length)} event${window.events.length === 1 ? '' : 's'}`
+      const headline = paint(truncateToWidth(escapeControls(extent), inner), 'muted')
+      const rows: string[] = []
+      let targetRow = -1
+      let targetEndRow = -1
+      const textWidth = Math.max(1, inner - CONTEXT_INDENT)
+      for (const event of window.events) {
+        const isTarget = event.seq === window.target.seq
+        if (isTarget) targetRow = rows.length
+        const meta = `${event.type} · seq ${String(event.seq)} · ${relativeAge(event.time, now)}`
+        rows.push(paint(
+          `${isTarget ? '▶' : ' '} ${truncateToWidth(escapeControls(meta), Math.max(1, inner - 2))}`,
+          isTarget ? 'selection' : 'muted',
+        ))
+        const text = extractSessionEventText(event)
+        if (text !== '') {
+          for (const line of wrapToWidth(escapeControls(text), textWidth)) {
+            rows.push(line === '' ? '' : `${' '.repeat(CONTEXT_INDENT)}${line}`)
+          }
+        }
+        if (isTarget) targetEndRow = rows.length
+      }
+      return { headline, rows, targetRow, targetEndRow }
+    }
+  }
+}
+
+/** Choose context help, advertising scroll while rows are hidden above or below. */
+function contextHelp(state: EventContextState, scrollable: boolean): string {
+  return [...state.kind === 'ready' && scrollable ? ['↑↓ scroll'] : [], 'esc close'].join(' · ')
 }
 
 /** Count physical rows the terminal would draw. */

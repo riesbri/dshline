@@ -1,17 +1,33 @@
 /** Behavior tests for the bounded Sessions filter and event child panels. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Key, KeyName } from '@dshline/renderer'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import { extractSessionEventText, type SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 import type { SessionFiltersValue } from '../src/sessions/filters.ts'
-import type { EventSearchState } from '../src/sessions/model.ts'
+import type { EventContextState, EventHitEntry, EventSearchState } from '../src/sessions/model.ts'
 import {
+  CHILD_CLOSE_REQUESTED,
+  createEventContextOverlay,
   createEventsOverlay,
   createFilterOverlay,
   type EventsOverlaySpec,
   type SessionsChildOverlay,
 } from '../src/sessions/panels.ts'
+
+/**
+ * Count the semantic presentation work without changing its behavior.
+ *
+ * The context renderer's expensive step is Harness's own extraction; wrapping a
+ * ready window twice at the same width is the regression the presentation cache
+ * exists to prevent, so the spy calls through and the tests assert on deltas.
+ */
+vi.mock('@deepseek-ai/dsh-session-query', async importOriginal => {
+  const sessionQuery = await importOriginal<typeof import('@deepseek-ai/dsh-session-query')>()
+  return { ...sessionQuery, extractSessionEventText: vi.fn(sessionQuery.extractSessionEventText) }
+})
 
 /** Comfortable frame dimensions. */
 const COLUMNS = 80
@@ -137,12 +153,18 @@ describe('the Sessions filter picker', () => {
 function mountEvents(initial: EventSearchState = { kind: 'idle' }): {
   readonly overlay: SessionsChildOverlay
   readonly state: { value: EventSearchState }
+  readonly context: { value: EventContextState }
   readonly searches: Array<{ sessionId: SessionId; query: string }>
+  readonly reads: Array<{ sessionId: SessionId; seq: number }>
+  readonly pushed: SessionsChildOverlay[]
   readonly loads: () => number
   readonly closes: () => number
 } {
   const state = { value: initial }
+  const context: { value: EventContextState } = { value: { kind: 'idle' } }
   const searches: Array<{ sessionId: SessionId; query: string }> = []
+  const reads: Array<{ sessionId: SessionId; seq: number }> = []
+  const pushed: SessionsChildOverlay[] = []
   let loads = 0
   let closes = 0
   const spec: EventsOverlaySpec = {
@@ -150,6 +172,9 @@ function mountEvents(initial: EventSearchState = { kind: 'idle' }): {
     events: () => state.value,
     searchEvents: (sessionId, query) => { searches.push({ sessionId, query }) },
     loadMoreEvents: () => { loads += 1 },
+    readEvent: (sessionId, seq) => { reads.push({ sessionId, seq }) },
+    eventContext: () => context.value,
+    push: factory => { pushed.push(factory(() => {}) as SessionsChildOverlay) },
     now: () => NOW,
     close: () => { closes += 1 },
     invalidate: () => {},
@@ -157,9 +182,24 @@ function mountEvents(initial: EventSearchState = { kind: 'idle' }): {
   return {
     overlay: createEventsOverlay(spec),
     state,
+    context,
     searches,
+    reads,
+    pushed,
     loads: () => loads,
     closes: () => closes,
+  }
+}
+
+/** One landed event hit. */
+function hit(seq: number, overrides: Partial<EventHitEntry> = {}): EventHitEntry {
+  return {
+    sessionId: TARGET,
+    seq: SessionSeq(seq),
+    type: 'assistant/message',
+    time: NOW - 120_000,
+    snippet: 'alpha answer',
+    ...overrides,
   }
 }
 
@@ -169,19 +209,67 @@ function ready(overrides: Partial<Extract<EventSearchState, { kind: 'ready' }>> 
     kind: 'ready',
     sessionId: TARGET,
     query: 'alpha',
-    hits: [{
-      sessionId: TARGET,
-      seq: 7,
-      type: 'assistant/message',
-      time: NOW - 120_000,
-      snippet: 'alpha answer',
-    }],
+    hits: [hit(7)],
     more: false,
     loadingMore: false,
     restart: false,
     revision: 0,
     ...overrides,
   }
+}
+
+/** One raw context-window event. */
+function event(seq: number, type: string, data: unknown = {}): SessionEvent {
+  return { type, seq: SessionSeq(seq), time: NOW + seq * 1_000, data } as unknown as SessionEvent
+}
+
+/** A user message event whose semantic text Harness extracts. */
+function userEvent(seq: number, text: string): SessionEvent {
+  return event(seq, 'user/message', { content: [{ type: 'text', text }], source: { kind: 'user' } })
+}
+
+/**
+ * A ready context state whose window contains the target and its neighbors.
+ * @param events - the window's events, in ascending seq order.
+ * @param targetSeq - the target's sequence number.
+ * @returns the state.
+ */
+function contextReady(events: SessionEvent[], targetSeq = 1): Extract<EventContextState, { kind: 'ready' }> {
+  const target = events.find(one => one.seq === SessionSeq(targetSeq)) ?? events[0]!
+  const session: SessionHeader = {
+    version: SESSION_FORMAT_VERSION,
+    id: TARGET,
+    createdAt: NOW,
+    isSeeded: false,
+  } as SessionHeader
+  const window: SessionEventWindow = {
+    session,
+    inheritedEventCount: 0,
+    target,
+    events,
+    startSeq: events[0]!.seq,
+    endSeq: events.at(-1)!.seq,
+  } as unknown as SessionEventWindow
+  return { kind: 'ready', sessionId: TARGET, seq: target.seq, window }
+}
+
+/** Mount the bounded context inspector over mutable state. */
+function mountContext(initial: EventContextState): {
+  readonly overlay: SessionsChildOverlay
+  readonly state: { value: EventContextState }
+  readonly invalidates: () => number
+  readonly closes: () => number
+} {
+  let invalidates = 0
+  let closes = 0
+  const state = { value: initial }
+  const overlay = createEventContextOverlay({
+    context: () => state.value,
+    now: () => NOW,
+    close: () => { closes += 1 },
+    invalidate: () => { invalidates += 1 },
+  })
+  return { overlay, state, invalidates: () => invalidates, closes: () => closes }
 }
 
 describe('the within-session events browser', () => {
@@ -339,15 +427,78 @@ describe('the within-session events browser', () => {
     expect(view.loads()).toBe(0)
   })
 
-  it('leaves a selected hit inert on Enter', () => {
-    // Deliberate break: wiring hit Enter to close would imply an inspection
-    // surface this change deliberately does not provide.
+  it('opens bounded context on Enter for a selected hit', () => {
+    // The read and the child are requested from the explicit activation, and
+    // nothing else: the search is not restarted, no page is loaded, and the
+    // browser itself stays open beneath.
     const view = mountEvents(ready({ query: '' }))
     view.overlay.render(COLUMNS, ROWS)
     view.overlay.handleKey(key('enter'))
+    expect(view.reads).toEqual([{ sessionId: TARGET, seq: SessionSeq(7) }])
+    expect(view.pushed).toHaveLength(1)
+    expect(view.pushed[0]?.[CHILD_CLOSE_REQUESTED]()).toBe(false)
     expect(view.closes()).toBe(0)
     expect(view.loads()).toBe(0)
     expect(view.searches).toEqual([])
+  })
+
+  it('keeps the query and selection when the context child closes', () => {
+    // The context panel is pushed OVER the search, not into it: closing it must
+    // return to the same query, results, and selected hit rather than restart
+    // the search or lose the reader's place.
+    const view = mountEvents()
+    for (const one of typed('alpha')) view.overlay.handleKey(one)
+    view.overlay.handleKey(key('tab'))
+    view.state.value = ready({ more: true, hits: [hit(1), hit(2), hit(3)] })
+    view.overlay.render(COLUMNS, ROWS)
+    view.overlay.handleKey(key('down'))
+    view.overlay.handleKey(key('enter'))
+    expect(view.reads).toEqual([{ sessionId: TARGET, seq: SessionSeq(2) }])
+
+    const child = view.pushed[0]!
+    child.handleKey(key('escape'))
+    expect(child[CHILD_CLOSE_REQUESTED]()).toBe(true)
+
+    const drawn = screen(view.overlay)
+    expect(drawn).toContain('alpha')
+    expect(drawn).toContain('alpha answer')
+    // Still on the same hit: activating again reads it, not a neighbor.
+    view.overlay.handleKey(key('enter'))
+    expect(view.reads).toEqual([
+      { sessionId: TARGET, seq: SessionSeq(2) },
+      { sessionId: TARGET, seq: SessionSeq(2) },
+    ])
+  })
+
+  it('reads no context while hits land, render, or move under the cursor', () => {
+    // The on-demand disclosure invariant: `searchEvents()` discovers hits and
+    // `readEvent()` is paid only when one is explicitly opened. A cursor that
+    // moved through results would otherwise read a raw-log window per row.
+    // Deliberate break: fetching context in `render` or `move` turns holding
+    // the down arrow into a session-log read per keystroke.
+    const view = mountEvents(ready({ query: '', hits: [hit(1), hit(2), hit(3)] }))
+    view.overlay.render(COLUMNS, ROWS)
+    view.overlay.handleKey(key('down'))
+    view.overlay.handleKey(key('down'))
+    view.overlay.render(COLUMNS, ROWS)
+    view.overlay.handleKey(key('up'))
+    view.overlay.render(COLUMNS, ROWS)
+    expect(view.reads).toEqual([])
+    expect(view.pushed).toEqual([])
+    view.overlay.handleKey(key('enter'))
+    expect(view.reads).toEqual([{ sessionId: TARGET, seq: SessionSeq(2) }])
+  })
+
+  it('advertises context on a hit and continuation on the trailing row', () => {
+    // Deliberate break: leaving the footer on the hit unchanged hides the new
+    // action, and reusing the hit's help on the trailing row would advertise
+    // the wrong Enter behavior.
+    const view = mountEvents(ready({ query: '', hits: [hit(1)], more: true }))
+    expect(screen(view.overlay)).toContain('↵ context')
+    view.overlay.handleKey(key('end'))
+    const drawn = screen(view.overlay)
+    expect(drawn).toContain('↵ load more')
+    expect(drawn).not.toContain('↵ context')
   })
 
   it('clears a query on first escape and closes on the second', () => {
@@ -360,5 +511,190 @@ describe('the within-session events browser', () => {
     expect(screen(view.overlay)).not.toContain('alpha█')
     view.overlay.handleKey(key('escape'))
     expect(view.closes()).toBe(1)
+  })
+})
+
+describe('the bounded event context inspector', () => {
+  it('shows a loading headline while the read is in flight', () => {
+    const view = mountContext({ kind: 'loading', sessionId: TARGET, seq: SessionSeq(1) })
+    const drawn = screen(view.overlay)
+    expect(drawn).toContain('Sessions · context')
+    expect(drawn).toContain('Reading surrounding events…')
+  })
+
+  it('shows a truthful failure reason', () => {
+    // Deliberate break: styling before escaping either destroys the error color
+    // or lets the reason's control sequence execute.
+    const malicious = '\u001b[2Jevent vanished'
+    const view = mountContext({ kind: 'failed', sessionId: TARGET, seq: SessionSeq(1), message: malicious })
+    const rows = view.overlay.render(COLUMNS, ROWS)
+    expect(rows.join('\n')).not.toContain(malicious)
+    const drawn = rows.map(stripAnsi).join('\n')
+    expect(drawn).toContain('Context failed:')
+    expect(drawn).toContain('event vanished')
+  })
+
+  it('marks the target and shows neighboring events in order', () => {
+    // Deliberate break: dropping the marker makes the target indistinguishable
+    // from its neighbors, which is the one row the reader came for.
+    const view = mountContext(contextReady([
+      event(0, 'turn/start'),
+      userEvent(1, 'the surrounding events matter'),
+      event(2, 'turn/end', { turn: 0, reason: { kind: 'completed' } }),
+    ], 1))
+    const rows = view.overlay.render(COLUMNS, ROWS).map(stripAnsi)
+    const drawn = rows.join('\n')
+    expect(drawn).toContain('▶ user/message · seq 1')
+    expect(drawn).toContain('turn/start · seq 0')
+    expect(drawn).toContain('turn/end · seq 2')
+    expect(drawn).toContain('the surrounding events matter')
+    // Ascending seq order, target in the middle.
+    expect(drawn.indexOf('turn/start · seq 0')).toBeLessThan(drawn.indexOf('user/message · seq 1'))
+    expect(drawn.indexOf('user/message · seq 1')).toBeLessThan(drawn.indexOf('turn/end · seq 2'))
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(COLUMNS)
+  })
+
+  it('escapes semantic text and wraps it across physical rows', () => {
+    // Deliberate break: drawing raw CSI lets an event payload erase the frame,
+    // and measuring in code units wraps CJK at the wrong column.
+    const malicious = `${'终端宽度'.repeat(20)}\u001b[2Jafter`
+    const view = mountContext(contextReady([userEvent(1, malicious)], 1))
+    const rows = view.overlay.render(COLUMNS, ROWS)
+    expect(rows.join('\n')).not.toContain('\u001b[2J')
+    const drawn = rows.map(stripAnsi).join('\n')
+    expect(drawn).toContain('终端宽度')
+    expect(drawn).toContain('after')
+    for (const row of rows) expect(displayWidth(stripAnsi(row))).toBeLessThanOrEqual(COLUMNS)
+    // Multiline content survives as more than one body row.
+    expect(rows.length).toBeGreaterThan(4)
+  })
+
+  it('shows only type and sequence for an event with no semantic text', () => {
+    // Unknown and structural events remain unknown: no JSON.stringify of an
+    // arbitrary payload is ever substituted for text Harness did not extract.
+    const view = mountContext(contextReady([event(1, 'turn/start', { turn: 7, step: 3 })], 1))
+    const drawn = view.overlay.render(COLUMNS, ROWS).map(stripAnsi).join('\n')
+    expect(drawn).toContain('▶ turn/start · seq 1')
+    expect(drawn).not.toContain('"turn"')
+    expect(drawn).not.toContain('{')
+  })
+
+  it('scrolls the window over content taller than the terminal', () => {
+    // A 15-row terminal cannot show the whole window; down and end must reveal
+    // rows a bounded frame would otherwise hide.
+    const events = Array.from({ length: 12 }, (_unused, index) => userEvent(index, `line ${String(index)} `.repeat(8)))
+    const view = mountContext(contextReady(events, 0))
+    const first = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
+    expect(first).toContain('↑↓ scroll')
+    view.overlay.handleKey(key('end'))
+    const last = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
+    expect(last).toContain('line 11')
+  })
+
+  it('opens on the target rather than on the first neighbor', () => {
+    // The reader asked for this event; a short terminal must not spend every
+    // row on preceding context and leave the highlighted event off-screen.
+    const events = [
+      ...Array.from({ length: 6 }, (_unused, index) => userEvent(index, `before ${String(index)} `.repeat(6))),
+      userEvent(20, 'TARGET-EVENT-CONTENT'),
+      ...Array.from({ length: 6 }, (_unused, index) => userEvent(30 + index, `after ${String(index)} `.repeat(6))),
+    ]
+    const view = mountContext(contextReady(events, 20))
+    const drawn = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
+    expect(drawn).toContain('TARGET-EVENT-CONTENT')
+  })
+
+  it('advertises scrolling when positioning hides rows above the target', () => {
+    // Positioning moves the viewport down to the target, which can leave rows
+    // hidden ABOVE while nothing is hidden below. Looking only below the window
+    // collapses the help to `esc close` even though ↑ still scrolls.
+    // Deliberate break: restoring the one-sided check drops this hint.
+    const events = Array.from({ length: 7 }, (_unused, index) => userEvent(index, `before ${String(index)} `.repeat(8)))
+    const view = mountContext(contextReady(events, 6))
+    const drawn = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
+    expect(drawn).toContain('↑↓ scroll')
+    expect(drawn).toContain('esc close')
+  })
+
+  it('advertises scrolling after End when only earlier rows remain hidden', () => {
+    // End pins the viewport to the last row, so `end === rows.length` is a lie
+    // about scrollability whenever the document is taller than the terminal.
+    const events = Array.from({ length: 12 }, (_unused, index) => userEvent(index, `line ${String(index)} `.repeat(8)))
+    const view = mountContext(contextReady(events, 3))
+    view.overlay.render(COLUMNS, 15)
+    view.overlay.handleKey(key('end'))
+    const drawn = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
+    expect(drawn).toContain('↑↓ scroll')
+    expect(drawn).toContain('line 11')
+  })
+
+  it('does not advertise scrolling when every row fits', () => {
+    const view = mountContext(contextReady([userEvent(0, 'first'), userEvent(1, 'second')], 0))
+    const drawn = view.overlay.render(COLUMNS, ROWS).map(stripAnsi).join('\n')
+    expect(drawn).toContain('esc close')
+    expect(drawn).not.toContain('↑↓ scroll')
+  })
+
+  it('presents one ready window once per width, recomputing on resize or a new window', () => {
+    // The ±8 window bounds event COUNT, not the semantic text inside one event:
+    // a single tool result can be arbitrarily large. Re-running extraction,
+    // escaping, and wrapping over the whole window on every arrow-key redraw is
+    // pure waste, so it is done once per window per width.
+    // Deliberate break: removing the cache makes the scroll renders re-extract.
+    const big = 'terminal wrapping work '.repeat(400)
+    const view = mountContext(contextReady([userEvent(1, big), userEvent(2, 'a neighbor')], 1))
+    const extraction = vi.mocked(extractSessionEventText)
+    extraction.mockClear()
+
+    view.overlay.render(COLUMNS, 15)
+    const afterFirst = extraction.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
+
+    view.overlay.handleKey(key('down'))
+    view.overlay.render(COLUMNS, 15)
+    view.overlay.handleKey(key('up'))
+    view.overlay.render(COLUMNS, 15)
+    expect(extraction.mock.calls.length).toBe(afterFirst)
+
+    // A resize changes wrapping, so the cached presentation cannot be reused.
+    view.overlay.render(COLUMNS - 12, 15)
+    const afterResize = extraction.mock.calls.length
+    expect(afterResize).toBeGreaterThan(afterFirst)
+
+    // A new window is new content, so the previous presentation must not show.
+    view.state.value = contextReady([userEvent(5, big), userEvent(6, 'a new neighbor')], 5)
+    view.overlay.render(COLUMNS - 12, 15)
+    expect(extraction.mock.calls.length).toBeGreaterThan(afterResize)
+  })
+
+  it('does not show a cached ready window through a later non-ready state', () => {
+    // A loading/failed/idle transition is not a ready window and must never
+    // reuse the previous presentation.
+    const view = mountContext(contextReady([userEvent(1, 'a ready body')], 1))
+    expect(view.overlay.render(COLUMNS, ROWS).map(stripAnsi).join('\n')).toContain('a ready body')
+    view.state.value = { kind: 'loading', sessionId: TARGET, seq: SessionSeq(1) }
+    const drawn = view.overlay.render(COLUMNS, ROWS).map(stripAnsi).join('\n')
+    expect(drawn).toContain('Reading surrounding events…')
+    expect(drawn).not.toContain('a ready body')
+  })
+
+  it('falls back to a bounded, closable summary on a tiny terminal', () => {
+    const view = mountContext(contextReady([userEvent(1, 'body')], 1))
+    const narrow = view.overlay.render(20, ROWS).map(stripAnsi)
+    expect(narrow).toHaveLength(1)
+    expect(narrow[0]).toContain('esc back')
+    expect(view.overlay.render(COLUMNS, 3)).toHaveLength(1)
+  })
+
+  it('closes on escape and ctrl-c', () => {
+    const escape = mountContext({ kind: 'loading', sessionId: TARGET, seq: SessionSeq(1) })
+    expect(escape.overlay[CHILD_CLOSE_REQUESTED]()).toBe(false)
+    escape.overlay.handleKey(key('escape'))
+    expect(escape.closes()).toBe(1)
+    expect(escape.overlay[CHILD_CLOSE_REQUESTED]()).toBe(true)
+
+    const ctrlC = mountContext({ kind: 'loading', sessionId: TARGET, seq: SessionSeq(1) })
+    ctrlC.overlay.handleKey(key('ctrl-c'))
+    expect(ctrlC.closes()).toBe(1)
   })
 })

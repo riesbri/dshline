@@ -768,7 +768,7 @@ and nothing that addresses the whole corpus:
 
 | | |
 | --- | --- |
-| `Find in this session` | Search what *one* session said through `searchEvents`, with its own query line (`tab` to search) |
+| `Find in this session` | Search what *one* session said through `searchEvents`, with its own query line (`tab` to search); `↵` on a hit opens bounded surrounding context through `readEvent` |
 | `Lineage` | Browse the selected session's known parents and children through `traceSession`; `↵` returns the list focus to that session |
 | `Rename` | Rename the session this window is driving (the `open` row) through `ctx.sessionTitle`, offered only when a session-title service is mounted |
 
@@ -791,6 +791,15 @@ through opaque Harness cursors. A trailing `Load more…` row appends the next
 page (`↵`); `Refresh (results changed)` appears when the corpus moved under a
 cursor, and the counter says how many results there are (`· more available` or
 `· end`) — never a page number, which Harness does not publish.
+
+In `Find in this session`, `↵` on a matching event opens a bounded context
+inspector: the exact event plus a fixed number of the raw Harness events around
+it, read through `readEvent()`. The target is marked, its neighbors keep their
+order, and each event's text comes from Harness's own semantic extraction, so a
+structural event contributes only its type and sequence. The inspector is
+bounded by the terminal, scrolls with `↑`/`↓`, and closes with `esc` or `ctrl-c`
+back to the search exactly as it was — the query, results, selection, and scroll
+position are untouched, and no context is read until a hit is opened.
 
 Renaming appends a `session/title` event with the explicit `user` source: it
 pins the session's title (automatic generation stops) and the browser
