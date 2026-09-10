@@ -10,7 +10,7 @@ import {
   wrapToWidth,
 } from '@dshline/renderer'
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import { extractSessionEventText } from '@deepseek-ai/dsh-session-query'
+import { extractSessionEventText, type SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
@@ -436,6 +436,33 @@ export function createEventContextOverlay(spec: EventContextOverlaySpec): Sessio
   const viewport = new RowViewport()
   let closed = false
   let positioned = false
+  /**
+   * The last ready presentation, kept against the window and width that made it.
+   *
+   * A ready window is immutable, but the semantic text inside one event is not
+   * bounded by the event count: a single tool result can be large. Re-running
+   * Harness's extraction, escaping, and wrapping over the whole window on every
+   * arrow-key redraw is work with no output, so it is done once per window per
+   * width. The relative ages are fixed at that first paint; a resize or a new
+   * window is what recomputes, exactly as `tool-output.ts` and
+   * `plan-review.ts` cache their immutable documents.
+   */
+  let cachedPresentation: { readonly window: SessionEventWindow; readonly inner: number; readonly rendered: RenderedContext } | undefined
+
+  /**
+   * The window's presentation at one width, rendering only when either changed.
+   * @param state - the catalog's current context state.
+   * @param inner - the frame's inner width.
+   * @returns the rendered context.
+   */
+  const presentation = (state: EventContextState, inner: number): RenderedContext => {
+    if (state.kind !== 'ready') return renderEventContext(state, inner, spec.now())
+    const cached = cachedPresentation
+    if (cached !== undefined && cached.window === state.window && cached.inner === inner) return cached.rendered
+    const rendered = renderEventContext(state, inner, spec.now())
+    cachedPresentation = { window: state.window, inner, rendered }
+    return rendered
+  }
 
   const close = (): void => {
     if (closed) return
@@ -453,7 +480,7 @@ export function createEventContextOverlay(spec: EventContextOverlaySpec): Sessio
       const capacity = terminalRows - CONTEXT_FIXED_ROWS
       if (capacity <= 0) return compactPanel('Context', columns, terminalRows)
       const state = spec.context()
-      const rendered = renderEventContext(state, spec, inner)
+      const rendered = presentation(state, inner)
       viewport.update(rendered.rows.length, capacity)
       if (!positioned && rendered.targetRow >= 0) {
         // Open on the match, not on whichever neighbor happens to come first:
@@ -465,6 +492,10 @@ export function createEventContextOverlay(spec: EventContextOverlaySpec): Sessio
         if (rendered.targetRow < viewport.start) viewport.move(rendered.targetRow - viewport.start)
         positioned = true
       }
+      // Positioning can leave rows hidden ABOVE with none below, and End can
+      // leave rows hidden above with none below too; help is truthful only when
+      // it looks in both directions.
+      const scrollable = viewport.start > 0 || viewport.end < rendered.rows.length
       const frame = [
         '',
         ...rootFrame({
@@ -476,7 +507,7 @@ export function createEventContextOverlay(spec: EventContextOverlaySpec): Sessio
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
           footer: fitFooterHelp(
-            contextHelp(state, viewport.end < rendered.rows.length),
+            contextHelp(state, scrollable),
             footerBudget(columns),
           ),
         }),
@@ -661,17 +692,17 @@ function eventHelp(selectedHit: boolean, trailing: Trailing | undefined): string
 /**
  * Turn one disclosed hit's context state into a headline and scrolling rows.
  *
- * Every displayed fact is Harness's: the event type, its sequence number, its
- * timestamp, and the body produced by Harness's own
- * {@link extractSessionEventText}. An event with no semantic text — a structural
- * boundary or an unknown declaration-merged type — deliberately contributes only
- * its metadata row rather than a stringified payload.
+ * Every displayed fact is Harness's: the event type, its sequence number, the
+ * time it was recorded (shown as a relative age), and the body produced by
+ * Harness's own {@link extractSessionEventText}. An event with no semantic text
+ * — a structural boundary or an unknown declaration-merged type — deliberately
+ * contributes only its metadata row rather than a stringified payload.
  * @param state - the catalog's context state for this hit.
- * @param spec - the target hit, for the clock.
  * @param inner - the frame's inner width.
+ * @param now - the clock the relative ages are inscribed against.
  * @returns the headline, the physical rows, and the target's row index.
  */
-function renderEventContext(state: EventContextState, spec: EventContextOverlaySpec, inner: number): RenderedContext {
+function renderEventContext(state: EventContextState, inner: number, now: number): RenderedContext {
   switch (state.kind) {
     case 'idle':
       return { headline: paint(truncateToWidth('No event context.', inner), 'muted'), rows: [], targetRow: -1, targetEndRow: -1 }
@@ -701,7 +732,7 @@ function renderEventContext(state: EventContextState, spec: EventContextOverlayS
       for (const event of window.events) {
         const isTarget = event.seq === window.target.seq
         if (isTarget) targetRow = rows.length
-        const meta = `${event.type} · seq ${String(event.seq)} · ${relativeAge(event.time, spec.now())}`
+        const meta = `${event.type} · seq ${String(event.seq)} · ${relativeAge(event.time, now)}`
         rows.push(paint(
           `${isTarget ? '▶' : ' '} ${truncateToWidth(escapeControls(meta), Math.max(1, inner - 2))}`,
           isTarget ? 'selection' : 'muted',
@@ -719,7 +750,7 @@ function renderEventContext(state: EventContextState, spec: EventContextOverlayS
   }
 }
 
-/** Choose context help, advertising scroll only while rows are hidden. */
+/** Choose context help, advertising scroll while rows are hidden above or below. */
 function contextHelp(state: EventContextState, scrollable: boolean): string {
   return [...state.kind === 'ready' && scrollable ? ['↑↓ scroll'] : [], 'esc close'].join(' · ')
 }

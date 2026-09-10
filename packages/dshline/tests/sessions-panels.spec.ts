@@ -1,11 +1,11 @@
 /** Behavior tests for the bounded Sessions filter and event child panels. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Key, KeyName } from '@dshline/renderer'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEventWindow } from '@deepseek-ai/dsh-session-query'
+import { extractSessionEventText, type SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 import type { SessionFiltersValue } from '../src/sessions/filters.ts'
 import type { EventContextState, EventHitEntry, EventSearchState } from '../src/sessions/model.ts'
 import {
@@ -16,6 +16,18 @@ import {
   type EventsOverlaySpec,
   type SessionsChildOverlay,
 } from '../src/sessions/panels.ts'
+
+/**
+ * Count the semantic presentation work without changing its behavior.
+ *
+ * The context renderer's expensive step is Harness's own extraction; wrapping a
+ * ready window twice at the same width is the regression the presentation cache
+ * exists to prevent, so the spy calls through and the tests assert on deltas.
+ */
+vi.mock('@deepseek-ai/dsh-session-query', async importOriginal => {
+  const sessionQuery = await importOriginal<typeof import('@deepseek-ai/dsh-session-query')>()
+  return { ...sessionQuery, extractSessionEventText: vi.fn(sessionQuery.extractSessionEventText) }
+})
 
 /** Comfortable frame dimensions. */
 const COLUMNS = 80
@@ -244,18 +256,20 @@ function contextReady(events: SessionEvent[], targetSeq = 1): Extract<EventConte
 /** Mount the bounded context inspector over mutable state. */
 function mountContext(initial: EventContextState): {
   readonly overlay: SessionsChildOverlay
+  readonly state: { value: EventContextState }
   readonly invalidates: () => number
   readonly closes: () => number
 } {
   let invalidates = 0
   let closes = 0
+  const state = { value: initial }
   const overlay = createEventContextOverlay({
-    context: () => initial,
+    context: () => state.value,
     now: () => NOW,
     close: () => { closes += 1 },
     invalidate: () => { invalidates += 1 },
   })
-  return { overlay, invalidates: () => invalidates, closes: () => closes }
+  return { overlay, state, invalidates: () => invalidates, closes: () => closes }
 }
 
 describe('the within-session events browser', () => {
@@ -588,6 +602,80 @@ describe('the bounded event context inspector', () => {
     const view = mountContext(contextReady(events, 20))
     const drawn = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
     expect(drawn).toContain('TARGET-EVENT-CONTENT')
+  })
+
+  it('advertises scrolling when positioning hides rows above the target', () => {
+    // Positioning moves the viewport down to the target, which can leave rows
+    // hidden ABOVE while nothing is hidden below. Looking only below the window
+    // collapses the help to `esc close` even though ↑ still scrolls.
+    // Deliberate break: restoring the one-sided check drops this hint.
+    const events = Array.from({ length: 7 }, (_unused, index) => userEvent(index, `before ${String(index)} `.repeat(8)))
+    const view = mountContext(contextReady(events, 6))
+    const drawn = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
+    expect(drawn).toContain('↑↓ scroll')
+    expect(drawn).toContain('esc close')
+  })
+
+  it('advertises scrolling after End when only earlier rows remain hidden', () => {
+    // End pins the viewport to the last row, so `end === rows.length` is a lie
+    // about scrollability whenever the document is taller than the terminal.
+    const events = Array.from({ length: 12 }, (_unused, index) => userEvent(index, `line ${String(index)} `.repeat(8)))
+    const view = mountContext(contextReady(events, 3))
+    view.overlay.render(COLUMNS, 15)
+    view.overlay.handleKey(key('end'))
+    const drawn = view.overlay.render(COLUMNS, 15).map(stripAnsi).join('\n')
+    expect(drawn).toContain('↑↓ scroll')
+    expect(drawn).toContain('line 11')
+  })
+
+  it('does not advertise scrolling when every row fits', () => {
+    const view = mountContext(contextReady([userEvent(0, 'first'), userEvent(1, 'second')], 0))
+    const drawn = view.overlay.render(COLUMNS, ROWS).map(stripAnsi).join('\n')
+    expect(drawn).toContain('esc close')
+    expect(drawn).not.toContain('↑↓ scroll')
+  })
+
+  it('presents one ready window once per width, recomputing on resize or a new window', () => {
+    // The ±8 window bounds event COUNT, not the semantic text inside one event:
+    // a single tool result can be arbitrarily large. Re-running extraction,
+    // escaping, and wrapping over the whole window on every arrow-key redraw is
+    // pure waste, so it is done once per window per width.
+    // Deliberate break: removing the cache makes the scroll renders re-extract.
+    const big = 'terminal wrapping work '.repeat(400)
+    const view = mountContext(contextReady([userEvent(1, big), userEvent(2, 'a neighbor')], 1))
+    const extraction = vi.mocked(extractSessionEventText)
+    extraction.mockClear()
+
+    view.overlay.render(COLUMNS, 15)
+    const afterFirst = extraction.mock.calls.length
+    expect(afterFirst).toBeGreaterThan(0)
+
+    view.overlay.handleKey(key('down'))
+    view.overlay.render(COLUMNS, 15)
+    view.overlay.handleKey(key('up'))
+    view.overlay.render(COLUMNS, 15)
+    expect(extraction.mock.calls.length).toBe(afterFirst)
+
+    // A resize changes wrapping, so the cached presentation cannot be reused.
+    view.overlay.render(COLUMNS - 12, 15)
+    const afterResize = extraction.mock.calls.length
+    expect(afterResize).toBeGreaterThan(afterFirst)
+
+    // A new window is new content, so the previous presentation must not show.
+    view.state.value = contextReady([userEvent(5, big), userEvent(6, 'a new neighbor')], 5)
+    view.overlay.render(COLUMNS - 12, 15)
+    expect(extraction.mock.calls.length).toBeGreaterThan(afterResize)
+  })
+
+  it('does not show a cached ready window through a later non-ready state', () => {
+    // A loading/failed/idle transition is not a ready window and must never
+    // reuse the previous presentation.
+    const view = mountContext(contextReady([userEvent(1, 'a ready body')], 1))
+    expect(view.overlay.render(COLUMNS, ROWS).map(stripAnsi).join('\n')).toContain('a ready body')
+    view.state.value = { kind: 'loading', sessionId: TARGET, seq: SessionSeq(1) }
+    const drawn = view.overlay.render(COLUMNS, ROWS).map(stripAnsi).join('\n')
+    expect(drawn).toContain('Reading surrounding events…')
+    expect(drawn).not.toContain('a ready body')
   })
 
   it('falls back to a bounded, closable summary on a tiny terminal', () => {
