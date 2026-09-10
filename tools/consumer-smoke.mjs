@@ -103,7 +103,7 @@ const BOOTSTRAP_TIMEOUT_MS = 600_000
  * configured. It is not a question about a machine nobody has.
  *
  * Those became different startups in this line. `dsh-base` composes a default
- * selection (`deepseek-official/deepseek-v4-flash`) and `llm-deepseek`
+ * selection (`deepseek-official/deepseek-flash`) and `llm-deepseek`
  * registers that route before any key exists, so a runner with no key is a
  * genuinely unconfigured machine — and dshline now opens its guided setup
  * there rather than a composer that could not send a turn. Without this the

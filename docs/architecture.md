@@ -1015,7 +1015,7 @@ selection whose route no adapter registered (a remembered default whose
 provider has left the profile).
 
 Topology alone still says a stock first install is healthy, and it is not:
-`dsh-base` composes a default selection (`deepseek-official/deepseek-v4-flash`)
+`dsh-base` composes a default selection (`deepseek-official/deepseek-flash`)
 and `llm-deepseek` calls `registerAdapter` unconditionally, so all three checks
 pass while the first request fails `MISSING_CREDENTIAL`. So when the topology
 looks complete, one more question is asked — of Connect, not of a second

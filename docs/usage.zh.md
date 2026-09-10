@@ -245,7 +245,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 **不确定永远不会被当作失败。**一条完全没有命名凭据引用的路由并不是配置错误：它是在通过账户登录或提供方自身的发现机制进行认证，而一条已登录的 `llm-pi-ai` 路由不存储任何引用。一个无法回答的存储是「没读到」，而不是「没设置」。两者都被放过，没有挂载凭据 seam 的 profile 也一样。
 
-Alpha-2 还可能报告提供方配置诊断。dshline 会显示这个诊断，并提供 `/connect` 供查看或修复。未受影响的模型仍可能可用；模型目录是选择器数据，不能证明选中的模型是否会执行。确切的提供方和模型有效性仍由 Harness 适配器负责。
+Harness 还可能报告提供方配置诊断。dshline 会显示这个诊断，并提供 `/connect` 供查看或修复。未受影响的模型仍可能可用；模型目录是选择器数据，不能证明选中的模型是否会执行。确切的提供方和模型有效性仍由 Harness 适配器负责。
 
 除此之外的一切都会直接进入会话，而 `/setup` 仍然可以随时按需打开这个流程。选择是按**提供方**判断的，而不是按模型 id。启动时不会把目录成员资格当作执行白名单，也不会在这里预先验证本应由适配器负责的确切模型。
 
@@ -256,7 +256,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.5-alpha.2
+✓ Harness    0.1.5-rc.1
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -266,12 +266,12 @@ Setup
 在一次全新安装上它读起来是这样的——模型已选中、路由已注册，所以两者都不是警告；凭据才是：
 
 ```
-✓ Models     deepseek-official/deepseek-v4-flash · 1 route active · deepseek-official
+✓ Models     deepseek-official/deepseek-flash · 1 route active · deepseek-official
 ⚠ Provider   deepseek-official needs a credential · DEEPSEEK_API_KEY is not set
   Connect a provider below to sign in or store a key, or choose a model on another route.
 ```
 
-当 alpha-2 为选中的提供方报告配置诊断时，setup 会保留这个事实，但不会把目录当作执行验证：
+当 Harness 为选中的提供方报告配置诊断时，setup 会保留这个事实，但不会把目录当作执行验证：
 
 ```
 ⚠ Models     openai/healthy · 1 route active · Harness reports a configuration diagnostic
@@ -290,9 +290,9 @@ Setup
 **Harness 比较两个精确版本。**dshline 一次只支持一个 Harness 世代：它面向的版本是每个 `dsh-*` 依赖被钉住的那个版本，你拥有的版本则从你的 profile 所组合的 `@deepseek-ai/dsh-base` 读出。不一致是一个 `⚠`，同时给出两者，以及会让它们重新一致的两条命令：
 
 ```
-⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.2
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-rc.1
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.2
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-rc.1
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
