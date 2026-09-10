@@ -21,7 +21,6 @@ import type { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Key, Role } from '@dshline/renderer'
 import {
   BOX_CHROME_COLUMNS,
-  displayWidth,
   escapeControls,
   formatTokens,
   paint,
@@ -30,10 +29,12 @@ import {
   truncateToWidth,
   wrapToWidth,
 } from '@dshline/renderer'
-import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
+import { chromeWidth } from '../chrome.ts'
 import { FocusRing } from '../focus.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
+import { compactRows, frameBounded, SurfaceNotice } from '../surface.ts'
+import type { SurfaceNoticeReading } from '../surface.ts'
 import { pressureBar, pressureStyle } from '../views.ts'
 import type { ContextEntry, ContextPreview, ContextReading, ContextSurvey } from './model.ts'
 
@@ -93,13 +94,6 @@ interface Row {
   readonly open?: Stage
 }
 
-/** A short outcome shown over the view without committing anything. */
-interface Notice {
-  readonly text: string
-  readonly failed: boolean
-  readonly expiresAt: number
-}
-
 /** Inputs the context inspector needs from its owner. */
 export interface ContextOverlaySpec {
   /** The cheap projection reading, read fresh on every paint. */
@@ -143,9 +137,9 @@ export interface ContextOverlaySpec {
 export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
   const viewport = new RowViewport()
   const focus = new FocusRing()
+  const notice = new SurfaceNotice(NOTICE_MS)
   let stage: Stage = { kind: 'overview' }
   let closed = false
-  let notice: Notice | undefined
   let compacting = false
   let ticker: NodeJS.Timeout | undefined
   let tick = 0
@@ -158,10 +152,6 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
     if (closed) return
     closed = true
     spec.close()
-  }
-  const currentNotice = (): Notice | undefined => {
-    if (notice !== undefined && Date.now() >= notice.expiresAt) notice = undefined
-    return notice
   }
   const build = (width: number, retarget: boolean): readonly Row[] => {
     const survey = spec.survey()
@@ -202,7 +192,7 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
     // Unref'd, so a running spinner never keeps the process alive on its own.
     ticker ??= setInterval(() => {
       tick += 1
-      if (!compacting && currentNotice() === undefined) {
+      if (!compacting && notice.read() === undefined) {
         stopTicker()
         return
       }
@@ -221,7 +211,7 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
     compact().then(problem => {
       compacting = false
       if (problem !== undefined) {
-        notice = { text: problem, failed: true, expiresAt: Date.now() + NOTICE_MS }
+        notice.show(problem, true)
       }
       spec.invalidate()
     }, () => {
@@ -235,13 +225,13 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
   return {
     dispose: stopTicker,
     render(columns, terminalRows = 24) {
-      const activeNotice = currentNotice()
+      const activeNotice = notice.read()
       const width = chromeWidth(columns)
       const inner = width - BOX_CHROME_COLUMNS
       const built = build(inner, true)
       const fallback = (): string[] => {
         fellBack = true
-        return compactFallback(
+        return compactBackstop(
           spec.reading(),
           spec.capacity(),
           columns,
@@ -262,25 +252,22 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
           if (focusedAt >= viewport.end) viewport.move(focusedAt - viewport.end + 1)
         }
       }
-      const candidate = [
-        '',
-        ...rootFrame({
-          columns,
-          context: paint(stage.kind === 'overview' ? 'Context' : 'Context entry', 'overlay-title'),
-          body: [
-            ...activeNotice === undefined ? [] : [paint(
-              truncateToWidth(escapeControls(activeNotice.text), inner),
-              activeNotice.failed ? 'error' : 'busy',
-            )],
-            ...built.slice(viewport.start, viewport.end).map(row => paintRow(row, focus.current)),
-          ],
-          footer: fitFooterHelp(help(stage, focusedRow(), spec.canCompact()), footerBudget(columns)),
-        }),
-      ]
+      const boundedNotice = notice.row(inner)
       // The frame wraps whatever it is given, including state text a caller may
-      // not have pre-fitted. Count the rows Screen will actually draw; a
-      // too-tall candidate falls back rather than leaking one into scrollback.
-      if (physicalRows(candidate, columns).length > terminalRows) return fallback()
+      // not have pre-fitted. `frameBounded` counts the physical rows Screen will
+      // actually draw; a too-tall candidate falls back rather than leaking one
+      // into scrollback.
+      const candidate = frameBounded({
+        columns,
+        rows: terminalRows,
+        title: stage.kind === 'overview' ? 'Context' : 'Context entry',
+        body: [
+          ...boundedNotice === undefined ? [] : [boundedNotice],
+          ...built.slice(viewport.start, viewport.end).map(row => paintRow(row, focus.current)),
+        ],
+        footer: help(stage, focusedRow(), spec.canCompact()),
+      })
+      if (candidate === undefined) return fallback()
       fellBack = false
       return candidate
     },
@@ -716,16 +703,6 @@ function help(stage: Stage, focused: Row | undefined, canCompact: boolean): stri
 }
 
 /**
- * Count the physical rows Screen will draw for a candidate live region.
- * @param lines - candidate logical lines.
- * @param columns - the terminal's width.
- * @returns the physical rows.
- */
-function physicalRows(lines: readonly string[], columns: number): string[] {
-  return lines.flatMap(candidate => wrapToWidth(candidate, Math.max(1, columns)))
-}
-
-/**
  * A closable answer for a terminal too small to hold the frame safely.
  * @param reading - the cheap projection reading.
  * @param routeCapacity - the selected route's advertised context window.
@@ -735,13 +712,13 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
  * @param notice - a pending outcome, which takes precedence when it failed.
  * @returns at most one row.
  */
-function compactFallback(
+function compactBackstop(
   reading: ContextReading,
   routeCapacity: number | undefined,
   columns: number,
   rows: number,
   compacting: boolean,
-  notice?: Notice,
+  notice: SurfaceNoticeReading | undefined,
 ): string[] {
   if (rows <= 0) return []
   // A failed action survives the geometry fallback that protects scrollback:
@@ -752,30 +729,24 @@ function compactFallback(
   // The framed view puts this above the listing. Keep the same state visible in
   // the one-row backstop; otherwise resizing during a compaction makes it look
   // idle even though the command is still running.
-  const summary = compactSummary(reading, routeCapacity)
-  // One row must carry a whole truthful phrase. `esc cl` says neither what is
-  // on screen nor how to leave it.
-  const visible = [
-    ...(compacting ? ['compacting context · esc close'] : []),
-    summary,
-    'esc close',
-    'esc',
-  ].find(candidate => displayWidth(candidate) <= columns)
-  return visible === undefined ? [] : [paint(visible, 'overlay-headline')]
+  return compactRows([
+    ...compacting ? ['compacting context'] : [],
+    compactSummary(reading, routeCapacity),
+  ], columns)
 }
 
 /**
  * The one-row truth about current context.
  * @param reading - the cheap projection reading.
  * @param routeCapacity - the selected route's advertised context window.
- * @returns the summary phrase, including how to leave.
+ * @returns the summary phrase, without the shared close suffix.
  */
 function compactSummary(reading: ContextReading, routeCapacity: number | undefined): string {
-  if (!reading.projections) return 'Context unavailable · esc close'
-  if (!reading.metered) return 'Context unmetered · esc close'
+  if (!reading.projections) return 'Context unavailable'
+  if (!reading.metered) return 'Context unmetered'
   const occupancy = reading.occupancy
-  if (occupancy === undefined) return 'Context not yet measured · esc close'
+  if (occupancy === undefined) return 'Context not yet measured'
   const capacity = routeCapacity ?? occupancy.capacity
   const total = capacity === undefined ? '' : `/${formatTokens(capacity)}`
-  return `${formatTokens(occupancy.tokens)}${total} · esc close`
+  return `${formatTokens(occupancy.tokens)}${total}`
 }
