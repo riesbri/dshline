@@ -10,13 +10,14 @@ name: ci
 #   Core              is dshline itself correct?                      BLOCKING
 #   Harness target    does it work against the exact upstream source
 #                     revision it claims to support (HARNESS_TARGET)?  BLOCKING
-#   Harness published can a real user install and boot it?            BLOCKING once npm carries the target
+#   Harness published does the packed bundle boot beside the exact target? BLOCKING once npm carries the target
+#   Bootstrap         does the current wrapper survive the default install? DIAGNOSTIC only
 #
-# Nothing here follows anything mutable — no branch, no npm dist-tag. Both are
-# pointers somebody else moves, and a merge gate keyed on one can turn red for
-# a reason no commit in this repository caused. The target is an exact commit
-# and an exact version; the published lane asks only whether that exact version
-# exists on the registry yet.
+# The blocking questions never follow anything mutable — no branch, no npm
+# dist-tag. Both are pointers somebody else moves, and a merge gate keyed on one
+# can turn red for a reason no commit in this repository caused. The bootstrap
+# diagnostic observes that mutable distribution state without making it a
+# compatibility claim or a merge gate.
 #
 # There is no scheduled run and no `Harness upstream · master` lane any more.
 # Watching a branch head was aimed at the wrong object: an arbitrary master
@@ -297,9 +298,10 @@ jobs:
           fi
 
   harness-published:
-    # The question npm answers and source cannot: can a normal user install
-    # this, and does it boot? Packed bundle, the real published launcher at the
-    # adopted version, a fresh profile, a real pseudo-terminal.
+    # The blocking question npm answers and source cannot: can this packed
+    # bundle boot beside the exact adopted launcher? The bootstrap below is a
+    # separate distribution diagnostic because its first run installs the
+    # published dshline package from the registry, not this source tree.
     #
     # Publication lag is reported as itself. GitHub source moves first and npm
     # catches up later; "the generation we target is not on the registry yet"
@@ -339,45 +341,52 @@ jobs:
       - if: steps.published.outputs.published == 'true'
         run: pnpm run build
 
-      # The consumer path: packed bundle, published launcher pinned to the
-      # adopted version, fresh profile, a real pseudo-terminal, startup banner,
-      # clean ctrl-d. Types resolving is not a boot.
+      # The authoritative consumer path: this commit's packed bundle beside
+      # the exact adopted launcher, a fresh profile, a real pseudo-terminal,
+      # startup banner, and clean ctrl-d. Types resolving is not a boot.
       - name: boot the packed plugin beside the published launcher
+        id: packed
         if: steps.published.outputs.published == 'true'
         env:
           TARGET_VERSION: ${{ steps.target.outputs.version }}
         run: node tools/consumer-smoke.mjs --launcher-version "$TARGET_VERSION"
 
-      # The other advertised sequence, and the one a new user actually types:
-      # `npm install -g` then `dshline`, against an empty harness home. Nothing
-      # pre-creates the profile — the harness initializes and installs it from
-      # inside the wrapper's first run, while a real terminal answers the
-      # question — and the session it continues into has to reach `ready`.
-      # The launcher is pinned to the same exact adopted target as the smoke
-      # above; only the plugin installation remains registry-backed because the
-      # wrapper asks the harness to install `@dshline/dshline` during first run.
-      # This keeps the merge gate deterministic while still proving THIS commit's
-      # wrapper driving the first-run lifecycle. A hand-run `pnpm test:consumer`
-      # may omit the flag and inspect the npm default; default-install coherence
-      # is a release-channel question owned by `.github/workflows/release-channel.yml`.
-      - name: first run from nothing, beside the published launcher
+      # This is the advertised default-install sequence: `npm install -g`
+      # then `dshline`, against an empty harness home. It intentionally follows
+      # npm's current distribution state: the wrapper comes from this commit,
+      # but the first run installs the published dshline package from the
+      # registry. That makes it useful operational evidence, not a compatibility
+      # verdict for this source tree. A hand-run `pnpm test:consumer` has the
+      # same default when no launcher version is supplied.
+      - name: first run from nothing, beside the default launcher
+        id: bootstrap
+        continue-on-error: true
         if: steps.published.outputs.published == 'true'
-        env:
-          TARGET_VERSION: ${{ steps.target.outputs.version }}
-        run: node tools/consumer-smoke.mjs --bootstrap --launcher-version "$TARGET_VERSION"
+        run: node tools/consumer-smoke.mjs --bootstrap
 
       - name: consumer verdict
         if: always()
         env:
           TARGET_VERSION: ${{ steps.target.outputs.version }}
           PUBLISHED: ${{ steps.published.outputs.published }}
+          PACKED_OUTCOME: ${{ steps.packed.outcome }}
+          BOOTSTRAP_OUTCOME: ${{ steps.bootstrap.outcome }}
         run: |
           {
             if [ "$PUBLISHED" = "true" ]; then
-              echo "Consumer path validated against @deepseek-ai/dsh@$TARGET_VERSION"
-              echo "First-run path validated with @deepseek-ai/dsh@$TARGET_VERSION and the registry plugin selected by the wrapper."
+              if [ "$PACKED_OUTCOME" = "success" ]; then
+                echo "Exact-target consumer: PASS (@deepseek-ai/dsh@$TARGET_VERSION)"
+              else
+                echo "Exact-target consumer: FAIL ($PACKED_OUTCOME)"
+              fi
+              if [ "$BOOTSTRAP_OUTCOME" = "success" ]; then
+                echo 'Default-install bootstrap: PASS (diagnostic only)'
+              else
+                echo "Default-install bootstrap: FAIL ($BOOTSTRAP_OUTCOME; diagnostic only; does not invalidate HARNESS_TARGET compatibility)"
+              fi
             else
-              echo "@deepseek-ai/dsh@$TARGET_VERSION is not on npm yet — consumer path NOT validated this run."
+              echo "Exact-target consumer: SKIPPED (@deepseek-ai/dsh@$TARGET_VERSION is not on npm yet)"
+              echo 'Default-install bootstrap: SKIPPED (adopted launcher is not published; diagnostic not run)'
               echo 'This is publication lag, not an incompatibility: dshline targets an upstream'
               echo 'source revision, and the registry catches up afterwards. It is never a reason'
               echo 'to support an older published generation.'

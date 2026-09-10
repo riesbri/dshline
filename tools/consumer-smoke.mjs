@@ -18,9 +18,10 @@
  *
  * `--bootstrap` proves the other advertised sequence, the one a new user
  * actually types: install both packages, run `dshline`, answer the first-run
- * question, end up in a session. CI supplies `--launcher-version` to both
- * modes so ordinary merge gates use the exact adopted Harness generation;
- * a hand-run `pnpm test:consumer` may omit it and fall back to npm `latest`.
+ * question, end up in a session. CI supplies `--launcher-version` to the
+ * default mode for its blocking exact-target check. The bootstrap mode
+ * intentionally omits it when CI runs the distribution diagnostic, just as a
+ * hand-run `pnpm test:consumer` may, so it can observe npm `latest`.
  * The two modes answer two different questions and are kept apart on purpose:
  *
  * - the default mode asks whether the plugin code IN THIS COMMIT installs and
@@ -210,10 +211,11 @@ function storeArgs() {
  * The version an ordinary consumer would install today, following `latest`
  * (`npm install -g @deepseek-ai/dsh`).
  *
- * Only the fallback for a hand-run `pnpm test:consumer`. CI always passes
- * `--launcher-version`, because the launcher it must boot against is the
- * adopted Harness generation in `HARNESS_TARGET` — an exact version — and not
- * whichever line a dist-tag happens to name that day.
+ * Used by the fallback for a hand-run `pnpm test:consumer` and by the CI
+ * bootstrap diagnostic. The blocking CI mode always passes
+ * `--launcher-version`, because the launcher it must boot against is the adopted
+ * Harness generation in `HARNESS_TARGET` — an exact version — and not whichever
+ * line a dist-tag happens to name that day.
  * @param packageName - the package to look up.
  * @returns the exact version string.
  */
@@ -631,9 +633,9 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
   const bundleManifest = JSON.parse(await readFile(join(BUNDLE_DIR, 'package.json'), 'utf8'))
   const workspace = await mkdtemp(join(tmpdir(), 'dsh-consumer-smoke-'))
   try {
-    // CI always pins: the launcher it must boot against is the exact adopted
-    // Harness generation, and installing `latest` would prove a boot against
-    // a line this repository makes no claim about.
+    // The blocking CI mode pins the launcher to the exact adopted Harness
+    // generation. The bootstrap diagnostic deliberately leaves it unpinned so
+    // this mode can observe the default distribution state instead.
     const launcherVersion = pinnedLauncher ?? await publishedVersion(LAUNCHER_PACKAGE)
     const consumerDir = join(workspace, 'consumer')
     await mkdir(consumerDir, { recursive: true })
@@ -648,16 +650,16 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
     await mkdir(scratch, { recursive: true })
 
     if (bootstrap) {
-      // What this mode proves, and nothing else: that THIS commit's wrapper
-      // implements the lifecycle a new user meets. So the only thing taken from
-      // the tarball is the executable, the harness home is genuinely empty, and
-      // the package the first run installs is whatever the registry serves for
-      // `@dshline/dshline` — because that is the name the wrapper passes, and
-      // making that name resolve to a local tarball would mean editing the
-      // profile's pnpm settings, i.e. testing a profile this script had already
-      // touched. Whether the UNPUBLISHED plugin code in this commit installs and
-      // boots is the other mode's question, and it answers it with the packed
-      // tarball and a renderer fallback this mode needs none of.
+      // What this mode proves, and nothing else: how THIS commit's wrapper
+      // behaves through the registry-backed lifecycle a new user meets. So the
+      // only thing taken from the tarball is the executable, the harness home is
+      // genuinely empty, and the package the first run installs is whatever the
+      // registry serves for `@dshline/dshline` — because that is the name the
+      // wrapper passes. Making that name resolve to a local tarball would mean
+      // editing the profile's pnpm settings, i.e. testing a profile this script
+      // had already touched. Whether the UNPUBLISHED plugin code in this commit
+      // installs and boots against the adopted target is the other mode's
+      // question; this mode is only a distribution diagnostic.
       const wrapper = await extractWrapper(tarball, join(workspace, 'unpacked'))
       const home = join(workspace, '.dsh-first-run')
       // Which outcome is CORRECT depends on the registry, so it is decided before

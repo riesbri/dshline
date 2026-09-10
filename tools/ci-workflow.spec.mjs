@@ -2,12 +2,12 @@
  * Guards the properties that make the Harness compatibility policy true
  * rather than merely written down.
  *
- * dshline targets ONE Harness architecture at a time, and `ci.yml` asks about
- * exactly that: an exact upstream commit, gating every merge. Nothing mutable
- * belongs in it — a `ref:` changed from a commit to a branch, or a dist-tag
- * read added "just to see", turns a merge gate into something DeepSeek can
- * fail from a thousand miles away. That mistake shows up in review as a
- * one-word diff, so it is checked here instead.
+ * dshline targets ONE Harness architecture at a time, and the blocking lanes in
+ * `ci.yml` ask about exactly that: an exact upstream commit, gating every merge.
+ * Nothing mutable may decide a merge — a `ref:` changed from a commit to a
+ * branch, or a dist-tag read added to a blocking path, turns a merge gate into
+ * something DeepSeek can fail from a thousand miles away. A diagnostic may
+ * observe distribution state, but it must remain outside that verdict.
  *
  * Watching upstream for a NEWER generation is a separate workflow with a
  * separate question (`harness-sync.yml`), and its own spec.
@@ -120,18 +120,38 @@ describe('the adopted target lane is deterministic', () => {
   })
 })
 
-describe('the published consumer lane uses the adopted launcher', () => {
-  it('pins both smoke paths to the target output', async () => {
+describe('the published consumer lane separates compatibility from distribution', () => {
+  it('keeps only the packed smoke on the exact-target path', async () => {
     const job = extractJob(await readWorkflow(), 'harness-published')
     const smokeSteps = job.split('\n      - ').filter(step => step.includes('node tools/consumer-smoke.mjs'))
     expect(smokeSteps).toHaveLength(2)
     expect(smokeSteps.map(step => step.match(/run:\s*(node tools\/consumer-smoke\.mjs[^\n]+)/u)?.[1])).toEqual([
       'node tools/consumer-smoke.mjs --launcher-version "$TARGET_VERSION"',
-      'node tools/consumer-smoke.mjs --bootstrap --launcher-version "$TARGET_VERSION"',
+      'node tools/consumer-smoke.mjs --bootstrap',
     ])
-    for (const step of smokeSteps) {
-      expect(step).toMatch(/TARGET_VERSION:\s*\$\{\{\s*steps\.target\.outputs\.version\s*\}\}/u)
-    }
+    expect(smokeSteps[0]).toMatch(/TARGET_VERSION:\s*\$\{\{\s*steps\.target\.outputs\.version\s*\}\}/u)
+    expect(smokeSteps[0]).not.toContain('continue-on-error')
+    expect(smokeSteps[1]).not.toContain('TARGET_VERSION')
+    expect(smokeSteps[1]).toMatch(/continue-on-error:\s*true/u)
+  })
+
+  it('surfaces the bootstrap outcome without making it authoritative', async () => {
+    const job = extractJob(await readWorkflow(), 'harness-published')
+    expect(job).toContain('BOOTSTRAP_OUTCOME: ${{ steps.bootstrap.outcome }}')
+    expect(job).toContain('Default-install bootstrap: PASS (diagnostic only)')
+    expect(job).toContain('Default-install bootstrap: FAIL (')
+    expect(job).toContain('diagnostic only; does not invalidate HARNESS_TARGET compatibility')
+    expect(job).not.toContain('First-run path validated')
+  })
+
+  it('keeps CI required dependent on the compatibility job, not a bootstrap verdict', async () => {
+    const workflow = await readWorkflow()
+    const required = extractJob(workflow, 'required')
+    expect(required).toContain('needs: [core, windows-launcher, docs, harness-target, harness-published]')
+    const published = extractJob(workflow, 'harness-published')
+    expect(published).toContain('id: packed')
+    expect(published).toContain('id: bootstrap')
+    expect(published).toContain('continue-on-error: true')
   })
 })
 
