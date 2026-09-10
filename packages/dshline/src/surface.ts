@@ -68,11 +68,14 @@ export function physicalRows(lines: readonly string[], columns: number): string[
  */
 export function compactRows(phrases: string | readonly string[], columns: number): string[] {
   const ordered = typeof phrases === 'string' ? [phrases] : phrases
+  // Phrases are plain text from a presenter: the kernel escapes them before
+  // measuring and before styling, so an embedded control cannot add a row or
+  // operate the terminal, and the fit is measured against what is displayed.
   const visible = [
     ...ordered.map(phrase => `${phrase} · esc close`),
     'esc close',
     'esc',
-  ].find(candidate => displayWidth(candidate) <= columns)
+  ].map(escapeControls).find(candidate => displayWidth(candidate) <= columns)
   return visible === undefined ? [] : [paint(visible, COMPACT_ROLE)]
 }
 
@@ -91,12 +94,16 @@ export interface SurfaceNoticeReading {
  * error, so it is untrusted text that must not add rows or operate the terminal.
  * @param reading - the active reading, or undefined when there is none.
  * @param columns - display columns available.
- * @returns the painted row, or undefined while no notice is active.
+ * @returns the painted row, or undefined while no notice is active or when the
+ *   terminal has no columns to put it in.
  */
 export function noticeRow(reading: SurfaceNoticeReading | undefined, columns: number): string | undefined {
-  if (reading === undefined) return undefined
+  // A zero-column frame has nowhere to put a row: `truncateToWidth` would be
+  // asked to invent a column, and even an empty painted string emits an escape.
+  // Return nothing rather than a row the terminal cannot show.
+  if (reading === undefined || columns <= 0) return undefined
   return paint(
-    truncateToWidth(escapeControls(reading.text), Math.max(1, columns)),
+    truncateToWidth(escapeControls(reading.text), columns),
     reading.failed ? 'error' : 'busy',
   )
 }
@@ -106,9 +113,16 @@ export function noticeRow(reading: SurfaceNoticeReading | undefined, columns: nu
  *
  * The lifetime is the surface's own choice rather than a shared constant: a
  * refused compaction and a discovery failure are not the same event, and the
- * copies of `NOTICE_MS` this replaced had already drifted to four values. An
- * expired notice is retired by the next {@link SurfaceNotice.read}, so clearing
- * one costs no timer.
+ * copies of `NOTICE_MS` this replaced had already drifted to four values.
+ *
+ * Expiration is LAZY: an expired notice is retired by the next
+ * {@link SurfaceNotice.read}, so clearing one costs no timer. This type
+ * therefore does not schedule a redraw, and a surface that shows a notice owns
+ * invalidation: it redraws when {@link SurfaceNotice.show} is called and keeps
+ * redrawing until {@link SurfaceNotice.read} returns undefined, or the notice
+ * simply stays on screen until the next unrelated paint. Context does both
+ * through the ticker it already had; no second consumer needs timing today, so
+ * no scheduler lives here.
  */
 export class SurfaceNotice {
   private state: { reading: SurfaceNoticeReading; expiresAt: number } | undefined
@@ -165,7 +179,12 @@ export interface BoundedSurfaceSpec<S> {
   readonly compact: (reading: S) => string | readonly string[]
   /** Footer help; defaults to `esc close`. */
   readonly footer?: (reading: S) => string
-  /** Optional temporary outcome, given its own reserved row while active. */
+  /**
+   * Optional temporary outcome, given its own reserved row while active.
+   *
+   * The surface redraws only when its owner asks; see {@link SurfaceNotice} for
+   * who owns invalidation around expiry.
+   */
   readonly notice?: SurfaceNotice
   /**
    * Feature keys, after the shared close handling. The surface owns the
@@ -192,6 +211,10 @@ export interface BoundedSurfaceSpec<S> {
  * logical row count — decides. A body that does not fit returns `undefined` and
  * the caller substitutes its geometry backstop rather than leaking a row into
  * scrollback.
+ *
+ * The title and footer are PLAIN, untrusted text and the kernel escapes them
+ * before `paint`; passing already-styled text here would lose its colour. Body
+ * rows are the presenter's own terminal rows and must already be safe.
  * @param options - terminal geometry, frame title, body rows, and optional footer.
  * @returns the framed rows, or undefined when they do not fit.
  */
@@ -206,9 +229,9 @@ export function frameBounded(options: {
     '',
     ...rootFrame({
       columns: options.columns,
-      context: paint(options.title, 'overlay-title'),
+      context: paint(escapeControls(options.title), 'overlay-title'),
       body: options.body,
-      footer: fitFooterHelp(options.footer ?? 'esc close', footerBudget(options.columns)),
+      footer: fitFooterHelp(escapeControls(options.footer ?? 'esc close'), footerBudget(options.columns)),
     }),
   ]
   return physicalRows(candidate, options.columns).length <= options.rows ? candidate : undefined
@@ -244,12 +267,14 @@ export function createBoundedSurface<S>(spec: BoundedSurfaceSpec<S>): TuiOverlay
       const boundedNotice = noticeRow(activeNotice, inner)
       const capacity = terminalRows - fixedRows - (boundedNotice === undefined ? 0 : 1)
       const fallback = (): string[] => {
-        // A zero-row live region is the one geometry that must draw nothing at
-        // all: even the `esc` backstop would be a row the caller cannot show.
-        if (terminalRows <= 0) return []
-        return activeNotice?.failed === true && boundedNotice !== undefined
-          ? [boundedNotice]
-          : compactRows(spec.compact(reading), columns)
+        // A zero-row or zero-column live region must draw nothing at all: even
+        // the `esc` backstop would be a row the caller cannot show.
+        if (terminalRows <= 0 || columns <= 0) return []
+        // The backstop is bounded by the TERMINAL, not by the frame's inner
+        // width: on a terminal too narrow to frame, a failed notice still wins
+        // over the summary, but only within the columns that exist.
+        const failed = activeNotice?.failed === true ? noticeRow(activeNotice, columns) : undefined
+        return failed === undefined ? compactRows(spec.compact(reading), columns) : [failed]
       }
       if (terminalRows <= fixedRows || columns < minColumns || capacity <= 0) return fallback()
       return frameBounded({
@@ -282,9 +307,11 @@ export function createBoundedSurface<S>(spec: BoundedSurfaceSpec<S>): TuiOverlay
  * Open one overlay and return its dismisser.
  *
  * A surface closes itself by calling the callback it was handed, but the
- * dismisser only exists after `pushOverlay` returns, so every call site used to
- * forward-declare one and remember to assign it. Resolving that handshake here
- * removes the same four lines from every opener.
+ * dismisser only exists after `pushOverlay` returns, and `TuiSlots` calls the
+ * overlay's `mounted()` before that. A close requested from `create` or from
+ * `mounted()` therefore arrives before there is anything to call, so it is
+ * remembered and applied the moment mounting returns. Closing is idempotent:
+ * the first request removes the overlay once, and later ones are no-ops.
  * @param slots - the live-region registry that owns the overlay stack.
  * @param create - builds the overlay, given the callback that closes it.
  * @returns a function that removes the overlay; safe to call more than once.
@@ -293,8 +320,18 @@ export function openSurface(
   slots: { pushOverlay(overlay: TuiOverlay): () => void },
   create: (close: () => void) => TuiOverlay,
 ): () => void {
-  let dismiss: () => void = () => {}
-  const overlay = create(() => { dismiss() })
-  dismiss = slots.pushOverlay(overlay)
-  return () => { dismiss() }
+  let disposer: (() => void) | undefined
+  let closed = false
+  const close = (): void => {
+    if (closed) return
+    closed = true
+    disposer?.()
+  }
+  const overlay = create(close)
+  const remove = slots.pushOverlay(overlay)
+  // A close that arrived before this point already set `closed`, so the overlay
+  // must come down now instead of being remembered as the disposer.
+  if (closed) remove()
+  else disposer = remove
+  return close
 }

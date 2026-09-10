@@ -33,7 +33,7 @@ import { chromeWidth } from '../chrome.ts'
 import { FocusRing } from '../focus.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
-import { compactRows, frameBounded, SurfaceNotice } from '../surface.ts'
+import { compactRows, frameBounded, noticeRow, SurfaceNotice } from '../surface.ts'
 import type { SurfaceNoticeReading } from '../surface.ts'
 import { pressureBar, pressureStyle } from '../views.ts'
 import type { ContextEntry, ContextPreview, ContextReading, ContextSurvey } from './model.ts'
@@ -720,12 +720,12 @@ function compactBackstop(
   compacting: boolean,
   notice: SurfaceNoticeReading | undefined,
 ): string[] {
-  if (rows <= 0) return []
+  // A zero-row or zero-column frame has nowhere to put even one row.
+  if (rows <= 0 || columns <= 0) return []
   // A failed action survives the geometry fallback that protects scrollback:
   // clipping its detail beats making a refused compaction invisible.
-  if (notice?.failed === true) {
-    return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), 'error')]
-  }
+  const failed = notice?.failed === true ? noticeRow(notice, columns) : undefined
+  if (failed !== undefined) return [failed]
   // The framed view puts this above the listing. Keep the same state visible in
   // the one-row backstop; otherwise resizing during a compaction makes it look
   // idle even though the command is still running.

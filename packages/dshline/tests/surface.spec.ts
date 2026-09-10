@@ -10,11 +10,13 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import type { Key } from '@dshline/renderer'
-import { BOX_CHROME_COLUMNS, paint, Screen, stripAnsi, wrapToWidth } from '@dshline/renderer'
+import { BOX_CHROME_COLUMNS, displayWidth, paint, Screen, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { chromeWidth } from '../src/chrome.ts'
-import type { TuiOverlay, TuiSlots } from '../src/slots.ts'
+import { TuiSlots } from '../src/slots.ts'
+import type { TuiOverlay } from '../src/slots.ts'
 import {
   compactRows,
   createBoundedSurface,
@@ -111,20 +113,54 @@ describe('createBoundedSurface', () => {
     expect(seen).toEqual({ width: chromeWidth(40) - BOX_CHROME_COLUMNS, capacity: 8 - SURFACE_FIXED_ROWS })
   })
 
-  it('never draws more physical rows than the live region was given', () => {
-    const surface = createBoundedSurface({
+  it('never draws beyond its row or display-column budget, including at zero columns', () => {
+    const notice = new SurfaceNotice(1_000)
+    const plain = createBoundedSurface({
       reading: () => ['one', 'two', 'three', 'four', 'five', 'six', 'seven'],
       title: () => 'Probe',
       body: (reading, width, capacity) => reading.slice(0, capacity).map(row => row.slice(0, width)),
       compact: () => 'Probe compact summary',
       close: () => {},
     })
-    for (const columns of [2, 6, 20, 40, 80, 132]) {
-      for (const rows of [0, 1, 2, 3, 4, 8, 24]) {
-        const lines = surface.render(columns, rows)
-        expect(physicalRows(lines, columns).length, `${String(columns)}x${String(rows)}`).toBeLessThanOrEqual(rows)
+    const withNotice = createBoundedSurface({
+      reading: () => ['one', 'two', 'three', 'four', 'five', 'six', 'seven'],
+      title: () => 'Probe',
+      body: (reading, width, capacity) => reading.slice(0, capacity).map(row => row.slice(0, width)),
+      compact: () => 'Probe compact summary',
+      notice,
+      close: () => {},
+    })
+    notice.show('a failed action message long enough to need truncating', true)
+    for (const surface of [plain, withNotice]) {
+      for (const columns of [0, 1, 2, 6, 20, 40, 80, 132]) {
+        for (const rows of [0, 1, 2, 3, 4, 8, 24]) {
+          const lines = surface.render(columns, rows)
+          const at = `${String(columns)}x${String(rows)}`
+          expect(physicalRows(lines, columns).length, `rows ${at}`).toBeLessThanOrEqual(rows)
+          for (const line of lines) {
+            expect(displayWidth(line), `columns ${at}`).toBeLessThanOrEqual(columns)
+          }
+        }
       }
     }
+  })
+
+  it('never invents a display column when the terminal has none', () => {
+    const notice = new SurfaceNotice(1_000)
+    notice.show('a refused compaction', true)
+    const surface = createBoundedSurface({
+      reading: () => 0,
+      title: () => 'Probe',
+      body: () => ['body'],
+      compact: () => 'Probe',
+      notice,
+      close: () => {},
+    })
+    expect(surface.render(0, 8)).toEqual([])
+    expect(surface.render(1, 8).every(line => displayWidth(line) <= 1)).toBe(true)
+    expect(noticeRow(notice.read(), 0)).toBeUndefined()
+    expect(notice.row(0)).toBeUndefined()
+    expect(noticeRow(notice.read(), 1)).toBeDefined()
   })
 
   it('degrades to one whole phrase on a terminal too small to frame', () => {
@@ -214,26 +250,52 @@ describe('createBoundedSurface', () => {
 })
 
 describe('openSurface', () => {
-  it('resolves the close handshake with the dismisser the registry returned', () => {
-    let dismissals = 0
-    const overlay: TuiOverlay = { render: () => [], handleKey: () => {} }
-    let captured: (() => void) | undefined
-    const dismiss = openSurface(
-      { pushOverlay: () => () => { dismissals += 1 } },
-      close => { captured = close; return overlay },
-    )
-    captured?.()
-    expect(dismissals).toBe(1)
+  it('applies a close requested before the disposer exists, and disposes exactly once', () => {
+    const slots = new TuiSlots(new Context())
+    const dispose = vi.fn()
+    const dismiss = openSurface(slots, close => {
+      // `pushOverlay` has not returned its disposer yet, which is exactly the
+      // window a synchronous close has to survive.
+      close()
+      return { render: () => ['pre-mount'], handleKey: () => {}, dispose }
+    })
+    expect(slots.activeOverlay).toBeUndefined()
+    expect(slots.compose(40, 8).lines).not.toContain('pre-mount')
+    expect(dispose).toHaveBeenCalledTimes(1)
     dismiss()
-    expect(dismissals).toBe(2)
+    dismiss()
+    expect(dispose).toHaveBeenCalledTimes(1)
   })
 
-  it('survives a surface that closes before it was mounted', () => {
-    const overlay: TuiOverlay = { render: () => [], handleKey: () => {} }
-    expect(() => openSurface(
-      { pushOverlay: () => () => {} },
-      close => { close(); return overlay },
-    )).not.toThrow()
+  it('applies a close requested from mounted(), which TuiSlots calls before returning', () => {
+    const slots = new TuiSlots(new Context())
+    const dispose = vi.fn()
+    openSurface(slots, close => ({
+      render: () => ['from-mounted'],
+      handleKey: () => {},
+      mounted: () => { close() },
+      dispose,
+    }))
+    expect(slots.activeOverlay).toBeUndefined()
+    expect(slots.compose(40, 8).lines).not.toContain('from-mounted')
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes a mounted surface once and ignores repeated dismissal', () => {
+    const slots = new TuiSlots(new Context())
+    const dispose = vi.fn()
+    const dismiss = openSurface(slots, () => ({
+      render: () => ['mounted'],
+      handleKey: () => {},
+      dispose,
+    }))
+    expect(slots.compose(40, 8).lines).toContain('mounted')
+    dismiss()
+    expect(slots.activeOverlay).toBeUndefined()
+    expect(slots.compose(40, 8).lines).not.toContain('mounted')
+    expect(dispose).toHaveBeenCalledTimes(1)
+    dismiss()
+    expect(dispose).toHaveBeenCalledTimes(1)
   })
 })
 
