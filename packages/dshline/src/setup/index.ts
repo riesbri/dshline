@@ -233,6 +233,12 @@ function setupDetail(facts: SetupFacts): string {
   if (!hasActiveRoute(facts.connect)) {
     return 'No provider route is active yet, so there is no model to send a turn to.'
   }
+  const selectedDiagnostic = facts.connect.kind === 'ready' && facts.selected !== undefined
+    ? facts.connect.providers.find(row => row.provider === facts.selected?.provider)?.error
+    : undefined
+  if (selectedDiagnostic !== undefined) {
+    return 'Harness reports a configuration diagnostic for the selected provider. Review it in /connect.'
+  }
   if (facts.reason === 'no-selection') return 'A provider route is active, but no model is selected yet.'
   if (facts.reason === 'unregistered-selection') {
     return 'The selected model names a route no adapter has registered, so the next turn would fail.'

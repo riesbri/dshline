@@ -234,18 +234,20 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 ### Setup
 
-`/setup` 是从已安装的 dshline 走到一个会回答的模型的引导路径。在一次原本会到达「没有可发送模型的输入框」的启动上，它会**自行运行**。有四种状态算数，而且没有任何一种会向适配器索取目录，因此不产生任何网络开销：
+`/setup` 是从已安装的 dshline 走到一个会回答的模型的引导路径。在一次原本会到达「没有可发送模型的输入框」的启动上，它会**自行运行**。有四种状态算数，并且启动时只读取路由、选择和凭据事实：
 
 - 没有任何适配器注册过提供方路由；
 - 路由存在，但没有任何东西解析出模型选择；
 - 选择存在，但它命名的路由没有被任何适配器注册——一个其提供方此后已离开该 profile 的、被记住的默认值；
 - 选中的路由命名了一个 Harness 报告为**缺失**的凭据。
 
-最后一条正是「一次全新安装为什么看起来并不健康」的原因。Harness 既附带了默认模型，*也*在任何密钥存在之前就注册了它的路由，因此前三项检查全部通过，而你的第一个提示仍然会失败。setup 会就那一条路由向 `/connect` 询问其就绪状态——也就是 `/connect` 里那些彩色圆点背后的同一个判断——并且只在得到肯定的 `missing` 时才打开。
+凭据这一条正是「一次全新安装为什么看起来并不健康」的原因。Harness 既附带了默认模型，*也*在任何密钥存在之前就注册了它的路由，因此前三项检查全部通过，而你的第一个提示仍然会失败。setup 会就那一条路由向 `/connect` 询问其就绪状态——也就是 `/connect` 里那些彩色圆点背后的同一个判断——并且只在得到肯定的 `missing` 时打开。
 
 **不确定永远不会被当作失败。**一条完全没有命名凭据引用的路由并不是配置错误：它是在通过账户登录或提供方自身的发现机制进行认证，而一条已登录的 `llm-pi-ai` 路由不存储任何引用。一个无法回答的存储是「没读到」，而不是「没设置」。两者都被放过，没有挂载凭据 seam 的 profile 也一样。
 
-除此之外的一切都会直接进入会话，而 `/setup` 仍然可以随时按需打开这个流程。选择是按**提供方**判断的，而不是按模型 id：某条路由是否仍然提供某一个确切模型，只有选择器自己的列举才能回答，而在启动时去问它意味着每次启动都可能带来一次网络调用。
+Alpha-2 还可能报告提供方配置诊断。dshline 会显示这个诊断，并提供 `/connect` 供查看或修复。未受影响的模型仍可能可用；模型目录是选择器数据，不能证明选中的模型是否会执行。确切的提供方和模型有效性仍由 Harness 适配器负责。
+
+除此之外的一切都会直接进入会话，而 `/setup` 仍然可以随时按需打开这个流程。选择是按**提供方**判断的，而不是按模型 id。启动时不会把目录成员资格当作执行白名单，也不会在这里预先验证本应由适配器负责的确切模型。
 
 它把对你这次安装的读取写进普通的回滚缓冲区，所以你可以滚回去看，并把它粘贴进缺陷报告：
 
@@ -254,7 +256,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.5-alpha.1
+✓ Harness    0.1.5-alpha.2
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -269,7 +271,15 @@ Setup
   Connect a provider below to sign in or store a key, or choose a model on another route.
 ```
 
-随后它提供那些已挂载 seam 真的会接受的动作，并且由「缺什么」领头：一旦有路由被注册，**Choose a model** 排在第一位——到那时它就是你与一个可用会话之间仅剩的一步——但当问题出在凭据上时则由 **Connect a provider** 领头，因为在同一条未认证的路由上换一个模型什么也解决不了。然后是另一个，再然后是一个离开的出口。在任何一步退出都不写入任何东西；任何地方都没有保存的「已完成设置」标记，因为每次运行都从头重新读取 Harness。
+当 alpha-2 为选中的提供方报告配置诊断时，setup 会保留这个事实，但不会把目录当作执行验证：
+
+```
+⚠ Models     openai/healthy · 1 route active · Harness reports a configuration diagnostic
+  broken override for another-model
+  Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.
+```
+
+随后它提供那些已挂载 seam 真的会接受的动作，并且由「缺什么」领头：Harness 提供诊断时先显示 **Review provider configuration**，选择缺失时显示 **Choose a model**，然后提供一个离开的出口。确切的模型有效性在执行回合时由适配器检查。
 
 它还会替你走出那个显而易见的下一步，而不是描述它。当 `/connect` 关闭、并且刚刚产生了第一条可用路由、而此时还没有选中模型时，setup 会直接打开模型选择器，而不是把你送回一张只会告诉你「去打开它」的清单。这**只**在模型正是那块缺失的拼图时发生：一个已经可用的选择永远不会被替换，因为连接第二个提供方并不是更换模型的请求。取消选择器会把你送回清单，而不是把你丢在一个仍然发不出东西的输入框前。
 
@@ -280,9 +290,9 @@ Setup
 **Harness 比较两个精确版本。**dshline 一次只支持一个 Harness 世代：它面向的版本是每个 `dsh-*` 依赖被钉住的那个版本，你拥有的版本则从你的 profile 所组合的 `@deepseek-ai/dsh-base` 读出。不一致是一个 `⚠`，同时给出两者，以及会让它们重新一致的两条命令：
 
 ```
-⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.1
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-alpha.2
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.1
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-alpha.2
   Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
   does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```

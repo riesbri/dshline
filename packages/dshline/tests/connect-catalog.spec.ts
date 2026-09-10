@@ -124,6 +124,11 @@ describe('reading the configurable-provider directory', () => {
     expect(row.userOwned).toBe(false)
   })
 
+  it('retains a provider diagnostic for a route whose configuration needs repair', async () => {
+    const row = only(await read({ directory: [{ ...OPENAI, error: 'broken override for another-model' }] }))
+    expect(row.error).toBe('broken override for another-model')
+  })
+
   it('calls a route active once an adapter has registered it', async () => {
     const state = await read({
       directory: [OPENAI],
@@ -359,6 +364,34 @@ describe('reading one route\'s readiness', () => {
       }],
       refs: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } },
     })).toEqual({ readiness: 'ready', ref: 'DEEPSEEK_API_KEY' })
+  })
+
+  it('keeps readiness credential-based when a provider reports a model diagnostic', async () => {
+    const listed: string[] = []
+    const seams = seamsFor({
+      directory: [{ ...DEEPSEEK, error: 'broken override for another-model' }],
+      registered: [{ id: 'deepseek-official', name: 'DeepSeek' }],
+      descriptors: [{
+        ns: 'llm-deepseek', revision: 1, value: { apiKeyEnv: 'DEEPSEEK_API_KEY' }, user: {}, schema: DEEPSEEK_SCHEMA,
+      }],
+      refs: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } },
+      models: { 'deepseek-official': [{ provider: 'deepseek-official', id: 'usable' }] },
+    })
+    const watched = {
+      ...seams,
+      llm: {
+        ...seams.llm,
+        listModels: async (provider: string) => {
+          listed.push(provider)
+          return [{ provider, id: 'usable' }]
+        },
+      },
+    }
+    // The usable catalog entry is advisory data, not evidence that the selected
+    // model is valid. Startup readiness therefore does not query or infer from it.
+    expect(await readRouteReadiness(watched, 'deepseek-official'))
+      .toEqual({ readiness: 'ready', ref: 'DEEPSEEK_API_KEY' })
+    expect(listed).toEqual([])
   })
 
   it('answers unknown for a route that names no reference', async () => {

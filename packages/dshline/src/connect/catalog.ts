@@ -194,6 +194,7 @@ export class ConnectCatalog {
       settingsNs: entry.settingsNs,
       settingsPath: entry.settingsPath,
       declared: entry.declared,
+      ...entry.error === undefined ? {} : { error: entry.error },
       state,
       models: state === 'active' ? await countModels(this.spec.seams, entry.provider) : undefined,
       credential,
@@ -247,8 +248,9 @@ export interface ConnectRouteReadiness {
  * Deliberately narrow: the directory and the registry are synchronous
  * in-memory reads, `settings.describe()` is in-memory too, and
  * `credentials.describe()` on the shipped local provider is a map lookup over
- * a snapshot loaded once at mount. No adapter is asked for a catalog, no
- * endpoint is contacted, and no other route is examined.
+ * a snapshot loaded once at mount. No endpoint is contacted, and no other route
+ * is examined. The catalog is not consulted here: its membership is advisory,
+ * and exact model validity remains a Harness adapter responsibility.
  *
  * Total by construction. A provider nothing registered, a route the directory
  * does not declare configurable, and an absent settings or credential seam all

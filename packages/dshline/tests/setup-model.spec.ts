@@ -88,7 +88,7 @@ function facts(overrides: Partial<SetupFacts> = {}): SetupFacts {
   return {
     node: '24.4.0',
     dshline: '0.17.0',
-    harness: { kind: 'match', version: '0.1.5-alpha.1' },
+    harness: { kind: 'match', version: '0.1.5-alpha.2' },
     profile: 'dshline',
     connect: reading(),
     selected: undefined,
@@ -126,14 +126,14 @@ function row(all: ReturnType<typeof setupChecks>, name: string): { mark: string;
 
 describe('comparing Harness generations', () => {
   it('matches only on exact equality, as the repository target check does', () => {
-    expect(compareGenerations('0.1.5-alpha.1', '0.1.5-alpha.1')).toEqual({ kind: 'match', version: '0.1.5-alpha.1' })
-    expect(compareGenerations('0.1.5-alpha.1', '0.1.2-rc.1'))
-      .toEqual({ kind: 'mismatch', adopted: '0.1.5-alpha.1', installed: '0.1.2-rc.1' })
+    expect(compareGenerations('0.1.5-alpha.2', '0.1.5-alpha.2')).toEqual({ kind: 'match', version: '0.1.5-alpha.2' })
+    expect(compareGenerations('0.1.5-alpha.2', '0.1.2-rc.1'))
+      .toEqual({ kind: 'mismatch', adopted: '0.1.5-alpha.2', installed: '0.1.2-rc.1' })
   })
 
   it('claims nothing when either side could not be read, keeping the half it has', () => {
-    expect(compareGenerations('0.1.5-alpha.1', undefined))
-      .toEqual({ kind: 'unknown', adopted: '0.1.5-alpha.1', installed: undefined })
+    expect(compareGenerations('0.1.5-alpha.2', undefined))
+      .toEqual({ kind: 'unknown', adopted: '0.1.5-alpha.2', installed: undefined })
     expect(compareGenerations(undefined, '0.1.2-rc.1'))
       .toEqual({ kind: 'unknown', adopted: undefined, installed: '0.1.2-rc.1' })
     expect(compareGenerations(undefined, undefined))
@@ -149,26 +149,26 @@ describe('the setup report', () => {
   })
 
   it('ticks a matching Harness generation and names it', () => {
-    expect(row(setupChecks(facts()), 'Harness')).toEqual({ mark: '✓', text: '0.1.5-alpha.1' })
+    expect(row(setupChecks(facts()), 'Harness')).toEqual({ mark: '✓', text: '0.1.5-alpha.2' })
   })
 
   it('warns on a mismatch with both versions and both alignment commands', () => {
     const harness = row(
-      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-alpha.1', installed: '0.1.2-rc.1' } })),
+      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-alpha.2', installed: '0.1.2-rc.1' } })),
       'Harness',
     )
     expect(harness.mark).toBe('⚠')
     expect(harness.text).toContain('0.1.2-rc.1 installed')
-    expect(harness.text).toContain('dshline targets 0.1.5-alpha.1')
+    expect(harness.text).toContain('dshline targets 0.1.5-alpha.2')
     // The one deterministic direction: the targeted version is a fact the
     // report already holds, so installing it is stated as an instruction.
     expect(harness.text).toContain('Install the generation this dshline targets')
-    expect(harness.text).toContain('npm install -g @deepseek-ai/dsh@0.1.5-alpha.1')
+    expect(harness.text).toContain('npm install -g @deepseek-ai/dsh@0.1.5-alpha.2')
   })
 
   it('does not claim that updating dshline fixes a mismatch', () => {
     const harness = row(
-      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-alpha.1', installed: '0.1.2-rc.1' } })),
+      setupChecks(facts({ harness: { kind: 'mismatch', adopted: '0.1.5-alpha.2', installed: '0.1.2-rc.1' } })),
       'Harness',
     )
     // The other direction exists, but nothing here can establish that any
@@ -184,7 +184,7 @@ describe('the setup report', () => {
 
   it('marks an unreadable generation unknown rather than good or bad', () => {
     const unknown = row(
-      setupChecks(facts({ harness: { kind: 'unknown', adopted: '0.1.5-alpha.1', installed: undefined } })),
+      setupChecks(facts({ harness: { kind: 'unknown', adopted: '0.1.5-alpha.2', installed: undefined } })),
       'Harness',
     )
     expect(unknown.mark).toBe('·')
@@ -304,6 +304,25 @@ describe('the setup report', () => {
     expect(setupChecks(facts({ reason: 'no-route' })).some(check => check.name === 'Provider')).toBe(false)
   })
 
+  it('reports a provider diagnostic without inferring exact model validity', () => {
+    const diagnostic = { ...route('openai', 'active'), error: 'broken override for another-model' }
+    const checks = setupChecks(facts({
+      connect: reading({ providers: [diagnostic] }),
+      selected: { provider: 'openai', model: 'healthy' },
+      reason: undefined,
+    }))
+    const models = row(checks, 'Models')
+    expect(models.mark).toBe('⚠')
+    expect(models.text).toContain('Harness reports a configuration diagnostic')
+    expect(models.text).toContain('broken override for another-model')
+    expect(models.text).toContain('exact model validity')
+    expect(setupSteps(facts({
+      connect: reading({ providers: [diagnostic] }),
+      selected: { provider: 'openai', model: 'healthy' },
+      reason: undefined,
+    })).map(step => step.id)).toEqual(['connect', 'model', 'skip'])
+  })
+
   it('names the selected model when a turn could be sent', () => {
     const models = row(setupChecks(ready()), 'Models')
     expect(models).toEqual({ mark: '✓', text: 'openai/gpt-x · 1 route active · openai' })
@@ -413,8 +432,8 @@ describe('the trigger', () => {
   })
 
   it('is decided at provider granularity, never by model id', () => {
-    // Refining this would mean `listModels`, and a possible network call in
-    // front of every launch. The picker answers it when the reader opens it.
+    // Exact model validity belongs to the Harness adapter that executes the
+    // request, not to this startup topology check.
     expect(setupReason(['openai'], { provider: 'openai' })).toBeUndefined()
   })
 
@@ -434,6 +453,11 @@ describe('when the model step is the missing piece', () => {
   it('is true only with a route to serve it and a selection that cannot', () => {
     expect(needsModelChoice(facts({ connect: active, reason: 'no-selection' }))).toBe(true)
     expect(needsModelChoice(facts({ connect: active, reason: 'unregistered-selection' }))).toBe(true)
+  })
+
+  it('does not treat an empty advisory catalog as execution invalidity', () => {
+    const emptyCatalog = reading({ providers: [{ ...route('openai', 'active'), models: 0 }] })
+    expect(needsModelChoice(facts({ connect: emptyCatalog, reason: 'no-selection' }))).toBe(true)
   })
 
   it('is false when a usable model is already selected', () => {

@@ -69,6 +69,8 @@ export interface ConnectProviderRow {
   readonly settingsPath: readonly string[]
   /** Whether the adapter knows this route only because configuration declared it. */
   readonly declared: boolean | undefined
+  /** Configuration diagnostic retained by the adapter for repair. */
+  readonly error?: string
   /** Where the route stands with the model registry. */
   readonly state: ConnectRouteState
   /** Models the route advertises, when it is active and could be listed. */
@@ -234,13 +236,14 @@ export interface ConnectAction {
 }
 
 /**
- * How confidently a row can be said to be usable right now.
+ * How confidently a provider row's credential posture can be stated.
  *
  * Three states rather than two, because "we cannot tell" is a real answer here:
  * a deployment without a credential provider, or a route that authenticates
  * through its provider's own ambient discovery, is not misconfigured. Only a
  * reference the seam confirms is missing earns the negative mark — the same
- * rule the official Models page applies to its dots.
+ * rule the official Models page applies to its dots. Provider diagnostics are
+ * displayed separately and do not change this credential readiness judgement.
  */
 export type ConnectReadiness = 'ready' | 'missing' | 'unknown'
 
@@ -305,22 +308,25 @@ export function filterRows<T extends ConnectRow>(rows: readonly T[], query: stri
 }
 
 /**
- * Whether a provider row is usable, as far as Harness will say.
+ * Read the credential readiness for a provider row.
+ *
+ * A provider diagnostic remains separate from this credential judgement; a
+ * `ready` result does not validate the selected model.
  * @param row - the provider row.
- * @returns the readiness mark.
+ * @returns the credential readiness mark.
  */
 export function providerReadiness(row: ConnectProviderRow): ConnectReadiness {
   return readinessOf(row.state, row.credential)
 }
 
 /**
- * The readiness judgement itself, over the two facts it actually turns on.
+ * The readiness judgement itself, over the route state and credential.
  *
  * Split out from {@link providerReadiness} so a caller holding those two facts
  * without a whole row — the first-launch check, which reads ONE route rather
  * than the browser's whole listing — reaches the same verdict through the same
- * code. A second implementation of "is this route's credential missing" is
- * exactly the duplicated authority this domain exists to avoid.
+ * code. A second implementation of route readiness is exactly the duplicated
+ * authority this domain exists to avoid.
  *
  * The two `unknown` answers are the load-bearing ones, and neither is a
  * fallback. A route naming NO reference authenticates through its provider's
@@ -354,6 +360,7 @@ export function readinessOf(
  */
 export function providerFacts(row: ConnectProviderRow, capabilities?: ConnectCapabilities): string[] {
   const facts: string[] = [providerStateLabel(row.state)]
+  if (row.error !== undefined) facts.push(`configuration needs repair: ${row.error}`)
   // A dormant route is actionable only when the same offer the picker uses says
   // it is. Naming activation without that check would promise a settings write
   // to a profile that cannot make one.
@@ -380,6 +387,7 @@ export function providerFacts(row: ConnectProviderRow, capabilities?: ConnectCap
  */
 export function providerDetail(row: ConnectProviderRow): string[] {
   const facts: string[] = [`${row.settingsNs}${settingsAddress(row.settingsPath)}`]
+  if (row.error !== undefined) facts.push(`configuration needs repair: ${row.error}`)
   if (row.declared === true) facts.push('custom route')
   if (row.credential.field !== undefined) facts.push(`credential field ${row.credential.field}`)
   if (row.credential.info?.writable === false) facts.push('key is read-only here')
