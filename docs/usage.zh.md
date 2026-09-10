@@ -293,8 +293,8 @@ Setup
 ⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-rc.1
   dshline supports one Harness generation at a time.
   Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-rc.1
-  Or move to a dshline release that targets 0.1.3-alpha.1, if one exists — updating dshline
-  does not by itself land on the installed generation, and this report cannot tell you which release would.
+  Or move to a dshline release that explicitly targets the generation you have installed, if one exists —
+  updating dshline does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
 
 其中只有第一条是确定性的，措辞也这样说。这个构建所面向的版本是报告本来就持有的事实；而是否存在某个*已发布的* dshline 面向你已安装的那个版本，则不是——要确定它就意味着把各个发布版本对照它们的 peer 钉住值去解析。因此第二个方向是作为一个条件给出的，而不是作为一个修复。**它从不拒绝继续。**在这行能被打印出来的时候，两半已经一起启动到足以画出它了；真正不兼容的一对会更早、更响亮地失败在 Harness 自己的 loader 里，那才是该诊断的权威。Harness 不发布运行时版本服务，因此任一侧读不出来的版本会标记为 `·`，并且不在任何方向上作出断言。
