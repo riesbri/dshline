@@ -6,6 +6,6 @@ contact_links:
   - name: A problem confirmed to be in DeepSeek Harness itself
     url: https://github.com/deepseek-ai/deepseek-harness/issues
     about: Harness owns capabilities, state, runtime, persistence, and policy, so a bug in any of those belongs upstream. Only use this when you have confirmed the problem is Harness's — if you are unsure which side it is on, use the dshline bug report form above instead and it will be routed from there.
-  - name: Terminal evidence for macOS or Windows
+  - name: Terminal evidence for other terminals and configurations
     url: https://github.com/riesbri/dshline/blob/main/CONTRIBUTING.md
-    about: Windows has no real-terminal evidence at all, and macOS is verified only on Ghostty. A report from a terminal nobody has run this in is a contribution.
+    about: macOS is verified on Ghostty and Windows on Windows Terminal on Windows 11. A report from another terminal or configuration proves coverage this project cannot test itself.

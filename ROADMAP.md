@@ -403,8 +403,8 @@ Still ahead for Worktrees, and both wait on upstream:
 
 Feature count is not worth breaking the terminal model. Ongoing priorities are:
 
-- Windows real-terminal verification
 - broader macOS terminal coverage beyond Ghostty
+- broader Windows terminal coverage beyond Windows Terminal
 - Linux PTY coverage
 - resize torture tests and narrow-terminal behavior
 - resume lifecycle correctness
@@ -589,9 +589,9 @@ does not promise is that any older prerelease generation keeps working.
   A capability module the link table does not cover, a `!!js` provider that is
   never evaluated, and a profile mounting no such registry all produce no
   verdict — the absence of a warning is not a claim that a row will work.
-- **Linux and macOS are verified; Windows is not.** The macOS evidence is
-  Ghostty, so another macOS terminal is likely fine but unproven, and Windows
-  terminal behavior has no real-terminal evidence at all.
+- **Linux, macOS, and Windows have real-terminal verification.** The macOS
+  evidence is Ghostty and the Windows evidence is Windows Terminal on Windows
+  11, so another terminal on either platform is likely fine but unproven.
 
 ## Explicit non-goals
 

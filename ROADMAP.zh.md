@@ -233,8 +233,8 @@ Worktrees 仍待完成的部分，两者都等上游：
 
 功能数量不值得破坏终端模型。持续优先的事项：
 
-- Windows 真实终端验证
 - Ghostty 之外更广的 macOS 终端覆盖
+- Windows Terminal 之外更广的 Windows 终端覆盖
 - Linux PTY 覆盖
 - 调整大小压力测试与窄终端行为
 - 恢复生命周期正确性
@@ -294,7 +294,7 @@ Worktrees 仍待完成的部分，两者都等上游：
 - **bundle 操作需要一个可解析的 `dsh` 启动器。**它们被转发给 `dsh plugin --profile <name> …` 而不是重新实现，启动器的查找方式与 `bin/dshline.mjs` 相同的四种（`DSH_BIN`、`DSH_HARNESS` 检出、`PATH`、已安装的 `@deepseek-ai/dsh`）。四种都解析不出时，会指出确切命令，而不是让操作静默失败。
 - **能力健康是可用性，不是安装状态。**`/plugins` 会标注这样一行：它已启用，但它指名的提供方是已挂载的 Host 注册表并不提供的；它说的是该提供方在这个 Host 中不可用——这正是注册表能证明的。它的包是否安装是另一回事，本前端不读取。
   链接表未覆盖的能力模块、从不被求值的 `!!js` 提供方，以及未挂载此类注册表的配置文件，都不产生任何判定——没有警告并不等于声称某一行可以工作。
-- **Linux 与 macOS 已验证；Windows 未验证。**macOS 这边的证据是 Ghostty，因此另一个 macOS 终端很可能没问题，但未经证明；而 Windows 终端行为根本没有任何真实终端证据。
+- **Linux、macOS 与 Windows 都已有真实终端验证。**macOS 这边的证据是 Ghostty，Windows 这边的证据是 Windows 11 上的 Windows Terminal；因此这两个平台上换成另一个终端很可能没问题，但未经证明。
 
 ## 明确的非目标
 
