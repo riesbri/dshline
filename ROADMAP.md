@@ -311,10 +311,10 @@ Raster image attachment is now Harness-native:
 - registered commands receive images only when their descriptor opts in, and
   explicit text-only model metadata stops admission before I/O
 
-Still ahead: arbitrary file attachments. Harness exposes a durable
-file-attachment contract alongside image attachments, but dshline's composer
-stages only images. `@path` therefore remains the honest textual file-reference
-gesture rather than implying bytes were attached.
+Still ahead for dshline: staging arbitrary file attachments. Harness exposes a
+durable file-attachment contract alongside image attachments, but dshline's
+composer currently stages only images. `@path` therefore remains the honest
+textual file-reference gesture rather than implying bytes were attached.
 
 ### 7. Permissions and approvals
 
