@@ -1,5 +1,212 @@
 # dshline
 
+## 0.21.0
+
+### Minor Changes
+
+- e237c1d: Adopt DeepSeek Harness `0.1.3-alpha.2`, whose session format v2 splits durable
+  Assistant history from live Assistant presentation.
+  
+  The session log no longer carries per-delta `assistant/chunk` events. A model
+  attempt now settles once: `assistant/message` when it committed a reply (with
+  `interrupted: true` for a prefix a `ctrl-c` cut short), and the log-only
+  `assistant/attempt` when it produced no reply at all — each embedding its own
+  compacted stream. Frame-by-frame output arrives instead on the agent-scoped
+  `agent/assistant-stream` notification.
+  
+  dshline consumes both natively and keeps them apart. The `session/event`
+  projection is now purely the committed transcript, and a session-scoped listener
+  on the attached Agent's stream frames owns the live region, live reasoning, the
+  activity word, and the model's reasoning/output timing — measured from the
+  timestamp each frame carries.
+  
+  What changes for a reader: a failed or retried model attempt can no longer leave
+  a partial answer in the scroll history as though the model had said it, and a
+  new attempt starts from nothing instead of settling against text its predecessor
+  streamed. The timing panel separates reasoning and output per model attempt, so
+  a retry's dead time is no longer charged to the model. An interrupted reply
+  still lands in the transcript, now from its own durable message rather than from
+  a turn-boundary salvage.
+  
+  Registered slash commands take the harness's generic attachment admission:
+  `input.attachments` replaces `input.images`, and image drafts are submitted as
+  discriminated `{ type: 'image', … }` attachments. Drafts are still kept when a
+  command cannot accept them or its execution fails, and dshline still authors
+  only image attachments — command file receipts are the harness's other variant
+  and no dshline UI stages files.
+- 0af4363: Adopt DeepSeek Harness `0.1.5-alpha.1`, natively.
+  
+  The generation moves four things dshline consumes, and each one is migrated
+  forward rather than shimmed:
+  
+  - **Agent ownership is explicit.** `Context.agent` is gone; Harness passes the
+    unpublished Agent to `setup(agentCtx, agent)`, and `mountAgentPreset` now
+    takes it as an argument. No ambient current Agent is reconstructed.
+  - **Pending work belongs to the Agent.** `Inbox` is a driver-owned contract
+    rather than a constructible projection, and `hasPending`/`claim` are no longer
+    public. dshline already read `agent.inbox` on every paint and keeps no queue of
+    its own; its tests now drive upstream's published Inbox stubs and a production
+    AgentLoop Agent instead of constructing one.
+  - **Session format V3 owns the system prompt.** It is durable conversation
+    history — a `system/message` surface node — not `EpochHeader.system`. `/cache`
+    therefore stops reporting whether a prompt is attached and reports the route's
+    mid-conversation prompt-update mode from `Session.requestContext()` instead;
+    `/context` names the prompt as the surface entry it now is; and the transcript
+    keeps it out of scrollback on purpose, appends and normalizing replacements
+    alike.
+  - **Surface replacements are addressed by seq.** `SurfaceOp` carries
+    `startSeq`/`endSeq`.
+  
+  No compatibility with `0.1.3-alpha.2` is retained.
+- d9ae108: Adopt DeepSeek Harness `0.1.5-alpha.2`.
+- a0fb861: Adopt DeepSeek Harness `0.1.5-rc.1`.
+
+### Patch Changes
+
+- 7d36318: Keep idle `ctrl-c` from closing dshline while Harness still publishes a Job or
+  subagent owned by the current session.
+  
+  One-shot `subagent/end` reports `run.result` settlement, not completion of the
+  consumer-owned `run.dispose()` teardown. The standard background tool path keeps
+  that interval visible through its nonterminal Job, while foreground work keeps
+  the parent Agent running until disposal returns. The terminal now reads the
+  generic Work snapshot before treating idle `ctrl-c` as quit; explicit `ctrl-d`
+  remains the unconditional exit boundary.
+- a797a33: Keep a foreign raw write off the terminal the live region owns, so spawning a
+  subagent stops printing the root chrome into scrollback a second time.
+  
+  `Screen` is correct only because it is the sole writer: it remembers the live
+  region's height and where it left the cursor, and every redraw climbs that
+  remembered geometry to erase the frame before drawing the next one. A write it
+  did not issue scrolls the screen out from under that geometry, and from then on
+  the erase starts below the frame's first rows instead of above them — so the
+  blank separator and `╭─ dshline ─… ─╮` are never erased again, scroll up as
+  ordinary output, and stay in native scrollback for good. One more copy lands
+  with every commit that follows.
+  
+  A subagent backend in the generation named by `HARNESS_TARGET`
+  (`@deepseek-ai/dsh-subagent-codex@0.1.5-alpha.1`, `startCodexRun`'s stderr
+  forward) writes a delegated child process's stderr straight to descriptor 2 —
+  `writeFileSync(process.stderr.fd, bytes)` — unconditionally, for the whole life
+  of the run. On an interactive launch descriptor 2 is the terminal dshline draws
+  on, which is why the duplicate appears the moment a subagent starts and has
+  nothing to do with whether `/work` is open. Nothing in dshline's runtime names
+  that backend or branches on a provider: what is contained is a write shape.
+  
+  **This is a temporary compatibility shim, not a dshline abstraction.** The real
+  fix is upstream — a delegated child's diagnostics belong on a Host-owned
+  diagnostic seam, not on a frontend's terminal. `src/stderr.ts` carries the
+  removal condition in its own header, and the shim is registered in a new root
+  file, `HARNESS_COMPAT`, so it cannot quietly become permanent.
+  
+  That register lists each temporary workaround with the generation it was last
+  confirmed to still be needed against, and `node tools/harness-target.mjs` — the
+  coherence check the Harness-Sync adoption proposal, the blocking `Harness
+  target` lane and every release already run — fails while a record names any
+  generation other than the adopted one. So advancing `HARNESS_TARGET` cannot go
+  green until the adopter decides, per shim: confirm the upstream behavior is
+  still there and bump the record deliberately, or delete the shim with its
+  wiring, its tests and its record. A record whose module no longer exists fails
+  too, so the register cannot outlive what it describes. The check is a string
+  comparison between two files in this repository — it parses no upstream source,
+  so nothing couples a build to a backend's internal layout.
+  
+  Patching `process.stderr.write` would not catch the forward — it never touches
+  the stream — but it reads `process.stderr.fd` on every write, so that is what
+  moves: while the window owns the terminal, the descriptor that property reports
+  is a writable hole. Whether that is safe depends on two Node behaviours, and
+  both are now pinned by real child processes rather than by stubs: a raw
+  `writeFileSync` follows the substituted descriptor, and a socket-backed
+  `process.stderr` — a pipe in the test, a terminal in production, both writing
+  through a libuv handle opened once — does not, so the ordinary stream path keeps
+  reaching the terminal. A FILE-backed `process.stderr` is `SyncWriteStream` and
+  *does* re-resolve the property on every write, which is recorded as the stronger
+  reason the shim refuses to hold a stderr that is not a terminal.
+  
+  That refusal is now a real device-identity test rather than an inference.
+  `isTTY` on both streams does not establish that stdout and stderr are the same
+  terminal — the previous version of this check claimed it did — so
+  `rawStderrReach` stats both descriptors: two handles on one terminal report one
+  non-zero `rdev`, and two terminals report two. It answers `reaches`,
+  `cannot-reach`, or `unknown`, and holds on the first and the last. A Windows
+  console reports an `rdev` of zero and lands in `unknown`, where protecting the
+  frame is the conservative choice; a proven second terminal, a piped stderr and a
+  `2>log` run are all left exactly as found.
+  
+  No capture, tee, or logging sink is added. Harness owns Host diagnostics and
+  subagent failure reporting, and a second authority over the same bytes in the
+  frontend would be worse than dropping them: a run's own failure reaches the
+  transcript through the subagent lifecycle, never through descriptor 2, and the
+  bytes being dropped were unreadable anyway because they were landing on top of
+  the frame they corrupted.
+- 85bd4db: Keep the timing panel's measured rows and the completion list's rows inside the
+  terminal, so a narrow window cannot leave root chrome in scrollback.
+  
+  `TuiSlots.compose` budgets the live region in LOGICAL lines and hands each view
+  the rows the views above it have not spent. That is only the same thing as the
+  physical budget while every row fits the terminal's width: `Screen.wrap`
+  re-wraps an overlong row into two AFTER the budgeting is finished, so one row
+  wider than the terminal is one row of overflow no view's own accounting can see.
+  Once the region is taller than the screen its first rows cannot be climbed back
+  to and erased, and the next redraw leaves `╭─ dshline ─… ─╮` in native
+  scrollback for good.
+  
+  Two views could emit such a row, for two different reasons:
+  
+  - **The completion list** laid its rows out against `chromeWidth(columns)`,
+    which floors at the shared chrome minimum and therefore returns a width WIDER
+    than the terminal below that floor. Its label budget also carried a floor of
+    eight columns independent of the terminal, and its shortest row — the
+    `… N more` marker — was not cut at all, so `… 14 more` drew thirteen columns
+    at every width. Worse, only the label was ever bounded: every row carries a
+    fixed four-column prefix (`  › `) that sat outside the budget entirely, so at
+    one to four columns the row was five columns wide no matter what the label was
+    cut to. The width is now clamped to the terminal, the prefix is one named
+    constant shared by every budget that has to account for it, the WHOLE
+    assembled row is cut rather than only its payload, and below a prefix plus one
+    column of label the list stands down instead of spending a live row on a
+    candidate it cannot name.
+  - **The timing panel's measured rows** are budgeted from the DATA as well as
+    from the width: the label width, field gap and bar cells are what is left
+    after the longest duration's width is subtracted, and the label and gap have
+    floors of one. A long-running turn on a narrow terminal therefore produced a
+    row wider than the width it was laid out for.
+  
+    Cutting the row would have bounded it and broken a different rule this file
+    already keeps: the duration sits at the right edge, so a plain truncation
+    turns `2h 41m` into `2h 4` — not a narrower fact but a different, entirely
+    plausible one, which is what the heading's own ladder exists to avoid. So the
+    fields are not cut and the FORM is chosen instead, by a ladder from
+    `label + bar + duration` through `label + duration`, an indented duration, a
+    bare duration, and finally `…` where not even a whole duration fits. The
+    widest form that fits is picked once for the panel rather than per row, so a
+    narrow panel stays aligned instead of going ragged for a reason no reader
+    could see.
+  
+  Neither is reachable at an ordinary window size, and neither is the cause of the
+  duplicate header a subagent produces — that is a foreign writer on descriptor 2,
+  fixed separately. These are the same failure class found while probing for it.
+  
+  The regression test is the property both bugs broke, checked over the real views
+  composed together — stream, composer, completion, timing and status at once,
+  because the failure only appears in combination and a view that fits alone can
+  still be the one that pushes the region over. Six claims per composition: every
+  logical row fits the terminal's width, the wrapped physical rows fit its height,
+  and the cursor's row and column are each non-negative and inside what was
+  actually drawn.
+  
+  Widths run **exhaustively from one column** to the shared chrome floor — the
+  same range `narrow-root.spec.ts` already holds the root chrome to — and then
+  across representative ordinary widths to 200, over heights 10–50, with an empty,
+  short, thirty-line and two-thousand-character composer, a standing completion
+  offer, streaming on and off, and the timing panel on and off. Extending it below
+  eight columns is what exposed the completion prefix; the previous sampling
+  started at eight and could not see it. Two focused cases name each view
+  directly, assert the stand-down policy rather than leaving it to whatever the
+  arithmetic happens to do, and check that a duration which appears at all appears
+  whole. All three fail without these two changes.
+- @dshline/renderer@0.21.0
+
 ## 0.20.0
 
 ### Minor Changes
