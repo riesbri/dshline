@@ -27,6 +27,19 @@ interface XtermCell {
   isBold(): number
 }
 
+/**
+ * One Unicode width provider, as xterm accepts it.
+ *
+ * `charProperties` packs the width into the value xterm actually lays cells out
+ * from, and `wcwidth` is the same answer in the form the width helpers read;
+ * both must agree.
+ */
+interface XtermUnicodeProvider {
+  readonly version: string
+  wcwidth(codePoint: number): 0 | 1 | 2
+  charProperties(codePoint: number, preceding: number): number
+}
+
 /** The slice of xterm's API these tests use. */
 interface XtermLike {
   readonly rows: number
@@ -42,7 +55,28 @@ interface XtermLike {
   }
   write(data: string, callback: () => void): void
   resize(columns: number, rows: number): void
+  readonly unicode: {
+    register(provider: XtermUnicodeProvider): void
+    activeVersion: string
+  }
   dispose(): void
+}
+
+/** What a terminal under test does differently from Dshline's width model. */
+export interface EmulatorOptions {
+  /**
+   * Code points this terminal advances TWO cells for while Dshline's
+   * `codePointWidth` measures them as one.
+   *
+   * A real terminal in an ambiguous-width mode widens the glyphs beside the
+   * ones the Unicode East Asian Width property leaves ambiguous, and Dshline
+   * deliberately keeps its own model for the narrow case. Reproducing that
+   * disagreement is the only way to test what a width-critical presentation
+   * must avoid: everything else about this provider is the narrow default, so
+   * the ONLY difference from the terminal the rest of the suite uses is the
+   * listed code points.
+   */
+  readonly wideCodePoints?: readonly number[]
 }
 
 /** Where the terminal left its cursor, in zero-based cells. */
@@ -105,10 +139,33 @@ export interface Emulator {
  * Create an emulator of `columns` by `rows`.
  * @param columns - terminal width.
  * @param rows - terminal height.
+ * @param options - terminal behaviours this test needs to differ from the
+ *   narrow default; omitting them leaves every other spec unchanged.
  * @returns the emulator and its screen target.
  */
-export function createEmulator(columns: number, rows = 24): Emulator {
+export function createEmulator(columns: number, rows = 24, options: EmulatorOptions = {}): Emulator {
   const term = new Terminal({ cols: columns, rows, allowProposedApi: true })
+  const wideCodePoints = new Set(options.wideCodePoints ?? [])
+  if (wideCodePoints.size > 0) {
+    // Replace xterm's width provider ONLY when a test asked for a disagreeing
+    // terminal, so no existing spec's geometry can move. Non-listed code points
+    // keep the narrow answer every other test already relies on: controls take
+    // no cell, everything else one. That is enough for chrome made of ASCII and
+    // box-drawing glyphs, which is all a composer frame is.
+    const widthOf = (codePoint: number): 0 | 1 | 2 => {
+      if (wideCodePoints.has(codePoint)) return 2
+      return codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0) ? 0 : 1
+    }
+    term.unicode.register({
+      version: 'dshline-test-ambiguous-wide',
+      wcwidth: widthOf,
+      // xterm lays cells out from the packed property, not from `wcwidth`, so
+      // both must carry the same width. The packed shape is xterm's own:
+      // codepoint << 3 | width << 1 | join-flag.
+      charProperties: codePoint => (((codePoint & 0xffffff) << 3) | (widthOf(codePoint) << 1)) >>> 0,
+    })
+    term.unicode.activeVersion = 'dshline-test-ambiguous-wide'
+  }
   // Tracked alongside the terminal so `target.columns()` answers with what the
   // renderer would read from a real terminal after a resize.
   let width = columns

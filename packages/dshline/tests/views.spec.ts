@@ -165,11 +165,11 @@ describe('a composer taller than the terminal', () => {
     const { cursor, rows } = await drawn(composer)
     // The cursor is at the end, so the end is what is shown, and the title names
     // the DIRECTION of what is hidden rather than a bare count: a reader can tell
-    // they are at the bottom and that `↑` reaches the rest.
+    // they are at the bottom and that `^` reaches the rest.
     expect(rows.join('\n')).toContain('line 39')
     expect(rows.join('\n')).not.toContain('line 0 ')
-    expect(rows[1]).toContain('↑ 30')
-    expect(rows[1]).not.toContain('↓')
+    expect(rows[1]).toContain('^ 30')
+    expect(rows[1]).not.toContain('v ')
     expect(cursor.row).toBeGreaterThan(0)
     expect(cursor.row).toBeLessThan(rows.length)
   })
@@ -216,8 +216,8 @@ describe('a composer taller than the terminal', () => {
     expect(rows.join('\n')).toContain('one')
     expect(rows.join('\n')).toContain('three')
     // Nothing is hidden, so there is no direction to report.
-    expect(rows[1]).not.toContain('↑')
-    expect(rows[1]).not.toContain('↓')
+    expect(rows[1]).not.toContain('^ ')
+    expect(rows[1]).not.toContain('v ')
   })
 })
 
