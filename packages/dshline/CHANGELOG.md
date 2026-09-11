@@ -1,5 +1,57 @@
 # dshline
 
+## 0.22.0
+
+### Minor Changes
+
+- eee8498: Let Sessions search results open bounded surrounding context through Harness's
+  native session-query read seam.
+  
+  `Find in this session` still discovers hits with `searchEvents()`, but `↵` on an
+  ordinary hit now opens a bounded inspector: the exact target event plus a fixed
+  number of raw events on each side, read once through `readEvent()`. The target
+  is marked, its neighbors keep their order, and each event's text is Harness's
+  own semantic extraction, so structural and unknown events show only their type
+  and sequence. Rendering or moving through results reads no log, and closing the
+  inspector restores the search's query, results, selection, and viewport
+  unchanged.
+- d99ec59: Add `/turns`: a bounded, Harness-native index of this session's turns, read from
+  the `turnOutline` session projection. Move the selection with `↑`/`↓`, open a
+  read-only inspection of a turn's prompt and response previews with `enter`, walk
+  turns with `←`/`→`, filter by turn number or preview text with `/`, and leave
+  with `esc`. `/turns <text>` opens pre-filtered. The outline is a view over
+  Harness's authoritative fold — no second transcript model, no rewrite of native
+  scrollback — and a composition that mounts no turn outline says so instead of
+  folding the log itself.
+
+### Patch Changes
+
+- 0f9c23b: Make very large pasted prompts fast and navigable. Laying the composer's draft
+  out is now a single forward pass over one snapshot of the buffer instead of a
+  per-line loop that re-derived the whole buffer for every line, which made a
+  5,000-line draft take seconds per `↑` and seconds more for the redraw. The
+  composer view also reuses one layout between its `render` and `cursor` calls, so
+  a frame no longer wraps the draft twice. A draft still grows from one row to the
+  same hard cap and then scrolls, and the frame title now names the direction of
+  what is hidden (`^ 27` / `v 4`) instead of a single `+N rows` count. The markers
+  are ASCII because `↑`/`↓` are East Asian Ambiguous width: a terminal in an
+  ambiguous-width mode advances two cells for them where Dshline measures one, so
+  the top border wrapped and each redraw left the previous composer frame behind.
+- 44d06a6: Roll back a failed overlay registration when its `mounted()` hook or the
+  initial redraw it triggers throws, so a failed mount no longer leaves the
+  overlay owning the live region and input with no disposer returned to the
+  caller.
+  
+  `TuiSlots.pushOverlay()` now removes the exact overlay by identity, disposes it
+  once, and invalidates so the remaining overlay stack or the composed slots are
+  authoritative again before the failure propagates. The rollback covers only the
+  registration `pushOverlay` makes: an overlay the hook pushes itself is a
+  separate registration with its own lifecycle. If the rollback disposal or
+  invalidation also throws, the failures are carried together in an
+  `AggregateError` with the primary failure first; the failed overlay is
+  unregistered either way, and context teardown cannot dispose it a second time.
+- @dshline/renderer@0.22.0
+
 ## 0.21.0
 
 ### Minor Changes
