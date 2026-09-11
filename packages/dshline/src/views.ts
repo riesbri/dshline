@@ -253,12 +253,23 @@ export function createComposerView(
    *
    * The old title said only `+37 rows`, which cannot tell a reader whether the
    * cursor is near the start of a paste or stranded at its end — the two cases
-   * want opposite arrows. A direction is only named when there is something that
-   * way, so a draft scrolled to its top reads as the plain workspace name and
-   * `↑` visibly means history. The string is handed to `rootFrame`, whose border
-   * arithmetic truncates from the RIGHT, so `↑` is written first: the upward
-   * direction is the one that falls through to history, and it is the reading a
-   * narrow terminal can least afford to lose. Both are shown whenever they fit.
+   * want opposite directions. A direction is only named when there is something
+   * that way, so a draft scrolled to its top reads as the plain workspace name
+   * and `^` visibly means history. The string is handed to `rootFrame`, whose
+   * border arithmetic truncates from the RIGHT, so `^` is written first: the
+   * upward direction is the one that falls through to history, and it is the
+   * reading a narrow terminal can least afford to lose. Both are shown whenever
+   * they fit.
+   *
+   * The markers are ASCII on purpose, not the `↑`/`↓` arrows they replaced.
+   * Those are East Asian Ambiguous width: Dshline measures each as one column,
+   * but a terminal in an ambiguous-width mode advances two, so a title with
+   * both made the top border one physical row taller than the live region
+   * modeled. `Screen` climbs by the rows it drew, so the wrapped row survived
+   * the next erase and every `↑`/`↓` press left another top border behind. A
+   * chrome label is not worth changing the renderer's global width policy for
+   * box drawing and punctuation, so the presentation chooses glyphs whose
+   * width is unambiguous instead.
    * @param hiddenAbove - rows scrolled off the top of the viewport.
    * @param hiddenBelow - rows the viewport does not reach beneath it.
    * @returns the painted title for the frame's top border.
@@ -266,8 +277,8 @@ export function createComposerView(
   const frameTitle = (hiddenAbove: number, hiddenBelow: number): string => {
     const label = paint(escapedLabel, 'composer-title')
     const parts: string[] = []
-    if (hiddenAbove > 0) parts.push(`↑ ${String(hiddenAbove)}`)
-    if (hiddenBelow > 0) parts.push(`↓ ${String(hiddenBelow)}`)
+    if (hiddenAbove > 0) parts.push(`^ ${String(hiddenAbove)}`)
+    if (hiddenBelow > 0) parts.push(`v ${String(hiddenBelow)}`)
     if (parts.length === 0) return label
     return `${label} ${paint(parts.join(' '), 'muted')}`
   }
