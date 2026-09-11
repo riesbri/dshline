@@ -50,13 +50,20 @@ const WIDTHS: readonly number[] = [
 /** Terminal heights from a cramped pane to a tall window. */
 const HEIGHTS = [10, 12, 14, 16, 20, 24, 30, 40, 50] as const
 
-/** Composer contents that exercise the empty, one-row, tall and completing frames. */
+/**
+ * Composer contents that exercise the empty, one-row, tall and completing frames.
+ *
+ * Each carries a stable label rather than being a bare string because the
+ * property below is split by presentation state: a failure has to name the state
+ * that broke, and the long-line fixture is two thousand characters of `x` that
+ * would be unreadable in a test name.
+ */
 const CONTENTS = [
-  '',
-  'short',
-  Array.from({ length: 30 }, (_, index) => `line ${String(index)}`).join('\n'),
-  'x'.repeat(2000),
-  '/com',
+  { name: 'empty', value: '' },
+  { name: 'short', value: 'short' },
+  { name: 'multiline', value: Array.from({ length: 30 }, (_, index) => `line ${String(index)}`).join('\n') },
+  { name: 'long-line', value: 'x'.repeat(2000) },
+  { name: 'completion', value: '/com' },
 ] as const
 
 /** What the runner spends its rows on beneath the composer. */
@@ -218,27 +225,33 @@ function violations(ctx: Context, columns: number, rows: number, where: string):
 }
 
 describe('the composed live region', () => {
-  it('draws no row wider than the terminal, and no more rows than it has', async () => {
-    const timer = measuredTurn()
-    const stream = new StreamBuffer()
-    const failures: string[] = []
-    for (const content of CONTENTS) {
+  // One case per presentation state, and the whole width x height matrix inside
+  // each. The invariant is about combination — a view that fits alone can still
+  // be the one that pushes the region over — so the geometry cross stays
+  // exhaustive; what is split out is the state, so no case depends on enough CPU
+  // to approach the generic test timeout and a failure names what varied.
+  for (const content of CONTENTS) {
+    describe(`${content.name} content`, () => {
       for (const streaming of [false, true]) {
-        stream.reset()
-        // An unfinished line long enough to fill the stream region's own bound.
-        if (streaming) stream.push('text', 'y'.repeat(600), 80)
         for (const timing of [false, true]) {
-          const ctx = await window(content, timer, () => timing, stream)
-          for (const rows of HEIGHTS) {
-            for (const columns of WIDTHS) {
-              failures.push(...violations(ctx, columns, rows, `content=${JSON.stringify(content.slice(0, 6))} stream=${String(streaming)} timing=${String(timing)}`))
+          it(`draws no row wider than the terminal and no more rows than it has · streaming ${streaming ? 'on' : 'off'}, timing ${timing ? 'on' : 'off'}`, async () => {
+            const timer = measuredTurn()
+            const stream = new StreamBuffer()
+            // An unfinished line long enough to fill the stream region's own bound.
+            if (streaming) stream.push('text', 'y'.repeat(600), 80)
+            const ctx = await window(content.value, timer, () => timing, stream)
+            const failures: string[] = []
+            for (const rows of HEIGHTS) {
+              for (const columns of WIDTHS) {
+                failures.push(...violations(ctx, columns, rows, `${content.name} streaming=${String(streaming)} timing=${String(timing)}`))
+              }
             }
-          }
+            expect(failures.slice(0, 12), `${String(failures.length)} violations`).toEqual([])
+          })
         }
       }
-    }
-    expect(failures.slice(0, 12), `${String(failures.length)} violations`).toEqual([])
-  })
+    })
+  }
 })
 
 describe('below the shared chrome floor', () => {
