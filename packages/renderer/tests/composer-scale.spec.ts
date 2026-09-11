@@ -16,6 +16,20 @@ import { layoutComposer } from '../src/composer-layout.ts'
 const GUTTER = (line: number): string => (line === 0 ? '› ' : '  ')
 
 /**
+ * Put the cursor at `offset` by marching there from the right with real moves.
+ * @param text - the draft.
+ * @param offset - the code-point offset to reach.
+ * @returns the composer, positioned.
+ */
+function cursorAt(text: string, offset: number): Composer {
+  const composer = new Composer()
+  composer.set(text)
+  expect(composer.position).toBe([...text].length)
+  while (composer.position > offset) composer.handle({ kind: 'key', name: 'left' })
+  return composer
+}
+
+/**
  * A composer that records how its whole-buffer getters are used.
  *
  * The layout is allowed to read `value` once and `position` once to take its
@@ -190,19 +204,16 @@ describe('layout across line structure', () => {
     const width = 12
     while (composer.position > 5) composer.handle({ kind: 'key', name: 'left' })
     const first = layoutComposer(composer, width, GUTTER)
-    console.log(`PREF start at=${composer.position} first=(${first.cursorRow},${first.cursorColumn})`)
     expect(first.positionAt(first.cursorRow, first.cursorColumn)).toBe(composer.position)
 
     expect(composer.moveDown(width, GUTTER)).toBe(true)
     const down = layoutComposer(composer, width, GUTTER)
-    console.log(`PREF down at=${composer.position} down=(${down.cursorRow},${down.cursorColumn})`)
     expect(down.positionAt(down.cursorRow, down.cursorColumn)).toBe(composer.position)
 
     // The display column the down move left with is what the up move aims at, so
     // the cursor returns to the first row at that column — not to its own end.
     expect(composer.moveUp(width, GUTTER)).toBe(true)
     const back = layoutComposer(composer, width, GUTTER)
-    console.log(`PREF up at=${composer.position} back=(${back.cursorRow},${back.cursorColumn})`)
     expect(back.cursorRow).toBe(0)
     expect(back.cursorColumn).toBe(down.cursorColumn)
     expect(back.positionAt(back.cursorRow, back.cursorColumn)).toBe(composer.position)
@@ -258,5 +269,95 @@ describe('layout across line structure', () => {
     expect(wide.rows).toHaveLength(1)
     expect(narrow.rows.length).toBeGreaterThan(1)
     expect(narrow.positionAt(narrow.cursorRow, narrow.cursorColumn)).toBe(26)
+  })
+})
+
+describe('the exact-width boundary before an explicit newline', () => {
+  it('keeps the position before the newline distinct from the one after it', () => {
+    // The first line's ten text columns exactly fill the width left by the
+    // two-column gutter. A cursor just BEFORE the newline used to roll onto the
+    // row that the next logical line then reused, so the advertised inverse
+    // returned 11 for a cursor at 10 — vertical movement could cross the newline.
+    const composer = cursorAt('abcdefghij\nx', 10)
+    expect(composer.position).toBe(10)
+    const layout = layoutComposer(composer, 12, GUTTER)
+    expect(layout.positionAt(layout.cursorRow, layout.cursorColumn)).toBe(composer.position)
+    // And the offset after the newline still maps to the row that holds it.
+    expect(layout.positionAt(layout.cursorRow + 1, 0)).toBe(11)
+  })
+
+  it('round-trips vertical movement without crossing the newline', () => {
+    const composer = cursorAt('abcdefghij\nx', 10)
+    expect(composer.moveDown(12, GUTTER)).toBe(true)
+    const down = layoutComposer(composer, 12, GUTTER)
+    expect(down.positionAt(down.cursorRow, down.cursorColumn)).toBe(composer.position)
+    expect(composer.moveUp(12, GUTTER)).toBe(true)
+    expect(composer.position).toBe(10)
+  })
+
+  it('keeps the boundary invertible when the row fills exactly by display width', () => {
+    // `› ` is two columns and each CJK glyph is two more, so the row holds exactly
+    // two glyphs and the cursor before the newline is at display column 6.
+    const composer = cursorAt('标准\nx', 2)
+    const layout = layoutComposer(composer, 6, GUTTER)
+    expect(layout.positionAt(layout.cursorRow, layout.cursorColumn)).toBe(2)
+    expect(layout.positionAt(layout.cursorRow + 1, 0)).toBe(3)
+  })
+
+  it('stays invertible around consecutive and empty newlines', () => {
+    for (const text of ['a\n\n\nb', 'ab\n\n', '\nx', 'a\nb\nc\n']) {
+      const cps = [...text]
+      for (let offset = 0; offset <= cps.length; offset += 1) {
+        const composer = new Composer()
+        composer.set(text)
+        while (composer.position > offset) composer.handle({ kind: 'key', name: 'left' })
+        const layout = layoutComposer(composer, 12, GUTTER)
+        expect(
+          layout.positionAt(layout.cursorRow, layout.cursorColumn),
+          `${JSON.stringify(text)} at ${String(offset)}`,
+        ).toBe(offset)
+      }
+    }
+  })
+})
+
+describe('the layout advertises an inverse for every reachable cursor offset', () => {
+  it('holds for every prefix and width over ASCII, CJK, astral, and newlines', () => {
+    // The probe the task asks for, strengthened for the boundary the old one
+    // missed: an exact-width row immediately before an explicit newline. Every
+    // offset of every prefix must map back to itself through the advertised
+    // (cursorRow, cursorColumn) pair, and the placement must own a real row.
+    const texts = [
+      '', 'x', '\n', 'abc\n', '\n\n',
+      'abcdefghij\nx',            // exact-width row, then a newline
+      'abcdefghijklmnopqrstuv',   // wraps with no newline
+      'abcdefghij\nabcdefghij\n', // two exact-width lines, trailing newline
+      '标准\nx',                   // exact width by display columns, then a newline
+      '标准标准标准',
+      '标准\n标准\n标准',
+      'a🙂🙂b🙂cdef🙂gh',
+      'ab\n\ncd\n',
+      'a\nb\nc',
+      Array.from({ length: 25 }, (_unused, i) => `line ${String(i)}`).join('\n'),
+    ]
+    let checked = 0
+    for (const text of texts) {
+      const cps = [...text]
+      for (let offset = 0; offset <= cps.length; offset += 1) {
+        for (const width of [4, 6, 8, 12, 20, 80]) {
+          const composer = cursorAt(text, offset)
+          const layout = layoutComposer(composer, width, GUTTER)
+          const label = `${JSON.stringify(text)} at ${String(offset)} width ${String(width)}`
+          expect(layout.cursorRow, label).toBeGreaterThanOrEqual(0)
+          expect(layout.cursorRow, label).toBeLessThan(layout.rows.length)
+          expect(
+            layout.positionAt(layout.cursorRow, layout.cursorColumn),
+            label,
+          ).toBe(offset)
+          checked += 1
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(1000)
   })
 })

@@ -145,8 +145,21 @@ export function layoutComposer(
   for (let index = 0; index < chars.length; index += 1) {
     const char = chars[index] ?? ''
     if (char === '\n') {
+      // A logical line that filled its budget exactly puts the cursor before the
+      // newline on a boundary the finished row cannot represent: `positionAt` on
+      // that row's end and on the NEXT row's start are both the offset after the
+      // newline. One empty boundary row between them keeps "before the newline"
+      // distinct from "after the newline", exactly as the insertion row after a
+      // full FINAL row keeps the buffer's end addressable. Without it the cursor
+      // before the newline reported the offset after it, and `↑` crossed the line.
+      const lineFilled = used >= textBudget && text.length > 0
       breakRow()
       lineIndex += 1
+      if (lineFilled) {
+        chunks.push({ text: '', start: index, gutterWidth: 0 })
+        rows.push('')
+        rowIndex += 1
+      }
       gutterText = gutter(lineIndex)
       gutterWidth = displayWidth(gutterText)
       textBudget = Math.max(0, budget - gutterWidth)
