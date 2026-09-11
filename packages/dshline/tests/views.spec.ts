@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Composer, displayWidth, Screen, stripAnsi } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
-import { composerHintRow, composerInner, createComposerView, createStatusView } from '../src/views.ts'
+import { composerGutter, composerHintRow, composerInner, createComposerView, createStatusView } from '../src/views.ts'
 
 /** A terminal width whose inner content area is a round number of columns. */
 const COLUMNS = 40
@@ -163,12 +163,44 @@ describe('a composer taller than the terminal', () => {
   it('scrolls to keep the cursor visible, and says how much is hidden', async () => {
     const composer = typed(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
     const { cursor, rows } = await drawn(composer)
-    // The cursor is at the end, so the end is what is shown.
+    // The cursor is at the end, so the end is what is shown, and the title names
+    // the DIRECTION of what is hidden rather than a bare count: a reader can tell
+    // they are at the bottom and that `↑` reaches the rest.
     expect(rows.join('\n')).toContain('line 39')
     expect(rows.join('\n')).not.toContain('line 0 ')
-    expect(rows[1]).toContain('rows')
+    expect(rows[1]).toContain('↑ 30')
+    expect(rows[1]).not.toContain('↓')
     expect(cursor.row).toBeGreaterThan(0)
     expect(cursor.row).toBeLessThan(rows.length)
+  })
+
+  it('does not serve a stale layout after the draft is edited', async () => {
+    // The view memoizes one layout between render() and cursor(). A `set()` that
+    // changes the text while leaving the cursor at the SAME offset is the case a
+    // key that forgot the text would get wrong: the cursor offset alone would not
+    // invalidate the entry, so the next frame would draw the previous draft.
+    const composer = typed('short')
+    const view = createComposerView(composer, '/w/repo')
+    expect(stripAnsi(view.render(40, 24).join('\n'))).toContain('short')
+    composer.set('other')
+    expect(composer.position).toBe(5)
+    const after = stripAnsi(view.render(40, 24).join('\n'))
+    expect(after).toContain('other')
+    expect(after).not.toContain('short')
+  })
+
+  it('does not serve a stale layout after the width changes', async () => {
+    // The cursor offset is identical at both widths, so only the width key can
+    // invalidate the entry. At 12 columns the 26-character draft wraps to seven
+    // rows and the cursor lands on row 5 at drawn column 6; the wide layout's own
+    // placement (row 2, column 30) is what a memo that ignored the width returns,
+    // and column 30 is not even a cell the narrow frame has.
+    const composer = typed('abcdefghijklmnopqrstuvwxyz')
+    const view = createComposerView(composer, '/w/repo')
+    view.render(40, 24)
+    const narrow = view.render(12, 24)
+    expect(narrow.filter(row => row !== '')).toHaveLength(6)
+    expect(view.cursor?.(12, 24)).toEqual({ row: 5, column: 6 })
   })
 
   it('reports the cursor relative to the visible window', async () => {
@@ -183,7 +215,9 @@ describe('a composer taller than the terminal', () => {
     const { rows } = await drawn(composer)
     expect(rows.join('\n')).toContain('one')
     expect(rows.join('\n')).toContain('three')
-    expect(rows[1]).not.toContain('rows')
+    // Nothing is hidden, so there is no direction to report.
+    expect(rows[1]).not.toContain('↑')
+    expect(rows[1]).not.toContain('↓')
   })
 })
 
@@ -1008,5 +1042,46 @@ describe('the status line', () => {
     const line = status({ compacting: true }, 16)
     expect(line).toContain('compacting')
     expect(displayWidth(line)).toBeLessThanOrEqual(16)
+  })
+})
+
+describe('the composer viewport follows the cursor both ways', () => {
+  it('scrolls the window upward as the cursor climbs', async () => {
+    const composer = typed(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
+    const view = createComposerView(composer, '/w/repo')
+    const top = () => view.render(40, 24).join('\n')
+    expect(top()).toContain('line 39')
+    // Climb most of the way up; the window must show earlier lines, not stay put.
+    for (let i = 0; i < 35; i += 1) composer.moveUp(composerInner(40), (line: number) => composerGutter(line, 40))
+    const after = top()
+    expect(after).toContain('line 4')
+    expect(after).not.toContain('line 39')
+    // And the cursor's own row is inside the drawn window.
+    const placement = view.cursor?.(40, 24)
+    expect(placement?.row).toBeGreaterThan(0)
+    expect(placement?.row).toBeLessThan(view.render(40, 24).length)
+  })
+})
+
+describe('a very large pasted prompt', () => {
+  it('stays a bounded viewport and keeps the cursor on the drawn text', async () => {
+    // The pathological case this change is about: thousands of lines pasted at
+    // once. The live region must stay capped, and the cursor must still land on
+    // the character a person sees.
+    const composer = typed(Array.from({ length: 3000 }, (_, i) => `pasted line ${String(i)}`).join('\n'))
+    const emulator = createEmulator(COLUMNS, 24)
+    const screen = new Screen(emulator.target)
+    const view = createComposerView(composer, '/w/repo')
+    const rows = view.render(COLUMNS, 24)
+    const placement = view.cursor?.(COLUMNS, 24)
+    expect(rows.filter(row => row !== '')).toHaveLength(COMPOSER_FRAME_ROWS)
+    expect(rows.join('\n')).toContain('pasted line 2999')
+    const cell = await emulator.cell(placement?.column ?? 0, placement?.row ?? 0)
+    screen.setLive(rows, placement)
+    expect(screen.height).toBeLessThanOrEqual(24)
+    // The cursor sits on the line it would overwrite next, which is the end of
+    // the buffer — a cell that is part of the final line's text region.
+    expect(stripAnsi(rows[placement?.row ?? 0] ?? '')).toContain('pasted line 2999')
+    expect(cell).toBeDefined()
   })
 })

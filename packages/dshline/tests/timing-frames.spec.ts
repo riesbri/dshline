@@ -297,8 +297,9 @@ describe('the timing live panel on a real terminal', () => {
     frame.draw()
     expect(frame.screen.height).toBeLessThanOrEqual(5)
     const joined = (await visible(frame.emulator)).join('\n')
-    // Scrolled, not lost: the elision count says what the window gave up.
-    expect(joined).toContain('+29 rows')
+    // Scrolled, not lost: the elision count names the direction the window gave
+    // up, so a reader knows `↑` reaches the rest of the paste.
+    expect(joined).toContain('↑ 29')
     expect(joined).toContain('no turn measured yet')
     expect(joined).toContain('ready')
   })

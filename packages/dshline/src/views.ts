@@ -178,6 +178,24 @@ export function createComposerView(
   const escapedLabel = escapeControls(label)
 
   /**
+   * A layout result kept for one (document, cursor, width) triple.
+   *
+   * `TuiSlots.compose` asks a view for `render()` and then `cursor()` with the
+   * same geometry and the same composer state, and both need the wrapped rows —
+   * without this the whole buffer is laid out twice per frame. The key holds the
+   * TEXT and the cursor POSITION, not just one of them: the cursor's row and
+   * column are part of what is cached, so keying on the text alone would hand a
+   * stale placement to the first frame after a cursor move. A cursor move that
+   * does not also re-render therefore misses, which is correct — what the entry
+   * reuses is the wrap of an unchanged document for the pair that shares a frame.
+   * One entry, because a frame uses one geometry and a map keyed by width would
+   * grow without bound across a resize.
+   */
+  let memo:
+    | { text: string; columns: number; at: number; rows: readonly string[]; row: number; column: number }
+    | undefined
+
+  /**
    * Every rendered row of the buffer, and which of them holds the cursor.
    *
    * Rows are CHUNKED at the width rather than wrapped at spaces, and that choice is
@@ -199,7 +217,13 @@ export function createComposerView(
    * @returns the rows and the cursor's row and column within them.
    */
   const layout = (columns: number): { rows: readonly string[]; row: number; column: number } => {
+    const text = composer.value
+    const at = composer.position
+    if (memo !== undefined && memo.text === text && memo.columns === columns && memo.at === at) {
+      return { rows: memo.rows, row: memo.row, column: memo.column }
+    }
     const found = layoutComposer(composer, composerInner(columns), line => composerGutter(line, columns))
+    memo = { text, columns, at, rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
     return { rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
   }
 
@@ -208,19 +232,44 @@ export function createComposerView(
    * @param all - every wrapped row of the buffer.
    * @param row - the cursor's row within them.
    * @param maximum - most content rows the current live-region budget permits.
-   * @returns the visible rows and how many were scrolled past above them.
+   * @returns the visible rows, how many were scrolled past above them, and how
+   *   many remain below — the two figures the overflow indicator reports.
    */
   const window = (
     all: readonly string[],
     row: number,
     maximum = COMPOSER_ROWS,
-  ): { rows: readonly string[]; offset: number } => {
+  ): { rows: readonly string[]; offset: number; below: number } => {
     const visible = Math.max(1, Math.min(COMPOSER_ROWS, maximum))
-    if (all.length <= visible) return { rows: all, offset: 0 }
+    if (all.length <= visible) return { rows: all, offset: 0, below: 0 }
     // Keep the cursor's row in view, preferring to show what follows it: a person
     // pasting or typing is working at the end.
     const offset = Math.min(all.length - visible, Math.max(0, row - visible + 1))
-    return { rows: all.slice(offset, offset + visible), offset }
+    return { rows: all.slice(offset, offset + visible), offset, below: all.length - offset - visible }
+  }
+
+  /**
+   * The frame title, with an honest count of what the viewport hides.
+   *
+   * The old title said only `+37 rows`, which cannot tell a reader whether the
+   * cursor is near the start of a paste or stranded at its end — the two cases
+   * want opposite arrows. A direction is only named when there is something that
+   * way, so a draft scrolled to its top reads as the plain workspace name and
+   * `↑` visibly means history. The string is handed to `rootFrame`, whose border
+   * arithmetic truncates from the RIGHT, so `↑` is written first: the upward
+   * direction is the one that falls through to history, and it is the reading a
+   * narrow terminal can least afford to lose. Both are shown whenever they fit.
+   * @param hiddenAbove - rows scrolled off the top of the viewport.
+   * @param hiddenBelow - rows the viewport does not reach beneath it.
+   * @returns the painted title for the frame's top border.
+   */
+  const frameTitle = (hiddenAbove: number, hiddenBelow: number): string => {
+    const label = paint(escapedLabel, 'composer-title')
+    const parts: string[] = []
+    if (hiddenAbove > 0) parts.push(`↑ ${String(hiddenAbove)}`)
+    if (hiddenBelow > 0) parts.push(`↓ ${String(hiddenBelow)}`)
+    if (parts.length === 0) return label
+    return `${label} ${paint(parts.join(' '), 'muted')}`
   }
 
   /**
@@ -257,14 +306,16 @@ export function createComposerView(
 
   /**
    * The composer laid out directly against the terminal's width, with no
-   * frame around it. See {@link layout} for the framed equivalent.
+   * frame around it.
+   *
+   * `composerInner` already collapses to the physical width below the chrome
+   * floor, so this is the same layout the framed branch builds; going through
+   * {@link layout} is what shares ONE computation between the fallback's render
+   * and its cursor placement instead of laying the buffer out twice.
    * @param columns - the terminal's current width.
    * @returns the rows and the cursor's row and column within them.
    */
-  const narrowLayout = (columns: number): { rows: readonly string[]; row: number; column: number } => {
-    const found = layoutComposer(composer, composerInner(columns), line => composerGutter(line, columns))
-    return { rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
-  }
+  const narrowLayout = layout
 
   /** Rows outside the composer's own content in the fallback: no borders, just the optional separator. */
   const NARROW_FIXED_ROWS = 1
@@ -311,13 +362,10 @@ export function createComposerView(
       // The timer and status are persistent when enabled, so a tall paste gives
       // up composer history rather than pushing either below the physical screen.
       const shown = window(rows, row, contentBudget(terminalRows))
-      const hidden = rows.length - shown.rows.length
       const framed = rootFrame({
         width: composerFrameWidth(columns),
         columns,
-        context: hidden > 0
-          ? `${paint(escapedLabel, 'composer-title')} ${paint(`+${String(hidden)} rows`, 'muted')}`
-          : paint(escapedLabel, 'composer-title'),
+        context: frameTitle(shown.offset, shown.below),
         body: shown.rows,
       })
       // The same shed rule as the empty frame, so the cursor's own arithmetic in
@@ -328,6 +376,10 @@ export function createComposerView(
       if (columns < CHROME_MIN_COLUMNS) {
         const { rows: every, row, column } = narrowLayout(columns)
         const shown = window(every, row, narrowContentBudget(rows))
+        // No frame is drawn here, so the layout's own column is already the
+        // terminal column: it counts the gutter, and adding the framed branch's
+        // border would push the caret two cells past a terminal that may not even
+        // have two columns.
         return { row: narrowContentRowOffset(rows) + row - shown.offset, column }
       }
       if (composer.isEmpty) return { row: contentRowOffset(rows), column: 2 + displayWidth(PROMPT) }
