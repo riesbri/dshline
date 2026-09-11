@@ -161,7 +161,7 @@ describe('TuiSlots.pushOverlay', () => {
     expect(dispose).toHaveBeenCalledTimes(1)
   })
 
-  it('surfaces an invalidation failure without masking the earlier rollback failures', () => {
+  it('surfaces a rollback invalidation failure without masking the earlier failures', () => {
     const ctx = new Context()
     const slots = new TuiSlots(ctx)
     const mountFailure = new Error('mount failed')
@@ -182,6 +182,55 @@ describe('TuiSlots.pushOverlay', () => {
 
     expect(thrown).toBeInstanceOf(AggregateError)
     expect((thrown as AggregateError).errors).toEqual([mountFailure, disposeFailure, invalidateFailure])
+    expect(slots.activeOverlay).toBeUndefined()
+  })
+
+  it('rolls back the registration when the initial redraw throws before the disposer exists', async () => {
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    const invalidateFailure = new Error('redraw failed')
+    let renders = 0
+    ctx.on('tui/render', () => {
+      renders += 1
+      // Only the initial registration redraw fails; the rollback redraw is the
+      // listener's second call and must still run.
+      if (renders === 1) throw invalidateFailure
+    })
+    const dispose = vi.fn()
+    const view = overlay({ render: () => ['mounted'], dispose })
+
+    expect(() => slots.pushOverlay(view)).toThrow(invalidateFailure)
+    expect(slots.activeOverlay).toBeUndefined()
+    expect(slots.compose(40, 8).lines).not.toContain('mounted')
+    expect(dispose).toHaveBeenCalledTimes(1)
+
+    await ctx.fiber.dispose()
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(renders).toBe(2)
+  })
+
+  it('orders initial-invalidation, disposal, and rollback-invalidation failures', () => {
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    const initialFailure = new Error('initial redraw failed')
+    const disposeFailure = new Error('dispose failed')
+    const rollbackFailure = new Error('rollback redraw failed')
+    let renders = 0
+    ctx.on('tui/render', () => {
+      renders += 1
+      throw renders === 1 ? initialFailure : rollbackFailure
+    })
+    const bad = overlay({ dispose: () => { throw disposeFailure } })
+
+    let thrown: unknown
+    try {
+      slots.pushOverlay(bad)
+    } catch (error: unknown) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError)
+    expect((thrown as AggregateError).errors).toEqual([initialFailure, disposeFailure, rollbackFailure])
     expect(slots.activeOverlay).toBeUndefined()
   })
 })
