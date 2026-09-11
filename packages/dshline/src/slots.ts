@@ -144,13 +144,54 @@ export class TuiSlots extends Service {
 
   /**
    * Mount an overlay on top of the stack, taking over rendering and input.
+   *
+   * The registration this call makes is transactional: a `mounted()` hook that
+   * throws, or the initial redraw it requests, removes this overlay again and
+   * disposes it once, so the failed overlay's registration is rolled back
+   * before the failure propagates. Side effects the hook performs on its own —
+   * pushing another overlay, for instance — are their own registrations and
+   * outside this contract. The overlay is removed by identity BEFORE its
+   * disposal runs, so a throwing disposer cannot leave it registered for
+   * teardown to dispose a second time.
    * @param overlay - the overlay to mount.
    * @returns the disposer unmounting it; safe to call more than once.
+   * @throws the `mounted()` or initial-invalidation failure, or an
+   *   `AggregateError` carrying it with any rollback disposal or invalidation
+   *   failure.
    */
   pushOverlay(overlay: TuiOverlay): () => void {
     this.overlays.push(overlay)
-    overlay.mounted?.()
-    this.invalidate()
+    try {
+      overlay.mounted?.()
+      this.invalidate()
+    } catch (registrationError: unknown) {
+      // Found by identity rather than popped: a `mounted()` hook may have
+      // pushed another overlay before throwing, so this one is not assumed to
+      // be the last entry. This matches the disposer below.
+      const index = this.overlays.indexOf(overlay)
+      if (index >= 0) this.overlays.splice(index, 1)
+      // Disposal and the rollback invalidation both run even when the other
+      // fails, and neither may displace the registration failure as the one
+      // reported first.
+      const failures: unknown[] = [registrationError]
+      try {
+        overlay.dispose?.()
+      } catch (error: unknown) {
+        failures.push(error)
+      }
+      // Invalidate after rollback so the remaining overlay stack or the
+      // composed slots are authoritative again.
+      try {
+        this.invalidate()
+      } catch (error: unknown) {
+        failures.push(error)
+      }
+      if (failures.length === 1) throw registrationError
+      // `SessionScope` rethrows only the first of several teardown failures,
+      // but here that would hide a cleanup or redraw failure the rollback ran,
+      // so all are carried, in primary → disposal → rollback-invalidation order.
+      throw new AggregateError(failures, 'overlay registration failed, and its rollback also failed')
+    }
     return () => {
       const index = this.overlays.indexOf(overlay)
       if (index < 0) return
