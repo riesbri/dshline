@@ -75,6 +75,11 @@ export const CAPABILITY_PROBES = [
     note: 'real sessionStats projection and dshline performance fold over synthetic Session events; provider streaming/tool logging is outside the probe',
   },
   {
+    name: 'turnOutline',
+    files: ['packages/dshline/tests/turns.spec.ts'],
+    note: 'real `@deepseek-ai/dsh-session-turn-outline` unit over a real Session store and projection registry, plus dshline outline/inspection presentation over that cut; no transcript paging, fork, or Web transport is claimed',
+  },
+  {
     name: 'workflows',
     files: ['packages/dshline/tests/capability/workflow.probe.spec.ts'],
     note: 'real abstract WorkflowEngine dispatch and dshline Work observation over local event fixtures; no concrete backend, script, or child run',

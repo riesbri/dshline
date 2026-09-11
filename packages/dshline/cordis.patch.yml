@@ -41,6 +41,23 @@
     - id: session-stats
       name: '@deepseek-ai/dsh-session-stats'
 
+# The whole-log turn outline `/turns` reads (the `turnOutline` projection key).
+# Each entry carries the Harness-assigned turn number, that turn's `turn/start`
+# seq, and bounded prompt/response previews folded from the complete durable
+# log — including a resumed session this process never watched.
+#
+# Host-plane and unconditional, for exactly the reason above: it is a pure fold
+# over the session log, model-invisible, and keyed by session rather than by
+# agent, so an agent preset is the wrong owner and would register the same unit
+# once per mounted preset. `dsh-base` does not carry this row, so a plain TUI or
+# headless assembly serves no `turnOutline` key at all. A profile that drops it
+# keeps everything else: `/turns` says in one line that this composition mounts
+# no turn outline, rather than folding the log a second time — a second
+# transcript model would be a second authority to disagree with.
+- insert:
+    - id: session-turn-outline
+      name: '@deepseek-ai/dsh-session-turn-outline'
+
 # The authorization seam (`ctx.authorization`): the flows that OBTAIN a
 # credential by asking a human, which is the half of provider setup no
 # settings document can supply. `/connect` reads it, and reading it is the

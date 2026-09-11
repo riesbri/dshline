@@ -210,6 +210,57 @@ describe('cordis.patch.yml: the session-stats row', () => {
 })
 
 /**
+ * `/turns` reads Harness's `turnOutline` projection, and `dsh-base` does not
+ * mount the unit that registers it — a plain TUI assembly serves no such key.
+ * This bundle inserts it host-plane, beside `session-stats`, for the same
+ * reasons: a pure session-keyed fold that is model-invisible and must not be a
+ * function of which preset a session happens to run. `/turns` degrades honestly
+ * without it — see `turns.spec.ts` — so dropping the row leaves a working
+ * terminal.
+ */
+describe('cordis.patch.yml: the session-turn-outline row', () => {
+  function findRow(patch: readonly PatchEntry[]): { readonly id: string; readonly name: string; readonly disabled?: unknown; readonly config?: unknown } {
+    const row = patch.flatMap(entry => entry.insert ?? []).find(candidate => candidate.id === 'session-turn-outline')
+    if (row === undefined) throw new Error('session-turn-outline row not found')
+    return row
+  }
+
+  it('inserts the official Harness package, not a dshline equivalent', () => {
+    expect(findRow(loadPatch()).name).toBe('@deepseek-ai/dsh-session-turn-outline')
+  })
+
+  it('mounts it unconditionally, with no capability probe and no configuration', () => {
+    const row = findRow(loadPatch())
+    expect(row.disabled).toBeUndefined()
+    // The unit takes no options; a config block here would be dshline inventing
+    // a knob upstream does not define.
+    expect(row.config).toBeUndefined()
+  })
+
+  it('keeps it host-plane rather than behind an agent preset', () => {
+    const patch = loadPatch()
+    expect(EXPECTED_DISABLED).not.toContain('session-turn-outline')
+    expect(disabledIds(patch)).not.toContain('session-turn-outline')
+  })
+
+  it('ships the package its own row names as a real dependency', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as {
+      dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      optionalDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, unknown>
+    }
+    const name = findRow(loadPatch()).name
+    expect(manifest.dependencies?.[name]).toBe(HARNESS_VERSION)
+    expect(manifest.peerDependencies?.[name]).toBeUndefined()
+    expect(manifest.devDependencies?.[name]).toBeUndefined()
+    expect(manifest.optionalDependencies?.[name]).toBeUndefined()
+    expect(manifest.peerDependenciesMeta?.[name]).toBeUndefined()
+  })
+})
+
+/**
  * The `standard` preset's `tool-subagent` row opts into
  * `modelSelectionSettings: true`, which needs
  * `@deepseek-ai/dsh-tool-subagent/model-selection-settings` mounted

@@ -39,6 +39,7 @@
     "@deepseek-ai/dsh-atomic-write": "0.1.5-rc.1",
     "@deepseek-ai/dsh-authorization": "0.1.5-rc.1",
     "@deepseek-ai/dsh-session-stats": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-session-turn-outline": "0.1.5-rc.1",
     "@deepseek-ai/schemastery": "^3.18.2",
     "@dshline/renderer": "workspace:^",
     "yaml": "^2.9.0"
