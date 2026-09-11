@@ -144,12 +144,48 @@ export class TuiSlots extends Service {
 
   /**
    * Mount an overlay on top of the stack, taking over rendering and input.
+   *
+   * Mounting is transactional: a `mounted()` that throws removes the overlay
+   * again and disposes it once, so the registry is left exactly as it was. The
+   * overlay is removed by identity BEFORE its disposal runs, so a throwing
+   * disposer cannot leave it registered for teardown to dispose a second time.
    * @param overlay - the overlay to mount.
    * @returns the disposer unmounting it; safe to call more than once.
+   * @throws the `mounted()` failure, or an `AggregateError` carrying it and the
+   *   rollback `dispose()` failure when both throw.
    */
   pushOverlay(overlay: TuiOverlay): () => void {
     this.overlays.push(overlay)
-    overlay.mounted?.()
+    try {
+      overlay.mounted?.()
+    } catch (mountError: unknown) {
+      // Found by identity rather than popped: a `mounted()` hook may have
+      // pushed another overlay before throwing, so this one is not assumed to
+      // be the last entry. This matches the disposer below.
+      const index = this.overlays.indexOf(overlay)
+      if (index >= 0) this.overlays.splice(index, 1)
+      let disposeError: unknown
+      let disposeFailed = false
+      try {
+        overlay.dispose?.()
+      } catch (error: unknown) {
+        disposeFailed = true
+        disposeError = error
+      }
+      // The rollback is complete before the failure propagates, so the runner
+      // redraws from the previous overlay or the composed slots.
+      this.invalidate()
+      if (disposeFailed) {
+        // `SessionScope` rethrows only the first of several teardown failures,
+        // which would hide a cleanup that a failed mount just ran. Both are
+        // carried instead; the mount error stays first as the primary one.
+        throw new AggregateError(
+          [mountError, disposeError],
+          'overlay mount failed, and its rollback disposal also failed',
+        )
+      }
+      throw mountError
+    }
     this.invalidate()
     return () => {
       const index = this.overlays.indexOf(overlay)
