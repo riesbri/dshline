@@ -4,9 +4,11 @@
  * An overlay owns the whole live region and every keystroke while it is mounted,
  * so a mount that fails must not leave it registered: the caller has been told
  * the mount failed, and a half-mounted overlay would otherwise keep composing
- * rows and consuming input. These tests drive the real registry rather than a
- * fake, because the invariant is about what context teardown and later
- * composition see in the registry's own stack.
+ * rows and consuming input. The rollback covers only the registration
+ * `pushOverlay` itself makes; an overlay a hook pushes on its own is a separate
+ * registration with its own lifecycle. These tests drive the real registry
+ * rather than a fake, because the invariant is about what context teardown and
+ * later composition see in the registry's own stack.
  * @module dshline/tests/slots
  */
 
@@ -63,7 +65,7 @@ describe('TuiSlots.pushOverlay', () => {
     expect(baseDispose).not.toHaveBeenCalled()
   })
 
-  it('invalidates after rollback so the previous region is authoritative', () => {
+  it('invalidates after rollback so the remaining stack is authoritative', () => {
     const ctx = new Context()
     const slots = new TuiSlots(ctx)
     slots.pushOverlay(overlay({ render: () => ['base'] }))
@@ -103,6 +105,42 @@ describe('TuiSlots.pushOverlay', () => {
     expect(slots.compose(40, 8).lines).toEqual(['base'])
   })
 
+  it('rolls back only the failed overlay when mounted() pushes another first', async () => {
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    const base = overlay({ render: () => ['base'] })
+    slots.pushOverlay(base)
+
+    const nestedDispose = vi.fn()
+    const nested = overlay({ render: () => ['nested'], dispose: nestedDispose })
+    const failedDispose = vi.fn()
+    let dismissNested: (() => void) | undefined
+    const failed = overlay({
+      render: () => ['failed'],
+      mounted: () => {
+        dismissNested = slots.pushOverlay(nested)
+        throw new Error('A failed')
+      },
+      dispose: failedDispose,
+    })
+
+    expect(() => slots.pushOverlay(failed)).toThrow('A failed')
+
+    // A naive `pop()` would have removed B and left A registered; the failed
+    // overlay is removed by identity instead.
+    expect(failedDispose).toHaveBeenCalledTimes(1)
+    expect(slots.activeOverlay).toBe(nested)
+    expect(slots.compose(40, 8).lines).toEqual(['nested'])
+
+    // B is a successful registration and keeps its own lifecycle.
+    dismissNested?.()
+    expect(slots.compose(40, 8).lines).toEqual(['base'])
+    expect(nestedDispose).toHaveBeenCalledTimes(1)
+
+    await ctx.fiber.dispose()
+    expect(failedDispose).toHaveBeenCalledTimes(1)
+  })
+
   it('surfaces both failures and still unregisters when rollback dispose throws', () => {
     const slots = new TuiSlots(new Context())
     const mountFailure = new Error('mount failed')
@@ -121,5 +159,29 @@ describe('TuiSlots.pushOverlay', () => {
     expect((thrown as AggregateError).errors).toEqual([mountFailure, disposeFailure])
     expect(slots.activeOverlay).toBeUndefined()
     expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces an invalidation failure without masking the earlier rollback failures', () => {
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    const mountFailure = new Error('mount failed')
+    const disposeFailure = new Error('dispose failed')
+    const invalidateFailure = new Error('redraw failed')
+    ctx.on('tui/render', () => { throw invalidateFailure })
+    const bad = overlay({
+      mounted: () => { throw mountFailure },
+      dispose: () => { throw disposeFailure },
+    })
+
+    let thrown: unknown
+    try {
+      slots.pushOverlay(bad)
+    } catch (error: unknown) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError)
+    expect((thrown as AggregateError).errors).toEqual([mountFailure, disposeFailure, invalidateFailure])
+    expect(slots.activeOverlay).toBeUndefined()
   })
 })

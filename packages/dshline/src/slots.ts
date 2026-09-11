@@ -145,14 +145,17 @@ export class TuiSlots extends Service {
   /**
    * Mount an overlay on top of the stack, taking over rendering and input.
    *
-   * Mounting is transactional: a `mounted()` that throws removes the overlay
-   * again and disposes it once, so the registry is left exactly as it was. The
+   * The registration this call makes is transactional: a `mounted()` hook that
+   * throws removes this overlay again and disposes it once, so the failed
+   * overlay's registration is rolled back before the failure propagates. Side
+   * effects the hook performs on its own — pushing another overlay, for
+   * instance — are their own registrations and outside this contract. The
    * overlay is removed by identity BEFORE its disposal runs, so a throwing
    * disposer cannot leave it registered for teardown to dispose a second time.
    * @param overlay - the overlay to mount.
    * @returns the disposer unmounting it; safe to call more than once.
-   * @throws the `mounted()` failure, or an `AggregateError` carrying it and the
-   *   rollback `dispose()` failure when both throw.
+   * @throws the `mounted()` failure, or an `AggregateError` carrying it with
+   *   any rollback disposal or invalidation failure.
    */
   pushOverlay(overlay: TuiOverlay): () => void {
     this.overlays.push(overlay)
@@ -164,27 +167,26 @@ export class TuiSlots extends Service {
       // be the last entry. This matches the disposer below.
       const index = this.overlays.indexOf(overlay)
       if (index >= 0) this.overlays.splice(index, 1)
-      let disposeError: unknown
-      let disposeFailed = false
+      // Disposal and invalidation both run even when the other fails, and
+      // neither may displace the mount failure as the one reported first.
+      const failures: unknown[] = [mountError]
       try {
         overlay.dispose?.()
       } catch (error: unknown) {
-        disposeFailed = true
-        disposeError = error
+        failures.push(error)
       }
-      // The rollback is complete before the failure propagates, so the runner
-      // redraws from the previous overlay or the composed slots.
-      this.invalidate()
-      if (disposeFailed) {
-        // `SessionScope` rethrows only the first of several teardown failures,
-        // which would hide a cleanup that a failed mount just ran. Both are
-        // carried instead; the mount error stays first as the primary one.
-        throw new AggregateError(
-          [mountError, disposeError],
-          'overlay mount failed, and its rollback disposal also failed',
-        )
+      // Invalidate after rollback so the remaining overlay stack or the
+      // composed slots are authoritative again.
+      try {
+        this.invalidate()
+      } catch (error: unknown) {
+        failures.push(error)
       }
-      throw mountError
+      if (failures.length === 1) throw mountError
+      // `SessionScope` rethrows only the first of several teardown failures,
+      // but here that would hide a cleanup or redraw failure the rollback ran,
+      // so all are carried, in mount → disposal → invalidation order.
+      throw new AggregateError(failures, 'overlay mount failed, and its rollback also failed')
     }
     this.invalidate()
     return () => {
