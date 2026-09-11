@@ -32,10 +32,12 @@ describe('layoutComposer()', () => {
     const composer = new Composer()
     composer.set('first line\nsecond line\nthird line')
     const layout = layoutComposer(composer, 80, GUTTER)
-    // Each logical line is one visual row here; aiming past the first row's end
-    // lands at its end (offset 10), and the second row starts after the newline.
+    // Each logical line is one visual row here. The column is a cell on the DRAWN
+    // line, so the two-column gutter comes first: a column past the first row's
+    // drawn end clamps to offset 10, and on the second row (which starts at 11)
+    // five drawn columns leave the gutter and reach three characters in.
     expect(layout.positionAt(0, 14)).toBe(10)
-    expect(layout.positionAt(1, 24)).toBe(22) // line 1 starts at 10 + newline + 11 chars
+    expect(layout.positionAt(1, 5)).toBe(14)
   })
 
   it('clamps an out-of-range column to the end of its own row, not beyond', () => {
@@ -43,7 +45,7 @@ describe('layoutComposer()', () => {
     composer.set('short\nthirteen-char')
     const layout = layoutComposer(composer, 80, GUTTER)
     // Aiming far past the short first row lands at its end (offset 5), and a
-    // later row keeps its own start — column 3 on row 1 is its own +1.
+    // later row keeps its own start — column 5 on row 1 is its own +5.
     expect(layout.positionAt(0, 999)).toBe(5)
     expect(layout.positionAt(1, 5)).toBe(9)
   })
@@ -61,9 +63,11 @@ describe('layoutComposer()', () => {
     composer.set('标准标准')
     const layout = layoutComposer(composer, 6, GUTTER)
     expect(layout.rows).toEqual(['› 标准', '标准'])
-    // Content budget is two wide characters per row. Aiming four columns down the
-    // top row lands after the first wide character — two columns in.
+    // The column is on the DRAWN line: cell 4 (two cells of gutter, then one
+    // wide character's two cells) falls after the first wide character, which is
+    // text offset 1. Aiming inside the gutter stays at the row's start.
     expect(layout.positionAt(0, 4)).toBe(1)
+    expect(layout.positionAt(0, 1)).toBe(0)
   })
 
   it('keeps an exact-width trailing row reachable after moving away from it', () => {
