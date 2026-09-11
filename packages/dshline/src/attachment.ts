@@ -93,6 +93,7 @@ import { cacheTransitionNote } from './cache/model.ts'
 import { createCachePresenter } from './cache/presenter.ts'
 import { contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
 import { createContextPresenter } from './context/presenter.ts'
+import { createTurnsPresenter } from './turns/presenter.ts'
 import { compactionNote } from './context/compaction.ts'
 import { bannerLines, composerGutter, composerInner, createComposerView, createStatusView } from './views.ts'
 import type { Window } from './window.ts'
@@ -543,6 +544,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     compact: runCompactCommand,
     invalidate: () => { ctx.tuiSlots.invalidate() },
   })
+  // `/turns` reads the same generic projection cut as Context, Cache, and
+  // Todos: the Harness `turnOutline` unit owns turn identity and previews, and
+  // this presenter only decides what bounded rows a terminal shows of them.
+  const turnsPresenter = createTurnsPresenter({
+    slots: ctx.tuiSlots,
+    snapshot: () => projections.snapshot(),
+    invalidate: () => { ctx.tuiSlots.invalidate() },
+  })
 
   const localCommands = new LocalCommandRegistry([
     {
@@ -716,6 +725,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     cachePresenter.command,
     contextPresenter.command,
+    turnsPresenter.command,
     {
       // Named for the key, unlike every other command here, because the key IS
       // the subject: the question a reader has is "what does enter do right

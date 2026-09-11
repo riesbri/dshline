@@ -57,6 +57,7 @@ native terminal
 | 日志派生的状态 | `ctx.sessionProjections` | 消费已注册的领域快照与变更。 |
 | 上下文占用 | `ctx.sessionProjections`（`contextPressure`、`contextBreakdown`、`tokenUsage`） | 读取 O(1) 折叠；绝不自行计数 token 或分词。 |
 | 会话统计 | `ctx.sessionProjections`（`sessionStats`） | 读取全日志计数与墙钟时间；除了对两个已发布总量做一次除法之外不再推导任何东西。将该单元视为可选。 |
+| 轮次大纲 | `ctx.sessionProjections`（`turnOutline`） | 读取 Harness 的轮次编号、每轮的 `turn/start` seq，以及有界的提示/响应预览。不保留轮次列表、不折叠事件，也绝不从预览推断某轮已完成——空预览是合法状态。将该单元视为可选。 |
 | 请求元数据 | `Session.requestHeader()` + `Session.requestContext()` | 为缓存/用量视图读取已记录的路由、工具计数，以及所记录路由的系统提示更新模式；不维护平行的 header。 |
 | 系统提示 | 持久的 `system/message` surface 节点 | 它是对话历史，不是请求元数据：用其他每个条目都在用的同一批权威把它当作 surface 条目来读，让它留在人类记录之外，并且不在 dshline 里保留任何自己的提示状态。 |
 | 逐条目的上下文组成 | `ctx.tokenMeter` | 只在检视器需要时索取逐节点测量；其自身约定称之为 O(surface)。 |

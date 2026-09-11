@@ -77,6 +77,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | log-derived state | `ctx.sessionProjections` | Consume registered domain snapshots and changes. |
 | context occupancy | `ctx.sessionProjections` (`contextPressure`, `contextBreakdown`, `tokenUsage`) | Read the O(1) folds; never count tokens or tokenize. |
 | session statistics | `ctx.sessionProjections` (`sessionStats`) | Read the whole-log counts and wall times; derive nothing beyond one division over two published totals. Treat the unit as optional. |
+| turn outline | `ctx.sessionProjections` (`turnOutline`) | Read Harness's turn number, each turn's `turn/start` seq, and the bounded prompt/response previews. Keep no turn list, fold no events, and never infer a completed turn from a preview — an empty preview is a valid state. Treat the unit as optional. |
 | request metadata | `Session.requestHeader()` + `Session.requestContext()` | Read the logged route and tool counts, and the recorded route's system-prompt update mode, for cache/usage views; do not maintain a parallel header. |
 | the system prompt | durable `system/message` surface nodes | It is conversation history, not request metadata: read it as a surface entry through the same authorities every other entry uses, keep it out of the human transcript, and hold no prompt state of dshline's own. |
 | context composition per entry | `ctx.tokenMeter` | Ask for the per-node measurement only when an inspector needs it; its own contract calls it O(surface). |

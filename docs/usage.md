@@ -121,7 +121,7 @@ The search covers this session's input only: your prompts and slash commands, th
 
 A long or multiline prompt is previewed around the line that matched, rather than by its first line, so you can see why a result is in the list. Pressing `ctrl-r` while a session is still being reopened is fine: the search says the history is still loading, and whatever you have typed resolves against it the moment it lands.
 
-Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/worktrees`, `/work`, `/todos`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
+Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/worktrees`, `/work`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
 
 ### Queue or steer
 
@@ -205,6 +205,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | `/sessions` | Browse, search, and reopen past sessions without leaving the window |
 | `/worktrees` | Choose a working directory your Harness session history represents, then a conversation there or a new one |
 | `/todos` | Open a bounded read-only view of the current Harness Todo list |
+| `/turns` | Open a bounded index of this session's turns; inspect one, and filter by turn number or preview text. `/turns <text>` opens pre-filtered |
 | `/skills` | Browse the skills available to the running agent, and put one in the prompt |
 | `/exit`, `/quit` | Leave, the same as `ctrl-d` |
 
@@ -1037,6 +1038,32 @@ the terminal only presents its current snapshot. `✓` is completed, `●` is in
 progress, and `○` is pending. Closing the overlay leaves native scrollback
 unchanged. A profile without session projections or the Todo projection remains
 usable and says which reading is unavailable.
+
+### Turns
+
+`/turns` opens a bounded index of this session's turns. Each row is one turn —
+its Harness-assigned number and the prompt or response preview Harness folded
+from the durable log. The transcript itself is never rewritten: native
+scrollback stays the transcript, and the outline is a view over Harness's
+`turnOutline` projection, not a second copy of the conversation.
+
+- `↑` / `↓` move the selection; `home` / `end` jump to the first or last turn.
+- `enter` opens a read-only view of the selected turn's authoritative prompt and
+  response previews.
+- `/` starts filtering. Matching is case-insensitive substring over the turn
+  number, the prompt preview, and the response preview; the selection follows
+  the turn rather than the row, so a live update or a filter change cannot move
+  your action onto another turn. `ctrl-u` clears the filter.
+- Inside the inspection view, `←` / `→` walk to the previous or next turn and
+  `↑` / `↓` scroll a long preview.
+- `esc` closes, or leaves the inspection view for the outline.
+
+Inspection is read-only. A turn's prompt or response preview can be empty — a
+turn can open with no eligible prompt, and a completed turn can carry no
+assistant text — so the surface says the preview is not recorded rather than
+guessing whether the turn is still running. Harness owns turn identity, the
+`turn/start` boundary, the previews, and the completed-turn fold, so a profile
+that mounts no turn outline says so; there is no fallback fold.
 
 ### Skills
 
