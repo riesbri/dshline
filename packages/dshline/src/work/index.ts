@@ -246,20 +246,35 @@ export class HarnessWork {
    * @param item - selected work item.
    */
   interrupt(item: JobWorkItem | SubagentWorkItem | WorkflowWorkItem): WorkInterruptResult {
-    const { agent, subagents } = this.capabilities
     // Job cancellation marks a record reported, changing model-delivery
     // semantics. `/work` observes jobs but must not recreate that control path.
     if (item.source === 'job') return { kind: 'unsupported', message: 'Jobs cannot be stopped from Work.' }
     // `ctx.workflowEngine` publishes `start()` alone: a run handle reaches only
     // its caller, so there is no authority here to cancel one from the terminal.
     if (item.source === 'workflow') return { kind: 'unsupported', message: 'Workflow runs cannot be stopped from Work.' }
+    return this.interruptSubagent(item.id, item.interruptible)
+  }
+
+  /**
+   * The ONE human interrupt adapter for an addressed durable direct child.
+   *
+   * Both `HarnessWork.interrupt` on an active epoch and the durable
+   * conversation inspector route here, so interruption keeps a single Dshline
+   * authorization point rather than two call sites that could drift.
+   * @param childId - durable child session id.
+   * @param authorized - the caller's decision that this child is interruptible;
+   *   only a continuable child's descriptor mode makes it true.
+   * @returns whether Harness accepted, rejected, or cannot interrupt the request.
+   */
+  interruptSubagent(childId: string, authorized: boolean): WorkInterruptResult {
+    const { agent, subagents } = this.capabilities
     try {
       // One-shot runs have no service-level interrupt operation. Pretending they
       // do would lie about a capability that only their holder owns.
-      if (subagents === undefined || !item.interruptible) {
+      if (subagents === undefined || !authorized) {
         return { kind: 'unsupported', message: 'This subagent cannot be interrupted here.' }
       }
-      subagents.interrupt(item.id as Parameters<SubagentRuntime['interrupt']>[0], {
+      subagents.interrupt(childId as Parameters<SubagentRuntime['interrupt']>[0], {
         kind: 'user', parentSessionId: agent.session.id,
       })
       this.capabilities.invalidate()

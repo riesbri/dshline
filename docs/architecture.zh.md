@@ -224,6 +224,25 @@ tool-workflow/* + workflow/*    → Workflows
 
 人工验证的 Codex 提供方是这些通用约定的验收证明，而不是直接的 dshline 集成。通过 `@deepseek-ai/dsh-subagent-claude-code`、`ctx.subagents` 与 `ctx.jobs` 的 Claude Code 是合乎逻辑的下一个目标，但尚未人工验证。两者以及未来提供方的必需路径记录在 [Provider 验收](provider-acceptance.md)。
 
+## 持久 subagent 对话：第四个适配器
+
+Work 呈现的是**开放的生命周期 epoch**。一个 continuable subagent 同时是一场持久对话，而最重要的情形恰恰是 epoch 无法展示的那一个：子级完成当前轮次、它的 epoch 结束，而用户仍想检视它并再发一条指令。把它塞进 `HarnessWork` 还会让 `activeWorkCount()`——那个决定能否让会话退役的闸门——把一个已结算的子级当作活动工作。
+
+因此 `/subagents` 是第二个窄适配器，拥有自己的 presenter，并以**持久子级会话 id** 而非生命周期 `runId` 为键：
+
+```
+ctx.subagents.listChildren   → durable direct-child catalog
+ctx.sessionQuery             → one child's bounded session window (no resume)
+ctx.subagents.prompt         → human queue / steer
+ctx.subagents.interrupt      → human interrupt (via HarnessWork.interruptSubagent)
+```
+
+发现使用 `listChildren(parentSessionId)`，其行都是 Harness 事实：持久 id、label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及该子级是否有子级。diagnostic 行被保留而非丢弃，因此损坏或不可读的候选会诚实降级。打开一个子级会通过 `ctx.sessionQuery.listEvents` 与一个有界的 `readEvent` 窗口读取它自己的日志，并用 Harness 的 `extractSessionEventText` 呈现每个事件；为了检视它，子级绝不会被恢复或发布，移动光标也绝不会读取 transcript。
+
+人类跟进是本前端必须谨慎选择调用哪个 Harness 操作的唯一之处。`SubagentRuntime.sendMessage(sender: Agent, …)` 是**模型撰写**的相邻 Agent 消息：它接受一个精确的存活 `Agent` 发送者并打上 `agent-message` 来源，所以终端调用它就是在冒充父 Agent。人类路径是 `ctx.subagents.prompt`，它携带持久的父/子地址、由客户端铸造的请求身份、人类 `kind: 'user'` 来源、`queue`/`steer` 选择、冷物化，以及一条被接受的 `MessageId` 回执。dshline 的 `HumanSubagentSeam` 是 `SubagentRuntime` 的一个只含 `listChildren` 与 `prompt` 的 `Pick`，因此伸手去拿 `sendMessage` 会在类型检查阶段失败，而不是被发布出去；一个能识别注释与字符串的源码扫描则为绕过类型转换提供兜底。
+
+接受与否由 Harness 决定，因此 `queue` 与 `steer` 的含义正是 Harness 定义的那样：排入稍后的一轮，或瞄准最近的 step（子级空闲时启动一轮）。终端不插入任何乐观行——消息只有当子级自己的会话日志记录它时才出现在其 transcript 中——而中断经由活动视图所用的同一个 `HarnessWork.interruptSubagent` 适配器，因此人类授权路径只有一条而不是两条。
+
 ## Sessions：一个语料库，两个生命周期
 
 Sessions 是第三个适配器，它只读取一个权威。`ctx.sessionQuery` 已经发布一个偏好活动的逻辑语料库，把 `ctx.sessions` 与任何已挂载的持久化合并，因此浏览器列出 `listSessions()` 记录，并用一次批量的 `readTitleSnapshots()` 观察折叠它们的标题。没有会话目录扫描、没有标题缓存、没有第二个索引；前端索引会在任一侧第一次变化时与语料库不一致。

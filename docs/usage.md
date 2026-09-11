@@ -121,7 +121,7 @@ The search covers this session's input only: your prompts and slash commands, th
 
 A long or multiline prompt is previewed around the line that matched, rather than by its first line, so you can see why a result is in the list. Pressing `ctrl-r` while a session is still being reopened is fine: the search says the history is still loading, and whatever you have typed resolves against it the moment it lands.
 
-Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/worktrees`, `/work`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
+Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/worktrees`, `/work`, `/subagents`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
 
 ### Queue or steer
 
@@ -198,6 +198,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | `/enter` | What plain `enter` does while a turn is running: `queue` or `steer`; bare asks. See [Queue or steer](#queue-or-steer) |
 | `/theme` | Choose the colour palette. Takes a name (`/theme ember`) or opens a picker |
 | `/work` | Open a bounded live view of active Harness workflows, subagents, and jobs |
+| `/subagents` | Browse this session's durable subagent conversations, inspect one without resuming it, and continue a continuable child. Also reachable with `c` from `/work` |
 | `/context` | Open a bounded view of what is occupying the model's context, and the largest entries in it |
 | `/cache` | Open a bounded read-only view of this session's provider cache accounting and the latest request header Harness recorded |
 | `/new` | Start a fresh session in the current workspace; the previous one remains reopenable when the active Harness profile provides session persistence |
@@ -920,6 +921,18 @@ workflow run has no control here at all, because `ctx.workflowEngine` hands a
 run handle only to the caller that started it. The status line's `work` segment
 counts what this overlay shows, so a child presented under its workflow is not
 also counted as a loose subagent there.
+
+Durable subagent conversations are a separate view from active work. `/work`
+lists only open lifecycle epochs, and a continuable child's epoch ends when it
+settles — so `/subagents`, or `c` from `/work`, opens Harness's durable
+direct-child discovery instead. Each row is a fact Harness published: the child
+id, its label, `one-shot` or `continuable`, session-store residency, and whether
+it has children. Opening one reads that child's own session log through
+`ctx.sessionQuery` without resuming the child, and a continuable child can
+receive a human follow-up (`m`), a steer (`s`), or an interrupt (`k`). A
+one-shot child is inspectable and read-only. Follow-up and steer use Harness's
+human prompt operation, so acceptance is Harness's own; the message appears in
+the child's transcript only when its session log says so.
 
 A row's mark says how much dshline actually knows about it:
 

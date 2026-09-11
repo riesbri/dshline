@@ -121,7 +121,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 长提示或多行提示会围绕匹配到的那一行预览，而不是只显示第一行，于是你能看出一条结果为什么在列表里。会话还在重新打开时按 `ctrl-r` 也没问题：搜索会说明历史仍在加载，你已经输入的内容会在历史到达的那一刻立即解析。
 
-重新打开会话会恢复保存的日志记录下的历史：每一条提示与每一条输入被记录的已解决斜杠命令。本界面自己处理的命令（`/image`、`/model`、`/reasoning`、`/usage`、`/timing`、`/enter`、`/new`、`/clear`、`/sessions`、`/worktrees`、`/work`、`/todos`、`/turns`、`/skills`、`/exit`、`/quit`）与打错的命令在会话打开期间被记住，但不会写入会话日志，因此恢复后不会重现。
+重新打开会话会恢复保存的日志记录下的历史：每一条提示与每一条输入被记录的已解决斜杠命令。本界面自己处理的命令（`/image`、`/model`、`/reasoning`、`/usage`、`/timing`、`/enter`、`/new`、`/clear`、`/sessions`、`/worktrees`、`/work`、`/subagents`、`/todos`、`/turns`、`/skills`、`/exit`、`/quit`）与打错的命令在会话打开期间被记住，但不会写入会话日志，因此恢复后不会重现。
 
 ### 排队还是导向
 
@@ -184,6 +184,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 | `/enter` | 一轮正在运行时普通 `enter` 的行为：`queue` 或 `steer`；裸命令则询问。见[排队还是导向](#排队还是导向) |
 | `/theme` | 选择颜色配色。接受一个名字（`/theme ember`）或打开选择器 |
 | `/work` | 打开活动 Harness 工作流、subagent 与任务的有界实时视图 |
+| `/subagents` | 浏览本会话持久的 subagent 对话，在不恢复子级的情况下检视其中一个，并继续一个 continuable 子级。也可以在 `/work` 中按 `c` 进入 |
 | `/context` | 打开一个有界视图，显示是什么在占用模型的上下文，以及其中最大的条目 |
 | `/cache` | 打开一个有界只读视图，显示本会话的提供方缓存计量，以及 Harness 记录的最新请求头 |
 | `/new` | 在当前工作区开始一个全新会话；当前激活的 Harness 配置文件提供会话持久化时，上一个会话仍可重新打开 |
@@ -635,6 +636,8 @@ No Harness session corpus is mounted in this profile.
 `/work` 打开一个临时有界浮层：dshline 对本会话中 Harness 正在运行什么的实时视图。配置文件挂载了通用 Harness `ctx.jobs` 与 `ctx.subagents` 能力时，它读取它们，再加上 `workflow` 工具写入本会话自己日志的工作流（workflow）记录；这两项能力都没有的配置文件仍然启动，浮层说明 Work 不可用。它绝不切换屏幕或重写会话记录，因此关闭它回到同一个原生终端滚动缓冲区。
 
 工作流、subagent 与任务保持独立分区，因为它们是彼此独立的 Harness 权威，而 dshline 不猜测两条能力记录描述同一个操作。它确实展示的那一条关系是发布出来的，而不是猜的：工作流成员携带它启动的 subagent 的 `childId`，因此那个子级出现在它的工作流之下，而不是在扁平的 Subagents 分区里第二次出现。任务仅限检视/状态；取消仍通过 Harness `job_kill` 供模型使用。工作流运行在这里完全没有控制手段，因为 `ctx.workflowEngine` 只把运行句柄交给启动它的调用方。状态行的 `work` 片段统计的正是这个浮层所显示的内容，因此呈现在工作流之下的子级不会在那里再被算作一个游离的 subagent。
+
+持久 subagent 对话是与活动工作分开的视图。`/work` 只列出开放的生命周期 epoch，而一个 continuable 子级的 epoch 会在它结算时结束——因此 `/subagents`（或在 `/work` 中按 `c`）打开的是 Harness 的持久直接子级发现。每一行都是 Harness 发布的事实：子级 id、其 label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及它是否有子级。打开其中一个会通过 `ctx.sessionQuery` 读取该子级自己的会话日志，而不恢复该子级；continuable 子级可以接收人类跟进（`m`）、steer（`s`）或中断（`k`）。one-shot 子级可检视且只读。跟进与 steer 使用 Harness 的人类提示操作，因此接受与否由 Harness 自己决定；消息只有当子级的会话日志如此记录时才出现在其 transcript（文本记录）中。
 
 行的标记说明 dshline 对它到底知道多少：
 
