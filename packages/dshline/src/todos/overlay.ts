@@ -1,23 +1,9 @@
 /** Bounded read-only terminal presentation of Harness Todo snapshots. */
 
-import type { Key } from '@dshline/renderer'
-import {
-  BOX_CHROME_COLUMNS,
-  displayWidth,
-  escapeControls,
-  paint,
-  truncateToWidth,
-  wrapToWidth,
-} from '@dshline/renderer'
-import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
+import { escapeControls, paint, truncateToWidth } from '@dshline/renderer'
+import { createBoundedSurface } from '../surface.ts'
 import type { TuiOverlay } from '../slots.ts'
 import type { TodoReading } from './model.ts'
-
-/** Leading blank and two frame borders outside normal Todo content. */
-const TODO_FIXED_ROWS = 3
-
-/** Smallest width whose framed Todo list can remain one physical row per item. */
-const TODO_MIN_COLUMNS = BOX_CHROME_COLUMNS + 10
 
 /** Inputs the read-only Todo overlay needs from the runner. */
 export interface TodoOverlaySpec {
@@ -33,43 +19,13 @@ export interface TodoOverlaySpec {
  * @returns a live-region overlay that never writes the transcript.
  */
 export function createTodoOverlay(spec: TodoOverlaySpec): TuiOverlay {
-  let closed = false
-  const close = (): void => {
-    if (closed) return
-    closed = true
-    spec.close()
-  }
-  return {
-    render(columns, terminalRows = 24) {
-      const reading = spec.reading()
-      if (terminalRows <= TODO_FIXED_ROWS || columns < TODO_MIN_COLUMNS) {
-        return compactFallback(reading, columns, terminalRows)
-      }
-      const width = chromeWidth(columns)
-      const inner = width - BOX_CHROME_COLUMNS
-      const capacity = terminalRows - TODO_FIXED_ROWS
-      if (capacity <= 0) return compactFallback(reading, columns, terminalRows)
-      const content = contentRows(reading, inner, capacity)
-      const frame = [
-        '',
-        ...rootFrame({
-          columns,
-          context: paint('Todos', 'overlay-title'),
-          body: content,
-          footer: fitFooterHelp('esc close', footerBudget(columns)),
-        }),
-      ]
-      // Frame labels and escape-safe text are still logical lines. Screen wraps
-      // those lines, so verify the physical candidate rather than assuming it fits.
-      return physicalRows(frame, columns).length <= terminalRows
-        ? frame
-        : compactFallback(reading, columns, terminalRows)
-    },
-    handleKey(key: Key) {
-      if (key.kind !== 'key') return
-      if (key.name === 'escape' || key.name === 'ctrl-c') close()
-    },
-  }
+  return createBoundedSurface<TodoReading>({
+    reading: spec.reading,
+    title: () => 'Todos',
+    body: (reading, width, capacity) => contentRows(reading, width, capacity),
+    compact: reading => compactSummary(reading),
+    close: spec.close,
+  })
 }
 
 /** Turn a small projection state into as many bounded one-row list entries as fit. */
@@ -111,35 +67,20 @@ function safeTodoContent(content: string): string {
   return escapeControls(content).replaceAll('\n', '^J')
 }
 
-/** Count the physical rows Screen will draw for a candidate live region. */
-function physicalRows(lines: readonly string[], columns: number): string[] {
-  return lines.flatMap(line => wrapToWidth(line, Math.max(1, columns)))
-}
-
-/** A closable answer for a terminal too small to safely draw the frame. */
-function compactFallback(reading: TodoReading, columns: number, rows: number): string[] {
-  if (rows <= 0) return []
-  const summary = compactSummary(reading)
-  // A compact fallback has one row, so it must choose a whole truthful phrase.
-  // Cutting `esc close` into `esc cl` says neither what happened nor how to leave.
-  const visible = [summary, 'esc close', 'esc'].find(candidate => displayWidth(candidate) <= columns)
-  return visible === undefined ? [] : [paint(visible, 'overlay-headline')]
-}
-
 /** Describe the current projection reading without exposing any model-authored text. */
 function compactSummary(reading: TodoReading): string {
   switch (reading.kind) {
     case 'projections-unavailable':
-      return 'Todos unavailable · esc close'
+      return 'Todos unavailable'
     case 'unregistered':
-      return 'Todo unavailable · esc close'
+      return 'Todo unavailable'
     case 'none':
-      return 'No active todos · esc close'
+      return 'No active todos'
     case 'empty':
-      return 'Todo list empty · esc close'
+      return 'Todo list empty'
     case 'list': {
       const completed = reading.items.filter(item => item.status === 'completed').length
-      return `Todos ${String(completed)}/${String(reading.items.length)} · esc close`
+      return `Todos ${String(completed)}/${String(reading.items.length)}`
     }
   }
 }

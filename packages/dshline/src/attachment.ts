@@ -89,10 +89,10 @@ import {
   usageInspection,
 } from './usage.ts'
 import { createUsageOverlay } from './usage-overlay.ts'
-import { cacheInspection, cacheTransitionNote, requestHeaderReading, routeContextReading } from './cache/model.ts'
-import { createCacheOverlay } from './cache/overlay.ts'
-import { contextPreview, contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
-import { createContextOverlay } from './context/overlay.ts'
+import { cacheTransitionNote } from './cache/model.ts'
+import { createCachePresenter } from './cache/presenter.ts'
+import { contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
+import { createContextPresenter } from './context/presenter.ts'
 import { compactionNote } from './context/compaction.ts'
 import { bannerLines, composerGutter, composerInner, createComposerView, createStatusView } from './views.ts'
 import type { Window } from './window.ts'
@@ -100,9 +100,10 @@ import { createHarnessWork } from './work/index.ts'
 import { createWorkOverlay } from './work/overlay.ts'
 import { activeWorkCount, workSummary } from './work/model.ts'
 import { SessionProjectionObserver } from './projections/observer.ts'
+import { openSurface } from './surface.ts'
 import { goalReading } from './goals/model.ts'
 import { todoReading, todoSummary } from './todos/model.ts'
-import { createTodoOverlay } from './todos/overlay.ts'
+import { createTodosPresenter } from './todos/presenter.ts'
 import { SkillCatalog } from './skills/catalog.ts'
 import { slashCandidates } from './skills/model.ts'
 import { pendingUserInput } from './steering.ts'
@@ -514,6 +515,35 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     }).catch(report)
   }
 
+  // Capability presenters own their command, their bounded surface, and the
+  // translation from Harness facts to terminal rows. `attachSession` wires each
+  // once and hands it only the readers it needs, so a capability's presentation
+  // can change without this function learning anything new.
+  const todosPresenter = createTodosPresenter({
+    slots: ctx.tuiSlots,
+    snapshot: () => projections.snapshot(),
+  })
+  const cachePresenter = createCachePresenter({
+    slots: ctx.tuiSlots,
+    session: agent.session,
+    snapshot: () => projections.snapshot(),
+  })
+  const contextPresenter = createContextPresenter({
+    slots: ctx.tuiSlots,
+    session: agent.session,
+    snapshot: () => projections.snapshot(),
+    survey: () => surveyor.read(),
+    // The SELECTED route's window, which is what the next request will be
+    // measured against; the projection's own last-recorded capacity is the
+    // fallback for a session whose route metadata never resolved.
+    capacity: () => w.modelInfo.contextWindow,
+    // A live getter, not a snapshot: a scoped composition change while the
+    // overlay is open repaints the footer before the next keystroke.
+    canCompact: compactRegistered,
+    compact: runCompactCommand,
+    invalidate: () => { ctx.tuiSlots.invalidate() },
+  })
+
   const localCommands = new LocalCommandRegistry([
     {
       name: 'image',
@@ -676,65 +706,16 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         }
         // A bounded live-region overlay like Work and Todos: it disappears on
         // close and never rewrites the transcript underneath it.
-        let dismiss = (): void => {}
-        const overlay = createUsageOverlay({
+        openSurface(ctx.tuiSlots, close => createUsageOverlay({
           inspection: () => usageInspection(projections.snapshot(), usage.reading),
           mode: () => prefs.usageMode,
           chooseDisplay: () => { chooseUsageDisplay() },
-          close: () => dismiss(),
-        })
-        dismiss = ctx.tuiSlots.pushOverlay(overlay)
+          close,
+        }))
       },
     },
-    {
-      name: 'cache',
-      description: "Inspect how this session's prompt cache is behaving",
-      execute: () => {
-        // Read-only, like `/context` and `/todos`: a cache inspector invites an
-        // optimization gesture, and control over a route is not this overlay's
-        // to offer. One bounded live region, closed with esc, transcript intact.
-        let dismiss = (): void => {}
-        const overlay = createCacheOverlay({
-          // One projection cut per paint, the same one `/usage` reads, so the
-          // two inspectors cannot report different buckets for one moment. The
-          // two records beside it are Harness's own accessors, read the same way
-          // — no state of this frontend's own stands behind any figure, and no
-          // fact recorded before the newest header survives into the report.
-          inspection: () => cacheInspection(
-            projections.snapshot(),
-            requestHeaderReading(agent.session),
-            routeContextReading(agent.session),
-          ),
-          close: () => dismiss(),
-        })
-        dismiss = ctx.tuiSlots.pushOverlay(overlay)
-      },
-    },
-    {
-      name: 'context',
-      description: "Inspect what is occupying the model's context right now",
-      execute: () => {
-        // Temporary live-region chrome, like Work: the committed transcript
-        // under it is never rewritten, and closing leaves scrollback intact.
-        let dismiss = (): void => {}
-        const overlay = createContextOverlay({
-          reading: () => contextReading(projections.snapshot()),
-          survey: () => surveyor.read(),
-          preview: seq => contextPreview(agent.session, seq),
-          // The SELECTED route's window, which is what the next request will be
-          // measured against; the projection's own last-recorded capacity is the
-          // fallback for a session whose route metadata never resolved.
-          capacity: () => w.modelInfo.contextWindow,
-          // A live getter, not a snapshot: a scoped composition change while the
-          // overlay is open repaints the footer before the next keystroke.
-          canCompact: compactRegistered,
-          compact: runCompactCommand,
-          close: () => dismiss(),
-          invalidate: () => { ctx.tuiSlots.invalidate() },
-        })
-        dismiss = ctx.tuiSlots.pushOverlay(overlay)
-      },
-    },
+    cachePresenter.command,
+    contextPresenter.command,
     {
       // Named for the key, unlike every other command here, because the key IS
       // the subject: the question a reader has is "what does enter do right
@@ -788,30 +769,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       execute: () => {
         // Like the tool inspector, Work is temporary live-region chrome. It
         // disappears on close and never rewrites the transcript it covered.
-        let dismiss = (): void => {}
-        const overlay = createWorkOverlay({
+        openSurface(ctx.tuiSlots, close => createWorkOverlay({
           snapshot: () => work.snapshot(),
           interrupt: item => work.interrupt(item),
-          close: () => dismiss(),
+          close,
           invalidate: () => { ctx.tuiSlots.invalidate() },
-        })
-        dismiss = ctx.tuiSlots.pushOverlay(overlay)
+        }))
       },
     },
-    {
-      name: 'todos',
-      description: 'Inspect the current Harness todo list',
-      execute: () => {
-        // Opening a temporary terminal overlay is frontend-local, not a
-        // Harness-wide command or any Todo-domain mutation.
-        let dismiss = (): void => {}
-        const overlay = createTodoOverlay({
-          reading: () => todoReading(projections.snapshot()),
-          close: () => dismiss(),
-        })
-        dismiss = ctx.tuiSlots.pushOverlay(overlay)
-      },
-    },
+    todosPresenter.command,
     {
       name: 'setup',
       description: 'Check this installation and walk from a provider to a working model',
@@ -1791,15 +1757,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const openHistorySearch = (): void => {
     completion.invalidate()
     const search = new HistorySearch(history)
-    let dismiss = (): void => {}
-    const overlay = createHistorySearchOverlay({
+    openSurface(ctx.tuiSlots, close => createHistorySearchOverlay({
       search,
       // A resume seeds history from the log the replay is already reading, so
       // `ctrl-r` during one has to say "still arriving" rather than "nothing here".
       loading: () => replaying !== undefined,
       invalidate: () => { ctx.tuiSlots.invalidate() },
       settle: index => {
-        dismiss()
+        close()
         // Who owns the buffer and the arrows next is the same question
         // `routeInputKey` answers per keystroke, so it is answered in the same
         // place: a recalled line owns the arrows until it is edited or
@@ -1810,8 +1775,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         if (!reopen) return
         completion.refresh().then(draw).catch(report)
       },
-    })
-    dismiss = ctx.tuiSlots.pushOverlay(overlay)
+    }))
     draw()
   }
 
@@ -2007,8 +1971,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           // `current` is the only mutable part: the overlay moves it through the
           // retained history, and every read below follows it.
           let current = inspectable
-          let dismiss = (): void => {}
-          const overlay = createToolOutputOverlay({
+          openSurface(ctx.tuiSlots, close => createToolOutputOverlay({
             title: 'Tool output',
             // A retained entry is either a completed result or a still-pending
             // call's own content (see `InspectableCard`): the label follows
@@ -2029,10 +1992,9 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
               current = newer
               return true
             },
-            close: () => dismiss(),
+            close,
             invalidate: () => { ctx.tuiSlots.invalidate() },
-          })
-          dismiss = ctx.tuiSlots.pushOverlay(overlay)
+          }))
           return
         }
         // Finished cards are in the terminal's own scrollback and are never

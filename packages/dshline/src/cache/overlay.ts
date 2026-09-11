@@ -21,27 +21,12 @@
  * @module dshline/cache/overlay
  */
 
-import type { Key } from '@dshline/renderer'
-import {
-  BOX_CHROME_COLUMNS,
-  displayWidth,
-  escapeControls,
-  formatTokens,
-  paint,
-  truncateToWidth,
-  wrapToWidth,
-} from '@dshline/renderer'
-import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
+import { escapeControls, formatTokens, paint, truncateToWidth, wrapToWidth } from '@dshline/renderer'
+import { createBoundedSurface } from '../surface.ts'
 import type { TuiOverlay } from '../slots.ts'
 import { formatCacheShare } from '../usage.ts'
 import type { CacheInspection, RequestHeaderReading, RouteContextReading } from './model.ts'
 import { hasCacheReads } from './model.ts'
-
-/** Rows outside the body: the leading blank and the two frame borders. */
-const CACHE_FIXED_ROWS = 3
-
-/** Minimum width whose framed report keeps one physical row per fact. */
-const CACHE_MIN_COLUMNS = BOX_CHROME_COLUMNS + 10
 
 /**
  * Widest label plus its gap, so every value starts in one column.
@@ -88,37 +73,13 @@ export interface CacheOverlaySpec {
  * @returns a live-region overlay that never writes the transcript.
  */
 export function createCacheOverlay(spec: CacheOverlaySpec): TuiOverlay {
-  let closed = false
-  const close = (): void => {
-    if (closed) return
-    closed = true
-    spec.close()
-  }
-  return {
-    render(columns, terminalRows = 24) {
-      const inspection = spec.inspection()
-      const fallback = (): string[] => compactFallback(inspection, columns, terminalRows)
-      if (terminalRows <= CACHE_FIXED_ROWS || columns < CACHE_MIN_COLUMNS) return fallback()
-      const width = chromeWidth(columns)
-      const inner = width - BOX_CHROME_COLUMNS
-      const candidate = [
-        '',
-        ...rootFrame({
-          columns,
-          context: paint('Cache', 'overlay-title'),
-          body: bodyRows(inspection, inner),
-          footer: fitFooterHelp('esc close', footerBudget(columns)),
-        }),
-      ]
-      // The frame wraps what it is given. Count the rows Screen will draw, so a
-      // too-tall report falls back instead of leaking one into scrollback.
-      return physicalRows(candidate, columns).length <= terminalRows ? candidate : fallback()
-    },
-    handleKey(key: Key) {
-      if (key.kind !== 'key') return
-      if (key.name === 'escape' || key.name === 'ctrl-c') close()
-    },
-  }
+  return createBoundedSurface<CacheInspection>({
+    reading: spec.inspection,
+    title: () => 'Cache',
+    body: (inspection, width) => bodyRows(inspection, width),
+    compact: inspection => compactSummary(inspection),
+    close: spec.close,
+  })
 }
 
 /**
@@ -273,28 +234,14 @@ function fact(label: string, value: string, width: number): string {
 }
 
 /**
- * Count the physical rows Screen will draw for a candidate live region.
- * @param lines - candidate logical lines.
- * @param columns - the terminal's width.
- * @returns the physical rows.
- */
-function physicalRows(lines: readonly string[], columns: number): string[] {
-  return lines.flatMap(candidate => wrapToWidth(candidate, Math.max(1, columns)))
-}
-
-/**
- * A closable answer for a terminal too small to hold the frame safely.
+ * The one-row truth about cache reads.
+ *
+ * A share is named only when Harness reported cache reads; otherwise the route's
+ * silence is reported as `unreported` rather than as a zero it never claimed.
  * @param inspection - the current reading.
- * @param columns - the terminal's width.
- * @param rows - the terminal's height.
- * @returns at most one row.
+ * @returns the summary phrase, without the shared close suffix.
  */
-function compactFallback(inspection: CacheInspection, columns: number, rows: number): string[] {
-  if (rows <= 0) return []
+function compactSummary(inspection: CacheInspection): string {
   const share = hasCacheReads(inspection) ? formatCacheShare(inspection.cacheReadShare) : undefined
-  const summary = `cache read ${share ?? 'unreported'} · esc close`
-  // One row carries a whole truthful phrase or none of it: a cut figure is
-  // worse than no figure, and the way out matters more than either.
-  const visible = [summary, 'esc close', 'esc'].find(candidate => displayWidth(candidate) <= columns)
-  return visible === undefined ? [] : [paint(visible, 'overlay-headline')]
+  return `cache read ${share ?? 'unreported'}`
 }
