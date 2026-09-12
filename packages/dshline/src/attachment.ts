@@ -100,6 +100,7 @@ import type { Window } from './window.ts'
 import { createHarnessWork } from './work/index.ts'
 import { createWorkOverlay } from './work/overlay.ts'
 import { activeWorkCount, workSummary } from './work/model.ts'
+import { createSubagentsPresenter } from './subagents/presenter.ts'
 import { SessionProjectionObserver } from './projections/observer.ts'
 import { openSurface } from './surface.ts'
 import { goalReading } from './goals/model.ts'
@@ -277,6 +278,36 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // snapshots; it neither starts work nor owns its output cursor.
   const work = createHarnessWork(ctx, agent, () => { ctx.tuiSlots.invalidate() })
   scope.own(() => { work.dispose() })
+  // Durable subagent conversations are a SEPARATE presenter from active Work:
+  // Work owns open lifecycle epochs keyed by `runId`, while a settled
+  // continuable child is still a durable conversation. This presenter reads the
+  // generic subagent and session-query seams and inspects/continues; interrupt
+  // stays on `/work`, where an open epoch is the stronger premise.
+  const subagents = ctx.get('subagents')
+  const sessionQuery = ctx.get('sessionQuery')
+  const subagentsPresenter = createSubagentsPresenter({
+    slots: ctx.tuiSlots,
+    parentSessionId: agent.session.id,
+    invalidate: () => { ctx.tuiSlots.invalidate() },
+    ...subagents === undefined ? {} : { subagents },
+    ...sessionQuery === undefined ? {} : { query: sessionQuery },
+    // Subscribed only when the feature can actually be used: a profile without
+    // `ctx.subagents` has no catalog to refresh and no child to mark stale.
+    ...subagents === undefined ? {} : {
+      onLifecycle: listener => {
+        // `agent.ctx` is the parent-scoped carrier Harness routes lifecycle
+        // edges through. A test or an unusual composition may not have attached
+        // one, and a missing carrier means no scoped edge to observe.
+        const scoped = agent.ctx as typeof agent.ctx | undefined
+        if (scoped === undefined) return () => {}
+        const offStart = scoped.on('subagent/start', () => { listener() })
+        const offEnd = scoped.on('subagent/end', () => { listener() })
+        return () => { offStart(); offEnd() }
+      },
+      onSessionEvent: listener => ctx.on('session/event', session => { listener(String(session.id)) }),
+    },
+  })
+  scope.own(() => { subagentsPresenter.dispose() })
   // Reassigned once completion exists: a catalog change has to reach both the
   // frame and any menu already standing over it, and the menu is built below
   // out of this very catalog.
@@ -726,6 +757,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     cachePresenter.command,
     contextPresenter.command,
     turnsPresenter.command,
+    subagentsPresenter.command,
     {
       // Named for the key, unlike every other command here, because the key IS
       // the subject: the question a reader has is "what does enter do right
@@ -782,6 +814,9 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         openSurface(ctx.tuiSlots, close => createWorkOverlay({
           snapshot: () => work.snapshot(),
           interrupt: item => work.interrupt(item),
+          // Offered exactly while the generic subagent seam is mounted, so a
+          // profile without it never advertises a drawer it cannot open.
+          ...subagents === undefined ? {} : { conversations: () => { subagentsPresenter.open() } },
           close,
           invalidate: () => { ctx.tuiSlots.invalidate() },
         }))

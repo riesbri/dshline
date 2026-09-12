@@ -1,11 +1,55 @@
 /**
  * A bounded window over physical rendered rows.
  *
- * Rendering owns what a row means; this class owns only which contiguous rows
+ * Rendering owns what a row means; this module owns only which contiguous rows
  * are visible. Keeping those concerns apart lets modal documents, lists, and
  * future views share the same resize-safe position rules.
  * @module dshline/scroll
  */
+
+/** One cursor-following window over rendered rows. */
+export interface RowWindow {
+  /** The visible rows, at most the effective capacity. */
+  readonly rows: readonly string[]
+  /** How many rendered rows were scrolled past above the window. */
+  readonly offset: number
+  /** How many rendered rows remain below the window. */
+  readonly below: number
+}
+
+/**
+ * Window rendered rows so the cursor's row stays visible.
+ *
+ * This is ONE policy shared by the primary composer and the bounded subagent
+ * message overlay. It keeps the cursor's row in view and prefers to show what
+ * follows it, because a person typing or pasting works at the end: the window
+ * is pinned to the bottom until the cursor rises into it, then follows the
+ * cursor upward. Keeping it here is what makes the two editors agree without
+ * the renderer learning what a cursor is.
+ *
+ * `maximum` is the budget the current geometry grants and `cap` is the caller's
+ * own absolute ceiling; the effective window is the smaller of the two. A
+ * caller with only a geometry budget passes no `cap`. A capacity of zero still
+ * yields one row when there are rows to show, so a short terminal degrades to a
+ * single line rather than an empty body; callers that must draw nothing at a
+ * zero budget slice the result themselves.
+ * @param rows - every rendered row, in draw order.
+ * @param cursorRow - the cursor's row index within `rows`.
+ * @param maximum - most rows the current geometry can draw.
+ * @param cap - the caller's own absolute limit, or unlimited when omitted.
+ * @returns the visible slice and the counts scrolled past above and below it.
+ */
+export function cursorWindow(
+  rows: readonly string[],
+  cursorRow: number,
+  maximum: number,
+  cap: number = Number.POSITIVE_INFINITY,
+): RowWindow {
+  const visible = Math.max(1, Math.min(cap, maximum, rows.length))
+  if (rows.length <= visible) return { rows, offset: 0, below: 0 }
+  const offset = Math.min(rows.length - visible, Math.max(0, cursorRow - visible + 1))
+  return { rows: rows.slice(offset, offset + visible), offset, below: rows.length - offset - visible }
+}
 
 /** A scroll position over a sequence of rendered rows. */
 export class RowViewport {

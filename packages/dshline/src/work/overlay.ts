@@ -111,6 +111,13 @@ export interface WorkOverlaySpec {
   readonly snapshot: () => WorkSnapshot
   /** Ask Harness to interrupt one row where it exposes that authority. */
   readonly interrupt: (item: WorkItem) => WorkInterruptResult
+  /**
+   * Open the durable subagent-conversation catalog, when `ctx.subagents` is
+   * mounted. The catalog belongs to a separate presenter: Work hands off and
+   * keeps no durable conversation state of its own, and this is absent exactly
+   * when that authority is.
+   */
+  readonly conversations?: () => void
   /** Remove this overlay from the live region. */
   readonly close: () => void
   /** Redraw after selection, a result, or a timer tick. */
@@ -302,7 +309,7 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
             '',
             ...built.slice(viewport.start, viewport.end).map(row => paintRow(row, frame().focus.current)),
           ],
-          footer: fitFooterHelp(stageHelp(frame().stage, aimed, subject()), footerBudget(columns)),
+          footer: fitFooterHelp(stageHelp(frame().stage, aimed, subject(), spec.conversations !== undefined), footerBudget(columns)),
         }),
       ]
       // The root frame wraps its content, including short-state text a caller may not
@@ -336,6 +343,13 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
           notice = { text: result.message, failed: result.kind === 'failed', expiresAt: Date.now() + NOTICE_MS }
         }
         spec.invalidate()
+        return
+      }
+      // The durable conversation catalog lives in its own presenter. Work only
+      // hands the keyboard over: it keeps no child list, no transcript, and no
+      // message buffer of its own. The key exists exactly while the drawer does.
+      if (key.kind === 'text' && key.text === 'c' && spec.conversations !== undefined) {
+        spec.conversations()
         return
       }
       if (key.kind !== 'key') return
@@ -862,11 +876,17 @@ function fitSegments(name: string, segments: readonly RowSegment[], width: numbe
 }
 
 /** The help truthful for this stage, the focused row, and the current authority. */
-function stageHelp(stage: Stage, focused: StageRow | undefined, item: WorkItem | undefined): string {
+function stageHelp(
+  stage: Stage,
+  focused: StageRow | undefined,
+  item: WorkItem | undefined,
+  conversations: boolean,
+): string {
   const interrupt = item?.source === 'subagent' && item.interruptible ? ' · k interrupt' : ''
   const enter = focused?.open === undefined ? '' : ' · ↵ inspect'
+  const catalog = conversations ? ' · c conversations' : ''
   const exit = stage.kind === 'list' ? ' · esc close' : ' · esc back'
-  return `↑↓ select${enter}${interrupt}${exit}`
+  return `↑↓ select${enter}${interrupt}${catalog}${exit}`
 }
 
 /** Count the physical terminal rows the Screen will use for candidate lines. */

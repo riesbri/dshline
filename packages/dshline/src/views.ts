@@ -28,6 +28,7 @@ import { CHROME_MIN_COLUMNS, chromeWidth, composerFrameWidth, rootFrame } from '
 import type { BusyEnter } from './delivery.ts'
 import { DEFAULT_BUSY_ENTER } from './delivery.ts'
 import type { TuiSlotView } from './slots.ts'
+import { cursorWindow } from './scroll.ts'
 import type { GoalReading } from './goals/model.ts'
 import type { PendingUserInput } from './steering.ts'
 
@@ -229,6 +230,10 @@ export function createComposerView(
 
   /**
    * The rows to draw, scrolled so the cursor's row is visible.
+   *
+   * The policy itself lives in {@link cursorWindow}, shared with the bounded
+   * subagent message overlay; this wrapper only supplies the composer's own
+   * fixed live-region cap on top of the budget `compose()` granted.
    * @param all - every wrapped row of the buffer.
    * @param row - the cursor's row within them.
    * @param maximum - most content rows the current live-region budget permits.
@@ -239,14 +244,8 @@ export function createComposerView(
     all: readonly string[],
     row: number,
     maximum = COMPOSER_ROWS,
-  ): { rows: readonly string[]; offset: number; below: number } => {
-    const visible = Math.max(1, Math.min(COMPOSER_ROWS, maximum))
-    if (all.length <= visible) return { rows: all, offset: 0, below: 0 }
-    // Keep the cursor's row in view, preferring to show what follows it: a person
-    // pasting or typing is working at the end.
-    const offset = Math.min(all.length - visible, Math.max(0, row - visible + 1))
-    return { rows: all.slice(offset, offset + visible), offset, below: all.length - offset - visible }
-  }
+  ): { rows: readonly string[]; offset: number; below: number } =>
+    cursorWindow(all, row, maximum, COMPOSER_ROWS)
 
   /**
    * The frame title, with an honest count of what the viewport hides.

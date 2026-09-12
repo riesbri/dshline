@@ -71,6 +71,7 @@ dshline 通过标准 Harness 能力进行集成，而不是编写提供方专用
 - `/sessions` — 浏览并恢复 Harness 会话
 - `/worktrees` — 选择你的 Harness 会话历史中有代表的工作目录，然后选择那里的一场对话或开一场新的
 - `/work` — 查看工作流、subagent 与任务
+- `/subagents` — 浏览本会话持久的 subagent 对话、检视其中一个，并继续一个 continuable 子级；也可以在 `/work` 中按 `c` 进入
 - `/connect` — 通过 Harness 配置提供方
 - `/plugins` — 浏览、搜索并定制运行中 agent 的 Harness 预设组合
 - `/profiles` — 浏览 Harness 配置文件及各自组合的 bundle；安装、更新或移除其中之一
