@@ -929,10 +929,11 @@ direct-child discovery instead. Each row is a fact Harness published: the child
 id, its label, `one-shot` or `continuable`, session-store residency, and whether
 it has children. Opening one reads that child's own session log through
 `ctx.sessionQuery` without resuming the child, and a continuable child can
-receive a human follow-up (`m`), a steer (`s`), or an interrupt (`k`). A
-one-shot child is inspectable and read-only. Follow-up and steer use Harness's
-human prompt operation, so acceptance is Harness's own; the message appears in
-the child's transcript only when its session log says so.
+receive a human follow-up (`m`) or a steer (`s`). A one-shot child is
+inspectable and read-only. Follow-up and steer use Harness's human prompt
+operation, so acceptance is Harness's own; the message appears in the child's
+transcript only when its session log says so. Interrupt stays on `/work`, where
+an open lifecycle epoch proves there is a turn to cancel.
 
 A row's mark says how much dshline actually knows about it:
 

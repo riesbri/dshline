@@ -637,7 +637,7 @@ No Harness session corpus is mounted in this profile.
 
 工作流、subagent 与任务保持独立分区，因为它们是彼此独立的 Harness 权威，而 dshline 不猜测两条能力记录描述同一个操作。它确实展示的那一条关系是发布出来的，而不是猜的：工作流成员携带它启动的 subagent 的 `childId`，因此那个子级出现在它的工作流之下，而不是在扁平的 Subagents 分区里第二次出现。任务仅限检视/状态；取消仍通过 Harness `job_kill` 供模型使用。工作流运行在这里完全没有控制手段，因为 `ctx.workflowEngine` 只把运行句柄交给启动它的调用方。状态行的 `work` 片段统计的正是这个浮层所显示的内容，因此呈现在工作流之下的子级不会在那里再被算作一个游离的 subagent。
 
-持久 subagent 对话是与活动工作分开的视图。`/work` 只列出开放的生命周期 epoch，而一个 continuable 子级的 epoch 会在它结算时结束——因此 `/subagents`（或在 `/work` 中按 `c`）打开的是 Harness 的持久直接子级发现。每一行都是 Harness 发布的事实：子级 id、其 label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及它是否有子级。打开其中一个会通过 `ctx.sessionQuery` 读取该子级自己的会话日志，而不恢复该子级；continuable 子级可以接收人类跟进（`m`）、steer（`s`）或中断（`k`）。one-shot 子级可检视且只读。跟进与 steer 使用 Harness 的人类提示操作，因此接受与否由 Harness 自己决定；消息只有当子级的会话日志如此记录时才出现在其 transcript（文本记录）中。
+持久 subagent 对话是与活动工作分开的视图。`/work` 只列出开放的生命周期 epoch，而一个 continuable 子级的 epoch 会在它结算时结束——因此 `/subagents`（或在 `/work` 中按 `c`）打开的是 Harness 的持久直接子级发现。每一行都是 Harness 发布的事实：子级 id、其 label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及它是否有子级。打开其中一个会通过 `ctx.sessionQuery` 读取该子级自己的会话日志，而不恢复该子级；continuable 子级可以接收人类跟进（`m`）或 steer（`s`）。one-shot 子级可检视且只读。跟进与 steer 使用 Harness 的人类提示操作，因此接受与否由 Harness 自己决定；消息只有当子级的会话日志如此记录时才出现在其 transcript（文本记录）中。中断保留在 `/work`，那里一个开放的生命周期 epoch 证明存在可取消的一轮。
 
 行的标记说明 dshline 对它到底知道多少：
 

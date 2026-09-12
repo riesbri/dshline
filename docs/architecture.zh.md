@@ -234,14 +234,15 @@ Work 呈现的是**开放的生命周期 epoch**。一个 continuable subagent �
 ctx.subagents.listChildren   → durable direct-child catalog
 ctx.sessionQuery             → one child's bounded session window (no resume)
 ctx.subagents.prompt         → human queue / steer
-ctx.subagents.interrupt      → human interrupt (via HarnessWork.interruptSubagent)
 ```
 
-发现使用 `listChildren(parentSessionId)`，其行都是 Harness 事实：持久 id、label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及该子级是否有子级。diagnostic 行被保留而非丢弃，因此损坏或不可读的候选会诚实降级。打开一个子级会通过 `ctx.sessionQuery.listEvents` 与一个有界的 `readEvent` 窗口读取它自己的日志，并用 Harness 的 `extractSessionEventText` 呈现每个事件；为了检视它，子级绝不会被恢复或发布，移动光标也绝不会读取 transcript。
+发现使用 `listChildren(parentSessionId)`，其行都是 Harness 事实：持久 id、label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及该子级是否有子级。diagnostic 行被保留而非丢弃，因此损坏或不可读的候选会诚实降级。打开一个子级会通过 `ctx.sessionQuery.listEvents` 与一个有界的 `readEvent` 窗口读取它自己的日志，并用 Harness 的 `extractSessionEventText` 呈现每个事件；为了检视它，子级绝不会被恢复或发布，移动光标也绝不会读取 transcript。向前翻页会**替换**该窗口而不是向其追加，因此无论读者回溯多远，检视器最多只保留一页完整事件正文；轻量级的 seq 索引是元数据，不是正文。
 
 人类跟进是本前端必须谨慎选择调用哪个 Harness 操作的唯一之处。`SubagentRuntime.sendMessage(sender: Agent, …)` 是**模型撰写**的相邻 Agent 消息：它接受一个精确的存活 `Agent` 发送者并打上 `agent-message` 来源，所以终端调用它就是在冒充父 Agent。人类路径是 `ctx.subagents.prompt`，它携带持久的父/子地址、由客户端铸造的请求身份、人类 `kind: 'user'` 来源、`queue`/`steer` 选择、冷物化，以及一条被接受的 `MessageId` 回执。dshline 的 `HumanSubagentSeam` 是 `SubagentRuntime` 的一个只含 `listChildren` 与 `prompt` 的 `Pick`，因此伸手去拿 `sendMessage` 会在类型检查阶段失败，而不是被发布出去；一个能识别注释与字符串的源码扫描则为绕过类型转换提供兜底。
 
-接受与否由 Harness 决定，因此 `queue` 与 `steer` 的含义正是 Harness 定义的那样：排入稍后的一轮，或瞄准最近的 step（子级空闲时启动一轮）。终端不插入任何乐观行——消息只有当子级自己的会话日志记录它时才出现在其 transcript 中——而中断经由活动视图所用的同一个 `HarnessWork.interruptSubagent` 适配器，因此人类授权路径只有一条而不是两条。
+接受与否由 Harness 决定，因此 `queue` 与 `steer` 的含义正是 Harness 定义的那样：排入稍后的一轮，或瞄准最近的 step（子级空闲时启动一轮）。终端不插入任何乐观行——消息只有当子级自己的会话日志记录它时才出现在其 transcript 中。
+
+持久检视器刻意**不提供中断**。`listChildren()` 报告的是会话存储驻留状态，而不是某一轮正在执行的证明；Harness 的 `interrupt()` 会把不存在或已结算的目标当作被接受的空操作，因此在这里提供该动作可能宣称一次从未发生的中断。中断保留在 `/work`，那里有一个开放的生命周期 epoch 作为更强的前提，并经由其既有的人类适配器执行。
 
 ## Sessions：一个语料库，两个生命周期
 

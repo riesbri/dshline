@@ -281,8 +281,8 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // Durable subagent conversations are a SEPARATE presenter from active Work:
   // Work owns open lifecycle epochs keyed by `runId`, while a settled
   // continuable child is still a durable conversation. This presenter reads the
-  // generic subagent and session-query seams, and interruption is delegated to
-  // `work.interruptSubagent` so the terminal keeps one human interrupt path.
+  // generic subagent and session-query seams and inspects/continues; interrupt
+  // stays on `/work`, where an open epoch is the stronger premise.
   const subagents = ctx.get('subagents')
   const sessionQuery = ctx.get('sessionQuery')
   const subagentsPresenter = createSubagentsPresenter({
@@ -291,7 +291,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     invalidate: () => { ctx.tuiSlots.invalidate() },
     ...subagents === undefined ? {} : { subagents },
     ...sessionQuery === undefined ? {} : { query: sessionQuery },
-    interrupt: (childId, authorized) => work.interruptSubagent(childId, authorized),
     // Subscribed only when the feature can actually be used: a profile without
     // `ctx.subagents` has no catalog to refresh and no child to mark stale.
     ...subagents === undefined ? {} : {

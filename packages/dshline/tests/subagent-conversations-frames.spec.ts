@@ -13,7 +13,7 @@ import { Screen, stripAnsi } from '@dshline/renderer'
 import type { Key } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { SurfaceNotice } from '../src/surface.ts'
-import { createSubagentCatalogOverlay, createSubagentConversationOverlay } from '../src/subagents/overlay.ts'
+import { createSubagentCatalogOverlay, createSubagentConversationOverlay, createSubagentMessageOverlay } from '../src/subagents/overlay.ts'
 import type { SubagentChildRow } from '../src/subagents/model.ts'
 import type { SubagentTranscriptReading } from '../src/subagents/transcript.ts'
 
@@ -44,11 +44,9 @@ function inspector(): ReturnType<typeof createSubagentConversationOverlay> {
     reading,
     followUp: true,
     steer: true,
-    interruptible: true,
     loadOlder: () => {},
     refresh: () => {},
     message: () => {},
-    interrupt: () => {},
     notice: new SurfaceNotice(1_000),
     close: () => {},
     invalidate: () => {},
@@ -113,5 +111,74 @@ describe('subagent conversation frames on a real terminal', () => {
     expect(visible).toContain('Subagent conversations')
     expect(visible).toContain('review')
     expect(screen.height).toBeLessThanOrEqual(8)
+  })
+})
+
+/**
+ * The code points a terminal in an ambiguous-width mode can advance two cells
+ * for while Dshline measures one. The #202 bug was exactly this on the
+ * composer's top border; these surfaces must not reproduce it on the footer.
+ */
+const DIRECTIONAL_ARROWS = [0x2191, 0x2193] as const
+
+/** Assert one surface keeps a bounded, stable frame on the widening terminal. */
+async function assertStableFrame(
+  columns: number,
+  overlay: { render(columns: number, rows?: number): readonly string[] },
+): Promise<void> {
+  const emulator = createEmulator(columns, 12, { wideCodePoints: DIRECTIONAL_ARROWS })
+  const screen = new Screen(emulator.target)
+  const redraw = (): void => { screen.setLive(overlay.render(columns, 12)) }
+  // Identical redraws are the drift probe: a border the terminal wraps adds a
+  // physical row `Screen` does not erase, so each redraw leaves one behind.
+  redraw()
+  const before = await emulator.scrollback()
+  redraw()
+  redraw()
+  const after = await emulator.scrollback()
+  expect(after).toEqual(before)
+  // One current frame, not a previous one the erase missed.
+  expect(after.filter(row => row.includes('╭─'))).toHaveLength(1)
+  // Exactly one bottom border, ending in its right corner: a wrapped border
+  // would leave a second `╰` row behind.
+  const bottom = after.filter(row => row.includes('╰'))
+  expect(bottom).toHaveLength(1)
+  expect(bottom[0]!.trimEnd().endsWith('╯')).toBe(true)
+  expect(screen.height).toBeLessThanOrEqual(12)
+  emulator.dispose()
+}
+
+describe('subagent surfaces on a terminal that widens the directional arrows', () => {
+  it('does not wrap the catalog footer or drift scrollback', async () => {
+    const overlay = createSubagentCatalogOverlay({
+      reading: () => ({
+        kind: 'ready',
+        rows: [
+          { kind: 'child', id: 'a', mode: 'continuable', residency: 'resident', hasChildren: false, label: 'alpha' },
+          { kind: 'child', id: 'b', mode: 'one-shot', residency: 'stored', hasChildren: false, label: 'beta' },
+        ],
+      }),
+      inspect: () => {},
+      refresh: () => {},
+      close: () => {},
+      invalidate: () => {},
+    })
+    await assertStableFrame(60, overlay)
+  })
+
+  it('does not wrap the inspector footer or drift scrollback', async () => {
+    await assertStableFrame(101, inspector())
+  })
+
+  it('does not wrap the message footer or drift scrollback', async () => {
+    const overlay = createSubagentMessageOverlay({
+      childLabel: 'review',
+      delivery: 'queue',
+      submit: async () => ({ kind: 'accepted', messageId: 'm-1' }),
+      onAccepted: () => {},
+      close: () => {},
+      invalidate: () => {},
+    })
+    await assertStableFrame(60, overlay)
   })
 })

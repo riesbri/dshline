@@ -10,9 +10,10 @@
  *
  * It is deliberately not a `Pick` of the whole runtime: `listDescendants` is
  * absent because this PR browses direct children only, and `interrupt` is
- * absent because human interruption already has one Dshline adapter
- * (`HarnessWork.interruptSubagent`) and a second call site would be a second
- * authorization path.
+ * absent because the durable view must not offer it — `listChildren().activity`
+ * is session-store residency, not proof a turn is executing, so a durable
+ * inspector cannot tell a real cancellation from Harness's accepted no-op.
+ * Interrupt stays on `/work`, where an open lifecycle epoch is the premise.
  *
  * The child-session read surface is likewise structural: only the two bounded
  * reads the inspector uses, never `readSession` (a whole-log read) and never a

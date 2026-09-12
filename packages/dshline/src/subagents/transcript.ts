@@ -144,15 +144,20 @@ export async function readTranscriptTail(
 }
 
 /**
- * Read one older page before the currently loaded window.
+ * Read one older page, replacing the currently loaded window.
  *
  * The index from {@link readTranscriptTail} locates the record immediately
  * before the window, so paging walks the log backwards without re-reading it.
+ * The read REPLACES the window rather than prepending to it: the module's
+ * contract is one bounded page of full bodies, and an accumulating window would
+ * let `[` grow presenter state to the whole child log. `r` returns to the newest
+ * page. The new window `[previous - (TRANSCRIPT_PAGE - 1) .. previous]` is
+ * disjoint from the old one, so no de-duplication is needed.
  * @param query - the bounded child-session read surface.
  * @param childId - the durable child session being inspected.
- * @param state - the currently loaded reader state.
+ * @param state - the currently loaded reader state, whose page is replaced.
  * @param signal - caller cancellation.
- * @returns the state with the older page prepended.
+ * @returns the state with the older page loaded in place of the current one.
  * @throws when the read fails; the caller keeps the loaded window and reports
  *   the failure as a notice rather than discarding history it already has.
  */
@@ -171,10 +176,12 @@ export async function readTranscriptOlder(
     { sessionId: childId, seq: previous.seq, before: TRANSCRIPT_PAGE - 1, after: 0 },
     signal,
   )
-  const older = window.events.filter(event => state.events.every(loaded => loaded.seq !== event.seq))
+  // A window with no bodies is a local inconsistency, not a page to publish as
+  // the whole conversation; keep what is loaded and stop offering older.
+  if (window.events.length === 0) return { ...state, hasOlder: false }
   return {
     ...state,
-    events: [...older, ...state.events],
+    events: window.events,
     startSeq: window.startSeq,
     hasOlder: state.index.some(record => record.seq < window.startSeq),
     stale: false,

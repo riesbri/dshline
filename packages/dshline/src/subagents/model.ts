@@ -132,19 +132,6 @@ export function subagentRowFollowUp(row: SubagentCatalogRow, promptAvailable: bo
 }
 
 /**
- * Whether a row may be interrupted.
- *
- * Interrupt authority is continuable-only, exactly as Work's active rows
- * already decide it. The actual authorization still belongs to Harness; this
- * only decides whether the terminal offers the action.
- * @param row - the row under the cursor.
- * @returns whether the interrupt action is offered.
- */
-export function subagentRowInterruptible(row: SubagentCatalogRow): boolean {
-  return row.kind === 'child' && row.mode === 'continuable'
-}
-
-/**
  * The one-line durability facts a catalog row shows.
  *
  * Order is deliberate: mode is what makes the row actionable, residency is a

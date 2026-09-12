@@ -26,7 +26,7 @@ import {
   truncateToWidth,
 } from '@dshline/renderer'
 import { FocusRing } from '../focus.ts'
-import { RowViewport } from '../scroll.ts'
+import { cursorWindow, RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
 import { createBoundedSurface, SurfaceNotice } from '../surface.ts'
 import type { HumanPromptDelivery, SubagentPromptOutcome } from './control.ts'
@@ -63,6 +63,9 @@ export const CONVERSATION_NOTICE_MS = 4_000
 
 /** How long a composer's refusal notice remains readable. */
 const MESSAGE_NOTICE_MS = 6_000
+
+/** The gutter every message-composer row is drawn and moved with. */
+const COMPOSER_GUTTER = '❯ '
 
 /** Inputs the durable-child catalog surface needs from its presenter. */
 export interface SubagentCatalogOverlaySpec {
@@ -104,7 +107,11 @@ export function createSubagentCatalogOverlay(spec: SubagentCatalogOverlaySpec): 
     reading: spec.reading,
     title: () => 'Subagent conversations',
     compact: reading => catalogCompact(reading),
-    footer: () => '↑↓ select · ↵ inspect · r refresh · esc back',
+    // ASCII direction letters, not `↑↓`: those are East Asian Ambiguous width,
+    // and a border label containing them makes the bottom border one physical
+    // row taller than `displayWidth` models, which leaves a stray corner in
+    // scrollback on every redraw (the #202 failure, on the footer this time).
+    footer: () => '^v select · enter inspect · r refresh · esc back',
     body: (reading, width, capacity) => {
       const lines = catalogLines(reading, width)
       focus.update(lines.flatMap(line => line.key === undefined ? [] : [line.key]), true)
@@ -171,16 +178,12 @@ export interface SubagentConversationOverlaySpec {
   readonly followUp: boolean
   /** Whether a human steer is authorized. */
   readonly steer: boolean
-  /** Whether the child may be interrupted. */
-  readonly interruptible: boolean
   /** Read one older page if the child has one. */
   readonly loadOlder: () => void
   /** Re-read the newest page. */
   readonly refresh: () => void
   /** Open the message composer with this delivery. */
   readonly message: (delivery: HumanPromptDelivery) => void
-  /** Interrupt the addressed child through the shared Work adapter. */
-  readonly interrupt: () => void
   /** The presenter-owned outcome notice. */
   readonly notice: SurfaceNotice
   /** Remove this temporary surface. */
@@ -221,9 +224,6 @@ export function createSubagentConversationOverlay(spec: SubagentConversationOver
             return
           case 's':
             if (spec.steer) spec.message('steer')
-            return
-          case 'k':
-            if (spec.interruptible) spec.interrupt()
             return
           case 'r':
             spec.refresh()
@@ -298,15 +298,35 @@ export function createSubagentMessageOverlay(spec: SubagentMessageOverlaySpec): 
   const notice = new SurfaceNotice(MESSAGE_NOTICE_MS)
   let pending = false
   let closed = false
+  /**
+   * The inner width of the last paint. `↑`/`↓` move the cursor by the SAME
+   * wrapped layout the rows were drawn from, so the movement needs the width
+   * the body was rendered at; a key before the first paint has nothing to move
+   * against and is ignored.
+   */
+  let lastWidth = 0
   return createBoundedSurface<{ readonly pending: boolean }>({
     reading: () => ({ pending }),
     title: () => `${spec.delivery === 'queue' ? 'Follow-up' : 'Steer'} · ${spec.childLabel}`,
     compact: () => spec.delivery === 'queue' ? 'Follow-up' : 'Steer',
     notice,
     footer: () => 'enter send · esc cancel',
-    body: (_reading, width, capacity) => composerBody(composer, width, capacity, spec.delivery),
+    body: (_reading, width, capacity) => {
+      lastWidth = width
+      return composerBody(composer, width, capacity, spec.delivery)
+    },
     onKey: key => {
       if (pending) return
+      // Vertical motion is not the editor's `handle`: the input router owns it,
+      // and it must use the layout the rows were drawn from so `↑`/`↓` land on
+      // the row the caret was drawn on. The window then follows the cursor.
+      if (key.kind === 'key' && (key.name === 'up' || key.name === 'down') && lastWidth > 0) {
+        const moved = key.name === 'up'
+          ? composer.moveUp(lastWidth, () => COMPOSER_GUTTER)
+          : composer.moveDown(lastWidth, () => COMPOSER_GUTTER)
+        if (moved) spec.invalidate()
+        return
+      }
       const action = composer.handle(key)
       if (action.kind === 'changed') {
         spec.invalidate()
@@ -458,36 +478,49 @@ function conversationHeader(
 function conversationHelp(spec: SubagentConversationOverlaySpec, reading: SubagentTranscriptReading): string {
   const older = reading.kind === 'ready' && reading.hasOlder ? ['[ older'] : []
   return [
-    '↑↓ scroll',
+    // ASCII, for the same ambiguous-width reason as the catalog footer.
+    '^v scroll',
     ...older,
     ...spec.followUp ? ['m message'] : [],
     ...spec.steer ? ['s steer'] : [],
-    ...spec.interruptible ? ['k interrupt'] : [],
     'r refresh',
     'esc back',
   ].join(' · ')
 }
 
-/** The composer's bounded body: a delivery hint, then the live draft. */
+/**
+ * The composer's bounded body: a delivery hint, then the live draft around its
+ * cursor.
+ *
+ * The row WINDOW is the same cursor-following policy the primary composer uses
+ * ({@link cursorWindow}), so a long or multiline draft scrolls with the cursor
+ * instead of always showing its first lines. The hint and its blank are fixed
+ * decoration OUTSIDE that window, exactly as the composer's separator and
+ * borders sit outside its content window: under height pressure decoration is
+ * surrendered before the editable row, so at least the cursor's own draft row
+ * survives.
+ */
 function composerBody(
   composer: Composer,
   width: number,
   capacity: number,
   delivery: HumanPromptDelivery,
 ): string[] {
+  if (capacity <= 0) return []
   const hint = delivery === 'queue'
     ? 'Queued as the child’s next turn.'
     : 'Steers the nearest step; starts a turn when the child is idle.'
-  const layout = layoutComposer(composer, width, () => '❯ ')
-  const rows = layout.rows.map((row, index) => index === layout.cursorRow
-    ? blockCursor(row, layout.cursorColumn, width)
-    : row)
-  const body = [
-    paint(truncateToWidth(escapeControls(hint), Math.max(1, width)), 'muted'),
-    '',
-    ...rows.map(row => escapeControls(row)),
-  ]
-  return body.slice(0, Math.max(0, capacity))
+  const layout = layoutComposer(composer, width, () => COMPOSER_GUTTER)
+  const rows = layout.rows
+    .map((row, index) => index === layout.cursorRow
+      ? blockCursor(row, layout.cursorColumn, width)
+      : row)
+    .map(row => escapeControls(row))
+  const prefix = [paint(truncateToWidth(escapeControls(hint), Math.max(1, width)), 'muted'), '']
+  const prefixRows = Math.min(prefix.length, Math.max(0, capacity - 1))
+  const draftCapacity = Math.max(1, capacity - prefixRows)
+  const shown = cursorWindow(rows, layout.cursorRow, draftCapacity)
+  return [...prefix.slice(0, prefixRows), ...shown.rows]
 }
 
 /**

@@ -14,9 +14,11 @@
  * still being a durable conversation. Folding this into Work would also make
  * `activeWorkCount` see a settled child, which gates retiring the session.
  *
- * Interruption is NOT implemented here: it is delegated to the one
- * `HarnessWork.interruptSubagent` adapter so the terminal never grows a second
- * human authorization path.
+ * Interruption is deliberately NOT part of this presenter. `/work` owns the
+ * active lifecycle epoch and its existing human interrupt; a durable child's
+ * `listChildren().activity` is session-store residency, not proof that a turn
+ * is executing, so offering interrupt here could claim a cancellation Harness
+ * only accepted as a no-op. The durable view inspects and continues instead.
  * @module dshline/subagents/presenter
  */
 
@@ -24,12 +26,10 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { LocalCommand } from '../local-commands.ts'
 import type { TuiSlots } from '../slots.ts'
 import { openSurface, SurfaceNotice } from '../surface.ts'
-import type { WorkInterruptResult } from '../work/model.ts'
 import { deliverHumanPrompt, type HumanPromptDelivery } from './control.ts'
 import {
   catalogReading,
   subagentRowFollowUp,
-  subagentRowInterruptible,
   subagentRowLabel,
   type SubagentCatalogReading,
   type SubagentChildRow,
@@ -61,12 +61,6 @@ export interface SubagentsPresenterDeps {
   readonly subagents?: HumanSubagentSeam
   /** Bounded child-session reads, or undefined without `ctx.sessionQuery`. */
   readonly query?: ChildSessionReads
-  /**
-   * Human interrupt, routed to the single `HarnessWork` adapter.
-   * @param childId - the durable direct child.
-   * @param authorized - whether Harness's descriptor mode authorizes interruption.
-   */
-  readonly interrupt: (childId: string, authorized: boolean) => WorkInterruptResult
   /** Subscribe to parent-scoped subagent lifecycle edges. */
   readonly onLifecycle?: (listener: () => void) => () => void
   /**
@@ -100,6 +94,13 @@ interface OpenConversation {
    * racing a paging read) cannot publish an older window over a newer one.
    */
   readGeneration: number
+  /**
+   * Count of selected-child session events seen. A read captures this before it
+   * starts and publishes `stale` from whether it still matches when the read
+   * settles, which is what keeps an event arriving MID-read from being lost when
+   * the read overwrites the flag with its own `stale:false`.
+   */
+  eventGeneration: number
   /** The inspector's own outcome notice. */
   readonly notice: SurfaceNotice
 }
@@ -167,22 +168,24 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
     const query = deps.query
     if (query === undefined) return
     const generation = (state.readGeneration += 1)
+    const seen = state.eventGeneration
     void readTranscriptTail(query, state.child.id as SessionId, state.abort.signal).then(next => {
       if (conversation !== state || state.readGeneration !== generation) return
-      state.transcript = next
+      state.transcript = { ...next, stale: state.eventGeneration !== seen }
       deps.invalidate()
     })
   }
 
-  /** Append one older page, keeping the loaded window on a failed read. */
+  /** Replace the loaded window with one older page, keeping it on a failed read. */
   const loadOlder = (state: OpenConversation): void => {
     const query = deps.query
     if (query === undefined || state.transcript.kind !== 'ready' || !state.transcript.hasOlder) return
     const generation = (state.readGeneration += 1)
+    const seen = state.eventGeneration
     void readTranscriptOlder(query, state.child.id as SessionId, state.transcript, state.abort.signal)
       .then(next => {
         if (conversation !== state || state.readGeneration !== generation) return
-        state.transcript = next
+        state.transcript = { ...next, stale: state.eventGeneration !== seen }
         deps.invalidate()
       })
       .catch((error: unknown) => {
@@ -190,13 +193,6 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
         state.notice.show(`Older events failed: ${reason(error)}`, true)
         deps.invalidate()
       })
-  }
-
-  /** Interrupt through the shared Work adapter and report its outcome. */
-  const interruptChild = (state: OpenConversation): void => {
-    const result = deps.interrupt(state.child.id, subagentRowInterruptible(state.child))
-    state.notice.show(result.message, result.kind === 'failed')
-    deps.invalidate()
   }
 
   /** Push the small message composer over one inspector. */
@@ -233,6 +229,7 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
       transcript: initialTranscript(deps.query !== undefined),
       abort: new AbortController(),
       readGeneration: 0,
+      eventGeneration: 0,
       notice: new SurfaceNotice(CONVERSATION_NOTICE_MS),
     }
     conversation = state
@@ -243,11 +240,9 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
       reading: () => transcriptReading(state.transcript),
       followUp: subagentRowFollowUp(row, deps.subagents !== undefined),
       steer: subagentRowFollowUp(row, deps.subagents !== undefined),
-      interruptible: subagentRowInterruptible(row),
       loadOlder: () => { loadOlder(state) },
       refresh: () => { reload(state) },
       message: delivery => { openComposer(state, delivery) },
-      interrupt: () => { interruptChild(state) },
       notice: state.notice,
       close: () => {
         if (conversation === state) conversation = undefined
@@ -286,11 +281,17 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
   if (deps.onSessionEvent !== undefined) {
     disposers.push(deps.onSessionEvent(childId => {
       const state = conversation
+      if (state === undefined || state.child.id !== childId) return
       // A child event is only a staleness hint: it never mutates the transcript
       // and never triggers a read, because Harness publishes no per-child
       // transcript subscription and polling one would be a local state machine.
-      if (state === undefined || state.child.id !== childId || state.transcript.kind !== 'ready') return
-      state.transcript = { ...state.transcript, stale: true }
+      // The count advances for EVERY selected-child event, including one that
+      // arrives while the first read is still in flight; that read captured the
+      // count before it started and publishes `stale` from whether it still matches.
+      state.eventGeneration += 1
+      if (state.transcript.kind === 'ready') {
+        state.transcript = { ...state.transcript, stale: true }
+      }
       deps.invalidate()
     }))
   }

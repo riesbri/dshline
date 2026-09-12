@@ -1,6 +1,6 @@
 /**
  * Focused tests for the durable subagent-conversation catalog, inspector, and
- * human queue/steer/interrupt path.
+ * human queue/steer path.
  *
  * The authority boundary is the point: discovery is `listChildren`, inspection
  * is a bounded `listEvents`+`readEvent` read, and a human follow-up is
@@ -13,15 +13,15 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEventReadRequest, SessionEventRecord, SessionEventWindow } from '@deepseek-ai/dsh-session-query'
 import type { SubagentListEntry, SubagentPromptReceipt, SubagentPromptRequest } from '@deepseek-ai/dsh-subagent'
-import { stripAnsi } from '@dshline/renderer'
+import { BOX_CHROME_COLUMNS, stripAnsi } from '@dshline/renderer'
 import type { Key } from '@dshline/renderer'
+import { chromeWidth } from '../src/chrome.ts'
 import type { TuiOverlay } from '../src/slots.ts'
 import { physicalRows, SurfaceNotice } from '../src/surface.ts'
 import {
   catalogReading,
   diagnosticReasonWord,
   subagentRowFollowUp,
-  subagentRowInterruptible,
   subagentRowKey,
   subagentRowOpenable,
 } from '../src/subagents/model.ts'
@@ -31,7 +31,7 @@ import {
   createSubagentMessageOverlay,
 } from '../src/subagents/overlay.ts'
 import { createSubagentsPresenter, type SubagentsPresenterDeps } from '../src/subagents/presenter.ts'
-import { TRANSCRIPT_PAGE } from '../src/subagents/transcript.ts'
+import { readTranscriptOlder, readTranscriptTail, TRANSCRIPT_PAGE } from '../src/subagents/transcript.ts'
 import { HarnessWork } from '../src/work/index.ts'
 import { activeWorkCount } from '../src/work/model.ts'
 
@@ -209,15 +209,13 @@ describe('durable subagent discovery vocabulary', () => {
     })
     expect(subagentRowOpenable(row!)).toBe(true)
     expect(subagentRowFollowUp(row!, true)).toBe(true)
-    expect(subagentRowInterruptible(row!)).toBe(true)
   })
 
-  it('offers a one-shot child inspection but no follow-up or interrupt', () => {
+  it('offers a one-shot child inspection but no follow-up', () => {
     const reading = catalogReading([child('one', 'one-shot', 'inactive')])
     const row = reading.kind === 'ready' ? reading.rows[0] : undefined
     expect(subagentRowOpenable(row!)).toBe(true)
     expect(subagentRowFollowUp(row!, true)).toBe(false)
-    expect(subagentRowInterruptible(row!)).toBe(false)
   })
 
   it('reports the absence of the prompt seam rather than a one-shot mode', () => {
@@ -364,17 +362,15 @@ describe('subagent conversation catalog overlay', () => {
 
 describe('subagent conversation inspector overlay', () => {
   function inspector(overrides: Partial<Parameters<typeof createSubagentConversationOverlay>[0]> = {}) {
-    const calls = { older: 0, refresh: 0, message: [] as string[], interrupt: 0 }
+    const calls = { older: 0, refresh: 0, message: [] as string[] }
     const overlay = createSubagentConversationOverlay({
       child: () => ({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false, label: 'review' }),
       reading: () => ({ kind: 'ready', events: [message(1, 'the child said hello')], hasOlder: true, stale: false }),
       followUp: true,
       steer: true,
-      interruptible: true,
       loadOlder: () => { calls.older += 1 },
       refresh: () => { calls.refresh += 1 },
       message: delivery => { calls.message.push(delivery) },
-      interrupt: () => { calls.interrupt += 1 },
       notice: new SurfaceNotice(1_000),
       close: () => {},
       invalidate: () => {},
@@ -392,25 +388,22 @@ describe('subagent conversation inspector overlay', () => {
     expect(plain).toContain('the child said hello')
   })
 
-  it('routes m, s, k, [, and r to their presenters', () => {
+  it('routes m, s, [, and r to their presenters', () => {
     const { overlay, calls } = inspector()
     overlay.handleKey(text('m'))
     overlay.handleKey(text('s'))
-    overlay.handleKey(text('k'))
     overlay.handleKey(text('['))
     overlay.handleKey(text('r'))
     expect(calls.message).toEqual(['queue', 'steer'])
-    expect(calls.interrupt).toBe(1)
     expect(calls.older).toBe(1)
     expect(calls.refresh).toBe(1)
   })
 
-  it('offers no follow-up, steer, or interrupt for a one-shot child', () => {
+  it('offers no follow-up or steer for a one-shot child', () => {
     const { overlay, calls } = inspector({
       child: () => ({ kind: 'child', id: 'one', mode: 'one-shot', residency: 'stored', hasChildren: false }),
       followUp: false,
       steer: false,
-      interruptible: false,
     })
     const plain = stripAnsi(overlay.render(80, 24).join('\n'))
     expect(plain).not.toContain('m message')
@@ -418,9 +411,7 @@ describe('subagent conversation inspector overlay', () => {
     expect(plain).not.toContain('k interrupt')
     overlay.handleKey(text('m'))
     overlay.handleKey(text('s'))
-    overlay.handleKey(text('k'))
     expect(calls.message).toEqual([])
-    expect(calls.interrupt).toBe(0)
   })
 
   it('bounds every row at narrow and short geometries', () => {
@@ -512,6 +503,83 @@ describe('subagent message composer', () => {
     overlay.dispose?.()
     expect(signals[0]?.aborted).toBe(true)
   })
+
+  it('keeps the cursor row visible for a long multiline draft', () => {
+    const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
+    const lines = Array.from({ length: 12 }, (_, index) => `line ${String(index).padStart(2, '0')}`)
+    overlay.handleKey({ kind: 'paste', text: lines.join('\n') } as Key)
+    const plain = stripAnsi(overlay.render(80, 8).join('\n'))
+    // The caret row — the end of the paste — is inside the window, and the
+    // window did not stay pinned to the draft's first line.
+    expect(plain).toContain('█')
+    expect(plain).toContain('line 11')
+    expect(plain).not.toContain('line 00')
+    expect(physicalRows(overlay.render(80, 8), 80).length).toBeLessThanOrEqual(8)
+  })
+
+  it('scrolls the draft window with the cursor on Up and back on Down', () => {
+    const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
+    const lines = Array.from({ length: 12 }, (_, index) => `line ${String(index).padStart(2, '0')}`)
+    overlay.handleKey({ kind: 'paste', text: lines.join('\n') } as Key)
+    overlay.render(80, 8)
+    expect(stripAnsi(overlay.render(80, 8).join('\n'))).toContain('line 11')
+    for (let press = 0; press < 5; press += 1) overlay.handleKey(key('up'))
+    const up = stripAnsi(overlay.render(80, 8).join('\n'))
+    expect(up).not.toContain('line 11')
+    expect(up).toContain('line 06')
+    for (let press = 0; press < 5; press += 1) overlay.handleKey(key('down'))
+    expect(stripAnsi(overlay.render(80, 8).join('\n'))).toContain('line 11')
+  })
+
+  it('keeps the cursor visible when a row is exactly full, through wide content', () => {
+    const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
+    // Establish the width the body renders at before moving/editing.
+    overlay.render(40, 8)
+    const firstRowText = 'a'.repeat(chromeWidth(40) - BOX_CHROME_COLUMNS - 2)
+    const draft = [
+      firstRowText,
+      '漢'.repeat(20),
+      '😀'.repeat(4),
+      'tail',
+    ].join('\n')
+    overlay.handleKey({ kind: 'paste', text: draft } as Key)
+    const plain = stripAnsi(overlay.render(40, 8).join('\n'))
+    expect(plain).toContain('tail')
+    expect(plain).toContain('█')
+    for (const rows of [4, 6, 8, 12]) {
+      expect(physicalRows(overlay.render(40, rows), 40).length).toBeLessThanOrEqual(rows)
+    }
+  })
+})
+
+describe('bounded transcript paging', () => {
+  /** A log far larger than the retained page. */
+  const LARGE = TRANSCRIPT_PAGE * 5
+
+  function seeded(): FakeSession {
+    const session = new FakeSession()
+    session.setLog('c', Array.from({ length: LARGE }, (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`)))
+    return session
+  }
+
+  it('retains at most one page of full event bodies while paging backward', async () => {
+    const session = seeded()
+    let state = await readTranscriptTail(session, 'c' as never)
+    expect(state.events.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE)
+    expect(state.hasOlder).toBe(true)
+    let presses = 0
+    while (state.hasOlder && presses < LARGE) {
+      state = await readTranscriptOlder(session, 'c' as never, state)
+      expect(state.events.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE)
+      const seqs = state.events.map(event => event.seq)
+      expect(new Set(seqs).size).toBe(seqs.length)
+      presses += 1
+    }
+    expect(state.hasOlder).toBe(false)
+    expect(state.events[0]?.seq).toBe(1)
+    // No full-log body read: every window asked for at most one page.
+    expect(session.readEventCalls.every(call => (call.request.before ?? 0) <= TRANSCRIPT_PAGE - 1)).toBe(true)
+  })
 })
 
 describe('subagent conversation presenter', () => {
@@ -519,7 +587,6 @@ describe('subagent conversation presenter', () => {
     const slots = testSlots()
     const subagents = new FakeSubagent()
     const session = new FakeSession()
-    const interrupts: { childId: string; authorized: boolean }[] = []
     let lifecycle: (() => void) | undefined
     let sessionEvent: ((sessionId: string) => void) | undefined
     const p = createSubagentsPresenter({
@@ -528,16 +595,12 @@ describe('subagent conversation presenter', () => {
       invalidate: () => {},
       subagents,
       query: session,
-      interrupt: (childId, authorized) => {
-        interrupts.push({ childId, authorized })
-        return { kind: 'requested', message: 'Interrupt requested.' }
-      },
       onLifecycle: listener => { lifecycle = listener; return () => {} },
       onSessionEvent: listener => { sessionEvent = listener; return () => {} },
       ...overrides,
     })
     return {
-      slots, subagents, session, interrupts, p,
+      slots, subagents, session, p,
       fireLifecycle: () => { lifecycle?.() },
       fireSessionEvent: (id: string) => { sessionEvent?.(id) },
     }
@@ -666,28 +729,21 @@ describe('subagent conversation presenter', () => {
     expect(session.readEventCalls.length).toBe(before)
   })
 
-  it('interrupts through the shared adapter with continuable authorization', async () => {
-    const { slots, subagents, session, interrupts, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+  it('never offers interrupt from the durable inspector, even for a continuable child', async () => {
+    const { slots, subagents, session, p } = mount()
+    // A settled/stored continuable child is exactly the case residency cannot
+    // prove a live turn for, so no interrupt affordance may appear here.
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
     slots.top()?.handleKey(key('enter'))
     await flush()
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).not.toContain('interrupt')
+    const reads = session.readEventCalls.length
     slots.top()?.handleKey(text('k'))
-    expect(interrupts).toEqual([{ childId: 'c', authorized: true }])
-  })
-
-  it('offers no interrupt for a one-shot child', async () => {
-    const { slots, subagents, session, interrupts, p } = mount()
-    subagents.setChildren([child('one', 'one-shot', 'inactive')])
-    session.setLog('one', [message(1, 'hello')])
-    p.open()
-    await flush()
-    slots.top()?.handleKey(key('enter'))
-    await flush()
-    slots.top()?.handleKey(text('k'))
-    expect(interrupts).toEqual([])
+    expect(session.readEventCalls.length).toBe(reads)
+    expect(slots.overlays).toHaveLength(2)
   })
 
   it('degrades honestly when ctx.subagents is absent', async () => {
@@ -803,5 +859,115 @@ describe('subagent conversation presenter', () => {
     expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).not.toContain('m message')
     slots.top()?.handleKey(text('m'))
     expect(slots.overlays).toHaveLength(2)
+  })
+
+  it('marks a window stale when an event arrives during its first read', async () => {
+    const { slots, subagents, session, p, fireSessionEvent } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', [message(1, 'hello')])
+    p.open()
+    await flush()
+    session.holdReads()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    // The event lands while `transcript.kind` is still `loading`, which the old
+    // guard dropped outright.
+    fireSessionEvent('c')
+    session.releaseRead(0)
+    await flush()
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('new events')
+    expect(session.readEventCalls.length).toBe(1)
+  })
+
+  it('marks a replaced older page stale when an event arrives during its read', async () => {
+    const { slots, subagents, session, p, fireSessionEvent } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', Array.from({ length: TRANSCRIPT_PAGE * 2 }, (_, index) => message(index + 1, `e${index + 1}`)))
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    session.holdReads()
+    slots.top()?.handleKey(text('['))
+    await flush()
+    fireSessionEvent('c')
+    session.releaseRead(0)
+    await flush()
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('new events')
+  })
+
+  it('does not go stale for another child’s event', async () => {
+    const { slots, subagents, session, p, fireSessionEvent } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', [message(1, 'hello')])
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    fireSessionEvent('other')
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).not.toContain('new events')
+  })
+
+  it('clears stale after a refresh with no intervening child event', async () => {
+    const { slots, subagents, session, p, fireSessionEvent } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', [message(1, 'hello')])
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    fireSessionEvent('c')
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('new events')
+    slots.top()?.handleKey(text('r'))
+    await flush()
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).not.toContain('new events')
+  })
+
+  it('replaces the rendered page rather than accumulating events', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', Array.from(
+      { length: TRANSCRIPT_PAGE * 2 },
+      (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`),
+    ))
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    const tail = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
+    expect(tail).toContain('event 025')
+    expect(tail).not.toContain('event 001')
+    slots.top()?.handleKey(text('['))
+    await flush()
+    const older = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
+    expect(older).toContain('event 001')
+    expect(older).not.toContain('event 025')
+  })
+})
+
+describe('subagent navigation chrome', () => {
+  it('uses width-stable ASCII rather than the ambiguous arrow glyphs', () => {
+    const catalog = createSubagentCatalogOverlay({
+      reading: () => catalogReading([child('c', 'continuable', 'running')]),
+      inspect: () => {},
+      refresh: () => {},
+      close: () => {},
+      invalidate: () => {},
+    })
+    const conversation = createSubagentConversationOverlay({
+      child: () => ({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false, label: 'review' }),
+      reading: () => ({ kind: 'ready', events: [message(1, 'x')], hasOlder: false, stale: false }),
+      followUp: true,
+      steer: true,
+      loadOlder: () => {},
+      refresh: () => {},
+      message: () => {},
+      notice: new SurfaceNotice(1_000),
+      close: () => {},
+      invalidate: () => {},
+    })
+    for (const overlay of [catalog, conversation]) {
+      expect(stripAnsi(overlay.render(80, 24).join('\n'))).not.toMatch(/[\u2190-\u21ff]/u)
+    }
   })
 })
