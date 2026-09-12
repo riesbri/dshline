@@ -933,7 +933,7 @@ receive a human follow-up (`m`) or a steer (`s`). A one-shot child is
 inspectable and read-only. Follow-up and steer use Harness's human prompt
 operation, so acceptance is Harness's own; the message appears in the child's
 transcript only when its session log says so. Interrupt stays on `/work`, where
-an open lifecycle epoch proves there is a turn to cancel.
+an open lifecycle epoch is the stronger premise.
 
 A row's mark says how much dshline actually knows about it:
 

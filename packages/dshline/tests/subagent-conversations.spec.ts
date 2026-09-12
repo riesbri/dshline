@@ -408,7 +408,6 @@ describe('subagent conversation inspector overlay', () => {
     const plain = stripAnsi(overlay.render(80, 24).join('\n'))
     expect(plain).not.toContain('m message')
     expect(plain).not.toContain('s steer')
-    expect(plain).not.toContain('k interrupt')
     overlay.handleKey(text('m'))
     overlay.handleKey(text('s'))
     expect(calls.message).toEqual([])

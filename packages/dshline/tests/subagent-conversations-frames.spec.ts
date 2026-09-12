@@ -125,18 +125,25 @@ const DIRECTIONAL_ARROWS = [0x2191, 0x2193] as const
 async function assertStableFrame(
   columns: number,
   overlay: { render(columns: number, rows?: number): readonly string[] },
+  mutate: () => void,
 ): Promise<void> {
   const emulator = createEmulator(columns, 12, { wideCodePoints: DIRECTIONAL_ARROWS })
   const screen = new Screen(emulator.target)
   const redraw = (): void => { screen.setLive(overlay.render(columns, 12)) }
-  // Identical redraws are the drift probe: a border the terminal wraps adds a
-  // physical row `Screen` does not erase, so each redraw leaves one behind.
   redraw()
   const before = await emulator.scrollback()
+  // Each redraw must render DIFFERENT content, or `Screen.setLive` recognizes an
+  // identical frame and returns without erasing — which would make the drift
+  // assertion below vacuous. The mutation keeps the frame's height unchanged, so
+  // a growing row count can only be a wrapped border left behind.
+  mutate()
   redraw()
+  mutate()
   redraw()
   const after = await emulator.scrollback()
-  expect(after).toEqual(before)
+  // No drift: a border the terminal wraps adds one physical row `Screen` never
+  // erases, so the held row count would grow on every redraw.
+  expect(after.length).toBe(before.length)
   // One current frame, not a previous one the erase missed.
   expect(after.filter(row => row.includes('╭─'))).toHaveLength(1)
   // Exactly one bottom border, ending in its right corner: a wrapped border
@@ -150,11 +157,17 @@ async function assertStableFrame(
 
 describe('subagent surfaces on a terminal that widens the directional arrows', () => {
   it('does not wrap the catalog footer or drift scrollback', async () => {
+    // Toggle a row's residency: the text changes (forcing a real redraw) but the
+    // row count does not.
+    let resident = true
     const overlay = createSubagentCatalogOverlay({
       reading: () => ({
         kind: 'ready',
         rows: [
-          { kind: 'child', id: 'a', mode: 'continuable', residency: 'resident', hasChildren: false, label: 'alpha' },
+          {
+            kind: 'child', id: 'a', mode: 'continuable',
+            residency: resident ? 'resident' : 'stored', hasChildren: false, label: 'alpha',
+          },
           { kind: 'child', id: 'b', mode: 'one-shot', residency: 'stored', hasChildren: false, label: 'beta' },
         ],
       }),
@@ -163,11 +176,26 @@ describe('subagent surfaces on a terminal that widens the directional arrows', (
       close: () => {},
       invalidate: () => {},
     })
-    await assertStableFrame(60, overlay)
+    await assertStableFrame(60, overlay, () => { resident = !resident })
   })
 
   it('does not wrap the inspector footer or drift scrollback', async () => {
-    await assertStableFrame(101, inspector())
+    let residency: 'resident' | 'stored' = 'resident'
+    const overlay = createSubagentConversationOverlay({
+      child: () => ({
+        kind: 'child', id: CHILD.id, mode: 'continuable', residency, hasChildren: false, label: CHILD.label,
+      }),
+      reading,
+      followUp: true,
+      steer: true,
+      loadOlder: () => {},
+      refresh: () => {},
+      message: () => {},
+      notice: new SurfaceNotice(1_000),
+      close: () => {},
+      invalidate: () => {},
+    })
+    await assertStableFrame(101, overlay, () => { residency = residency === 'resident' ? 'stored' : 'resident' })
   })
 
   it('does not wrap the message footer or drift scrollback', async () => {
@@ -179,6 +207,8 @@ describe('subagent surfaces on a terminal that widens the directional arrows', (
       close: () => {},
       invalidate: () => {},
     })
-    await assertStableFrame(60, overlay)
+    // One character per redraw changes the draft (a real redraw) without adding
+    // a row: the body starts at one draft row.
+    await assertStableFrame(60, overlay, () => { overlay.handleKey({ kind: 'text', text: 'x' } as Key) })
   })
 })
