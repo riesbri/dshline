@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Key } from '@dshline/renderer'
-import { displayWidth, stripAnsi } from '@dshline/renderer'
+import { displayWidth, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import type { SelectChoice } from '../src/select.ts'
 import { createSelectOverlay, filterChoices, SEARCHABLE_CHOICES } from '../src/select.ts'
 
@@ -364,6 +364,32 @@ describe('a title longer than one row', () => {
       for (const line of lines) {
         expect(displayWidth(line), `${String(columns)} columns`).toBeLessThanOrEqual(columns)
       }
+    }
+  })
+
+  it('charges wrapped title rows against the list capacity at the framed boundary', () => {
+    // At 80 columns the long title wraps to two rows, so the heading is three
+    // rows and the frame opens at seven with exactly one viewport row. Charging
+    // those title rows against `heading.length` is what keeps the frame at the
+    // terminal's height: pretending the heading were one row would reclaim two
+    // rows for the list and push the frame past the bottom.
+    const overlay = createSelectOverlay({
+      title: LONG_TITLE,
+      view: 'Question',
+      choices: SHORT,
+      settle: () => {},
+      invalidate: () => {},
+    })
+    const lines = [...overlay.render(COLUMNS, 7)]
+    const physical = lines.flatMap(line => wrapToWidth(line, COLUMNS))
+    expect(physical.length).toBeLessThanOrEqual(7)
+    const shown = stripAnsi(lines.join('\n'))
+    expect(shown).toContain('╭')
+    expect(bodyText(shown)).toContain(LONG_TITLE)
+    // The active, confirmable choice stays visible as the list window shrinks.
+    expect(shown).toContain('Allow once')
+    for (const line of lines) {
+      expect(displayWidth(line)).toBeLessThanOrEqual(COLUMNS)
     }
   })
 })

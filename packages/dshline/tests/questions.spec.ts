@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AskUserQuestionAnswer, AskUserQuestionRequestEvent } from '@deepseek-ai/dsh-user-questions/types'
-import { stripAnsi } from '@dshline/renderer'
+import { displayWidth, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import type { TuiOverlay } from '../src/slots.ts'
 import { installQuestionProvider } from '../src/questions.ts'
 
@@ -480,9 +480,40 @@ describe('a question longer than one row', () => {
         options: [{ label: 'web' }, { label: 'api' }],
       }],
     })
-    const shown = bodyText(shownAt(overlay(), 100, 24))
-    expect(shown).toContain(LONG_TITLE)
-    expect(shown).toContain('leave it for now?')
+    for (const columns of [100, 80]) {
+      const shown = bodyText(shownAt(overlay(), columns, 24))
+      expect(shown, `${String(columns)} columns`).toContain(LONG_TITLE)
+      expect(shown, `${String(columns)} columns`).toContain('leave it for now?')
+    }
+  })
+
+  it('charges wrapped title rows against the multi-select capacity at the framed boundary', () => {
+    // At 80 columns the long title wraps to two rows, the heading is three, and
+    // the multi-select frame opens at seven with one viewport row. The wrapped
+    // rows must be charged through `heading.length`, or the list reclaims them
+    // and the frame exceeds the terminal.
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    send({
+      questions: [{
+        id: 'stack',
+        header: LONG_HEADER,
+        question: LONG_QUESTION,
+        multiSelect: true,
+        options: [{ label: 'web' }, { label: 'api' }],
+      }],
+    })
+    const lines = [...(overlay()?.render(80, 7) ?? [])]
+    const physical = lines.flatMap(line => wrapToWidth(line, 80))
+    expect(physical.length).toBeLessThanOrEqual(7)
+    const shown = stripAnsi(lines.join('\n'))
+    expect(shown).toContain('╭')
+    expect(bodyText(shown)).toContain(LONG_TITLE)
+    // The active, confirmable choice stays visible as the list window shrinks.
+    expect(shown).toContain('web')
+    for (const line of lines) {
+      expect(displayWidth(line)).toBeLessThanOrEqual(80)
+    }
   })
 
   it('keeps an option-less question visible when the compact fallback loses the frame', async () => {
