@@ -288,6 +288,122 @@ describe('a reply streamed through the live agent frames', () => {
     f.dispose()
   })
 
+  it('ignores a late end from a settled attempt after the retry started', async () => {
+    // Cross-attempt frame ordering is an implementation property of the loop,
+    // not a published guarantee: a settled attempt's `end` can arrive after the
+    // next attempt has already streamed. Resetting on it would empty the retry's
+    // buffer, so the durable `assistant/message` would reconcile against nothing
+    // and re-emit a reply the reader already saw.
+    const f = await attach()
+    f.event('turn/start', { turn: 1 })
+    f.frame(start('a1'))
+    f.frame(text('a1', 'first\n'))
+    f.event('assistant/attempt', { turn: 1, step: 1, stream: [] })
+    f.frame(committed('a1', 'assistant/attempt', 1))
+    f.frame(start('a2', 1))
+    f.frame(text('a2', 'The answer is 42.\n'))
+    // Late terminal frame, from the attempt that already settled.
+    f.frame(abandoned('a1', 2))
+    f.event(...message([{ type: 'text', text: 'The answer is 42.\n' }]))
+    f.frame(committed('a2', 'assistant/message', 1))
+    f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const rows = await f.rows()
+    expect(rows).toContain('● The answer is 42.')
+    expect(occurrences(rows, 'The answer is 42.')).toBe(1)
+    f.dispose()
+  })
+
+  it('ignores a stale chunk so it cannot poison the retry prefix', async () => {
+    // A late chunk from attempt A pushes text the current attempt never sent, so
+    // the assembled settlement no longer starts with the streamed prefix and the
+    // whole reply is emitted a second time.
+    const f = await attach()
+    f.event('turn/start', { turn: 1 })
+    f.frame(start('a1'))
+    f.frame(text('a1', 'first\n'))
+    f.event('assistant/attempt', { turn: 1, step: 1, stream: [] })
+    f.frame(committed('a1', 'assistant/attempt', 1))
+    f.frame(start('a2', 1))
+    f.frame(text('a2', 'The answer is 42.\nB partial'))
+    f.frame(chunk('a1', { type: 'text-delta', index: 0, text: 'STALE' }, 2))
+    f.event(...message([{ type: 'text', text: 'The answer is 42.\nB partial' }]))
+    f.frame(committed('a2', 'assistant/message', 1))
+    f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const rows = await f.rows()
+    expect(occurrences(rows, 'The answer is 42.')).toBe(1)
+    expect(rows.some(row => row.includes('STALE'))).toBe(false)
+    f.dispose()
+  })
+
+  it('ignores a stale frame after the newer attempt has already ended', async () => {
+    // `end` clears the active attempt, but "no active attempt after framing" is
+    // not the same state as "the listener attached mid-stream". Treating them
+    // alike would adopt the late frame, and a stale chunk that commits a line
+    // would enter scrollback with no later reset able to remove it.
+    const f = await attach()
+    f.event('turn/start', { turn: 1 })
+    f.frame(start('a1'))
+    f.frame(text('a1', 'first\n'))
+    f.frame(start('a2', 1))
+    f.frame(text('a2', 'The answer is 42.\n'))
+    f.event(...message([{ type: 'text', text: 'The answer is 42.\n' }]))
+    f.frame(committed('a2', 'assistant/message', 1))
+    f.frame(abandoned('a2', 2))
+    // Both attempts have now ended; only a new `start` may resume the stream.
+    f.frame(text('a1', 'STALE\n', 2))
+    f.frame(abandoned('a1', 3))
+    f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const rows = await f.rows()
+    expect(rows.some(row => row.includes('STALE'))).toBe(false)
+    expect(occurrences(rows, 'The answer is 42.')).toBe(1)
+    f.dispose()
+  })
+
+  it('ignores a stale chunk after a mid-stream adopted attempt ends', async () => {
+    // The listener can attach after `start`, so no `start` frame is ever seen:
+    // the first `chunk` adopts the attempt, which must itself count as "an
+    // attempt has been adopted". Otherwise `end` returns the state to "nothing
+    // adopted yet" and a late chunk looks like another mid-stream adoption,
+    // committing a completed stale line into scrollback.
+    const f = await attach()
+    f.event('turn/start', { turn: 1 })
+    f.frame(text('a1', 'first\n'))
+    f.frame(abandoned('a1', 1))
+    f.frame(text('a1', 'STALE\n', 2))
+    f.frame(abandoned('a1', 3))
+    f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const rows = await f.rows()
+    expect(rows.some(row => row.includes('STALE'))).toBe(false)
+    expect(occurrences(rows, 'first')).toBe(1)
+    f.dispose()
+  })
+
+  it('ignores a late end from a cancelled attempt before the retry answers', async () => {
+    // Cancellation can leave a terminal frame in flight; the retry that follows
+    // must still reconcile its own stream.
+    const f = await attach()
+    f.event('turn/start', { turn: 1 })
+    f.frame(start('a1'))
+    f.frame(text('a1', 'half a th'))
+    f.event(...message([{ type: 'text', text: 'half a th' }], true))
+    f.frame(committed('a1', 'assistant/message', 1))
+    f.frame(start('a2', 1))
+    f.frame(text('a2', 'Recovered.\n'))
+    f.frame(abandoned('a1', 2))
+    f.event(...message([{ type: 'text', text: 'Recovered.\n' }]))
+    f.frame(committed('a2', 'assistant/message', 1))
+    f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const rows = await f.rows()
+    expect(occurrences(rows, 'Recovered.')).toBe(1)
+    expect(occurrences(rows, 'half a th')).toBe(1)
+    f.dispose()
+  })
+
   it('drops an abandoned attempt without committing or breaking the next turn', async () => {
     const f = await attach()
     f.event('turn/start', { turn: 1 })

@@ -167,7 +167,7 @@ async function window(
 
   const ctx = new Context()
   await ctx.plugin(TuiSlots)
-  ctx.tuiSlots.register('stream', { render: (columns: number) => stream.live(columns) })
+  ctx.tuiSlots.register('stream', { render: (columns: number, rows?: number) => stream.live(columns, rows) })
   ctx.tuiSlots.register('status', busyStatus())
   ctx.tuiSlots.register('composer', createComposerView(composer, '/work/repo', rowsBelow))
   ctx.tuiSlots.register('completion', completion.view)
@@ -356,6 +356,45 @@ describe('below the shared chrome floor', () => {
           whole.has(shown),
           `at ${String(columns)} columns: ${JSON.stringify(stripAnsi(row))} states a partial duration`,
         ).toBe(true)
+      }
+    }
+  })
+})
+
+describe('a terminal shorter than the region wants to be', () => {
+  it('keeps every composed region inside the terminal, even while streaming', async () => {
+    // The historical corpus started at ten rows, which is the exact worst-case
+    // fit for the framed composer plus the timing and status rows; a streamed
+    // reply adds up to five more. Heights below that are where a view that
+    // ignored its granted budget pushed the region past the screen, where the
+    // first rows scroll off and can never be erased.
+    const stream = new StreamBuffer()
+    stream.push('text', 'y'.repeat(600), 80)
+    const ctx = await window('hello world', measuredTurn(), () => true, stream)
+    const failures: string[] = []
+    for (let rows = 1; rows <= 10; rows += 1) {
+      failures.push(...violations(ctx, 80, rows, `short terminal ${String(rows)} rows`))
+    }
+    expect(failures).toEqual([])
+  })
+})
+
+describe('composition across a resize into and out of the clipped state', () => {
+  it('keeps the region bounded and the cursor valid at every step', async () => {
+    // The height backstop must be a pure projection of the current geometry:
+    // shrinking into a clipped state and growing back out must leave no residue
+    // and must never place the cursor outside the rows that were drawn.
+    const stream = new StreamBuffer()
+    stream.push('text', 'y'.repeat(600), 80)
+    const ctx = await window('hello world', measuredTurn(), () => true, stream)
+    for (const rows of [24, 10, 3, 2, 1, 2, 3, 10, 24]) {
+      const { lines, cursor } = ctx.tuiSlots.compose(80, rows)
+      const physical = lines.flatMap(line => wrapToWidth(line, 80))
+      expect(physical.length, `height ${String(rows)}`).toBeLessThanOrEqual(rows)
+      if (cursor !== undefined) {
+        expect(cursor.row, `cursor row at height ${String(rows)}`).toBeGreaterThanOrEqual(0)
+        expect(cursor.row, `cursor row at height ${String(rows)}`).toBeLessThan(physical.length)
+        expect(cursor.column, `cursor column at height ${String(rows)}`).toBeLessThanOrEqual(80)
       }
     }
   })

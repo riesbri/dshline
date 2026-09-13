@@ -154,6 +154,21 @@ interface Token {
   width: number
 }
 
+/**
+ * Whether a zero-width token is an escape sequence rather than a zero-width
+ * CHARACTER such as a combining mark, a variation selector, or a ZWJ.
+ *
+ * The distinction is load-bearing wherever "styling to reopen on the next row"
+ * is tracked: an escape is terminal state that must be replayed, while a
+ * zero-width character is part of the character it follows and must NOT travel
+ * to a continuation row on its own — replayed there it accents the wrong base.
+ * @param token - one token from {@link tokenize}.
+ * @returns true for an escape sequence.
+ */
+function isEscape(token: Token): boolean {
+  return token.text.startsWith('\u001b')
+}
+
 /** An SGR sequence that closes all styling, with or without an explicit zero. */
 const RESET_PATTERN = /^\u001b\[0?m$/u
 
@@ -202,7 +217,9 @@ export function truncateToWidth(text: string, columns: number): string {
   let cut = false
   for (const token of tokenize(text)) {
     if (token.width === 0) {
-      open = !RESET_PATTERN.test(token.text)
+      // Only an escape changes what is OPEN; a combining mark or ZWJ does not,
+      // and treating it as "styling is now open" would append a needless reset.
+      if (isEscape(token)) open = !RESET_PATTERN.test(token.text)
       out += token.text
       continue
     }
@@ -248,6 +265,23 @@ export function tailToWidth(text: string, columns: number): string {
     used += token.width
     from = index
   }
+  // A cut can land between a base character and the zero-width CHARACTER that
+  // belongs to it, leaving an orphaned mark at the head of the suffix. Walk that
+  // leading zero-width run: escape sequences are styling state and are retained
+  // (an opening SGR may sit between the discarded base and its mark), orphaned
+  // zero-width characters are dropped, and the first visible character ends the
+  // run. Only a real cut can have orphaned anything.
+  if (from > 0) {
+    const kept: string[] = []
+    let index = from
+    while (index < tokens.length) {
+      const token = tokens[index]
+      if (token === undefined || token.width !== 0) break
+      if (isEscape(token)) kept.push(token.text)
+      index += 1
+    }
+    return kept.join('') + tokens.slice(index).map(token => token.text).join('')
+  }
   return tokens.slice(from).map(token => token.text).join('')
 }
 
@@ -279,7 +313,10 @@ export function chunkToWidth(text: string, columns: number): string[] {
     let open = ''
     for (const token of tokenize(paragraph)) {
       if (token.width === 0) {
-        open = RESET_PATTERN.test(token.text) ? '' : open + token.text
+        // A break may not orphan a zero-width CHARACTER: a combining mark stays
+        // with the base it follows, so only escape sequences join the set that
+        // is replayed onto the next row.
+        if (isEscape(token)) open = RESET_PATTERN.test(token.text) ? '' : open + token.text
         row += token.text
         continue
       }
@@ -340,7 +377,14 @@ export function wrapToWidth(text: string, columns: number): string[] {
     }
     for (const token of tokens) {
       if (token.width === 0) {
-        open += token.text
+        // Only an escape changes what is replayed on the next row, and a full
+        // reset ends whatever it opened. A zero-width CHARACTER — a combining
+        // mark, a variation selector, a ZWJ — belongs to the base beside it and
+        // must not travel. Merely appending every zero-width token would both
+        // orphan those marks and make `open` a log of EVERY escape the paragraph
+        // carried, so each continuation row replayed all of them: O(escapes x
+        // rows) bytes and time on one long styled line.
+        if (isEscape(token)) open = RESET_PATTERN.test(token.text) ? '' : open + token.text
         row.push(token)
         continue
       }
@@ -396,6 +440,17 @@ const RESET = '\u001b[0m'
  * @returns rows that already fit, so nothing wraps them again.
  */
 export function hangingIndent(mark: string, indent: string, text: string, columns: number): string[] {
-  const budget = Math.max(1, columns - displayWidth(indent))
-  return wrapToWidth(text, budget).map((row, index) => `${index === 0 ? mark : indent}${row}`)
+  // The wrap budget is SHARED by the first row (which carries `mark`) and the
+  // continuation rows (which carry `indent`). Reserving only `indent` let a
+  // wider `mark` push the first row past the terminal, breaking this function's
+  // own promise that its rows need no further wrapping.
+  const reserve = Math.max(displayWidth(mark), displayWidth(indent))
+  const budget = Math.max(1, columns - reserve)
+  return wrapToWidth(text, budget).map((row, index) => {
+    const line = `${index === 0 ? mark : indent}${row}`
+    // A gutter at least as wide as the terminal leaves no content column at all,
+    // so the promise above can only be kept by cutting. This is the one case
+    // where the mark itself is what overflows.
+    return displayWidth(line) <= columns ? line : truncateToWidth(line, columns)
+  })
 }

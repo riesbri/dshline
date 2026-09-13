@@ -115,8 +115,20 @@ export class TuiSlots extends Service {
     ctx.effect(() => () => {
       // A mounted overlay may own an unref'd timer or another temporary handle.
       // Disposing only the service without informing it would leak that resource
-      // after the terminal is gone.
-      for (const overlay of this.overlays.splice(0)) overlay.dispose?.()
+      // after the terminal is gone. Every overlay is disposed even when one
+      // throws: `splice(0)` has already removed them from the registry, so
+      // stopping at the first failure would leak the rest with nothing left to
+      // dispose them later. The failures are carried rather than dropped.
+      const failures: unknown[] = []
+      for (const overlay of this.overlays.splice(0)) {
+        try {
+          overlay.dispose?.()
+        } catch (error: unknown) {
+          failures.push(error)
+        }
+      }
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) throw new AggregateError(failures, 'overlay disposal failed during teardown')
     }, 'tuiSlots: overlay disposal')
   }
 
@@ -196,8 +208,24 @@ export class TuiSlots extends Service {
       const index = this.overlays.indexOf(overlay)
       if (index < 0) return
       this.overlays.splice(index, 1)
-      overlay.dispose?.()
-      this.invalidate()
+      // The registration is already gone, so the base UI must be told even when
+      // the disposer throws — otherwise the screen keeps showing a frame whose
+      // overlay the registry no longer knows about, and nothing schedules the
+      // repaint that would replace it. Mirrors the mount rollback's ordering:
+      // removal, then disposal and invalidate, with every failure carried.
+      const failures: unknown[] = []
+      try {
+        overlay.dispose?.()
+      } catch (error: unknown) {
+        failures.push(error)
+      }
+      try {
+        this.invalidate()
+      } catch (error: unknown) {
+        failures.push(error)
+      }
+      if (failures.length === 1) throw failures[0]
+      if (failures.length > 1) throw new AggregateError(failures, 'overlay disposal failed, and its redraw also failed')
     }
   }
 
@@ -224,7 +252,9 @@ export class TuiSlots extends Service {
    */
   compose(columns: number, rows = 24): { lines: string[]; cursor: LiveCursor | undefined } {
     const overlay = this.activeOverlay
-    if (overlay !== undefined) return { lines: [...overlay.render(columns, rows)], cursor: undefined }
+    if (overlay !== undefined) {
+      return this.boundHeight([...overlay.render(columns, rows)], undefined, rows)
+    }
     const lines: string[] = []
     let cursor: LiveCursor | undefined
     for (const name of SLOT_ORDER) {
@@ -240,7 +270,51 @@ export class TuiSlots extends Service {
         lines.push(...own)
       }
     }
-    return { lines, cursor }
+    return this.boundHeight(lines, cursor, rows)
+  }
+
+  /**
+   * Enforce the live region's height as a last resort.
+   *
+   * Every view is handed the rows the views above it have not spent, but a view
+   * that ignores its budget — or one added by a future capability — would push
+   * the region past the screen, where the first rows have scrolled off and can
+   * never be climbed back to or erased.
+   *
+   * The cut yields to the cursor. When a view owns the cursor, the row it points
+   * at is the interactive surface a person is typing into. Rows ABOVE the cursor
+   * (earlier slots: the stream, and the composer's own upper rows) are
+   * surrendered first, then any excess from the bottom ends; what survives is the
+   * cursor row and the rows immediately below it, which are the later slots the
+   * top-drop policy already preferred (completion, timing, status). The cursor is
+   * translated by the same amounts and is never mapped onto unrelated surviving
+   * content. A region with no cursor keeps the simpler policy of dropping from
+   * the top.
+   * @param lines - the composed lines, mutated in place.
+   * @param cursor - the composed cursor, in those lines.
+   * @param rows - the terminal's height.
+   * @returns the same lines, bounded, and a cursor that still names a drawn row.
+   */
+  private boundHeight(
+    lines: string[],
+    cursor: LiveCursor | undefined,
+    rows: number,
+  ): { lines: string[]; cursor: LiveCursor | undefined } {
+    if (lines.length > rows) {
+      const dropped = lines.length - rows
+      if (cursor === undefined) {
+        lines.splice(0, dropped)
+      } else {
+        // Drop what is above the cursor first, then what is below it, so the
+        // cursor row survives whenever the region has room for it at all.
+        const above = Math.min(dropped, cursor.row)
+        const below = dropped - above
+        lines.splice(0, above)
+        if (below > 0) lines.splice(lines.length - below, below)
+        cursor = { row: cursor.row - above, column: cursor.column }
+      }
+    }
+    return { lines, cursor: lines.length === 0 ? undefined : cursor }
   }
 
   /** Ask the runner to redraw. */

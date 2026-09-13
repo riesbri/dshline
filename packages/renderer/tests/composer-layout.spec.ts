@@ -112,3 +112,32 @@ describe('layoutComposer()', () => {
     expect(composer.value).toBe('标 a🙂 第一 行 … second')
   })
 })
+
+describe('layoutComposer() and zero-width marks', () => {
+  it('resolves the offset immediately before a combining mark', () => {
+    // A mark shares its base's cell, so the boundary before it is a real cursor
+    // position — the one `left` reaches. Consuming the zero-width mark while
+    // resolving that column skipped it and returned the offset after the mark.
+    const composer = new Composer()
+    composer.handle({ kind: 'paste', text: 'a\u0308' })
+    expect(composer.handle({ kind: 'key', name: 'left' })).toEqual({ kind: 'changed' })
+    expect(composer.position).toBe(1)
+    const layout = layoutComposer(composer, 40, GUTTER)
+    expect(layout.positionAt(layout.cursorRow, layout.cursorColumn)).toBe(1)
+  })
+
+  it('never resolves a cursor to an offset after the one it was drawn at', () => {
+    // Consecutive zero-width marks share one cell, so their interiors are not
+    // separately addressable — but resolving a placement must never move the
+    // cursor FORWARD past the position it was placed at.
+    const text = 'e\u0301x\u0308\u0301y'
+    for (let at = [...text].length; at >= 0; at -= 1) {
+      const cursor = new Composer()
+      cursor.handle({ kind: 'paste', text })
+      while (cursor.position > at) cursor.handle({ kind: 'key', name: 'left' })
+      const placed = layoutComposer(cursor, 40, GUTTER)
+      expect(placed.positionAt(placed.cursorRow, placed.cursorColumn), `at ${String(at)}`)
+        .toBeLessThanOrEqual(at)
+    }
+  })
+})

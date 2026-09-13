@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ScreenTarget } from '../src/index.ts'
 import { Screen } from '../src/index.ts'
+import { createEmulator } from '../../../tests/emulator.ts'
 
 /**
  * A screen target that records writes and models the one thing the redraw
@@ -214,5 +215,35 @@ describe('Screen', () => {
     target.writes.length = 0
     screen.setLive(['one', 'two'])
     expect(target.writes).toEqual([])
+  })
+})
+
+describe('Screen cursor accounting', () => {
+  it('does not skip an identical frame after the width changed', () => {
+    // A resize reflows the pixels the terminal already holds, so the same rows
+    // at a new width are not the same picture; skipping would leave the
+    // terminal's reflow uncorrected.
+    const target = fakeTarget(20)
+    const screen = new Screen(target)
+    screen.setLive(['short'])
+    target.resize(8)
+    target.writes.length = 0
+    screen.setLive(['short'])
+    expect(target.writes).not.toEqual([])
+  })
+})
+
+describe('Screen cursor placement against a real terminal', () => {
+  it('erases exactly the rows it drew when the requested cursor row was negative', async () => {
+    // `drawLive` clamps the placement into the region; the NEXT erase descends
+    // from wherever that clamp left the cursor. Caching the raw request instead
+    // made the descent overshoot the bottom and the climb start below the
+    // region's first row, so CLEAR_BELOW never reached the old frame's top.
+    const emulator = createEmulator(20, 6)
+    const screen = new Screen(emulator.target)
+    screen.setLive(['top', 'mid', 'bot'], { row: -2, column: 0 })
+    screen.setLive(['new'])
+    expect(await emulator.scrollback()).toEqual(['new'])
+    emulator.dispose()
   })
 })

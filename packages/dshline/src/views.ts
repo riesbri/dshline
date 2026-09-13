@@ -12,6 +12,7 @@ import type { Composer, LiveCursor, Role } from '@dshline/renderer'
 import {
   BOX_CHROME_COLUMNS,
   box,
+  codePointWidth,
   displayWidth,
   escapeControls,
   formatElapsed,
@@ -154,6 +155,65 @@ const PRESSURE_WARN = 0.7
 /** Context fill at which it alarms. */
 const PRESSURE_ALARM = 0.9
 
+/** Code points that can start an emoji keycap sequence (`1️⃣`, `#️⃣`, `*️⃣`). */
+function isKeycapBase(code: number): boolean {
+  return (code >= 0x30 && code <= 0x39) || code === 0x23 || code === 0x2a
+}
+
+/**
+ * Project untrusted text to characters whose width every terminal agrees on.
+ *
+ * `displayWidth` follows East Asian Width with Ambiguous code points measured
+ * narrow. A terminal in ambiguous-width mode draws them two columns wide, so
+ * untrusted text carrying one and placed into width-critical chrome — the
+ * composer's frame label above all — makes the measured row shorter than the
+ * drawn one, and the border wraps a physical row the redraw arithmetic never
+ * counts; the stale border then survives every erase.
+ *
+ * The alternative, treating every East Asian Ambiguous code point as two columns
+ * globally, would move geometry for every terminal that keeps them narrow and for
+ * the box drawing and punctuation the chrome cannot give up. Narrowing the
+ * replacement to the genuine Ambiguous set is not sufficient either: the
+ * renderer's wide table trails the current Unicode release, so code points a
+ * terminal is entitled to draw wide (U+231A, U+2630, U+4DC0, …) are measured one,
+ * and a text-default emoji widened by VS16 is not Ambiguous at all. So the
+ * predicate is deliberately the conservative one: a visible non-ASCII code point
+ * that is neither already wide nor zero-width is replaced, whether or not it is
+ * genuinely Ambiguous. That is self-healing at the cost of replacing stable narrow
+ * scripts (Hebrew, Arabic, Indic, …) too.
+ *
+ * One class is NOT covered by per-code-point measurement: a keycap sequence like
+ * `1️⃣` (base + VS16 + U+20E3) can advance two columns even though its base is
+ * ASCII and its other two code points are zero-width here. It is handled as the
+ * whole sequence it is, because no per-code-point rule can see it.
+ *
+ * The projection is LOSSY and not injective; identity survives because the
+ * committed banner prints the full, unprojected workspace name, and this frame's
+ * right title is the only consumer. Wide CJK and kana are kept because terminals
+ * agree on their width; ASCII is kept because it is never ambiguous.
+ * @param text - plain text; the caller has already neutralized controls.
+ * @param placeholder - the width-stable character substituted one for one.
+ * @returns text whose measured width is the width every terminal draws.
+ */
+export function widthStableLabel(text: string, placeholder = '?'): string {
+  const chars = [...text]
+  let out = ''
+  for (let index = 0; index < chars.length; index += 1) {
+    const code = chars[index]?.codePointAt(0) ?? 0
+    if (
+      isKeycapBase(code)
+      && chars[index + 1]?.codePointAt(0) === 0xfe0f
+      && chars[index + 2]?.codePointAt(0) === 0x20e3
+    ) {
+      out += placeholder
+      index += 2
+      continue
+    }
+    out += codePointWidth(code) === 1 && code >= 0x80 ? placeholder : (chars[index] ?? '')
+  }
+  return out
+}
+
 /**
  * The framed input line.
  *
@@ -176,7 +236,13 @@ export function createComposerView(
   hint: () => ComposerHint = () => ({ busy: false, busyEnter: DEFAULT_BUSY_ENTER }),
 ): TuiSlotView {
   const label = basename(workspace) === '' ? workspace : basename(workspace)
-  const escapedLabel = escapeControls(label)
+  // The label names a session folder, so it is untrusted text. It is also drawn
+  // inside the frame's top border, whose row arithmetic must be exact: a code
+  // point a terminal renders wider than `displayWidth` says makes the border
+  // wrap a physical row `Screen` never counts, and the stale border survives
+  // every erase. Projecting it to width-stable characters is what keeps the
+  // border's geometry true without moving the renderer's global width policy.
+  const escapedLabel = widthStableLabel(escapeControls(label))
 
   /**
    * A layout result kept for one (document, cursor, width) triple.
@@ -298,6 +364,20 @@ export function createComposerView(
     rows === undefined ? COMPOSER_ROWS : rows - Math.max(0, rowsBelow()) - COMPOSER_FIXED_ROWS
 
   /**
+   * Whether the terminal is tall enough for the framed composer.
+   *
+   * Only the frame's own fixed rows are required: the rows reserved below it
+   * (timing, status) are allowed to yield first, which is the priority under
+   * pressure — dropping the input frame instead would cost the one surface
+   * every interaction starts from. Below this the unframed fallback draws the
+   * input line alone.
+   * @param rows - the budget compose() handed this view, or undefined when unbounded.
+   * @returns true when the framed branch fits.
+   */
+  const frameFits = (rows: number | undefined): boolean =>
+    rows === undefined || COMPOSER_FIXED_ROWS <= rows
+
+  /**
    * Whether the frame keeps the blank separating it from committed output.
    *
    * An empty buffer cannot scroll like a filled one, so under budget pressure the
@@ -352,7 +432,7 @@ export function createComposerView(
       // composer's own rows directly against `columns`, with no frame and no
       // hint — editable text and a valid cursor are the only things a terminal
       // this narrow is guaranteed to have room for.
-      if (columns < CHROME_MIN_COLUMNS) {
+      if (columns < CHROME_MIN_COLUMNS || !frameFits(terminalRows)) {
         const { rows, row } = narrowLayout(columns)
         const shown = window(rows, row, narrowContentBudget(terminalRows))
         return narrowKeepsSeparator(terminalRows) ? ['', ...shown.rows] : [...shown.rows]
@@ -383,7 +463,7 @@ export function createComposerView(
       return keepsSeparator(terminalRows) ? ['', ...framed] : [...framed]
     },
     cursor: (columns, rows): LiveCursor => {
-      if (columns < CHROME_MIN_COLUMNS) {
+      if (columns < CHROME_MIN_COLUMNS || !frameFits(rows)) {
         const { rows: every, row, column } = narrowLayout(columns)
         const shown = window(every, row, narrowContentBudget(rows))
         // No frame is drawn here, so the layout's own column is already the
@@ -571,7 +651,12 @@ export function pressureBar(
  */
 export function createStatusView(state: () => StatusState): TuiSlotView {
   return {
-    render(columns) {
+    render(columns, rows = Number.POSITIVE_INFINITY) {
+      // The status line's facts are the last thing surrendered, but a row is
+      // still a row: when the composition has spent the whole terminal above
+      // this view, drawing anyway is what pushed the region past the screen on
+      // a short terminal, where the first rows scroll off unreachable.
+      if (rows <= 0) return []
       // The old `Math.max(10, ...)` floor gave this line a presentation-only
       // minimum independent of the terminal, so a terminal narrower than 12
       // columns got a budget wider than itself and the two-column indent

@@ -266,6 +266,17 @@ describe('reasoning', () => {
     ], COLUMNS))).toEqual([])
   })
 
+  it('does not replay the reply when assembly only omits its streamed line break', () => {
+    // The same assembler boundary the reasoning case above hit, on the text
+    // channel: the assembled block can drop the trailing line break the deltas
+    // carried. A strict prefix check treated that as divergence and printed the
+    // whole reply a second time under already-committed scrollback. The existing
+    // substantive-divergence test above pins the fallback this must not swallow.
+    const buffer = new StreamBuffer()
+    expect(plain(buffer.push('text', 'answer\n', COLUMNS))).toEqual(['', '● answer'])
+    expect(plain(buffer.settle([{ type: 'text', text: 'answer' }], COLUMNS))).toEqual([])
+  })
+
   it('clears hidden-epoch divergence state when a turn resets', () => {
     const buffer = new StreamBuffer(false)
     buffer.push('reasoning', 'old hidden thought', COLUMNS)
@@ -338,6 +349,18 @@ describe('live region', () => {
     // region's first row, corrupting every later redraw.
     expect(live.length).toBeLessThanOrEqual(5)
     expect(plain(live).join('\n')).toContain('…')
+  })
+
+  it('keeps only the newest rows when the caller grants a smaller budget', () => {
+    // The view is handed the rows the views below it still need; a stream that
+    // ignored that budget would spend the composer's rows and push a short
+    // terminal's region past its screen. The newest rows are what a reader is
+    // watching, so a tight budget keeps the bottom of the unfinished line.
+    const buffer = new StreamBuffer()
+    buffer.push('text', 'x'.repeat(400), COLUMNS)
+    expect(buffer.live(COLUMNS, 2)).toHaveLength(2)
+    expect(buffer.live(COLUMNS, 1)).toHaveLength(1)
+    expect(buffer.live(COLUMNS, 0)).toEqual([])
   })
 
   it('bounds itself for wide characters too, which fill two columns each', () => {

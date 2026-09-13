@@ -63,6 +63,36 @@ describe('tailToWidth()', () => {
       expect(displayWidth(tailToWidth('ab标准cd模式', columns))).toBeLessThanOrEqual(columns)
     }
   })
+
+  it('keeps a leading escape sequence, which is styling rather than an orphan', () => {
+    // The whole string fits, so nothing is cut and the SGR must survive intact.
+    const whole = '\u001b[31mabc\u001b[0m'
+    expect(tailToWidth(whole, 3)).toBe(whole)
+    // A real cut whose surviving suffix STARTS with an opening SGR: no characters
+    // are orphaned, so the escape is kept even though its width is zero.
+    expect(tailToWidth('abcdef\u001b[31mxy', 2)).toBe('\u001b[31mxy')
+  })
+
+  it('keeps an opening SGR while dropping the orphaned mark it precedes', () => {
+    const RED = '\u001b[31m'
+    // The cut discarded the base `a`; the SGR opened after it is styling that
+    // must survive, and the combining acute the cut orphaned must not — even
+    // though the escape sits between them in the retained run.
+    expect(tailToWidth(`a${RED}\u0301b`, 1)).toBe(`${RED}b`)
+    // The same shape with the mark before the escape: both orders drop only the
+    // mark.
+    expect(tailToWidth(`a\u0301${RED}b`, 1)).toBe(`${RED}b`)
+  })
+
+  it('drops a leading zero-width character only when a cut orphaned it', () => {
+    // A zero-width space that lost its preceding content is as orphaned as a
+    // combining mark, and both are dropped after a cut...
+    expect(tailToWidth('abc\u200bd', 1)).toBe('d')
+    expect(tailToWidth('a\u0301b', 1)).toBe('b')
+    // ...but a string that FITS keeps a legitimate leading zero-width character,
+    // because nothing was cut.
+    expect(tailToWidth('\u200bab', 5)).toBe('\u200bab')
+  })
 })
 
 describe('wrapToWidth()', () => {
@@ -288,5 +318,83 @@ describe('chunkToWidth()', () => {
 
   it('returns one empty row for empty text', () => {
     expect(chunkToWidth('', 10)).toEqual([''])
+  })
+})
+
+describe('zero-width characters in wrapping', () => {
+  const COMBINING_ACUTE = '\u0301'
+
+  it('keeps a combining mark with its base instead of replaying it', () => {
+    // The mark is zero width but is NOT styling: replayed as an "open style" it
+    // would be prepended to the next row and accent the wrong character.
+    expect(wrapToWidth(`e${COMBINING_ACUTE}abc`, 2).map(stripAnsi))
+      .toEqual([`e${COMBINING_ACUTE}a`, 'bc'])
+    expect(chunkToWidth(`e${COMBINING_ACUTE}abc`, 2).map(stripAnsi))
+      .toEqual([`e${COMBINING_ACUTE}a`, 'bc'])
+  })
+
+  it('does not carry a ZWJ joiner onto a continuation row', () => {
+    const rows = wrapToWidth('\u{1F469}\u200D\u{1F4BB}x', 2).map(stripAnsi)
+    expect(rows.slice(1).some(row => row.startsWith('\u200D'))).toBe(false)
+  })
+
+  it('drops an orphaned combining mark from a tail cut', () => {
+    // The cut landed between the base and its mark; the mark alone would combine
+    // with whatever follows it instead of the character it belongs to.
+    expect(tailToWidth(`a${COMBINING_ACUTE}b`, 1)).toBe('b')
+  })
+
+  it('does not amplify escapes across a long styled line', () => {
+    // `open` must reset on a full reset, or every continuation row replays every
+    // escape seen so far and output grows with (escapes x rows).
+    const pieces: string[] = []
+    for (let index = 0; index < 2000; index += 1) {
+      pieces.push(index % 2 === 0 ? '\u001b[31m' : '\u001b[0m', 'x')
+    }
+    const source = pieces.join('')
+    const rendered = wrapToWidth(source, 20).join('')
+    expect(rendered.length).toBeLessThan(source.length * 4)
+  })
+})
+
+describe('hangingIndent() reserve', () => {
+  it('reserves the wider of the mark and the indent', () => {
+    // `你 ` is three columns while the indent is two, so budgeting by the indent
+    // alone let the first row overrun the terminal it promised to fit.
+    for (const row of hangingIndent('\u4f60 ', '  ', 'x'.repeat(10), 5)) {
+      expect(displayWidth(row), JSON.stringify(row)).toBeLessThanOrEqual(5)
+    }
+  })
+
+  it('keeps every row inside the terminal down to one column', () => {
+    for (let columns = 1; columns <= 12; columns += 1) {
+      for (const [mark, indent] of [['\u25cf ', '  '], ['\u4f60 ', '  '], ['\u00b7 ', '  ']] as const) {
+        for (const row of hangingIndent(mark, indent, 'aaaa bbbb cccc', columns)) {
+          expect(displayWidth(row), `columns=${String(columns)} row=${JSON.stringify(row)}`)
+            .toBeLessThanOrEqual(columns)
+        }
+      }
+    }
+  })
+})
+
+describe('variation selectors and escapes mixed with zero-width characters', () => {
+  it('keeps a variation selector with the emoji it presents', () => {
+    const rows = wrapToWidth(`\u263a\ufe0f${'x'.repeat(10)}`, 4).map(stripAnsi)
+    expect(rows.some(row => row.startsWith('\ufe0f'))).toBe(false)
+  })
+
+  it('replays an escape without replaying the mark beside it', () => {
+    const source = `\u001b[31m${'a'.repeat(3)}\u0301${'b'.repeat(6)}\u001b[0m`
+    const rows = wrapToWidth(source, 4)
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows) {
+      // Continuation rows reopen the colour they were drawn under...
+      expect(row).toContain('\u001b[31m')
+      // ...but never start with the combining mark, which belongs to its base.
+      expect(stripAnsi(row).startsWith('\u0301')).toBe(false)
+    }
+    // Every visible character survives exactly once, in order.
+    expect(stripAnsi(rows.join('')).replace(/\s+/gu, '')).toBe('aaa\u0301bbbbbb')
   })
 })

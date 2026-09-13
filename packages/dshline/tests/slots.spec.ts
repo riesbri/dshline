@@ -234,3 +234,145 @@ describe('TuiSlots.pushOverlay', () => {
     expect(slots.activeOverlay).toBeUndefined()
   })
 })
+
+describe('TuiSlots overlay disposal', () => {
+  it('still requests a redraw when a disposer throws, so the base UI is authoritative', () => {
+    // Removal and disposal both happen before the redraw request, so an
+    // unguarded disposer would skip it and leave a frame on screen that the
+    // registry no longer knows about. The throw is still propagated.
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    slots.pushOverlay(overlay({ render: () => ['base'] }))
+    const renders = vi.fn()
+    ctx.on('tui/render', renders)
+    const failure = new Error('dispose failed')
+    const dismiss = slots.pushOverlay(overlay({ render: () => ['overlay'], dispose: () => { throw failure } }))
+    renders.mockClear()
+
+    expect(() => dismiss()).toThrow(failure)
+    expect(slots.compose(40, 8).lines).toEqual(['base'])
+    expect(renders).toHaveBeenCalled()
+  })
+
+  it('disposes every mounted overlay even when the first throws', async () => {
+    // Teardown splices the whole stack out before disposing, so stopping at the
+    // first failure would leak every overlay after it with nothing left to
+    // dispose them.
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    const first = vi.fn(() => { throw new Error('first disposal failed') })
+    const second = vi.fn()
+    slots.pushOverlay(overlay({ dispose: first }))
+    slots.pushOverlay(overlay({ dispose: second }))
+
+    try {
+      await ctx.fiber.dispose()
+    } catch {
+      // Cordis may surface the collected failure; the disposal contract is what
+      // this test holds, not the wrapper's error policy.
+    }
+
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(1)
+    expect(slots.activeOverlay).toBeUndefined()
+  })
+})
+
+describe('TuiSlots.compose height backstop', () => {
+  it('clips an over-granted view from the top and keeps the later views', () => {
+    // A view that ignores the rows it was handed must not be able to push the
+    // region past the screen. The composition order is the priority: dropping
+    // from the top keeps the composer and status line, which sit later.
+    const slots = new TuiSlots(new Context())
+    slots.register('stream', { render: () => Array.from({ length: 50 }, (_, i) => `stream ${String(i)}`) })
+    slots.register('composer', { render: () => ['input'], cursor: () => ({ row: 0, column: 2 }) })
+
+    const { lines, cursor } = slots.compose(40, 4)
+    expect(lines).toHaveLength(4)
+    expect(lines.at(-1)).toBe('input')
+    // The cursor is translated by the same drop, so it still names the drawn
+    // input row rather than a row that was clipped away.
+    expect(lines[cursor?.row ?? -1]).toBe('input')
+    expect(cursor?.column).toBe(2)
+  })
+
+  it('keeps the cursor-bearing surface when a later view overspends', () => {
+    // The composer owns the cursor and a LATER slot (`completion`, in the real
+    // order stream → composer → completion → timing → status) returns far more
+    // rows than it was granted. Dropping from the top would clip the composer
+    // away and then clamp the cursor onto an unrelated surviving candidate row;
+    // the interactive surface must win, and the later rows are surrendered.
+    const slots = new TuiSlots(new Context())
+    slots.register('composer', { render: () => ['input'], cursor: () => ({ row: 0, column: 2 }) })
+    slots.register('completion', { render: () => Array.from({ length: 20 }, (_, i) => `candidate ${String(i)}`) })
+
+    const { lines, cursor } = slots.compose(40, 4)
+    expect(lines).toHaveLength(4)
+    expect(lines[cursor?.row ?? -1]).toBe('input')
+    expect(cursor?.column).toBe(2)
+  })
+
+  it('drops the whole region and its cursor when there is no height at all', () => {
+    const slots = new TuiSlots(new Context())
+    slots.register('composer', { render: () => ['input'], cursor: () => ({ row: 0, column: 0 }) })
+    expect(slots.compose(40, 0)).toEqual({ lines: [], cursor: undefined })
+  })
+
+  it('bounds an overlay that returns more rows than the terminal has', () => {
+    const slots = new TuiSlots(new Context())
+    slots.pushOverlay({
+      render: () => Array.from({ length: 30 }, (_, i) => `row ${String(i)}`),
+      handleKey: () => {},
+    })
+    const { lines, cursor } = slots.compose(40, 3)
+    expect(lines).toHaveLength(3)
+    // An overlay owns no cursor.
+    expect(cursor).toBeUndefined()
+  })
+})
+
+describe('TuiSlots overlay disposal failures', () => {
+  it('runs every disposer when more than one throws', async () => {
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    const calls: string[] = []
+    slots.pushOverlay(overlay({ dispose: () => { calls.push('first'); throw new Error('first') } }))
+    slots.pushOverlay(overlay({ dispose: () => { calls.push('second') } }))
+    slots.pushOverlay(overlay({ dispose: () => { calls.push('third'); throw new Error('third') } }))
+
+    // Cordis swallows an effect disposer's throw, so the point proven here is
+    // that teardown does not ABORT at the first failure and leak the rest.
+    try {
+      await ctx.fiber.dispose()
+    } catch {
+      // The wrapper's error policy is not this test's contract.
+    }
+    expect(calls).toEqual(['first', 'second', 'third'])
+    expect(slots.activeOverlay).toBeUndefined()
+  })
+
+  it('carries a redraw failure alongside the disposal failure, in order', () => {
+    const ctx = new Context()
+    const slots = new TuiSlots(ctx)
+    slots.pushOverlay(overlay({ render: () => ['base'] }))
+    const disposeFailure = new Error('dispose failed')
+    const redrawFailure = new Error('redraw failed')
+    const dismiss = slots.pushOverlay(overlay({ dispose: () => { throw disposeFailure } }))
+    // Armed after the mount redraw so the failure under test is the DISPOSAL
+    // redraw, not the initial one.
+    ctx.on('tui/render', () => { throw redrawFailure })
+
+    let thrown: unknown
+    try {
+      dismiss()
+    } catch (error: unknown) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(AggregateError)
+    expect((thrown as AggregateError).errors).toEqual([disposeFailure, redrawFailure])
+    // The registration is gone, so a second dismissal is a no-op and does not
+    // dispose again or attempt another redraw.
+    dismiss()
+    expect(slots.compose(40, 8).lines).toEqual(['base'])
+  })
+})
