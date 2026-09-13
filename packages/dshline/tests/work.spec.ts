@@ -481,6 +481,30 @@ describe('the Work live-region overlay', () => {
     expect(continuable.render(80, 12).map(stripAnsi).join('\n')).not.toContain('k stop')
   })
 
+  it('hands the durable conversation catalog off only when the seam is mounted', () => {
+    let opened = 0
+    const withCatalog = createWorkOverlay({
+      snapshot: () => ({ ...EMPTY, available: true, subagents: [subagentItem()] }),
+      interrupt: () => INTERRUPT_REQUESTED,
+      conversations: () => { opened += 1 },
+      close: () => {},
+      invalidate: () => {},
+    })
+    expect(withCatalog.render(80, 12).map(stripAnsi).join('\n')).toContain('c conversations')
+    withCatalog.handleKey({ kind: 'text', text: 'c' })
+    expect(opened).toBe(1)
+
+    const without = createWorkOverlay({
+      snapshot: () => ({ ...EMPTY, available: true, subagents: [subagentItem()] }),
+      interrupt: () => INTERRUPT_REQUESTED,
+      close: () => {},
+      invalidate: () => {},
+    })
+    expect(without.render(80, 12).map(stripAnsi).join('\n')).not.toContain('c conversations')
+    without.handleKey({ kind: 'text', text: 'c' })
+    expect(opened).toBe(1)
+  })
+
   it('opens a detail stage on Enter and returns with Esc and Esc close', () => {
     let closed = 0
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({ label: '审查 renderer', mode: 'continuable', hasChildren: true })], jobs: [] }

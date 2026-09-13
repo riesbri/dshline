@@ -400,6 +400,59 @@ contracts, not a direct dshline integration. Claude Code through
 logical next target, but has not been manually validated. The required path for
 both and future providers is documented in [Provider acceptance](provider-acceptance.md).
 
+## Durable subagent conversations: the fourth adapter
+
+Work represents **open lifecycle epochs**. A continuable subagent is also a
+durable conversation, and the important case is exactly the one an epoch cannot
+show: the child finishes its current turn, its epoch ends, and the user still
+wants to inspect it and send another instruction. Folding that into `HarnessWork`
+would also make `activeWorkCount()` — which gates retiring a session — treat a
+settled child as active work.
+
+So `/subagents` is a second, narrow adapter with its own presenter, keyed by the
+**durable child session id** rather than a lifecycle `runId`:
+
+```
+ctx.subagents.listChildren   → durable direct-child catalog
+ctx.sessionQuery             → one child's bounded session window (no resume)
+ctx.subagents.prompt         → human queue / steer
+```
+
+Discovery is `listChildren(parentSessionId)`, whose rows are Harness facts:
+durable id, label, `one-shot` versus `continuable`, session-store residency, and
+whether the child has children. A diagnostic row is kept rather than dropped, so
+a corrupt or unreadable candidate degrades honestly. Opening a child reads its
+own log through `ctx.sessionQuery.listEvents` and one bounded `readEvent` window
+and renders each event with Harness's `extractSessionEventText`; the child is
+never resumed or published to inspect it, and moving the cursor never reads a
+transcript. Paging older history **replaces** that window rather than appending
+to it, so the inspector holds at most one page of full event bodies no matter how
+far the reader walks back; the lightweight seq index is metadata, not bodies.
+
+A human follow-up is the one place this frontend must be careful about which
+Harness operation it calls. `SubagentRuntime.sendMessage(sender: Agent, …)` is
+**model-authored** adjacent-Agent messaging: it takes an exact live `Agent`
+sender and stamps `agent-message` provenance, so a terminal calling it would
+impersonate the parent Agent. The human path is `ctx.subagents.prompt`, which
+carries a durable parent/child address, a client-minted request identity, human
+`kind: 'user'` provenance, the `queue`/`steer` choice, cold materialization, and
+an accepted `MessageId` receipt. dshline's `HumanSubagentSeam` is a `Pick` of
+`SubagentRuntime` with only `listChildren` and `prompt`, so reaching for
+`sendMessage` fails type-check rather than shipping; a comment- and string-aware
+source scan backstops that against a cast.
+
+Acceptance is Harness's, so the field's `queue` and `steer` mean exactly what
+Harness defines: a queued later turn, or the nearest step (starting a turn when
+the child is idle). The terminal inserts no optimistic row — the message appears
+in the child's transcript only when its own session log records it.
+
+The durable inspector deliberately offers **no interrupt**. `listChildren()`
+reports session-store residency, not proof that a turn is executing, and
+Harness's `interrupt()` treats an absent or already-settled target as an
+accepted no-op; offering the action here could therefore claim a cancellation
+that never happened. Interrupt stays on `/work`, where an open lifecycle epoch
+is the stronger premise, and through its existing human adapter.
+
 ## Sessions: one corpus, and two lifetimes
 
 Sessions is the third adapter, and it reads exactly one authority. `ctx.sessionQuery`

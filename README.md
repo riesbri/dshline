@@ -71,6 +71,7 @@ Type `/` to discover the commands and capabilities available in the active Harne
 - `/sessions` — browse and resume Harness sessions
 - `/worktrees` — choose a working directory represented in your Harness session history, then a conversation there or a new one
 - `/work` — inspect workflows, subagents, and jobs
+- `/subagents` — browse this session's durable subagent conversations, inspect one, and continue a continuable child; also reachable with `c` from `/work`
 - `/connect` — configure providers through Harness
 - `/plugins` — browse, search, and customize the running agent's Harness preset composition
 - `/profiles` — browse Harness profiles and the bundles each one composes; install, update, or remove one

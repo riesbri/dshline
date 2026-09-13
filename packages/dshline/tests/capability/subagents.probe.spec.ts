@@ -52,6 +52,11 @@ describe('capability: subagents', () => {
     const ctx = new Context()
     try {
       await ctx.plugin(SubagentRuntime)
+      // The human prompt operation is a public instance method on the same
+      // service object, which is what lets a same-process terminal call it
+      // instead of the model-authored `sendMessage`. Asserted against the real
+      // runtime, not a fake.
+      expect(typeof ctx.subagents.prompt).toBe('function')
       const { provider, settle } = createProbeProvider()
       ctx.subagents.registerProvider(provider)
 
