@@ -23,15 +23,24 @@
  * a delegation:
  *
  * ```ts
- * child.stderr?.on('data', chunk => {
- *   writeFileSync(process.stderr.fd, Buffer.from(chunk))
- * })
+ * const onStderr = (chunk: Buffer | string): void => {
+ *   const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+ *   try {
+ *     writeFileSync(process.stderr.fd, bytes)
+ *   } catch {
+ *     // Host stderr is an observation sink, not a child-run failure authority.
+ *   }
+ * }
+ * child.stderr?.on('data', onStderr)
  * ```
  *
- * On an interactive launch descriptor 2 is the terminal dshline is drawing on,
- * so the delegated child's diagnostics land inside the composer frame — which
- * is why the duplicate appears the moment a subagent is spawned. Nothing here
- * branches on a provider: what is contained is a WRITE SHAPE, not a vendor.
+ * The `try`/`catch` only swallows a write that already failed; the successful
+ * path still goes straight to the descriptor, so the write shape this shim
+ * contains is unchanged. On an interactive launch descriptor 2 is the terminal
+ * dshline is drawing on, so the delegated child's diagnostics land inside the
+ * composer frame — which is why the duplicate appears the moment a subagent is
+ * spawned. Nothing here branches on a provider either: what is contained is a
+ * WRITE SHAPE, not a vendor.
  *
  * ## Why the descriptor and not the stream
  *
@@ -83,10 +92,10 @@
  * The `HARNESS_COMPAT` record is what forces that question to be asked:
  * `node tools/harness-target.mjs` fails while the record names a generation
  * other than the adopted one, and that check runs in the blocking `Harness
- * target` lane, in the Harness-Sync adoption proposal, and at release. It
- * cannot answer the question — confirming the upstream behavior is the
- * adopter's job — it can only refuse to let the migration go green until
- * someone has.
+ * target` lane on every pull request, the Harness-Sync adoption proposal
+ * included, and at release. It cannot answer the question — confirming the
+ * upstream behavior is the adopter's job — it can only refuse to let the
+ * migration go green until someone has.
  * @module dshline/stderr
  */
 

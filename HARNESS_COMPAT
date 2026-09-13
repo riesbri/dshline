@@ -11,10 +11,13 @@
 # This file is the list of them, and it exists to force a decision at the one
 # moment a decision is possible: adopting the next generation. Each record
 # names a shim and the generation it was last confirmed to still be needed
-# against. `node tools/harness-target.mjs` — the coherence check the
-# Harness-Sync proposal, the blocking `Harness target` lane, and every release
-# already run — fails while a record names a generation other than the adopted
-# one.
+# against. The full `node tools/harness-target.mjs` check — what the blocking
+# `Harness target` lane runs on every pull request, the Harness-Sync adoption
+# proposal included, and what every release already runs — fails while a record
+# names a generation other than the adopted one. The proposer job itself
+# validates only the mechanical state; reconciling these records is the
+# adoption proposal's CI verdict, because a mechanical target advance leaves
+# every record one generation stale by construction.
 #
 # So advancing HARNESS_TARGET fails until the adopter answers, per shim:
 #
@@ -39,4 +42,4 @@
 # file descriptor 2 for the life of the run, which on an interactive launch is
 # the terminal the live region is drawn on. Read the module header before
 # touching this record.
-shim packages/dshline/src/stderr.ts 0.1.5-rc.1
+shim packages/dshline/src/stderr.ts 0.1.5-rc.2
