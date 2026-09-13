@@ -73,6 +73,17 @@ describe('tailToWidth()', () => {
     expect(tailToWidth('abcdef\u001b[31mxy', 2)).toBe('\u001b[31mxy')
   })
 
+  it('keeps an opening SGR while dropping the orphaned mark it precedes', () => {
+    const RED = '\u001b[31m'
+    // The cut discarded the base `a`; the SGR opened after it is styling that
+    // must survive, and the combining acute the cut orphaned must not — even
+    // though the escape sits between them in the retained run.
+    expect(tailToWidth(`a${RED}\u0301b`, 1)).toBe(`${RED}b`)
+    // The same shape with the mark before the escape: both orders drop only the
+    // mark.
+    expect(tailToWidth(`a\u0301${RED}b`, 1)).toBe(`${RED}b`)
+  })
+
   it('drops a leading zero-width character only when a cut orphaned it', () => {
     // A zero-width space that lost its preceding content is as orphaned as a
     // combining mark, and both are dropped after a cut...

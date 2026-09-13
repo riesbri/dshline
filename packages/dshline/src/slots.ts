@@ -282,12 +282,14 @@ export class TuiSlots extends Service {
    * never be climbed back to or erased.
    *
    * The cut yields to the cursor. When a view owns the cursor, the row it points
-   * at is the interactive surface a person is typing into, so the rows BELOW it
-   * (later slots: status, timing) are surrendered first and only then the rows
-   * above it; the cursor is translated by the same amounts and is never mapped
-   * onto unrelated surviving content. A region with no cursor keeps the simpler
-   * policy of dropping from the top, which preserves the later, more important
-   * slots.
+   * at is the interactive surface a person is typing into. Rows ABOVE the cursor
+   * (earlier slots: the stream, and the composer's own upper rows) are
+   * surrendered first, then any excess from the bottom ends; what survives is the
+   * cursor row and the rows immediately below it, which are the later slots the
+   * top-drop policy already preferred (completion, timing, status). The cursor is
+   * translated by the same amounts and is never mapped onto unrelated surviving
+   * content. A region with no cursor keeps the simpler policy of dropping from
+   * the top.
    * @param lines - the composed lines, mutated in place.
    * @param cursor - the composed cursor, in those lines.
    * @param rows - the terminal's height.

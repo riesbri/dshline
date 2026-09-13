@@ -266,17 +266,21 @@ export function tailToWidth(text: string, columns: number): string {
     from = index
   }
   // A cut can land between a base character and the zero-width CHARACTER that
-  // belongs to it, leaving the mark as the suffix's first token; a mark with no
-  // base combines with whatever follows it instead of what preceded it. Only
-  // that case is dropped: an escape sequence has width zero too, but it is
-  // styling state, not an orphan, and a suffix that starts with one must keep
-  // it. Dropping applies only when something was actually cut.
+  // belongs to it, leaving an orphaned mark at the head of the suffix. Walk that
+  // leading zero-width run: escape sequences are styling state and are retained
+  // (an opening SGR may sit between the discarded base and its mark), orphaned
+  // zero-width characters are dropped, and the first visible character ends the
+  // run. Only a real cut can have orphaned anything.
   if (from > 0) {
-    while (from < tokens.length) {
-      const token = tokens[from]
-      if (token === undefined || token.width !== 0 || isEscape(token)) break
-      from += 1
+    const kept: string[] = []
+    let index = from
+    while (index < tokens.length) {
+      const token = tokens[index]
+      if (token === undefined || token.width !== 0) break
+      if (isEscape(token)) kept.push(token.text)
+      index += 1
     }
+    return kept.join('') + tokens.slice(index).map(token => token.text).join('')
   }
   return tokens.slice(from).map(token => token.text).join('')
 }

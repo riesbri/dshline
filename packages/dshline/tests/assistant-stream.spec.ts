@@ -362,6 +362,26 @@ describe('a reply streamed through the live agent frames', () => {
     f.dispose()
   })
 
+  it('ignores a stale chunk after a mid-stream adopted attempt ends', async () => {
+    // The listener can attach after `start`, so no `start` frame is ever seen:
+    // the first `chunk` adopts the attempt, which must itself count as "an
+    // attempt has been adopted". Otherwise `end` returns the state to "nothing
+    // adopted yet" and a late chunk looks like another mid-stream adoption,
+    // committing a completed stale line into scrollback.
+    const f = await attach()
+    f.event('turn/start', { turn: 1 })
+    f.frame(text('a1', 'first\n'))
+    f.frame(abandoned('a1', 1))
+    f.frame(text('a1', 'STALE\n', 2))
+    f.frame(abandoned('a1', 3))
+    f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const rows = await f.rows()
+    expect(rows.some(row => row.includes('STALE'))).toBe(false)
+    expect(occurrences(rows, 'first')).toBe(1)
+    f.dispose()
+  })
+
   it('ignores a late end from a cancelled attempt before the retry answers', async () => {
     // Cancellation can leave a terminal frame in flight; the retry that follows
     // must still reconcile its own stream.

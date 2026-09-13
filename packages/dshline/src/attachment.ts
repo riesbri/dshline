@@ -373,14 +373,16 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
    */
   let streamAttempt: AssistantStreamFrame['attemptId'] | undefined
   /**
-   * Whether a `start` has been observed at all.
+   * Whether this listener has ever ADOPTED an attempt.
    *
-   * It separates "between two framed attempts", where only the next `start` may
-   * resume, from "listener attached mid-stream", where the first frame is the
-   * current attempt. Without it, a late frame after an `end` looks like a fresh
-   * mid-stream adoption and can resurrect the attempt that just settled.
+   * It separates "no attempt yet", where the first frame may establish the
+   * current attempt even without a `start` (the listener attached mid-stream),
+   * from "an adopted attempt has ended", where only a new `start` may establish
+   * another. Tracking adoption rather than "has a start been seen" matters:
+   * a listener that attaches mid-stream adopts on a `chunk`, and after that
+   * attempt ends a late frame must not look like another initial adoption.
    */
-  let streamFramed = false
+  let streamAdopted = false
   // Scoped to the agent: a scoped tool shadows a global one, and a restricted-away
   // tool reads as absent, so the card must come from the definition that ran.
   const cards = new ToolCards(name => ctx.tools.get(name, agent), workspace)
@@ -1413,20 +1415,23 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // A frame is meaningful only for the attempt it names. `start` adopts a new
     // attempt and discards whatever an earlier one left; any other frame from a
     // different attempt is stale and ignored, so it cannot reset or prefix the
-    // current buffer. An undefined attempt means one of two different things: a
-    // `start` has never been seen, in which case the listener attached mid-stream
-    // and the first frame it sees is current; or a framed attempt has ENDED, in
-    // which case only the next `start` may resume and a late frame must not
-    // resurrect the attempt that just ended.
+    // current buffer.
+    //
+    // An undefined attempt means one of two different things, and confusing
+    // them is how a settled attempt gets resurrected. If NO attempt has ever
+    // been adopted, the listener attached mid-stream and the first frame it
+    // sees is current. If an attempt HAS been adopted and then ended, only the
+    // next `start` may establish another; any other frame is late.
     if (frame.type === 'start') {
       if (streamAttempt !== frame.attemptId) {
         stream.reset()
         streamAttempt = frame.attemptId
       }
-      streamFramed = true
+      streamAdopted = true
     } else if (streamAttempt === undefined) {
-      if (streamFramed) return
+      if (streamAdopted) return
       streamAttempt = frame.attemptId
+      streamAdopted = true
     } else if (streamAttempt !== frame.attemptId) {
       return
     }
