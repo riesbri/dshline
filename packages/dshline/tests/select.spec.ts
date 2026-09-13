@@ -17,6 +17,28 @@ import { createSelectOverlay, filterChoices, SEARCHABLE_CHOICES } from '../src/s
 const COLUMNS = 80
 const ROWS = 24
 
+/**
+ * The title the question adapter composes when a header and a question are both
+ * present — the exact shape that used to be cut off mid-sentence.
+ */
+const LONG_TITLE = "Apply the profile fix?: Do you want me to fix the profile's Codex provider now, or leave it for now?"
+
+/**
+ * Rejoin rows the picker wrapped and drop box chrome, so a phrase split across
+ * two physical rows still reads as one string.
+ * @param text - rendered rows, already stripped of ANSI.
+ * @returns the body text with runs of whitespace collapsed.
+ */
+function bodyText(text: string): string {
+  return text
+    .replace(/[│╭╮╰╯─]/gu, ' ')
+    .split('\n')
+    .map(row => row.trim())
+    .filter(row => row !== '')
+    .join(' ')
+    .replace(/\s+/gu, ' ')
+}
+
 /** A short list, the shape an approval or `/reasoning` offers. */
 const SHORT: SelectChoice[] = [
   { value: 'allowed-once', label: 'Allow once', description: 'Run this call and ask again.' },
@@ -318,6 +340,31 @@ describe('staying inside the terminal', () => {
     const view = mount(SHORT)
     view.press(key('down'))
     expect(stripAnsi(mountedFallback(view))).toContain('Reject')
+  })
+})
+
+describe('a title longer than one row', () => {
+  it('wraps a long semantic title instead of truncating the question', () => {
+    // The title carries the question for an `ask_user_question` single-select,
+    // and the one-row truncation this replaces dropped everything past the
+    // frame's inner width with no ellipsis.
+    const overlay = createSelectOverlay({
+      title: LONG_TITLE,
+      view: 'Question',
+      choices: SHORT,
+      settle: () => {},
+      invalidate: () => {},
+    })
+    for (const columns of [100, 80]) {
+      const lines = [...overlay.render(columns, ROWS)]
+      const shown = stripAnsi(lines.join('\n'))
+      expect(bodyText(shown), `${String(columns)} columns`).toContain(LONG_TITLE)
+      // The wrapped heading shrinks the list window; the confirmable rows stay.
+      expect(shown, `${String(columns)} columns`).toContain('Allow once')
+      for (const line of lines) {
+        expect(displayWidth(line), `${String(columns)} columns`).toBeLessThanOrEqual(columns)
+      }
+    }
   })
 })
 

@@ -74,6 +74,32 @@ function shown(overlay: TuiOverlay | undefined): string {
   return stripAnsi(overlay?.render(80).join('\n') ?? '')
 }
 
+/** The visible rows of the top overlay at a chosen geometry. */
+function shownAt(overlay: TuiOverlay | undefined, columns: number, rows: number): string {
+  return stripAnsi(overlay?.render(columns, rows).join('\n') ?? '')
+}
+
+/**
+ * Rejoin rows the frame wrapped and drop box chrome, so a phrase split across
+ * two physical rows still reads as one string.
+ * @param text - rendered rows, already stripped of ANSI.
+ * @returns the body text with runs of whitespace collapsed.
+ */
+function bodyText(text: string): string {
+  return text
+    .replace(/[│╭╮╰╯─]/gu, ' ')
+    .split('\n')
+    .map(row => row.trim())
+    .filter(row => row !== '')
+    .join(' ')
+    .replace(/\s+/gu, ' ')
+}
+
+/** The header and question whose composed title was reported as cut off. */
+const LONG_HEADER = 'Apply the profile fix?'
+const LONG_QUESTION = "Do you want me to fix the profile's Codex provider now, or leave it for now?"
+const LONG_TITLE = `${LONG_HEADER}: ${LONG_QUESTION}`
+
 describe('the user-questions registration', () => {
   it('registers on the scoped waterfall Harness publishes, and unregisters on dispose', () => {
     const { ctx, ask, events } = questionContext()
@@ -418,6 +444,57 @@ describe('option-less questions', () => {
     await vi.waitFor(() => { expect(overlay()).toBeDefined() })
     overlay()?.handleKey({ kind: 'key', name: 'escape' })
     await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: [] }] })
+  })
+})
+
+describe('a question longer than one row', () => {
+  it('keeps the whole question in a single-select prompt and still answers it', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    const answer = send({
+      questions: [{
+        id: 'q',
+        header: LONG_HEADER,
+        question: LONG_QUESTION,
+        options: [{ label: 'Fix now' }, { label: 'Leave it' }],
+      }],
+    })
+    for (const columns of [100, 80]) {
+      const shown = bodyText(shownAt(overlay(), columns, 24))
+      expect(shown, `${String(columns)} columns`).toContain(LONG_TITLE)
+      expect(shown, `${String(columns)} columns`).toContain('leave it for now?')
+    }
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await expect(answer).resolves.toEqual({ answers: [{ id: 'q', selected: ['Fix now'] }] })
+  })
+
+  it('keeps the whole question in a multi-select prompt', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    send({
+      questions: [{
+        id: 'stack',
+        header: LONG_HEADER,
+        question: LONG_QUESTION,
+        multiSelect: true,
+        options: [{ label: 'web' }, { label: 'api' }],
+      }],
+    })
+    const shown = bodyText(shownAt(overlay(), 100, 24))
+    expect(shown).toContain(LONG_TITLE)
+    expect(shown).toContain('leave it for now?')
+  })
+
+  it('keeps an option-less question visible when the compact fallback loses the frame', async () => {
+    const { ctx, send, overlay } = questionContext()
+    installQuestionProvider(ctx, () => {})
+    // An option-less question carries its text in `title` with an empty
+    // `message`; before the fallback knew about the title, the question that
+    // reached compact mode disappeared entirely.
+    send({ questions: [{ id: 'q', header: LONG_HEADER, question: LONG_QUESTION }] })
+    const raw = shownAt(overlay(), 80, 6)
+    expect(raw).not.toContain('╭')
+    expect(bodyText(raw)).toContain(LONG_TITLE)
   })
 })
 

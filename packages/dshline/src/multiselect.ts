@@ -301,7 +301,13 @@ export function createMultiSelectOverlay(spec: MultiSelectSpec): TuiOverlay {
  * @returns the heading rows, ending in a separator.
  */
 function headingRows(spec: MultiSelectSpec, inner: number): string[] {
-  const rows = [paint(truncateToWidth(escapeControls(spec.title), inner), 'overlay-title')]
+  // The title carries the question for an `ask_user_question` multi-select, so
+  // it is wrapped rather than cut and each physical row is painted on its own.
+  // A single-row truncation silently dropped the end of every long question;
+  // the extra rows flow through `heading.length`, which the caller already
+  // subtracts from the list's capacity.
+  const rows = wrapToWidth(escapeControls(spec.title), inner)
+    .map(row => paint(row, 'overlay-title'))
   if (spec.detail !== undefined && spec.detail !== '') {
     for (const line of escapeControls(spec.detail).split('\n')) {
       rows.push(paint(truncateToWidth(line, inner), 'subdued'))
