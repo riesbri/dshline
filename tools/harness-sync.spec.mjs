@@ -354,6 +354,19 @@ describe('the workflow stays a proposer, never a second opinion', () => {
     }
   })
 
+  it('proves only the mechanical state, leaving the register to the pull request', async () => {
+    const workflow = await workflowCode()
+    // A proposal always leaves HARNESS_COMPAT one generation stale, so the
+    // full check here would mean no proposal could ever be opened while a shim
+    // exists. The mechanical mode proves the tree; the blocking lane, on the
+    // pull request, keeps the human decision.
+    expect(workflow).toContain('run: node tools/harness-target.mjs --mechanical')
+    expect(workflow).not.toMatch(/run: node tools\/harness-target\.mjs\s*$/mu)
+    // And the summary says where the verdict lives, so a red `Harness target`
+    // check on the proposal is not read as a broken proposer.
+    expect(workflow).toContain('HARNESS_COMPAT')
+  })
+
   it('carries no model, AI, or publishing credential of any kind', async () => {
     const workflow = await workflowCode()
     // A proposer that could ask a model whether migration is needed would be

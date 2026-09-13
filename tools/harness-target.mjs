@@ -25,6 +25,7 @@
  *
  * Usage:
  *   node tools/harness-target.mjs                    # is the repository coherent with the target?
+ *   node tools/harness-target.mjs --mechanical       # only the target and its governed pins
  *   node tools/harness-target.mjs --revision         # print the adopted commit
  *   node tools/harness-target.mjs --version          # print the adopted version
  *   node tools/harness-target.mjs --pin              # rewrite dependency pins to the target version
@@ -32,7 +33,13 @@
  *   node tools/harness-target.mjs --verify-source .harness   # is that checkout the adopted generation?
  *
  * The no-flag run also fails while `HARNESS_COMPAT` records a temporary shim
- * confirmed against some other generation — see {@link parseCompat}.
+ * confirmed against some other generation — see {@link parseCompat}. That half
+ * is deliberately separable because its owner is a human, not the proposer:
+ * `--mechanical` drops it. Harness-Sync advances the target and thereby leaves
+ * every shim record one generation stale by construction, and reconciling a
+ * record is a decision made against the adoption pull request. `--mechanical`
+ * proves the tree that pull request would carry; the full check is what keeps
+ * the pull request red until the decision is made. See {@link checkTarget}.
  * @module tools/harness-target
  */
 
@@ -363,12 +370,22 @@ export async function compatProblems(target, shims, root = repoRoot) {
 
 /**
  * Render the coherence report.
+ *
+ * One report, two authorities. The mechanical half — the target and its
+ * governed pins — is what an adoption proposal must prove before it may be
+ * opened. The `HARNESS_COMPAT` half is a human migration decision, and it is
+ * separable so the proposer can omit it without the blocking lane losing it.
+ * See {@link checkTarget}.
  * @param target - the adopted target.
  * @param problems - `{ manifest, field, name, from }` entries whose spec is not the target version.
  * @param shims - `{ path, confirmed, reason }` entries from {@link compatProblems}.
+ * @param options - which authorities this run consulted.
+ * @param options.includeCompat - false for the mechanical-only mode, where a
+ *   stale register is stated as deferred rather than as a failure; default true.
  * @returns the report text, ending in a newline.
  */
-export function formatReport(target, problems, shims = []) {
+export function formatReport(target, problems, shims = [], options = {}) {
+  const includeCompat = options.includeCompat ?? true
   const lines = [`Harness target ${target.version} @ ${target.revision.slice(0, 8)}`]
   if (problems.length === 0) {
     lines.push(`✓ every dsh-* dependency, devDependency, and peerDependency is exactly ${target.version}`)
@@ -382,6 +399,11 @@ export function formatReport(target, problems, shims = []) {
       lines.push('peerDependencies are never rewritten by a tool: a peer range is the public')
       lines.push('compatibility promise, and one generation means one exact version, not a range.')
     }
+  }
+  if (!includeCompat) {
+    lines.push('mechanical state only: the adoption pull request\'s CI is the HARNESS_COMPAT verdict,')
+    lines.push('so a record naming an older generation is not this run\'s failure.')
+    return [...lines, ''].join('\n')
   }
   if (shims.length === 0) {
     return [...lines, ''].join('\n')
@@ -420,11 +442,39 @@ async function collectProblems(target, root = repoRoot) {
   return problems
 }
 
+/**
+ * Run the coherence check in one of its two modes.
+ *
+ * The two authorities are separable because their owners are different. The
+ * blocking `Harness target` lane, a local `pnpm harness-target`, and the release
+ * gate own both: the tree must be pinned to the target AND every
+ * `HARNESS_COMPAT` record must have been reconciled. The Harness-Sync proposer
+ * owns only the first. It could not open an adoption pull request otherwise —
+ * advancing the target mechanically leaves every shim record one generation
+ * stale — and the reconciliation is deliberately a human decision made against
+ * that pull request, with this default mode's red check as the forcing
+ * function.
+ * @param target - the adopted target.
+ * @param root - repository root whose manifests and register should be read.
+ * @param options - which authorities this run consults.
+ * @param options.includeCompat - whether an unreconciled register fails this
+ *   run; false is the proposal's mechanical-only mode; default true.
+ * @returns the rendered report and whether the consulted authorities found a problem.
+ */
+export async function checkTarget(target, root = repoRoot, { includeCompat = true } = {}) {
+  const problems = await collectProblems(target, root)
+  const shims = includeCompat ? await compatProblems(target, await readCompat(root), root) : []
+  return {
+    report: formatReport(target, problems, shims, { includeCompat }),
+    failed: problems.length + shims.length > 0,
+  }
+}
+
 // Entry point: vitest imports the pure functions above, so the side-effecting
 // CLI runs only when this file is executed directly.
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const [flag, argument, ...rest] = process.argv.slice(2)
-  const usage = 'usage: node tools/harness-target.mjs [--revision | --version | --pin | --published | --verify-source <dir>]\n'
+  const usage = 'usage: node tools/harness-target.mjs [--mechanical | --revision | --version | --pin | --published | --verify-source <dir>]\n'
   if (rest.length > 0 || (argument !== undefined && flag !== '--verify-source')) {
     process.stderr.write(usage)
     process.exit(2)
@@ -465,13 +515,20 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
       ? `dependencies already pinned to ${target.version}\n`
       : `pinned ${String(applied.length)} package(s) to ${target.version}; run \`pnpm install\` to refresh the lockfile\n`)
   } else if (flag === undefined) {
-    const problems = await collectProblems(target, targetRoot)
-    // The same run, because they are the same question asked of two files: is
-    // this repository coherent with the generation it says it adopts. A
-    // migration that bumps the target sees both answers at once.
-    const shims = await compatProblems(target, await readCompat(targetRoot), targetRoot)
-    process.stdout.write(formatReport(target, problems, shims))
-    process.exit(problems.length + shims.length > 0 ? 1 : 0)
+    // The full question: is this repository coherent with the generation it
+    // says it adopts, in both mechanical state and the compatibility register.
+    // A migration that bumps the target sees both answers at once.
+    const { report, failed } = await checkTarget(target, targetRoot)
+    process.stdout.write(report)
+    process.exit(failed ? 1 : 0)
+  } else if (flag === '--mechanical') {
+    // The proposer's half. A mechanically advanced target leaves every shim
+    // record one generation stale by construction, and reconciling it is the
+    // adoption pull request's human decision — failing here would mean
+    // Harness-Sync could never open the pull request that carries it.
+    const { report, failed } = await checkTarget(target, targetRoot, { includeCompat: false })
+    process.stdout.write(report)
+    process.exit(failed ? 1 : 0)
   } else {
     process.stderr.write(`unknown flag: ${flag}\n${usage}`)
     process.exit(2)
