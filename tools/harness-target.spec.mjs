@@ -9,11 +9,17 @@
  * question disappear rather than answering it faster.
  */
 
-import { readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  checkTarget,
   compatProblems,
   formatReport,
   isPublished,
@@ -25,6 +31,51 @@ import {
 } from './harness-target.mjs'
 
 const TARGET = { revision: 'b150a551b8d465e31e418e1b2eaf5e79bbb7d28e', version: '0.1.1-rc.2' }
+
+/**
+ * A throwaway repository whose only interesting properties are the two
+ * manifests, `HARNESS_TARGET`, and `HARNESS_COMPAT`. Driving the two check
+ * modes from identical state is what proves they differ ONLY in the register;
+ * the live repository cannot, because it changes generation on the next
+ * adoption.
+ * @param options - the state to seed.
+ * @param options.shim - the `HARNESS_COMPAT` contents; defaults to a record already reconciled with the target.
+ * @param options.pin - the version every governed spec carries; defaults to the target version.
+ * @returns the fixture root.
+ */
+async function fixtureRepo({ shim = `shim packages/dshline/src/stderr.ts ${TARGET.version}\n`, pin = TARGET.version } = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'harness-target-'))
+  await mkdir(join(root, 'packages', 'dshline', 'src'), { recursive: true })
+  await writeFile(join(root, 'HARNESS_TARGET'), `revision ${TARGET.revision}\nversion ${TARGET.version}\n`)
+  await writeFile(join(root, 'package.json'), `${JSON.stringify({ devDependencies: { '@deepseek-ai/dsh-llm': pin } }, null, 2)}\n`)
+  await writeFile(join(root, 'packages', 'dshline', 'package.json'), `${JSON.stringify({
+    dependencies: { '@deepseek-ai/dsh-agent': pin },
+    peerDependencies: { '@deepseek-ai/dsh-session': pin },
+    devDependencies: { '@deepseek-ai/dsh-scope': pin },
+  }, null, 2)}\n`)
+  await writeFile(join(root, 'HARNESS_COMPAT'), shim)
+  await writeFile(join(root, 'packages', 'dshline', 'src', 'stderr.ts'), '/** TEMPORARY shim; registered in HARNESS_COMPAT. */\n')
+  return root
+}
+
+/**
+ * Run the tool's CLI against a fixture root through its real flag parsing.
+ * @param root - repository root to point `RELEASE_ROOT` at.
+ * @param args - CLI flags.
+ * @returns the exit code and standard output.
+ */
+async function runCli(root, args) {
+  const cli = fileURLToPath(new URL('./harness-target.mjs', import.meta.url))
+  try {
+    const { stdout } = await promisify(execFile)(process.execPath, [cli, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, RELEASE_ROOT: root },
+    })
+    return { code: 0, stdout }
+  } catch (error) {
+    return { code: error.code ?? 1, stdout: error.stdout ?? '' }
+  }
+}
 
 describe('parseTarget()', () => {
   it('reads the two fields and ignores comments and blank lines', () => {
@@ -167,6 +218,79 @@ describe('formatReport()', () => {
     ])
     expect(report).toContain('never rewritten by a tool')
     expect(report).toContain('one exact version, not a range')
+  })
+
+  it('states the deferred register only in mechanical mode, leaving the default report unchanged', () => {
+    const mechanical = formatReport(TARGET, [], [], { includeCompat: false })
+    expect(mechanical).toContain('mechanical state only')
+    expect(mechanical).toContain('0.1.1-rc.2')
+    expect(mechanical).not.toContain('temporary shim')
+    expect(formatReport(TARGET, [])).not.toContain('mechanical state only')
+  })
+})
+
+describe('checkTarget(), the mechanical and full modes', () => {
+  it('fails the mechanical mode on a target/pin mismatch, so a proposal cannot carry a broken tree', async () => {
+    const root = await fixtureRepo({ pin: '0.1.1-rc.1' })
+    const { report, failed } = await checkTarget(TARGET, root, { includeCompat: false })
+    expect(failed).toBe(true)
+    expect(report).toContain('@deepseek-ai/dsh-llm 0.1.1-rc.1')
+    // The proposal defers a register decision, but it must still be honest
+    // that the pins are its own mechanical responsibility.
+    expect(report).toContain('Harness target 0.1.1-rc.2')
+  })
+
+  it('does not fail the mechanical mode on a stale register, because the pull request owns that decision', async () => {
+    const root = await fixtureRepo({ shim: 'shim packages/dshline/src/stderr.ts 0.1.1-rc.1\n' })
+    const { report, failed } = await checkTarget(TARGET, root, { includeCompat: false })
+    expect(failed).toBe(false)
+    expect(report).toContain('exactly 0.1.1-rc.2')
+    expect(report).toContain('mechanical state only')
+    expect(report).not.toContain('last confirmed against')
+  })
+
+  it('fails the default mode on that same stale register, so the gate still exists', async () => {
+    const root = await fixtureRepo({ shim: 'shim packages/dshline/src/stderr.ts 0.1.1-rc.1\n' })
+    const { report, failed } = await checkTarget(TARGET, root)
+    expect(failed).toBe(true)
+    expect(report).toContain('last confirmed against 0.1.1-rc.1')
+    expect(report).toContain('bump the record to 0.1.1-rc.2')
+  })
+
+  it('fails the full check when a recorded module is gone, and refuses a malformed register', async () => {
+    const missing = await fixtureRepo({ shim: 'shim packages/dshline/src/gone.ts 0.1.1-rc.2\n' })
+    const { report, failed } = await checkTarget(TARGET, missing)
+    expect(failed).toBe(true)
+    expect(report).toContain('is recorded but does not exist — delete the record')
+
+    const malformed = await fixtureRepo({ shim: 'workaround packages/dshline/src/stderr.ts 0.1.1-rc.2\n' })
+    await expect(checkTarget(TARGET, malformed)).rejects.toThrow(/unknown field: workaround/)
+  })
+
+  it('passes both modes when the register is already reconciled', async () => {
+    const root = await fixtureRepo()
+    await expect(checkTarget(TARGET, root)).resolves.toMatchObject({ failed: false })
+    await expect(checkTarget(TARGET, root, { includeCompat: false })).resolves.toMatchObject({ failed: false })
+  })
+})
+
+describe('the CLI modes', () => {
+  it('exits non-zero by default and zero with --mechanical on the same stale register', async () => {
+    const root = await fixtureRepo({ shim: 'shim packages/dshline/src/stderr.ts 0.1.1-rc.1\n' })
+    const full = await runCli(root, [])
+    expect(full.code).toBe(1)
+    expect(full.stdout).toContain('last confirmed against 0.1.1-rc.1')
+
+    const mechanical = await runCli(root, ['--mechanical'])
+    expect(mechanical.code).toBe(0)
+    expect(mechanical.stdout).toContain('mechanical state only')
+  })
+
+  it('still fails --mechanical on a pin mismatch', async () => {
+    const root = await fixtureRepo({ pin: '0.1.1-rc.1' })
+    const { code, stdout } = await runCli(root, ['--mechanical'])
+    expect(code).toBe(1)
+    expect(stdout).toContain('@deepseek-ai/dsh-agent 0.1.1-rc.1')
   })
 })
 

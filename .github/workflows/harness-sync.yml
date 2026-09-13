@@ -143,12 +143,20 @@ jobs:
           tail -40 install.log >&2
           exit 1
 
-      # Cheap and deterministic: prove the tree this pull request would carry is
-      # internally coherent before proposing it. Not a compatibility check —
-      # that is CI's job on the pull request itself.
-      - name: the proposed tree must be coherent
+      # Cheap and deterministic: prove the MECHANICAL state this pull request
+      # would carry is internally coherent before proposing it — HARNESS_TARGET
+      # and the governed pins, and nothing else. `--mechanical` deliberately
+      # skips the HARNESS_COMPAT reconciliation, because a mechanically advanced
+      # target leaves every shim record naming the previous generation by
+      # construction; deciding that record is the adopter's job ON the pull
+      # request this step exists to open. The full check, compatibility
+      # included, runs in ci.yml's blocking `Harness target` lane on that pull
+      # request and stays red until the decision is made. Running the full check
+      # here would mean the proposer could never open a proposal whenever a shim
+      # exists, which is exactly the state a proposal is in.
+      - name: the proposed tree is mechanically coherent
         if: steps.install.outcome == 'success'
-        run: node tools/harness-target.mjs
+        run: node tools/harness-target.mjs --mechanical
 
       # The same repository-scoped credential the Version Packages pull request
       # uses, and for the same reason: a pull request created with the built-in
@@ -192,8 +200,10 @@ jobs:
               echo 'was opened and nothing was bypassed; the next scheduled run will retry.'
             elif [ "$KIND" = 'candidate' ]; then
               echo
-              echo 'Adoption proposed. Ordinary CI on that pull request decides whether this'
-              echo 'generation is directly compatible; red means migrate forward, never restore'
-              echo 'support for the previous one.'
+              echo 'Adoption proposed from mechanical state only. Ordinary CI on that pull request is'
+              echo 'authoritative for compatibility; red means migrate forward, never restore support'
+              echo 'for the previous one. A red `Harness target` check can also mean a HARNESS_COMPAT'
+              echo 'record still names the previous generation and needs a deliberate decision: confirm'
+              echo 'the defect remains and bump the record, or delete the shim with its wiring and tests.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
