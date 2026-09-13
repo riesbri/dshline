@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chunkToWidth, codePointWidth, displayWidth, escapeControls, hangingIndent, stripAnsi, style, tailToWidth, truncateToWidth, wrapToWidth } from '../src/index.ts'
+import { chunkToWidth, codePointWidth, displayWidth, escapeControls, hangingIndent, stripAnsi, style, tailToWidth, truncateToWidth, widthStable, wrapToWidth } from '../src/index.ts'
 
 
 describe('displayWidth()', () => {
@@ -288,5 +288,137 @@ describe('chunkToWidth()', () => {
 
   it('returns one empty row for empty text', () => {
     expect(chunkToWidth('', 10)).toEqual([''])
+  })
+})
+
+describe('zero-width characters in wrapping', () => {
+  const COMBINING_ACUTE = '\u0301'
+
+  it('keeps a combining mark with its base instead of replaying it', () => {
+    // The mark is zero width but is NOT styling: replayed as an "open style" it
+    // would be prepended to the next row and accent the wrong character.
+    expect(wrapToWidth(`e${COMBINING_ACUTE}abc`, 2).map(stripAnsi))
+      .toEqual([`e${COMBINING_ACUTE}a`, 'bc'])
+    expect(chunkToWidth(`e${COMBINING_ACUTE}abc`, 2).map(stripAnsi))
+      .toEqual([`e${COMBINING_ACUTE}a`, 'bc'])
+  })
+
+  it('does not carry a ZWJ joiner onto a continuation row', () => {
+    const rows = wrapToWidth('\u{1F469}\u200D\u{1F4BB}x', 2).map(stripAnsi)
+    expect(rows.slice(1).some(row => row.startsWith('\u200D'))).toBe(false)
+  })
+
+  it('drops an orphaned combining mark from a tail cut', () => {
+    // The cut landed between the base and its mark; the mark alone would combine
+    // with whatever follows it instead of the character it belongs to.
+    expect(tailToWidth(`a${COMBINING_ACUTE}b`, 1)).toBe('b')
+  })
+
+  it('does not amplify escapes across a long styled line', () => {
+    // `open` must reset on a full reset, or every continuation row replays every
+    // escape seen so far and output grows with (escapes x rows).
+    const pieces: string[] = []
+    for (let index = 0; index < 2000; index += 1) {
+      pieces.push(index % 2 === 0 ? '\u001b[31m' : '\u001b[0m', 'x')
+    }
+    const source = pieces.join('')
+    const rendered = wrapToWidth(source, 20).join('')
+    expect(rendered.length).toBeLessThan(source.length * 4)
+  })
+})
+
+describe('hangingIndent() reserve', () => {
+  it('reserves the wider of the mark and the indent', () => {
+    // `你 ` is three columns while the indent is two, so budgeting by the indent
+    // alone let the first row overrun the terminal it promised to fit.
+    for (const row of hangingIndent('\u4f60 ', '  ', 'x'.repeat(10), 5)) {
+      expect(displayWidth(row), JSON.stringify(row)).toBeLessThanOrEqual(5)
+    }
+  })
+
+  it('keeps every row inside the terminal down to one column', () => {
+    for (let columns = 1; columns <= 12; columns += 1) {
+      for (const [mark, indent] of [['\u25cf ', '  '], ['\u4f60 ', '  '], ['\u00b7 ', '  ']] as const) {
+        for (const row of hangingIndent(mark, indent, 'aaaa bbbb cccc', columns)) {
+          expect(displayWidth(row), `columns=${String(columns)} row=${JSON.stringify(row)}`)
+            .toBeLessThanOrEqual(columns)
+        }
+      }
+    }
+  })
+})
+
+describe('widthStable()', () => {
+  it('replaces width-unstable code points but keeps wide, zero-width, and ASCII', () => {
+    // `é` and `±` are East Asian Ambiguous; `标` is wide and `\u0301` is zero
+    // width, so both are the same width in every terminal.
+    expect(widthStable('caf\u00e9 \u00b1 \u6807\u51c6'))
+      .toBe('caf? ? \u6807\u51c6')
+    expect(widthStable(`a${'\u0301'}\u00b1\u6807`)).toBe(`a${'\u0301'}?\u6807`)
+  })
+
+  it('preserves escape sequences while projecting the visible text', () => {
+    const projected = widthStable(style('caf\u00e9', 'red'))
+    expect(stripAnsi(projected)).toBe('caf?')
+    expect(projected).toContain('\u001b[31m')
+  })
+
+  it('leaves no code point a terminal might widen differently than it measures', () => {
+    for (const text of ['\u00b1\u00b7\u203a', 'caf\u00e9', '\u6807\u51c6', 'plain', '\u25cf']) {
+      for (const char of widthStable(text)) {
+        const code = char.codePointAt(0) ?? 0
+        const width = codePointWidth(code)
+        // ASCII, wide, and zero-width agree everywhere this renderer runs; a
+        // narrow non-ASCII code point might not, so it must be gone.
+        expect(width !== 1 || code < 0x80, `unstable ${JSON.stringify(char)} in ${JSON.stringify(text)}`)
+          .toBe(true)
+      }
+    }
+  })
+
+  it('replaces code points the model itself already mis-measures', () => {
+    // The reason the predicate is a conservative superset rather than the exact
+    // East Asian Ambiguous set: `WIDE_RANGES` trails the Unicode release, so
+    // these are drawn wide by terminals that follow it while `codePointWidth`
+    // calls them one. An exact-A table would keep them and the bug would return.
+    for (const stale of [0x231a, 0x2630, 0x4dc0]) {
+      expect(codePointWidth(stale), `U+${stale.toString(16)} is measured one`).toBe(1)
+      expect(widthStable(String.fromCodePoint(stale)), `U+${stale.toString(16)}`).toBe('?')
+    }
+    // A text-default emoji is not Ambiguous at all, but VS16 makes a terminal
+    // draw it two columns; the base is replaced and the selector is kept.
+    expect(widthStable('\u2764\ufe0f')).toBe('?\ufe0f')
+  })
+
+  it('projects stable narrow scripts too, and says so', () => {
+    // The deliberate information loss: Hebrew is neither ambiguous nor stale,
+    // but the conservative predicate replaces it. Identity survives in the
+    // committed banner (asserted beside this in the dshline package), so the
+    // composer label may trade the glyphs for guaranteed geometry.
+    expect(widthStable('\u05e9\u05dc\u05d5\u05dd')).toBe('????')
+    // Consequently the projection is not injective; two distinct names can
+    // collapse. This is intentional and bounded by the banner carrying the name.
+    expect(widthStable('caf\u00e9')).toBe(widthStable('caf\u00e8'))
+  })
+})
+
+describe('variation selectors and escapes mixed with zero-width characters', () => {
+  it('keeps a variation selector with the emoji it presents', () => {
+    const rows = wrapToWidth(`\u263a\ufe0f${'x'.repeat(10)}`, 4).map(stripAnsi)
+    expect(rows.some(row => row.startsWith('\ufe0f'))).toBe(false)
+  })
+
+  it('replays an escape without replaying the mark beside it', () => {
+    const source = `\u001b[31m${'a'.repeat(3)}\u0301${'b'.repeat(6)}\u001b[0m`
+    const rows = wrapToWidth(source, 4)
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows) {
+      // Continuation rows reopen the colour they were drawn under...
+      expect(row).toContain('\u001b[31m')
+      // ...but never start with the combining mark, which belongs to its base.
+      expect(stripAnsi(row).startsWith('\u0301')).toBe(false)
+    }
+    // Every visible character survives exactly once, in order.
+    expect(stripAnsi(rows.join('')).replace(/\s+/gu, '')).toBe('aaa\u0301bbbbbb')
   })
 })

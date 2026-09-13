@@ -279,6 +279,12 @@ export function layoutComposer(
       let index = 0
       for (const char of chunk.text) {
         const charWidth = codePointWidth(char.codePointAt(0) ?? 0)
+        // A zero-width mark shares a cell with its base, so `column` can name
+        // the boundary immediately BEFORE it. Consuming the mark there would
+        // skip a position the cursor can actually be at — the offset `left`
+        // leaves after a composed character — and make the inverse disagree
+        // with the placement it is supposed to mirror.
+        if (charWidth === 0 && usedColumn >= textColumn) break
         if (usedColumn + charWidth > textColumn) break
         usedColumn += charWidth
         index += 1

@@ -16,6 +16,7 @@ import { homedir } from 'node:os'
 import { createUserMessage, type ImageBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-agent/types'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the Context merges this module reads but does not
 // otherwise import from: the questions seam and the launcher's exit request. The
@@ -360,6 +361,17 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     ...imageDrafts.size === 0 ? {} : { images: imageDrafts.size },
   }))
   const stream = new StreamBuffer(prefs.reasoningVisible)
+  /**
+   * The attempt the live buffer currently belongs to.
+   *
+   * The frame contract orders `start`/`chunk`/`end` WITHIN one attempt and
+   * promises settlement before that attempt's `end`, but it does not promise
+   * that attempt N's frames all arrive before attempt N+1 starts — that holds
+   * only because the loop is a single sequential iteration. A late `end` from a
+   * settled attempt would otherwise reset the next attempt's buffer and make the
+   * durable `assistant/message` re-emit a reply the reader already saw.
+   */
+  let streamAttempt: AssistantStreamFrame['attemptId'] | undefined
   // Scoped to the agent: a scoped tool shadows a global one, and a restricted-away
   // tool reads as absent, so the card must come from the definition that ran.
   const cards = new ToolCards(name => ctx.tools.get(name, agent), workspace)
@@ -1208,7 +1220,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       goal: goalReading(projected, goalActivation),
     }
   })
-  const streamView = { render: (columns: number): string[] => stream.live(columns) }
+  const streamView = { render: (columns: number, rows?: number): string[] => stream.live(columns, rows) }
   const timingView = createTimingView(timer, () => prefs.timing, () => tick)
 
   scope.own(ctx.tuiSlots.register('stream', streamView))
@@ -1389,6 +1401,21 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // window projects one Agent.
   scope.own(ctx.on('agent/assistant-stream', ({ agent: source, frame }) => {
     if (source !== agent) return
+    // A frame is meaningful only for the attempt it names. `start` adopts a new
+    // attempt and discards whatever an earlier one left; any other frame from a
+    // different attempt is stale and ignored, so it cannot reset or prefix the
+    // current buffer. Adoption on the first non-start frame covers a stream that
+    // began before this listener attached.
+    if (frame.type === 'start') {
+      if (streamAttempt !== frame.attemptId) {
+        stream.reset()
+        streamAttempt = frame.attemptId
+      }
+    } else if (streamAttempt === undefined) {
+      streamAttempt = frame.attemptId
+    } else if (streamAttempt !== frame.attemptId) {
+      return
+    }
     const columns = terminal.columns()
     timer.observeFrame(frame)
     phase = modelPhaseAfterFrame(phase, frame)
@@ -1408,6 +1435,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // also what stops the next attempt from inheriting it and settling against
       // a prefix the model never sent.
       stream.reset()
+      streamAttempt = undefined
     }
     draw()
   }))

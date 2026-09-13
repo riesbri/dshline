@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Composer, displayWidth, Screen, stripAnsi } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
-import { composerGutter, composerHintRow, composerInner, createComposerView, createStatusView } from '../src/views.ts'
+import { bannerLines, composerGutter, composerHintRow, composerInner, createComposerView, createStatusView } from '../src/views.ts'
 
 /** A terminal width whose inner content area is a round number of columns. */
 const COLUMNS = 40
@@ -1083,5 +1083,47 @@ describe('a very large pasted prompt', () => {
     // the buffer — a cell that is part of the final line's text region.
     expect(stripAnsi(rows[placement?.row ?? 0] ?? '')).toContain('pasted line 2999')
     expect(cell).toBeDefined()
+  })
+})
+
+describe('the status line respects its granted height', () => {
+  const view = (): ReturnType<typeof createStatusView> => createStatusView(() => ({
+    busy: false,
+    tick: 0,
+    elapsedMs: undefined,
+    activityWord: 'ready',
+    activity: undefined,
+    model: 'deepseek-v4-flash',
+    effort: undefined,
+    usage: undefined,
+    cacheRead: undefined,
+    tokens: undefined,
+    contextWindow: undefined,
+    detail: 'compact',
+    work: undefined,
+    pending: undefined,
+    todo: undefined,
+    plan: false,
+    replay: undefined,
+    goal: undefined,
+  } as never))
+
+  it('draws nothing when the composition has spent the terminal above it', () => {
+    expect(view().render(80, 0)).toEqual([])
+    expect(view().render(80, 1)).toHaveLength(1)
+    // Undefined keeps the older callers that never knew a budget unbounded.
+    expect(view().render(80)).toHaveLength(1)
+  })
+})
+
+describe('the committed banner preserves workspace identity', () => {
+  it('prints the raw workspace name, not the composer label\'s projection', () => {
+    // `widthStable` deliberately collapses narrow non-ASCII in the width-critical
+    // frame label. The banner is committed scrollback, where a wrap is harmless,
+    // so it carries the full name and the projection loses no identity overall.
+    const workspace = '/home/\u05e9\u05dc\u05d5\u05dd/caf\u00e9'
+    const text = bannerLines(workspace, 'deepseek-v4-flash', '0.21.0', 200).join('\n')
+    expect(text).toContain('\u05e9\u05dc\u05d5\u05dd')
+    expect(text).toContain('caf\u00e9')
   })
 })

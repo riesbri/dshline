@@ -52,6 +52,8 @@ A chat transcript only ever grows, so the renderer keeps no copy of the whole sc
 
 Because of that, the scroll position is never something this code has to track, and nothing has to be re-laid-out when the window is resized.
 
+Native scrollback stays authoritative, including what the terminal itself does to it. dshline must never commit stale live-region content on its own, but a width reduction can make the terminal reflow cells it already displayed *before* dshline receives the resize event, so part of the old live area can enter history with no code running. Recovery redraws the live region from the width now in force without destructively rewriting committed scrollback; a reflowed remainder that the terminal scrolled away is therefore a limitation of letting the terminal own reflow, not a commit dshline made.
+
 One rule makes it correct: the live area must always be the last thing on screen, so every write goes through `Screen`.
 
 This is also why the interface never switches to the alternate screen. Scrolling, selecting text with the mouse, and copying all keep working exactly as they do for any other command, instead of being rebuilt inside the interface.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Composer, Screen, stripAnsi } from '@dshline/renderer'
+import { Composer, Screen, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { composerGutter, composerInner, createComposerView } from '../src/views.ts'
 
@@ -126,5 +126,86 @@ describe('the composer live region on a terminal that widens the title markers',
     // The whole arrow block is ambiguous width; none of it belongs in chrome
     // whose row accounting must be exact.
     expect(top).not.toMatch(/[\u2190-\u21ff]/u)
+  })
+})
+
+/**
+ * The code points a terminal in ambiguous-width mode widens while dshline
+ * measures them as one column. The workspace basename is UNTRUSTED text drawn
+ * inside the frame's top border, so it is the one place an arbitrary ambiguous
+ * code point still reaches width-critical chrome.
+ */
+const AMBIGUOUS_LABEL = [0x00b1] as const
+
+describe('the composer live region with an ambiguous workspace label', () => {
+  it('leaves no stale top border when the untrusted label would widen', async () => {
+    // The label is projected to width-stable characters, so the border measures
+    // the same width this terminal draws. Without that projection the `±±` label
+    // pushed the top border one physical row past the modeled region, and every
+    // redraw left another border behind — the #202 failure mode, reached through
+    // the label instead of the direction markers.
+    const emulator = createEmulator(COLUMNS, 4, { wideCodePoints: AMBIGUOUS_LABEL })
+    // Count the writes so the redraw path is proven to have run: `Screen.setLive`
+    // returns without erasing for a byte-identical frame, and a stale-frame test
+    // that never redrew would pass without testing anything.
+    let writes = 0
+    const screen = new Screen({
+      write: chunk => { writes += 1; emulator.target.write(chunk) },
+      columns: () => emulator.target.columns(),
+    })
+    const composer = longDraft()
+    const view = createComposerView(composer, '/w/\u00b1\u00b1repo')
+    const redraw = (): void => {
+      screen.setLive(view.render(COLUMNS, 4), view.cursor?.(COLUMNS, 4))
+    }
+
+    redraw()
+    const before = await emulator.scrollback()
+    const firstFrameWrites = writes
+    for (let i = 0; i < 6; i += 1) {
+      expect(step(composer, -1)).toBe(true)
+      redraw()
+    }
+    for (let i = 0; i < 6; i += 1) {
+      expect(step(composer, 1)).toBe(true)
+      redraw()
+    }
+
+    const history = await emulator.scrollback()
+    // Every step changed the frame, so every redraw wrote: the erase/redraw path
+    // was exercised, and the assertions below are not vacuous.
+    expect(writes - firstFrameWrites).toBe(12)
+    // No drift: a wrapped border adds a physical row Screen never erases, so the
+    // held row count would grow on every redraw.
+    expect(history.length).toBe(before.length)
+    // One current frame, not a previous one the erase missed.
+    expect(history.filter(row => row.includes('╭─'))).toHaveLength(1)
+    expect(screen.height).toBeLessThanOrEqual(4)
+    emulator.dispose()
+  })
+})
+
+describe('the composer frame respects its granted height', () => {
+  it('never draws more physical rows than the terminal has', () => {
+    // The per-view contract the composition backstop exists to protect: on a
+    // terminal too short for the framed box the view falls back to its unframed
+    // form rather than drawing borders that would scroll off unreachable.
+    for (const draft of ['', 'hello world', Array.from({ length: 30 }, (_, i) => `d${String(i)}`).join('\n')]) {
+      const composer = new Composer()
+      if (draft !== '') composer.handle({ kind: 'paste', text: draft })
+      const view = createComposerView(composer, '/w/repo')
+      for (let rows = 1; rows <= 8; rows += 1) {
+        const lines = view.render(COLUMNS, rows)
+        const physical = lines.flatMap(line => wrapToWidth(line, COLUMNS))
+        expect(physical.length, `draft=${JSON.stringify(draft.slice(0, 8))} rows=${String(rows)}`)
+          .toBeLessThanOrEqual(rows)
+        const cursor = view.cursor?.(COLUMNS, rows)
+        if (cursor !== undefined) {
+          expect(cursor.row).toBeGreaterThanOrEqual(0)
+          expect(cursor.row).toBeLessThan(physical.length)
+          expect(cursor.column).toBeLessThanOrEqual(COLUMNS)
+        }
+      }
+    }
   })
 })

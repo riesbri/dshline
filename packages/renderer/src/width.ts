@@ -148,10 +148,71 @@ export function displayWidth(text: string): number {
   return total
 }
 
+/**
+ * Replace code points whose width a terminal might disagree with dshline about.
+ *
+ * `displayWidth` follows East Asian Width with Ambiguous code points measured
+ * narrow. A terminal in ambiguous-width mode draws them two columns wide, so
+ * untrusted text carrying one and placed into width-critical chrome — the
+ * composer's frame label above all — makes the measured row shorter than the
+ * drawn one, and the border wraps a physical row the redraw arithmetic never
+ * counts; the stale border then survives every erase.
+ *
+ * The alternative, treating every East Asian Ambiguous code point as two
+ * columns globally, would move geometry for every terminal that keeps them
+ * narrow and for the box drawing and punctuation the chrome cannot give up.
+ * Narrowing the replacement to the genuine Ambiguous set is not sufficient
+ * either: `WIDE_RANGES` trails the current Unicode release, so code points a
+ * terminal is entitled to draw wide (U+231A, U+2630, U+4DC0, …) are measured
+ * one here, and a text-default emoji widened by VS16 is not Ambiguous at all.
+ * An exact unstable set would have to regenerate the wide table and model emoji
+ * presentation — a Unicode-width subsystem, not a label fix.
+ *
+ * So the predicate is deliberately the conservative one: a visible non-ASCII
+ * code point that is neither already wide nor zero-width is replaced, whether
+ * or not it is genuinely Ambiguous. That is self-healing — anything the model
+ * might mis-measure is projected — at the cost of replacing stable narrow
+ * scripts (Hebrew, Arabic, Indic, …) too. The projection is therefore LOSSY and
+ * not injective; identity survives because the committed banner prints the
+ * full, unprojected workspace name, and the composer frame's right title is the
+ * only consumer. Wide CJK and kana are kept because terminals agree on their
+ * width; ASCII is kept because it is never ambiguous.
+ * @param text - possibly styled text.
+ * @param placeholder - the width-stable character substituted one for one.
+ * @returns the text with width-unstable code points replaced.
+ */
+export function widthStable(text: string, placeholder = '?'): string {
+  let out = ''
+  for (const token of tokenize(text)) {
+    if (isEscape(token)) {
+      out += token.text
+      continue
+    }
+    const code = token.text.codePointAt(0) ?? 0
+    out += codePointWidth(code) === 1 && code >= 0x80 ? placeholder : token.text
+  }
+  return out
+}
+
 /** One unit of a styled string: a zero-width escape, or a visible character. */
 interface Token {
   text: string
   width: number
+}
+
+/**
+ * Whether a zero-width token is an escape sequence rather than a zero-width
+ * CHARACTER such as a combining mark, a variation selector, or a ZWJ.
+ *
+ * The distinction is load-bearing wherever "styling to reopen on the next row"
+ * is tracked: an escape is terminal state that must be replayed, while a
+ * zero-width character is part of the character it follows and must NOT travel
+ * to a continuation row on its own — replayed there it accents the wrong base.
+ * @param token - one token from {@link tokenize}.
+ * @returns true for an escape sequence.
+ */
+function isEscape(token: Token): boolean {
+  return token.text.startsWith('\u001b')
 }
 
 /** An SGR sequence that closes all styling, with or without an explicit zero. */
@@ -202,7 +263,9 @@ export function truncateToWidth(text: string, columns: number): string {
   let cut = false
   for (const token of tokenize(text)) {
     if (token.width === 0) {
-      open = !RESET_PATTERN.test(token.text)
+      // Only an escape changes what is OPEN; a combining mark or ZWJ does not,
+      // and treating it as "styling is now open" would append a needless reset.
+      if (isEscape(token)) open = !RESET_PATTERN.test(token.text)
       out += token.text
       continue
     }
@@ -248,6 +311,11 @@ export function tailToWidth(text: string, columns: number): string {
     used += token.width
     from = index
   }
+  // A cut can land between a base character and the zero-width mark that
+  // belongs to it, leaving the mark as the suffix's first token. A mark with no
+  // base combines with whatever follows it instead of what preceded it, so it is
+  // dropped rather than shown attached to the wrong character.
+  while (from < tokens.length && tokens[from]?.width === 0) from += 1
   return tokens.slice(from).map(token => token.text).join('')
 }
 
@@ -279,7 +347,10 @@ export function chunkToWidth(text: string, columns: number): string[] {
     let open = ''
     for (const token of tokenize(paragraph)) {
       if (token.width === 0) {
-        open = RESET_PATTERN.test(token.text) ? '' : open + token.text
+        // A break may not orphan a zero-width CHARACTER: a combining mark stays
+        // with the base it follows, so only escape sequences join the set that
+        // is replayed onto the next row.
+        if (isEscape(token)) open = RESET_PATTERN.test(token.text) ? '' : open + token.text
         row += token.text
         continue
       }
@@ -340,7 +411,14 @@ export function wrapToWidth(text: string, columns: number): string[] {
     }
     for (const token of tokens) {
       if (token.width === 0) {
-        open += token.text
+        // Only an escape changes what is replayed on the next row, and a full
+        // reset ends whatever it opened. A zero-width CHARACTER — a combining
+        // mark, a variation selector, a ZWJ — belongs to the base beside it and
+        // must not travel. Merely appending every zero-width token would both
+        // orphan those marks and make `open` a log of EVERY escape the paragraph
+        // carried, so each continuation row replayed all of them: O(escapes x
+        // rows) bytes and time on one long styled line.
+        if (isEscape(token)) open = RESET_PATTERN.test(token.text) ? '' : open + token.text
         row.push(token)
         continue
       }
@@ -396,6 +474,17 @@ const RESET = '\u001b[0m'
  * @returns rows that already fit, so nothing wraps them again.
  */
 export function hangingIndent(mark: string, indent: string, text: string, columns: number): string[] {
-  const budget = Math.max(1, columns - displayWidth(indent))
-  return wrapToWidth(text, budget).map((row, index) => `${index === 0 ? mark : indent}${row}`)
+  // The wrap budget is SHARED by the first row (which carries `mark`) and the
+  // continuation rows (which carry `indent`). Reserving only `indent` let a
+  // wider `mark` push the first row past the terminal, breaking this function's
+  // own promise that its rows need no further wrapping.
+  const reserve = Math.max(displayWidth(mark), displayWidth(indent))
+  const budget = Math.max(1, columns - reserve)
+  return wrapToWidth(text, budget).map((row, index) => {
+    const line = `${index === 0 ? mark : indent}${row}`
+    // A gutter at least as wide as the terminal leaves no content column at all,
+    // so the promise above can only be kept by cutting. This is the one case
+    // where the mark itself is what overflows.
+    return displayWidth(line) <= columns ? line : truncateToWidth(line, columns)
+  })
 }

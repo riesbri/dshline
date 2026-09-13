@@ -20,6 +20,7 @@ import {
   paint,
   spinnerFrame,
   truncateToWidth,
+  widthStable,
   wrapToWidth,
 } from '@dshline/renderer'
 import type { CardDetail } from './cards.ts'
@@ -176,7 +177,13 @@ export function createComposerView(
   hint: () => ComposerHint = () => ({ busy: false, busyEnter: DEFAULT_BUSY_ENTER }),
 ): TuiSlotView {
   const label = basename(workspace) === '' ? workspace : basename(workspace)
-  const escapedLabel = escapeControls(label)
+  // The label names a session folder, so it is untrusted text. It is also drawn
+  // inside the frame's top border, whose row arithmetic must be exact: a code
+  // point a terminal renders wider than `displayWidth` says makes the border
+  // wrap a physical row `Screen` never counts, and the stale border survives
+  // every erase. Projecting it to width-stable characters is what keeps the
+  // border's geometry true without moving the renderer's global width policy.
+  const escapedLabel = widthStable(escapeControls(label))
 
   /**
    * A layout result kept for one (document, cursor, width) triple.
@@ -298,6 +305,20 @@ export function createComposerView(
     rows === undefined ? COMPOSER_ROWS : rows - Math.max(0, rowsBelow()) - COMPOSER_FIXED_ROWS
 
   /**
+   * Whether the terminal is tall enough for the framed composer.
+   *
+   * Only the frame's own fixed rows are required: the rows reserved below it
+   * (timing, status) are allowed to yield first, which is the priority under
+   * pressure — dropping the input frame instead would cost the one surface
+   * every interaction starts from. Below this the unframed fallback draws the
+   * input line alone.
+   * @param rows - the budget compose() handed this view, or undefined when unbounded.
+   * @returns true when the framed branch fits.
+   */
+  const frameFits = (rows: number | undefined): boolean =>
+    rows === undefined || COMPOSER_FIXED_ROWS <= rows
+
+  /**
    * Whether the frame keeps the blank separating it from committed output.
    *
    * An empty buffer cannot scroll like a filled one, so under budget pressure the
@@ -352,7 +373,7 @@ export function createComposerView(
       // composer's own rows directly against `columns`, with no frame and no
       // hint — editable text and a valid cursor are the only things a terminal
       // this narrow is guaranteed to have room for.
-      if (columns < CHROME_MIN_COLUMNS) {
+      if (columns < CHROME_MIN_COLUMNS || !frameFits(terminalRows)) {
         const { rows, row } = narrowLayout(columns)
         const shown = window(rows, row, narrowContentBudget(terminalRows))
         return narrowKeepsSeparator(terminalRows) ? ['', ...shown.rows] : [...shown.rows]
@@ -383,7 +404,7 @@ export function createComposerView(
       return keepsSeparator(terminalRows) ? ['', ...framed] : [...framed]
     },
     cursor: (columns, rows): LiveCursor => {
-      if (columns < CHROME_MIN_COLUMNS) {
+      if (columns < CHROME_MIN_COLUMNS || !frameFits(rows)) {
         const { rows: every, row, column } = narrowLayout(columns)
         const shown = window(every, row, narrowContentBudget(rows))
         // No frame is drawn here, so the layout's own column is already the
@@ -571,7 +592,12 @@ export function pressureBar(
  */
 export function createStatusView(state: () => StatusState): TuiSlotView {
   return {
-    render(columns) {
+    render(columns, rows = Number.POSITIVE_INFINITY) {
+      // The status line's facts are the last thing surrendered, but a row is
+      // still a row: when the composition has spent the whole terminal above
+      // this view, drawing anyway is what pushed the region past the screen on
+      // a short terminal, where the first rows scroll off unreachable.
+      if (rows <= 0) return []
       // The old `Math.max(10, ...)` floor gave this line a presentation-only
       // minimum independent of the terminal, so a terminal narrower than 12
       // columns got a budget wider than itself and the two-column indent

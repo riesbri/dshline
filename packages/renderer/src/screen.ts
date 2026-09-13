@@ -50,8 +50,19 @@ const CLEAR_LINE = `${CSI}0K`
  * Owns the boundary between committed scrollback and the redrawn live region.
  */
 export class Screen {
-  /** Rendered rows currently occupied by the live region. */
+  /** Rendered rows currently occupied by the live region, as they were drawn. */
   private liveRows: readonly string[] = []
+  /**
+   * The width `liveRows` was wrapped at, or undefined before the first draw.
+   *
+   * A resize reflows the rows the terminal already holds, so a redraw of the
+   * same logical lines at a new width is not the same picture. This is what the
+   * identical-frame skip reads to know that; the erase itself deliberately
+   * keeps the drawn geometry, because a reflow can push the region past the
+   * screen and leave the terminal's cursor somewhere this class cannot derive.
+   * See {@link Screen.setLive}.
+   */
+  private liveColumns: number | undefined
   /** Cursor placement requested for the current live region. */
   private cursor: LiveCursor | undefined
   /**
@@ -96,6 +107,28 @@ export class Screen {
     const bottom = this.liveRows.length - 1
     const fromBottom = bottom - (this.cursor?.row ?? bottom)
     return `${csi(fromBottom, 'B')}\r${csi(bottom, 'A')}${CLEAR_BELOW}`
+  }
+
+  /**
+   * The placement actually drawn for a requested one.
+   *
+   * `drawLive` clamps a row into the drawn region so the placement cannot leave
+   * it; the erase on the NEXT redraw descends from wherever that placement left
+   * the cursor, so it has to count from the same clamped row. Keeping the raw
+   * request instead is what made a negative row descend `|row|` cells past the
+   * bottom before climbing: the climb then started below the region's first row
+   * and `CSI 0J` could not reach the top rows of the frame it was replacing.
+   * The column only ever moves right from column zero, so it floors at zero.
+   * @param rows - the rows about to be drawn.
+   * @param cursor - the requested placement, or undefined for none.
+   * @returns the placement the terminal will actually hold.
+   */
+  private placed(rows: readonly string[], cursor: LiveCursor | undefined): LiveCursor | undefined {
+    if (cursor === undefined) return undefined
+    return {
+      row: Math.min(Math.max(cursor.row, 0), Math.max(0, rows.length - 1)),
+      column: Math.max(cursor.column, 0),
+    }
   }
 
   /**
@@ -152,12 +185,29 @@ export class Screen {
    *   end of the region and hidden.
    */
   setLive(lines: readonly string[], cursor?: LiveCursor): void {
-    const rows = this.wrap(lines)
-    if (this.current && this.showsFrame(rows, cursor)) return
-    const tail = cursor === undefined ? '' : SHOW_CURSOR
-    this.target.write(`${BEGIN_SYNC}${HIDE_CURSOR}${this.eraseLive()}${this.drawLive(rows, cursor)}${tail}${END_SYNC}`)
+    const columns = this.columns()
+    const rows = this.wrapAt(lines, columns)
+    // Clamp once, before the comparison and before the write: the erase on the
+    // next redraw descends from the row this frame actually placed the cursor
+    // on, so the cached placement must be the drawn one and not the request.
+    const placed = this.placed(rows, cursor)
+    // The width is part of the cached frame. A resize reflows the rows the
+    // terminal already holds, so the same logical lines at a new width are not
+    // the same picture and must not be skipped.
+    if (this.current && columns === this.liveColumns && this.showsFrame(rows, placed)) return
+    // The erase uses the geometry that was DRAWN, not the reflowed geometry.
+    // A narrowing resize can reflow the region into more rows than the terminal
+    // can hold, and the terminal's post-reflow cursor position is its own
+    // decision (xterm pins it to the viewport bottom once the content has
+    // scrolled). Climbing the reflowed count from that cursor can overshoot the
+    // region's top and CLEAR_BELOW over the committed rows above it, which is
+    // worse than the stale row it was meant to remove. Climbing only the cached
+    // count can never leave the old region, so committed scrollback is safe.
+    const tail = placed === undefined ? '' : SHOW_CURSOR
+    this.target.write(`${BEGIN_SYNC}${HIDE_CURSOR}${this.eraseLive()}${this.drawLive(rows, placed)}${tail}${END_SYNC}`)
     this.liveRows = rows
-    this.cursor = cursor
+    this.liveColumns = columns
+    this.cursor = placed
     this.current = true
   }
 
@@ -190,8 +240,24 @@ export class Screen {
   close(): void {
     this.target.write(`${this.eraseLive()}${SHOW_CURSOR}`)
     this.liveRows = []
+    this.liveColumns = undefined
     this.cursor = undefined
     this.current = false
+  }
+
+  /** The wrap width, floored at one so a zero-column terminal still progresses. */
+  private columns(): number {
+    return Math.max(1, this.target.columns())
+  }
+
+  /**
+   * Wrap logical lines at an explicit width.
+   * @param lines - logical lines.
+   * @param columns - the width to wrap them at.
+   * @returns one entry per rendered row.
+   */
+  private wrapAt(lines: readonly string[], columns: number): readonly string[] {
+    return lines.flatMap(line => wrapToWidth(line, columns))
   }
 
   /**
@@ -200,7 +266,6 @@ export class Screen {
    * @returns one entry per rendered row.
    */
   private wrap(lines: readonly string[]): readonly string[] {
-    const columns = Math.max(1, this.target.columns())
-    return lines.flatMap(line => wrapToWidth(line, columns))
+    return this.wrapAt(lines, this.columns())
   }
 }

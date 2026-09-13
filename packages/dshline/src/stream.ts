@@ -9,10 +9,12 @@
  * could not have shown — the last partial line, or the whole reply from a
  * provider that does not stream at all. The assembled assistant message is
  * authoritative, and streamed content normally corresponds to its prefix. The
- * only reasoning mismatch treated as presentation-equivalent is trailing
- * whitespace at the stream boundary; substantive or internal divergence is not
- * equivalent and falls back to the assembled form. Native scrollback already
- * committed from the stream cannot be retracted.
+ * only mismatch treated as presentation-equivalent is trailing whitespace at the
+ * stream boundary, on either channel: the assembled block can drop a trailing
+ * line break the deltas carried, and that whitespace is invisible in the rows
+ * anyway. Substantive or internal divergence is not equivalent and falls back to
+ * the assembled form. Native scrollback already committed from the stream cannot
+ * be retracted.
  *
  * Committing as lines complete is what keeps the cost flat. Holding the whole
  * reply live meant re-escaping, re-splitting, and retransmitting all of it on
@@ -82,9 +84,10 @@ const CONTINUATION = '  '
 interface ChannelState {
   /**
    * Everything pushed on this channel, kept to reconcile with the assembled
-   * message. Normally the assembled text starts with it. For reasoning, only
-   * trailing whitespace at the stream boundary is presentation-equivalent;
-   * substantive or internal divergence is handled by the assembled fallback.
+   * message. Normally the assembled text starts with it. Only trailing
+   * whitespace at the stream boundary is presentation-equivalent, on either
+   * channel; substantive or internal divergence is handled by the assembled
+   * fallback.
    */
   pushed: string
   /** The unfinished trailing line, which has not been committed. */
@@ -216,12 +219,12 @@ export class StreamBuffer {
    * The assembled assistant message is authoritative. Streamed content normally
    * corresponds to its prefix, so the assembled message contributes only the
    * remainder — the last unterminated line for a streamed reply, or the whole
-   * reply for a provider that does not stream. Only a reasoning mismatch made of
-   * trailing whitespace at the stream boundary is presentation-equivalent and
-   * contributes no duplicate rows. Substantive, internal, or other content
-   * divergence is not equivalent and falls back to the authoritative assembled
-   * form. Already committed native scrollback cannot be retracted, so preserving
-   * the assembled form is safer than silently dropping it.
+   * reply for a provider that does not stream. A mismatch made only of trailing
+   * whitespace at the stream boundary is presentation-equivalent on either
+   * channel and contributes no duplicate rows. Substantive, internal, or other
+   * content divergence is not equivalent and falls back to the authoritative
+   * assembled form. Already committed native scrollback cannot be retracted, so
+   * preserving the assembled form is safer than silently dropping it.
    * @param content - the assembled assistant message's content blocks.
    * @param columns - the terminal's current width.
    * @returns rows to write into scrollback, reasoning before reply.
@@ -257,9 +260,15 @@ export class StreamBuffer {
    * deliberately small: everything already complete is in scrollback, above and
    * behind it.
    * @param columns - the terminal's current width.
+   * @param maxRows - most physical rows the caller's live-region budget allows;
+   *   the newest rows are kept when the unfinished line is taller. A stream view
+   *   that ignored this would spend rows the composer below it still needs, and
+   *   on a short terminal would push the region past the screen, where the first
+   *   rows can neither be reached nor erased.
    * @returns rows for the live region.
    */
-  live(columns: number): string[] {
+  live(columns: number, maxRows: number = LIVE_ROWS + 1): string[] {
+    if (maxRows <= 0) return []
     const channel = this.current
     if (channel === undefined) return []
     if (channel === 'reasoning' && !this.reasoningVisible) return []
@@ -304,7 +313,7 @@ export class StreamBuffer {
     // character comes back wider than the row it was wrapped for. Cutting here is
     // what makes "no row exceeds the terminal" true for every input rather than
     // for the common ones.
-    return [
+    const live = [
       // The blank spacer belongs to the mark: once the mark is committed, the
       // live rows continue lines directly above them and must stay attached.
       ...state.opened ? [] : [''],
@@ -313,6 +322,9 @@ export class StreamBuffer {
         : `${head}${truncateToWidth(first, budget)}`,
       ...rest.map(row => `${CONTINUATION}${truncateToWidth(row, budget)}`),
     ]
+    // The newest rows are what a reader is watching, so a tight budget keeps the
+    // bottom of the unfinished line rather than its start.
+    return live.slice(-maxRows)
   }
 
   /**
@@ -332,15 +344,16 @@ export class StreamBuffer {
       return []
     }
     if (full === '' && state.pending === '') return []
-    // Some providers close a reasoning item without preserving the trailing line
-    // break that arrived in its deltas. The bytes are the same content for a
-    // reader, but a strict prefix check would fall into the divergence fallback
-    // and append that content a second time. Ignore only trailing whitespace here;
-    // substantive, internal, or other content divergence still uses the
-    // authoritative assembled fallback below.
-    const reasoningMatchesWithoutTrailingWhitespace = channel === 'reasoning'
-      && full.trimEnd() === state.pushed.trimEnd()
-    if (!full.startsWith(state.pushed) && !reasoningMatchesWithoutTrailingWhitespace) {
+    // Some providers close a block without preserving the trailing line break
+    // that arrived in its deltas, and the assembler hands back the block verbatim.
+    // The bytes are the same content for a reader — trailing whitespace is
+    // trimmed from the rows anyway — but a strict prefix check would fall into
+    // the divergence fallback and append that content a second time. The observed
+    // producer was a reasoning summary, but the mechanism is the assembler's, not
+    // the channel's, so the equivalence applies to either; substantive or other
+    // content divergence still uses the authoritative assembled fallback below.
+    const matchesWithoutTrailingWhitespace = full.trimEnd() === state.pushed.trimEnd()
+    if (!full.startsWith(state.pushed) && !matchesWithoutTrailingWhitespace) {
       if (channel === 'reasoning' && this.reasoningHadHiddenContent) {
         // Once hidden and visible epochs share one assembled block, divergence
         // makes its origin unknowable. Keep only the current visible tail, which
