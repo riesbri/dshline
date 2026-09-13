@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { TerminalOracleViolation, createOracle } from '../../../tests/terminal-oracle.ts'
+import { TerminalOracleViolation, createOracle, orderedContent } from '../../../tests/terminal-oracle.ts'
 import type { Oracle, OracleOptions } from '../../../tests/terminal-oracle.ts'
 import { createSubagentCatalogOverlay } from '../src/subagents/overlay.ts'
 
@@ -125,8 +125,7 @@ describe('the live region against a terminal oracle', () => {
     })
   })
 
-  it('runs against a newly added subagent surface on a widening terminal', async () => {
-    // The oracle is general: it drives any `TuiSlotView`'s rendered rows through
+  it('runs against a newly added subagent surface on a widening terminal', async () => {    // The oracle is general: it drives any `TuiSlotView`'s rendered rows through
     // the real `Screen`. Reusing it on the `/subagents` catalog — whose footer
     // once carried the ambiguous arrows — keeps that surface inside the same
     // differential check as the composer.
@@ -155,5 +154,24 @@ describe('the live region against a terminal oracle', () => {
       resident = true
       await oracle.live(overlay.render(60, 12))
     }, { wideCodePoints: [0x2191, 0x2193] })
+  })
+
+  it('compares committed content in order, so a reorder is not a match', () => {
+    // Sorting characters would make these equal; a reordered commit has to be
+    // caught. Whitespace and row grouping stay tolerated, which is what a
+    // terminal reflow actually changes.
+    expect(orderedContent(['ab', 'cd'])).toBe('abcd')
+    expect(orderedContent(['ab', 'cd'])).not.toBe(orderedContent(['cd', 'ab']))
+    expect(orderedContent(['ab cd'])).toBe(orderedContent(['ab', 'cd']))
+  })
+
+  it('rejects committed content the terminal reordered', async () => {
+    await withOracle(20, 6, async oracle => {
+      await oracle.commit(['AB'])
+      // Rewrite the committed row in place behind the model's back. Only the
+      // order changes, so a sorted comparison would see no difference at all.
+      oracle.emulator.target.write('\u001b[A\r\u001b[2KBA')
+      await expect(oracle.live(['x'])).rejects.toThrow(TerminalOracleViolation)
+    })
   })
 })

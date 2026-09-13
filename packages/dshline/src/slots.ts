@@ -279,9 +279,15 @@ export class TuiSlots extends Service {
    * Every view is handed the rows the views above it have not spent, but a view
    * that ignores its budget — or one added by a future capability — would push
    * the region past the screen, where the first rows have scrolled off and can
-   * never be climbed back to or erased. Dropping from the TOP keeps the composer
-   * and status line, which is the priority under pressure, and the cursor is
-   * translated by the same amount so it still names the row that was drawn.
+   * never be climbed back to or erased.
+   *
+   * The cut yields to the cursor. When a view owns the cursor, the row it points
+   * at is the interactive surface a person is typing into, so the rows BELOW it
+   * (later slots: status, timing) are surrendered first and only then the rows
+   * above it; the cursor is translated by the same amounts and is never mapped
+   * onto unrelated surviving content. A region with no cursor keeps the simpler
+   * policy of dropping from the top, which preserves the later, more important
+   * slots.
    * @param lines - the composed lines, mutated in place.
    * @param cursor - the composed cursor, in those lines.
    * @param rows - the terminal's height.
@@ -294,10 +300,17 @@ export class TuiSlots extends Service {
   ): { lines: string[]; cursor: LiveCursor | undefined } {
     if (lines.length > rows) {
       const dropped = lines.length - rows
-      lines.splice(0, dropped)
-      cursor = cursor === undefined
-        ? undefined
-        : { row: Math.max(0, cursor.row - dropped), column: cursor.column }
+      if (cursor === undefined) {
+        lines.splice(0, dropped)
+      } else {
+        // Drop what is above the cursor first, then what is below it, so the
+        // cursor row survives whenever the region has room for it at all.
+        const above = Math.min(dropped, cursor.row)
+        const below = dropped - above
+        lines.splice(0, above)
+        if (below > 0) lines.splice(lines.length - below, below)
+        cursor = { row: cursor.row - above, column: cursor.column }
+      }
     }
     return { lines, cursor: lines.length === 0 ? undefined : cursor }
   }

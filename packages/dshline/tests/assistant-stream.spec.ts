@@ -337,6 +337,31 @@ describe('a reply streamed through the live agent frames', () => {
     f.dispose()
   })
 
+  it('ignores a stale frame after the newer attempt has already ended', async () => {
+    // `end` clears the active attempt, but "no active attempt after framing" is
+    // not the same state as "the listener attached mid-stream". Treating them
+    // alike would adopt the late frame, and a stale chunk that commits a line
+    // would enter scrollback with no later reset able to remove it.
+    const f = await attach()
+    f.event('turn/start', { turn: 1 })
+    f.frame(start('a1'))
+    f.frame(text('a1', 'first\n'))
+    f.frame(start('a2', 1))
+    f.frame(text('a2', 'The answer is 42.\n'))
+    f.event(...message([{ type: 'text', text: 'The answer is 42.\n' }]))
+    f.frame(committed('a2', 'assistant/message', 1))
+    f.frame(abandoned('a2', 2))
+    // Both attempts have now ended; only a new `start` may resume the stream.
+    f.frame(text('a1', 'STALE\n', 2))
+    f.frame(abandoned('a1', 3))
+    f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+
+    const rows = await f.rows()
+    expect(rows.some(row => row.includes('STALE'))).toBe(false)
+    expect(occurrences(rows, 'The answer is 42.')).toBe(1)
+    f.dispose()
+  })
+
   it('ignores a late end from a cancelled attempt before the retry answers', async () => {
     // Cancellation can leave a terminal frame in flight; the retry that follows
     // must still reconcile its own stream.

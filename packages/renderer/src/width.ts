@@ -148,52 +148,6 @@ export function displayWidth(text: string): number {
   return total
 }
 
-/**
- * Replace code points whose width a terminal might disagree with dshline about.
- *
- * `displayWidth` follows East Asian Width with Ambiguous code points measured
- * narrow. A terminal in ambiguous-width mode draws them two columns wide, so
- * untrusted text carrying one and placed into width-critical chrome — the
- * composer's frame label above all — makes the measured row shorter than the
- * drawn one, and the border wraps a physical row the redraw arithmetic never
- * counts; the stale border then survives every erase.
- *
- * The alternative, treating every East Asian Ambiguous code point as two
- * columns globally, would move geometry for every terminal that keeps them
- * narrow and for the box drawing and punctuation the chrome cannot give up.
- * Narrowing the replacement to the genuine Ambiguous set is not sufficient
- * either: `WIDE_RANGES` trails the current Unicode release, so code points a
- * terminal is entitled to draw wide (U+231A, U+2630, U+4DC0, …) are measured
- * one here, and a text-default emoji widened by VS16 is not Ambiguous at all.
- * An exact unstable set would have to regenerate the wide table and model emoji
- * presentation — a Unicode-width subsystem, not a label fix.
- *
- * So the predicate is deliberately the conservative one: a visible non-ASCII
- * code point that is neither already wide nor zero-width is replaced, whether
- * or not it is genuinely Ambiguous. That is self-healing — anything the model
- * might mis-measure is projected — at the cost of replacing stable narrow
- * scripts (Hebrew, Arabic, Indic, …) too. The projection is therefore LOSSY and
- * not injective; identity survives because the committed banner prints the
- * full, unprojected workspace name, and the composer frame's right title is the
- * only consumer. Wide CJK and kana are kept because terminals agree on their
- * width; ASCII is kept because it is never ambiguous.
- * @param text - possibly styled text.
- * @param placeholder - the width-stable character substituted one for one.
- * @returns the text with width-unstable code points replaced.
- */
-export function widthStable(text: string, placeholder = '?'): string {
-  let out = ''
-  for (const token of tokenize(text)) {
-    if (isEscape(token)) {
-      out += token.text
-      continue
-    }
-    const code = token.text.codePointAt(0) ?? 0
-    out += codePointWidth(code) === 1 && code >= 0x80 ? placeholder : token.text
-  }
-  return out
-}
-
 /** One unit of a styled string: a zero-width escape, or a visible character. */
 interface Token {
   text: string
@@ -311,11 +265,19 @@ export function tailToWidth(text: string, columns: number): string {
     used += token.width
     from = index
   }
-  // A cut can land between a base character and the zero-width mark that
-  // belongs to it, leaving the mark as the suffix's first token. A mark with no
-  // base combines with whatever follows it instead of what preceded it, so it is
-  // dropped rather than shown attached to the wrong character.
-  while (from < tokens.length && tokens[from]?.width === 0) from += 1
+  // A cut can land between a base character and the zero-width CHARACTER that
+  // belongs to it, leaving the mark as the suffix's first token; a mark with no
+  // base combines with whatever follows it instead of what preceded it. Only
+  // that case is dropped: an escape sequence has width zero too, but it is
+  // styling state, not an orphan, and a suffix that starts with one must keep
+  // it. Dropping applies only when something was actually cut.
+  if (from > 0) {
+    while (from < tokens.length) {
+      const token = tokens[from]
+      if (token === undefined || token.width !== 0 || isEscape(token)) break
+      from += 1
+    }
+  }
   return tokens.slice(from).map(token => token.text).join('')
 }
 

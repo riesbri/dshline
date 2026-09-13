@@ -372,6 +372,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
    * durable `assistant/message` re-emit a reply the reader already saw.
    */
   let streamAttempt: AssistantStreamFrame['attemptId'] | undefined
+  /**
+   * Whether a `start` has been observed at all.
+   *
+   * It separates "between two framed attempts", where only the next `start` may
+   * resume, from "listener attached mid-stream", where the first frame is the
+   * current attempt. Without it, a late frame after an `end` looks like a fresh
+   * mid-stream adoption and can resurrect the attempt that just settled.
+   */
+  let streamFramed = false
   // Scoped to the agent: a scoped tool shadows a global one, and a restricted-away
   // tool reads as absent, so the card must come from the definition that ran.
   const cards = new ToolCards(name => ctx.tools.get(name, agent), workspace)
@@ -1404,14 +1413,19 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // A frame is meaningful only for the attempt it names. `start` adopts a new
     // attempt and discards whatever an earlier one left; any other frame from a
     // different attempt is stale and ignored, so it cannot reset or prefix the
-    // current buffer. Adoption on the first non-start frame covers a stream that
-    // began before this listener attached.
+    // current buffer. An undefined attempt means one of two different things: a
+    // `start` has never been seen, in which case the listener attached mid-stream
+    // and the first frame it sees is current; or a framed attempt has ENDED, in
+    // which case only the next `start` may resume and a late frame must not
+    // resurrect the attempt that just ended.
     if (frame.type === 'start') {
       if (streamAttempt !== frame.attemptId) {
         stream.reset()
         streamAttempt = frame.attemptId
       }
+      streamFramed = true
     } else if (streamAttempt === undefined) {
+      if (streamFramed) return
       streamAttempt = frame.attemptId
     } else if (streamAttempt !== frame.attemptId) {
       return

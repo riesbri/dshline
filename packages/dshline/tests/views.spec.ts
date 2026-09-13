@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Composer, displayWidth, Screen, stripAnsi } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
-import { bannerLines, composerGutter, composerHintRow, composerInner, createComposerView, createStatusView } from '../src/views.ts'
+import { bannerLines, composerGutter, composerHintRow, composerInner, createComposerView, createStatusView, widthStableLabel } from '../src/views.ts'
 
 /** A terminal width whose inner content area is a round number of columns. */
 const COLUMNS = 40
@@ -1118,12 +1118,56 @@ describe('the status line respects its granted height', () => {
 
 describe('the committed banner preserves workspace identity', () => {
   it('prints the raw workspace name, not the composer label\'s projection', () => {
-    // `widthStable` deliberately collapses narrow non-ASCII in the width-critical
-    // frame label. The banner is committed scrollback, where a wrap is harmless,
-    // so it carries the full name and the projection loses no identity overall.
+    // `widthStableLabel` deliberately collapses narrow non-ASCII in the
+    // width-critical frame label. The banner is committed scrollback, where a
+    // wrap is harmless, so it carries the full name and the projection loses no
+    // identity overall.
     const workspace = '/home/\u05e9\u05dc\u05d5\u05dd/caf\u00e9'
     const text = bannerLines(workspace, 'deepseek-v4-flash', '0.21.0', 200).join('\n')
     expect(text).toContain('\u05e9\u05dc\u05d5\u05dd')
     expect(text).toContain('caf\u00e9')
+  })
+})
+
+describe('widthStableLabel()', () => {
+  it('replaces width-unstable code points but keeps wide, zero-width, and ASCII', () => {
+    // `é` and `±` are East Asian Ambiguous; `标` is wide and `\u0301` is zero
+    // width, so both are the same width in every terminal.
+    expect(widthStableLabel('caf\u00e9 \u00b1 \u6807\u51c6')).toBe('caf? ? \u6807\u51c6')
+    expect(widthStableLabel(`a${'\u0301'}\u00b1\u6807`)).toBe(`a${'\u0301'}?\u6807`)
+  })
+
+  it('replaces code points the model itself already mis-measures', () => {
+    // The predicate is a conservative superset rather than the exact East Asian
+    // Ambiguous set: the renderer's wide table trails Unicode, so these are
+    // drawn wide while its codePointWidth calls them one.
+    for (const stale of [0x231a, 0x2630, 0x4dc0]) {
+      expect(widthStableLabel(String.fromCodePoint(stale)), `U+${stale.toString(16)}`).toBe('?')
+    }
+    // A text-default emoji is not Ambiguous at all, but VS16 makes a terminal
+    // draw it two columns; the base is replaced and the selector is kept.
+    expect(widthStableLabel('\u2764\ufe0f')).toBe('?\ufe0f')
+  })
+
+  it('projects stable narrow scripts too, and says so', () => {
+    // The deliberate information loss: Hebrew is neither ambiguous nor stale,
+    // but the conservative predicate replaces it. Identity survives in the
+    // committed banner, asserted beside this.
+    expect(widthStableLabel('\u05e9\u05dc\u05d5\u05dd')).toBe('????')
+    // Consequently the projection is not injective; two distinct names collapse.
+    expect(widthStableLabel('caf\u00e9')).toBe(widthStableLabel('caf\u00e8'))
+  })
+
+  it('projects a keycap sequence as the whole unstable sequence it is', () => {
+    // Per-code-point measurement would keep every component — an ASCII base, a
+    // variation selector, and a combining keycap are all width one or zero — yet
+    // the sequence is entitled to advance two columns, so the border could wrap.
+    expect(widthStableLabel('1\ufe0f\u20e3')).toBe('?')
+    expect(widthStableLabel('#\ufe0f\u20e3')).toBe('?')
+    expect(widthStableLabel('*\ufe0f\u20e3')).toBe('?')
+    // The base alone is ordinary ASCII and must survive a sequence it does not
+    // start; only base + VS16 + U+20E3 together are replaced.
+    expect(widthStableLabel('1 \ufe0f \u20e3')).toBe('1 \ufe0f \u20e3')
+    expect(widthStableLabel('10\ufe0f\u20e3')).toBe('1?')
   })
 })

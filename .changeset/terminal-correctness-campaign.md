@@ -25,9 +25,12 @@ East Asian Ambiguous code points (Cyrillic, accented Latin, `±`, …) is measur
 one column by `displayWidth` but drawn two by an ambiguous-width terminal, so
 the composer's top border wrapped a physical row `Screen` never counted and
 every redraw left the previous frame behind — the same failure the ASCII
-direction markers fixed, reached through the label. The new `widthStable`
-projects only that untrusted text, keeping ASCII, wide CJK, and zero-width code
-points, and leaving the renderer's global width policy alone.
+direction markers fixed, reached through the label. A keycap sequence (`1️⃣`) is
+the same class: every component measures narrow, but Unicode lets the sequence
+advance two columns, so it is projected as the whole sequence it is. The
+projection lives in the presentation layer, over the renderer's already-public
+`codePointWidth`; it is deliberately lossy and non-injective, and the committed
+banner carries the full name.
 
 **The erase uses what was actually drawn.** `setLive` now caches the CLAMPED
 cursor placement, so an out-of-range requested row can no longer make the next

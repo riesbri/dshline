@@ -209,3 +209,47 @@ describe('the composer frame respects its granted height', () => {
     }
   })
 })
+
+/**
+ * A keycap sequence (`1️⃣` = U+0031 U+FE0F U+20E3): every component measures
+ * narrow or zero here, but Unicode lets the sequence advance two columns, so a
+ * per-code-point model cannot see the physical width.
+ */
+const KEYCAP_BASE = [0x31] as const
+
+describe('the composer live region with a keycap workspace label', () => {
+  it('leaves no stale top border when the label holds a keycap sequence', async () => {
+    const emulator = createEmulator(COLUMNS, 4, { wideCodePoints: KEYCAP_BASE })
+    let writes = 0
+    const screen = new Screen({
+      write: chunk => { writes += 1; emulator.target.write(chunk) },
+      columns: () => emulator.target.columns(),
+    })
+    const composer = longDraft()
+    // The label is projected as the whole keycap sequence, so no component of it
+    // reaches the border for this terminal to widen.
+    const view = createComposerView(composer, '/w/1\ufe0f\u20e3repo')
+    const redraw = (): void => {
+      screen.setLive(view.render(COLUMNS, 4), view.cursor?.(COLUMNS, 4))
+    }
+
+    redraw()
+    const before = await emulator.scrollback()
+    const firstFrameWrites = writes
+    for (let i = 0; i < 6; i += 1) {
+      expect(step(composer, -1)).toBe(true)
+      redraw()
+    }
+    for (let i = 0; i < 6; i += 1) {
+      expect(step(composer, 1)).toBe(true)
+      redraw()
+    }
+
+    const history = await emulator.scrollback()
+    expect(writes - firstFrameWrites).toBe(12)
+    expect(history.length).toBe(before.length)
+    expect(history.filter(row => row.includes('╭─'))).toHaveLength(1)
+    expect(screen.height).toBeLessThanOrEqual(4)
+    emulator.dispose()
+  })
+})

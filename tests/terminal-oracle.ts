@@ -117,9 +117,19 @@ const endsWith = (whole: readonly string[], suffix: readonly string[]): boolean 
   return suffix.every((row, index) => whole[offset + index]?.trimEnd() === row.trimEnd())
 }
 
-/** Non-space visible characters, sorted; reflow preserves this multiset. */
-const nonSpaceChars = (rows: readonly string[]): string =>
-  [...stripAnsi(rows.join('')).replace(/\s/gu, '')].sort().join('')
+/**
+ * The visible committed content in ORDER, whitespace removed.
+ *
+ * Reflow moves whitespace and regroups rows, but it never reorders characters,
+ * so an order-preserving comparison is both tolerant enough and strict enough:
+ * a sorted multiset would call `abc` and `cba` equal and let a reordered or
+ * duplicated commit hide behind a resize resync. Exported so a test can prove
+ * the ordering survives.
+ * @param rows - rendered rows, in draw order.
+ * @returns their non-space characters, concatenated in order.
+ */
+export const orderedContent = (rows: readonly string[]): string =>
+  stripAnsi(rows.join('')).replace(/\s/gu, '')
 
 /** The physical rows `Screen.wrap` produces for these logical lines. */
 const wrapAll = (lines: readonly string[], columns: number): string[] =>
@@ -261,7 +271,7 @@ export function createOracle(columns: number, rows: number, options: OracleOptio
       // below the live region. Because it compares against the pure expectation
       // rather than the adopted model, a duplicated, lost, or reordered commit
       // cannot hide behind a resize resync.
-      if (nonSpaceChars(prefix) !== nonSpaceChars(expectedCommitted)) {
+      if (orderedContent(prefix) !== orderedContent(expectedCommitted)) {
         found.push(`committed content changed: ${JSON.stringify(prefix)} vs expected ${JSON.stringify(expectedCommitted)}`)
       }
       // A row unique to the frame being replaced must be gone; if it is here,

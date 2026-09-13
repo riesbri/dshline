@@ -296,6 +296,22 @@ describe('TuiSlots.compose height backstop', () => {
     expect(cursor?.column).toBe(2)
   })
 
+  it('keeps the cursor-bearing surface when a later view overspends', () => {
+    // The composer owns the cursor and a LATER slot (`completion`, in the real
+    // order stream → composer → completion → timing → status) returns far more
+    // rows than it was granted. Dropping from the top would clip the composer
+    // away and then clamp the cursor onto an unrelated surviving candidate row;
+    // the interactive surface must win, and the later rows are surrendered.
+    const slots = new TuiSlots(new Context())
+    slots.register('composer', { render: () => ['input'], cursor: () => ({ row: 0, column: 2 }) })
+    slots.register('completion', { render: () => Array.from({ length: 20 }, (_, i) => `candidate ${String(i)}`) })
+
+    const { lines, cursor } = slots.compose(40, 4)
+    expect(lines).toHaveLength(4)
+    expect(lines[cursor?.row ?? -1]).toBe('input')
+    expect(cursor?.column).toBe(2)
+  })
+
   it('drops the whole region and its cursor when there is no height at all', () => {
     const slots = new TuiSlots(new Context())
     slots.register('composer', { render: () => ['input'], cursor: () => ({ row: 0, column: 0 }) })

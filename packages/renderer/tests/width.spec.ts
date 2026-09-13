@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chunkToWidth, codePointWidth, displayWidth, escapeControls, hangingIndent, stripAnsi, style, tailToWidth, truncateToWidth, widthStable, wrapToWidth } from '../src/index.ts'
+import { chunkToWidth, codePointWidth, displayWidth, escapeControls, hangingIndent, stripAnsi, style, tailToWidth, truncateToWidth, wrapToWidth } from '../src/index.ts'
 
 
 describe('displayWidth()', () => {
@@ -62,6 +62,25 @@ describe('tailToWidth()', () => {
     for (const columns of [1, 2, 3, 5, 8]) {
       expect(displayWidth(tailToWidth('ab标准cd模式', columns))).toBeLessThanOrEqual(columns)
     }
+  })
+
+  it('keeps a leading escape sequence, which is styling rather than an orphan', () => {
+    // The whole string fits, so nothing is cut and the SGR must survive intact.
+    const whole = '\u001b[31mabc\u001b[0m'
+    expect(tailToWidth(whole, 3)).toBe(whole)
+    // A real cut whose surviving suffix STARTS with an opening SGR: no characters
+    // are orphaned, so the escape is kept even though its width is zero.
+    expect(tailToWidth('abcdef\u001b[31mxy', 2)).toBe('\u001b[31mxy')
+  })
+
+  it('drops a leading zero-width character only when a cut orphaned it', () => {
+    // A zero-width space that lost its preceding content is as orphaned as a
+    // combining mark, and both are dropped after a cut...
+    expect(tailToWidth('abc\u200bd', 1)).toBe('d')
+    expect(tailToWidth('a\u0301b', 1)).toBe('b')
+    // ...but a string that FITS keeps a legitimate leading zero-width character,
+    // because nothing was cut.
+    expect(tailToWidth('\u200bab', 5)).toBe('\u200bab')
   })
 })
 
@@ -345,60 +364,6 @@ describe('hangingIndent() reserve', () => {
         }
       }
     }
-  })
-})
-
-describe('widthStable()', () => {
-  it('replaces width-unstable code points but keeps wide, zero-width, and ASCII', () => {
-    // `é` and `±` are East Asian Ambiguous; `标` is wide and `\u0301` is zero
-    // width, so both are the same width in every terminal.
-    expect(widthStable('caf\u00e9 \u00b1 \u6807\u51c6'))
-      .toBe('caf? ? \u6807\u51c6')
-    expect(widthStable(`a${'\u0301'}\u00b1\u6807`)).toBe(`a${'\u0301'}?\u6807`)
-  })
-
-  it('preserves escape sequences while projecting the visible text', () => {
-    const projected = widthStable(style('caf\u00e9', 'red'))
-    expect(stripAnsi(projected)).toBe('caf?')
-    expect(projected).toContain('\u001b[31m')
-  })
-
-  it('leaves no code point a terminal might widen differently than it measures', () => {
-    for (const text of ['\u00b1\u00b7\u203a', 'caf\u00e9', '\u6807\u51c6', 'plain', '\u25cf']) {
-      for (const char of widthStable(text)) {
-        const code = char.codePointAt(0) ?? 0
-        const width = codePointWidth(code)
-        // ASCII, wide, and zero-width agree everywhere this renderer runs; a
-        // narrow non-ASCII code point might not, so it must be gone.
-        expect(width !== 1 || code < 0x80, `unstable ${JSON.stringify(char)} in ${JSON.stringify(text)}`)
-          .toBe(true)
-      }
-    }
-  })
-
-  it('replaces code points the model itself already mis-measures', () => {
-    // The reason the predicate is a conservative superset rather than the exact
-    // East Asian Ambiguous set: `WIDE_RANGES` trails the Unicode release, so
-    // these are drawn wide by terminals that follow it while `codePointWidth`
-    // calls them one. An exact-A table would keep them and the bug would return.
-    for (const stale of [0x231a, 0x2630, 0x4dc0]) {
-      expect(codePointWidth(stale), `U+${stale.toString(16)} is measured one`).toBe(1)
-      expect(widthStable(String.fromCodePoint(stale)), `U+${stale.toString(16)}`).toBe('?')
-    }
-    // A text-default emoji is not Ambiguous at all, but VS16 makes a terminal
-    // draw it two columns; the base is replaced and the selector is kept.
-    expect(widthStable('\u2764\ufe0f')).toBe('?\ufe0f')
-  })
-
-  it('projects stable narrow scripts too, and says so', () => {
-    // The deliberate information loss: Hebrew is neither ambiguous nor stale,
-    // but the conservative predicate replaces it. Identity survives in the
-    // committed banner (asserted beside this in the dshline package), so the
-    // composer label may trade the glyphs for guaranteed geometry.
-    expect(widthStable('\u05e9\u05dc\u05d5\u05dd')).toBe('????')
-    // Consequently the projection is not injective; two distinct names can
-    // collapse. This is intentional and bounded by the banner carrying the name.
-    expect(widthStable('caf\u00e9')).toBe(widthStable('caf\u00e8'))
   })
 })
 
