@@ -9,6 +9,28 @@ import type { PromptKind } from '../src/prompt.ts'
 /** Width of a comfortable terminal. */
 const COLUMNS = 80
 
+/**
+ * The title the question adapter composes when a header and a question are both
+ * present — the exact shape that used to be cut off mid-sentence.
+ */
+const LONG_TITLE = "Apply the profile fix?: Do you want me to fix the profile's Codex provider now, or leave it for now?"
+
+/**
+ * Rejoin rows the frame wrapped and drop box chrome, so a phrase split across
+ * two physical rows still reads as one string.
+ * @param text - rendered rows, already stripped of ANSI.
+ * @returns the body text with runs of whitespace collapsed.
+ */
+function bodyText(text: string): string {
+  return text
+    .replace(/[│╭╮╰╯─]/gu, ' ')
+    .split('\n')
+    .map(row => row.trim())
+    .filter(row => row !== '')
+    .join(' ')
+    .replace(/\s+/gu, ' ')
+}
+
 /** An overlay under test, plus what it settled with. */
 interface Mounted {
   text(columns?: number, rows?: number): string
@@ -198,6 +220,102 @@ describe('what a prompt shows', () => {
     expect(heightBound.join('\n')).not.toContain('╭')
     expect(heightBound.at(-1)).toBe('enter · esc')
     expect(overlay.render(4, 2).map(stripAnsi).at(-1)).toBe('esc')
+  })
+})
+
+describe('a question too long for one row', () => {
+  it('wraps the semantic title instead of dropping its end', () => {
+    // The old one-row `truncateToWidth` silently lost everything past the
+    // frame's inner width; a question must survive at any readable geometry.
+    const overlay = createPromptOverlay({
+      title: LONG_TITLE,
+      view: 'Question',
+      message: '',
+      kind: 'text',
+      settle: () => {},
+      invalidate: () => {},
+    })
+    for (const columns of [100, 80]) {
+      const shown = stripAnsi(overlay.render(columns, 24).join('\n'))
+      expect(bodyText(shown), `${String(columns)} columns`).toContain(LONG_TITLE)
+    }
+  })
+
+  it('uses the title as the compact fallback context when there is no message', () => {
+    // `ask_user_question` sends an option-less question as the title with an
+    // empty message, so a fallback that only knew the message erased the
+    // question exactly when the terminal was too small to frame it.
+    const overlay = createPromptOverlay({
+      title: LONG_TITLE,
+      view: 'Question',
+      message: '',
+      kind: 'text',
+      settle: () => {},
+      invalidate: () => {},
+    })
+    const compact = stripAnsi(overlay.render(COLUMNS, 6).join('\n'))
+    expect(compact).not.toContain('╭')
+    expect(bodyText(compact)).toContain(LONG_TITLE)
+  })
+
+  it('counts wrapped title rows against the frame height at every boundary', () => {
+    const overlay = createPromptOverlay({
+      title: LONG_TITLE,
+      view: 'Question',
+      message: 'Type your own answer',
+      kind: 'text',
+      settle: () => {},
+      invalidate: () => {},
+    })
+    for (const rows of [5, 6, 7, 8, 9, 10, 12, 24]) {
+      const lines = overlay.render(COLUMNS, rows)
+      const physical = lines.flatMap(line => wrapToWidth(line, COLUMNS))
+      expect(physical.length, `${String(rows)} rows`).toBeLessThanOrEqual(rows)
+      for (const line of lines) {
+        expect(displayWidth(line), `${String(rows)} rows`).toBeLessThanOrEqual(COLUMNS)
+      }
+    }
+    // Once the frame has room for the wrapped title plus one message row, the
+    // whole question is present rather than merely its beginning.
+    const framed = stripAnsi(overlay.render(COLUMNS, 8).join('\n'))
+    expect(framed).toContain('╭')
+    expect(bodyText(framed)).toContain(LONG_TITLE)
+  })
+
+  it('falls back rather than framing a message out of the budget', () => {
+    // The invariant the wrapped-title budget must preserve: a frame never opens
+    // if wrapping the title leaves no room for one message row. At seven rows
+    // the title owns two and the message cannot fit, so the compact form shows
+    // it; one row later the frame has room for both.
+    const overlay = createPromptOverlay({
+      title: LONG_TITLE,
+      view: 'Question',
+      message: 'Type your own answer',
+      kind: 'text',
+      settle: () => {},
+      invalidate: () => {},
+    })
+    const squeezed = stripAnsi(overlay.render(COLUMNS, 7).join('\n'))
+    expect(squeezed).not.toContain('╭')
+    expect(squeezed).toContain('Type your own answer')
+    const roomy = stripAnsi(overlay.render(COLUMNS, 8).join('\n'))
+    expect(roomy).toContain('╭')
+    expect(bodyText(roomy)).toContain(LONG_TITLE)
+    expect(roomy).toContain('Type your own answer')
+  })
+
+  it('wraps a long unbroken CJK title without losing a character', () => {
+    const title = '这是一个需要完整显示的较长中文问题不能截断'.repeat(3)
+    const overlay = createPromptOverlay({
+      title,
+      view: '问题',
+      message: '',
+      kind: 'text',
+      settle: () => {},
+      invalidate: () => {},
+    })
+    const shown = stripAnsi(overlay.render(COLUMNS, 24).join('\n'))
+    expect(bodyText(shown).replace(/\s+/gu, '')).toContain(title)
   })
 })
 

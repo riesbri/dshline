@@ -22,6 +22,7 @@ import {
   paint,
   tailToWidth,
   truncateToWidth,
+  wrapToWidth,
 } from '@dshline/renderer'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from './chrome.ts'
 import type { TuiOverlay } from './slots.ts'
@@ -34,15 +35,17 @@ import type { TuiOverlay } from './slots.ts'
 const PROMPT_FIXED_ROWS = 5
 
 /**
- * The smallest framed form that still shows the message.
+ * Narrative rows the framed form will not open without, when a message exists.
  *
- * Rows: leading blank, two borders, the semantic title, ONE narrative row, the
- * spacer, and the field — seven. Framing any shorter would drop `spec.message`
- * while the compact fallback just below still showed it: a prompt question that
- * disappears when the terminal grows one row is a message gone from an
- * authorization flow, which is the case this overlay exists to serve.
+ * Framing a message-bearing prompt with no room for even one narrative row
+ * would drop `spec.message` while the compact fallback just below still showed
+ * it: a prompt question that disappears when the terminal grows one row is a
+ * message gone from an authorization flow, which is the case this overlay
+ * exists to serve. The title now wraps to as many rows as it needs, so this
+ * floor is met by computing the leftover space from the title's actual height
+ * rather than assuming the title occupies exactly one row.
  */
-const PROMPT_FRAMED_MIN_ROWS = PROMPT_FIXED_ROWS + 2
+const PROMPT_MIN_NARRATIVE_ROWS = 1
 
 /** How a typed value is shown back while it is being typed. */
 export type PromptKind = 'text' | 'secret'
@@ -101,6 +104,14 @@ export function createPromptOverlay(spec: PromptSpec): TuiOverlay {
     render(columns, terminalRows = 24) {
       const width = chromeWidth(columns)
       const inner = width - BOX_CHROME_COLUMNS
+      // The title is the body's semantic heading, exactly as Select keeps its
+      // prompt above the list: the border carries only the concise `view`
+      // identity, and truncating that must never lose "Sign in · ChatGPT" or
+      // "API key · opencode". Wrapping it — and painting each physical row on
+      // its own — is what keeps a model-authored question whole; the one-row
+      // cut this replaces silently dropped the end of every long question.
+      const titleRows = wrapToWidth(escapeControls(spec.title), inner)
+        .map(row => paint(row, 'overlay-title'))
       const narrative: string[] = []
       for (const line of escapeControls(spec.message).split('\n')) {
         narrative.push(truncateToWidth(line, inner))
@@ -110,22 +121,22 @@ export function createPromptOverlay(spec: PromptSpec): TuiOverlay {
           narrative.push(paint(truncateToWidth(line, inner), 'muted'))
         }
       }
-      // The title is the body's semantic heading, exactly as Select keeps its
-      // prompt above the list: the border carries only the concise `view`
-      // identity, and truncating that must never lose "Sign in · ChatGPT" or
-      // "API key · opencode". The framed form never opens below
-      // PROMPT_FRAMED_MIN_ROWS, so the message is present from its first row.
-      if (terminalRows < PROMPT_FRAMED_MIN_ROWS || width >= columns) {
+      // The title now owns however many rows it wrapped to, so the message's
+      // budget is what is left after them. A prompt that carries a message but
+      // has no room for even one narrative row falls back rather than opening a
+      // frame that hides the message the compact form still shows.
+      const requiredNarrative = spec.message === '' ? 0 : PROMPT_MIN_NARRATIVE_ROWS
+      const narrativeCapacity = terminalRows - PROMPT_FIXED_ROWS - titleRows.length
+      if (width >= columns || narrativeCapacity < requiredNarrative) {
         return compactFallback(value, spec, columns, terminalRows)
       }
-      const narrativeCapacity = Math.max(0, terminalRows - PROMPT_FIXED_ROWS - 1)
       const frame = [
         '',
         ...rootFrame({
           columns,
           context: paint(escapeControls(spec.view ?? spec.title), 'overlay-title'),
           body: [
-            paint(truncateToWidth(escapeControls(spec.title), inner), 'overlay-title'),
+            ...titleRows,
             ...narrative.slice(0, narrativeCapacity),
             '',
             fieldRow(value, spec, inner),
@@ -185,9 +196,13 @@ function compactFallback(value: string, spec: PromptSpec, columns: number, rows:
   const width = Math.max(1, columns - 1)
   const lines: string[] = []
   if (rows >= 3) {
-    const messageRows = escapeControls(spec.message).split('\n')
-    for (const line of messageRows.slice(0, Math.max(1, rows - 2))) {
-      lines.push(truncateToWidth(line, width))
+    // The message is what a person must read to answer; when there is none —
+    // an option-less question carries its text in `title` — the semantic title
+    // is the context that must survive the fallback, not vanish with the frame.
+    const context = spec.message === '' ? spec.title : spec.message
+    const budget = Math.max(1, rows - 2)
+    for (const row of wrapToWidth(escapeControls(context), width).slice(0, budget)) {
+      lines.push(row)
     }
   }
   lines.push(truncateToWidth(fieldRow(value, spec, width), width))
