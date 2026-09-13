@@ -65,7 +65,7 @@ export type { TuiOverlay, TuiSlotName, TuiSlotView } from './slots.ts'
 export { TuiSlots } from './slots.ts'
 
 /** Reported in the banner; sync-version.mjs keeps it aligned with the manifest. */
-const VERSION = '0.21.0'
+const VERSION = '0.22.0'
 
 /**
  * What a deployment can configure about this frontend.

@@ -1,5 +1,137 @@
 # dshline
 
+## 0.22.0
+
+### Minor Changes
+
+- eee8498: Let Sessions search results open bounded surrounding context through Harness's
+  native session-query read seam.
+  
+  `Find in this session` still discovers hits with `searchEvents()`, but `↵` on an
+  ordinary hit now opens a bounded inspector: the exact target event plus a fixed
+  number of raw events on each side, read once through `readEvent()`. The target
+  is marked, its neighbors keep their order, and each event's text is Harness's
+  own semantic extraction, so structural and unknown events show only their type
+  and sequence. Rendering or moving through results reads no log, and closing the
+  inspector restores the search's query, results, selection, and viewport
+  unchanged.
+- 283bd26: Add durable subagent conversations. `/work` now hands off to a separate subagent
+  conversation view (`c`, or `/subagents`) built on Harness's durable direct-child
+  discovery rather than active lifecycle epochs, so a continuable child stays
+  browsable and continuable after its current turn settles. Opening a child reads
+  its own session log through `ctx.sessionQuery` without resuming it and renders a
+  bounded conversation that retains one page of full event bodies at a time;
+  paging older history replaces the window instead of accumulating. A continuable
+  child can receive a human follow-up (`m`, queued) or steer (`s`), both through
+  Harness's human prompt operation; the message composer scrolls with its cursor
+  like the main input. Interrupt stays on `/work`, where an open lifecycle epoch
+  is the stronger premise — a durable child's residency is not proof of a turn. A one-shot
+  child is inspectable and read-only, diagnostics are shown honestly, and a profile
+  without `ctx.subagents` or `ctx.sessionQuery` still boots with the actions
+  unavailable.
+- d99ec59: Add `/turns`: a bounded, Harness-native index of this session's turns, read from
+  the `turnOutline` session projection. Move the selection with `↑`/`↓`, open a
+  read-only inspection of a turn's prompt and response previews with `enter`, walk
+  turns with `←`/`→`, filter by turn number or preview text with `/`, and leave
+  with `esc`. `/turns <text>` opens pre-filtered. The outline is a view over
+  Harness's authoritative fold — no second transcript model, no rewrite of native
+  scrollback — and a composition that mounts no turn outline says so instead of
+  folding the log itself.
+
+### Patch Changes
+
+- 0f9c23b: Make very large pasted prompts fast and navigable. Laying the composer's draft
+  out is now a single forward pass over one snapshot of the buffer instead of a
+  per-line loop that re-derived the whole buffer for every line, which made a
+  5,000-line draft take seconds per `↑` and seconds more for the redraw. The
+  composer view also reuses one layout between its `render` and `cursor` calls, so
+  a frame no longer wraps the draft twice. A draft still grows from one row to the
+  same hard cap and then scrolls, and the frame title now names the direction of
+  what is hidden (`^ 27` / `v 4`) instead of a single `+N rows` count. The markers
+  are ASCII because `↑`/`↓` are East Asian Ambiguous width: a terminal in an
+  ambiguous-width mode advances two cells for them where Dshline measures one, so
+  the top border wrapped and each redraw left the previous composer frame behind.
+- 44d06a6: Roll back a failed overlay registration when its `mounted()` hook or the
+  initial redraw it triggers throws, so a failed mount no longer leaves the
+  overlay owning the live region and input with no disposer returned to the
+  caller.
+  
+  `TuiSlots.pushOverlay()` now removes the exact overlay by identity, disposes it
+  once, and invalidates so the remaining overlay stack or the composed slots are
+  authoritative again before the failure propagates. The rollback covers only the
+  registration `pushOverlay` makes: an overlay the hook pushes itself is a
+  separate registration with its own lifecycle. If the rollback disposal or
+  invalidation also throws, the failures are carried together in an
+  `AggregateError` with the primary failure first; the failed overlay is
+  unregistered either way, and context teardown cannot dispose it a second time.
+- f8f3770: Harden the live region's geometry against defects an adversarial terminal
+  campaign reproduced deterministically.
+  
+  **Zero-width characters no longer travel.** `wrapToWidth` and `chunkToWidth`
+  treated every zero-width token as "styling to reopen", so a combining mark, a
+  variation selector, or a ZWJ seen before a break was replayed onto the next row
+  and accented the wrong base. Only escape sequences are carried now, and
+  `tailToWidth` drops a mark whose base the cut discarded. The same escape
+  tracking is what a long styled line needed: `open` was never cleared on a full
+  reset, so every continuation row replayed every escape seen so far and a
+  100k-character line rendered hundreds of megabytes; it now renders in kilobytes.
+  
+  **`hangingIndent` honours its own contract.** Its wrap budget was derived from
+  the continuation indent, so a wider first-row mark pushed that row past the
+  terminal — which the function promises cannot happen. It reserves the wider of
+  the two and cuts only when the gutter alone is too wide.
+  
+  **Untrusted chrome labels are width-stable.** A workspace basename containing
+  East Asian Ambiguous code points (Cyrillic, accented Latin, `±`, …) is measured
+  one column by `displayWidth` but drawn two by an ambiguous-width terminal, so
+  the composer's top border wrapped a physical row `Screen` never counted and
+  every redraw left the previous frame behind — the same failure the ASCII
+  direction markers fixed, reached through the label. A keycap sequence (`1️⃣`) is
+  the same class: every component measures narrow, but Unicode lets the sequence
+  advance two columns, so it is projected as the whole sequence it is. The
+  projection lives in the presentation layer, over the renderer's already-public
+  `codePointWidth`; it is deliberately lossy and non-injective, and the committed
+  banner carries the full name.
+  
+  **The erase uses what was actually drawn.** `setLive` now caches the CLAMPED
+  cursor placement, so an out-of-range requested row can no longer make the next
+  erase descend below the region and leave its top rows. A redraw that repeats the
+  same logical lines at a new width is no longer skipped, because the terminal has
+  reflowed the pixels in between. The region is also bounded to the terminal
+  height at the composition seam: the stream view now honours the row budget every
+  other view was given, the status line yields when the composition has spent the
+  terminal, and the composer falls back to its unframed form rather than drawing
+  three rows onto a two-row screen.
+  
+  **Overlay disposal is transactional too.** A disposer that throws no longer
+  skips the redraw that makes the base UI authoritative, and teardown disposes
+  every mounted overlay instead of stopping at the first failure and leaking the
+  rest.
+  
+  **Streamed output is attempt-scoped.** `agent/assistant-stream` frames now
+  carry their `attemptId` through the listener: `start` adopts a new attempt and
+  discards any predecessor's transient text, and a `chunk`/`end` from a different
+  attempt is ignored. Ordering across attempts is an implementation property of
+  the loop, not a published guarantee, and a late `end` could otherwise reset the
+  next attempt's buffer and make the durable settlement re-emit a reply the reader
+  had already seen.
+  
+  **A trailing-whitespace boundary is presentation-equivalent on either channel.**
+  The equivalence added for reasoning now applies to text too: the assembler can
+  return a block that differs from the joined deltas only by a trailing line break
+  that the rows trim anyway, and the reasoning-only check let the text channel
+  reprint the whole reply under already-committed scrollback.
+  
+  The campaign also confirmed a limitation it could not fix within the
+  native-scrollback model: a terminal that reflows a narrowed live region into
+  more rows than the screen can hold strands the overflow, and the terminal's
+  post-reflow cursor position cannot be derived, so climbing the reflowed count
+  would erase committed scrollback instead. `Screen` therefore keeps the drawn
+  geometry, the design document states the achievable contract, and
+  `tests/live-region-oracle.spec.ts` names the case rather than hiding it.
+- Updated dependencies [f8f3770]
+  - @dshline/renderer@0.22.0
+
 ## 0.21.0
 
 ### Minor Changes
