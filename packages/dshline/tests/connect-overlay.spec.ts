@@ -376,6 +376,108 @@ describe('geometry', () => {
   })
 })
 
+describe('the overflow hint', () => {
+  const TARGET: ConnectNewRouteTarget = { settingsNs: 'llm-pi-ai', parentPath: ['providers'], revision: 3 }
+
+  it('does not claim more below for hidden section chrome alone', () => {
+    // One selectable row, and a Sign-ins section that is only a heading and an
+    // empty explanation. At this height those presentation lines fall below the
+    // window; no CHOICE does, so the hint must stay off. The old
+    // `viewport.end < rendered.rows.length` reported one anyway.
+    const shown = mount(ready([provider()])).text(COLUMNS, 8)
+    expect(shown).toContain('1 row')
+    expect(shown).not.toContain('more below')
+  })
+
+  it('does not treat the selected row’s own detail line as a hidden choice', () => {
+    // Capacity two puts the provider entry in view and its detail line just
+    // below `viewport.end`. That line is geometry the selected entry owns, not
+    // a second selectable entry.
+    const shown = mount(ready([provider()])).text(COLUMNS, 7)
+    expect(shown).toContain('1 row')
+    expect(shown).not.toContain('more below')
+  })
+
+  it('still reports a real selectable provider below the window', () => {
+    const view = mount(ready([
+      provider(),
+      provider({ provider: 'anthropic', displayName: 'Anthropic' }),
+      provider({ provider: 'google', displayName: 'Google' }),
+    ]))
+    const shown = view.text(COLUMNS, 7)
+    expect(shown).toContain('3 rows')
+    expect(shown).toContain('more below')
+  })
+
+  it('stops reporting more below once the last selectable row is visible', () => {
+    // Two providers. Selecting the second moves the detail line below both, so
+    // no selectable row is at or past `viewport.end` even though the Sign-ins
+    // heading and its empty explanation still sit below it.
+    const view = mount(ready([provider(), provider({ provider: 'anthropic', displayName: 'Anthropic' })]))
+    view.render(COLUMNS, 8)
+    view.press(key('down'))
+    const shown = view.text(COLUMNS, 8)
+    expect(shown).toContain('2 rows')
+    expect(shown).not.toContain('more below')
+  })
+
+  it('keeps "N of M" but drops the hint when the only match is visible', () => {
+    // The filter leaves one selectable row, but both sections still draw their
+    // headings and the Sign-ins section its empty explanation.
+    const view = mount(ready(
+      [provider(), provider({ provider: 'anthropic', displayName: 'Anthropic' })],
+      [signIn()],
+    ))
+    view.render(COLUMNS, 8)
+    view.press({ kind: 'text', text: 'anthro' })
+    const shown = view.text(COLUMNS, 8)
+    expect(shown).toContain('1 of 3')
+    expect(shown).not.toContain('more below')
+  })
+
+  it('treats the synthetic create row as selectable', () => {
+    // Nothing else is selectable, and the create row is visible: the hidden
+    // lines are only headings and an empty explanation, so no hint.
+    const shown = mount(ready([], [], false, [TARGET])).text(COLUMNS, 8)
+    expect(shown).toContain('1 row')
+    expect(shown).not.toContain('more below')
+  })
+
+  it('reports more below when the hidden selectable row is the create row', () => {
+    // One provider visible, the create row below `viewport.end`. Ignoring the
+    // create row when recording selectable positions would hide the hint.
+    const shown = mount(ready([provider()], [], true, [TARGET])).text(COLUMNS, 7)
+    expect(shown).toContain('2 rows')
+    expect(shown).toContain('more below')
+  })
+
+  it('lets selection push a still-hidden selectable row below the window', () => {
+    // Both providers fit while the second is selected. Moving back up to the
+    // first inserts that row's detail line above the second provider, pushing
+    // it past `viewport.end` — a real hidden choice, so the hint returns. This
+    // is why the hint cannot be frozen against selection changes.
+    const view = mount(ready([provider(), provider({ provider: 'anthropic', displayName: 'Anthropic' })]))
+    view.render(COLUMNS, 8)
+    view.press(key('down'))
+    expect(view.text(COLUMNS, 8)).not.toContain('more below')
+    view.press(key('up'))
+    expect(view.text(COLUMNS, 8)).toContain('more below')
+  })
+
+  it('does not report more below merely because later logical rows exist', () => {
+    // A tall terminal shows every provider while the first is selected. An
+    // implementation keyed on `selected < shown - 1` would call that "more"
+    // even though the later rows are already on screen.
+    const shown = mount(ready([
+      provider(),
+      provider({ provider: 'anthropic', displayName: 'Anthropic' }),
+      provider({ provider: 'google', displayName: 'Google' }),
+    ])).text(COLUMNS, ROWS)
+    expect(shown).toContain('3 rows')
+    expect(shown).not.toContain('more below')
+  })
+})
+
 describe('the create-route entry point', () => {
   const TARGET: ConnectNewRouteTarget = { settingsNs: 'llm-pi-ai', parentPath: ['providers'], revision: 3 }
 

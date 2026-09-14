@@ -96,10 +96,20 @@ interface Notice {
   readonly expiresAt: number
 }
 
-/** One rendered section, and where its selectable rows landed. */
+/**
+ * The drawn document, and where its selectable rows landed among the physical ones.
+ *
+ * `rows` is exactly what {@link RowViewport} scrolls over, so every heading,
+ * blank separator, empty-section explanation, entry line, and the selected
+ * entry's detail line counts toward its length. `selectableRows` narrows that
+ * down to the entry lines alone — provider, sign-in, and the synthetic create
+ * row — because the browser's overflow hint answers a question about choices,
+ * and only these lines are choices.
+ */
 interface Rendered {
   readonly rows: readonly string[]
   readonly selectedRow: number
+  readonly selectableRows: readonly number[]
 }
 
 /** The Connect overlay, plus the one thing its owner pushes back into it. */
@@ -313,7 +323,8 @@ function resolve(state: ConnectState, query: string): readonly Section[] {
  * @param sections - the filtered sections.
  * @param selected - the selected row's index among all selectable rows.
  * @param inner - the frame's inner width in columns.
- * @returns the rows and the selection's row index among them.
+ * @returns the physical rows, the selection's row index among them, and the
+ *   physical row of every selectable entry line.
  */
 function render(
   state: ConnectState,
@@ -324,6 +335,7 @@ function render(
   if (state.kind === 'loading') return single('Reading provider configuration…', inner)
   if (state.kind === 'failed') return single(`Harness could not be read: ${state.message}`, inner)
   const rows: string[] = []
+  const selectableRows: number[] = []
   const capabilities = state.kind === 'ready' ? state.capabilities : undefined
   let selectedRow = 0
   let index = 0
@@ -337,12 +349,16 @@ function render(
     for (const row of section.rows) {
       const active = index === selected
       if (active) selectedRow = rows.length
+      // Recorded before the entry and its detail line are pushed, so this is the
+      // entry line's own physical row. The detail line below it is presentation
+      // and is deliberately not recorded: selecting a row is not a second choice.
+      selectableRows.push(rows.length)
       rows.push(entryRow(row, active, inner, capabilities))
       if (active) rows.push(detailRow(row, inner))
       index += 1
     }
   })
-  return { rows, selectedRow }
+  return { rows, selectedRow, selectableRows }
 }
 
 /**
@@ -352,7 +368,11 @@ function render(
  * @returns the single row.
  */
 function single(text: string, inner: number): Rendered {
-  return { rows: [paint(truncateToWidth(escapeControls(text), inner), 'muted')], selectedRow: 0 }
+  return {
+    rows: [paint(truncateToWidth(escapeControls(text), inner), 'muted')],
+    selectedRow: 0,
+    selectableRows: [],
+  }
 }
 
 /**
@@ -479,7 +499,7 @@ function queryRow(query: string, right: string, inner: number): string {
 }
 
 /**
- * What the counter says: how many rows, and whether more are below.
+ * What the counter says: how many rows, and whether any selectable row is hidden.
  * @param state - the current reading.
  * @param shown - selectable rows after the query.
  * @param rendered - the drawn rows.
@@ -500,8 +520,28 @@ function counter(
   const matched = shown === total
     ? `${String(shown)} row${shown === 1 ? '' : 's'}`
     : `${String(shown)} of ${String(total)}`
-  const more = viewport.end < rendered.rows.length ? ' · more below' : ''
+  // `more below` describes hidden SELECTABLE Connect entries, not arbitrary
+  // physical render lines. Section chrome and the active row's detail line still
+  // belong to `RowViewport` geometry but do not imply another choice exists.
+  const more = hasSelectableBelow(rendered, viewport) ? ' · more below' : ''
   return `${matched}${more}`
+}
+
+/**
+ * Whether any selectable Connect entry sits below the visible window.
+ *
+ * `more below` answers a question about choices, so deriving it from
+ * `rendered.rows.length` is wrong: section headings, blank separators, an
+ * empty-section explanation, and the selected entry's own detail line are real
+ * geometry but none is a row the reader can move to. Only `selectableRows` —
+ * the physical lines of provider, sign-in, and create entries — can earn the
+ * hint. `viewport.end` is exclusive, so an entry at exactly that row is below.
+ * @param rendered - the drawn rows and where the selectable entries landed.
+ * @param viewport - the scroll position over the physical rows.
+ * @returns true when another provider, sign-in, or create row is hidden below.
+ */
+function hasSelectableBelow(rendered: Rendered, viewport: RowViewport): boolean {
+  return rendered.selectableRows.some(row => row >= viewport.end)
 }
 
 /**
