@@ -14,17 +14,16 @@
  * supply exactly this double. The durable half, over a production Agent, is
  * `capability/inbox.probe.spec.ts`.
  *
- * Assembled the way `replay-gate.spec.ts` is, for the same reason — the
- * submission path runs from a keystroke through the composer, the replay gate,
- * the command registry, and the skill adjudication, and only the assembled seam
- * covers that whole route.
+ * Assembled the way `resume-replay.spec.ts` is, for the same reason — the
+ * submission path runs from a keystroke through the composer, the command
+ * registry, and the skill adjudication, and only the assembled seam covers that
+ * whole route.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
 import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
@@ -49,12 +48,6 @@ async function fixture(options: { busyEnter?: BusyEnter } = {}) {
   ctx.provide('tools', { get: () => undefined })
   ctx.provide('commands', { execute: vi.fn(async () => undefined), list: () => [] } as never)
   ctx.provide('userQuestions', {} as never)
-  // Settled immediately: the replay gate is `replay-gate.spec.ts`'s subject, and
-  // here it must be open so a submission reaches the agent at all.
-  ctx.provide('sessionQuery', {
-    readSession: async (): Promise<{ events: SessionEvent[] }> => ({ events: [] }),
-  } as never)
-
   const commits: string[][] = []
   let dispatch: ((key: Key) => void) | undefined
   const compose = (): void => { ctx.tuiSlots.compose(80, 24) }
@@ -92,7 +85,7 @@ async function fixture(options: { busyEnter?: BusyEnter } = {}) {
 
   const inbox = createInboxStub()
   const agent = {
-    session: { id: 's-1', header: { cwd: '/ws' }, events: [] },
+    session: { id: 's-1', header: { cwd: '/ws' }, snapshotEvents: () => [] },
     status: 'idle' as 'idle' | 'running',
     inbox,
     // The upstream wrappers, verbatim in effect: `followup` is a next-turn
@@ -108,14 +101,15 @@ async function fixture(options: { busyEnter?: BusyEnter } = {}) {
 
   /**
    * Attach a session to this window, as the plugin's own loop does.
-   * @returns when the transcript read has settled and the gate is open.
+   *
+   * The replay is synchronous and this fixture's Session is empty, so attaching
+   * runs through the whole pre-input block before returning; no settle wait is
+   * owed before the first keystroke.
    */
-  const attach = async (): Promise<void> => {
+  const attach = (): void => {
     void attachSession(window, outcome)
-    // Let the transcript read settle so the replay gate opens.
-    await new Promise(resolve => setTimeout(resolve, 0))
   }
-  await attach()
+  attach()
 
   /**
    * Type a line and submit it with one of the two gestures.

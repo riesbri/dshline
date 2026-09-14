@@ -9,32 +9,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { HistorySearch } from '../src/history-search.ts'
-import type { SearchableHistory } from '../src/history-search.ts'
 import { InputHistory } from '../src/history.ts'
-
-/**
- * A corpus that can grow, standing in for a session whose history is still
- * being seeded from its durable log.
- */
-class GrowingHistory implements SearchableHistory {
-  constructor(private readonly lines: string[] = []) {}
-
-  get size(): number {
-    return this.lines.length
-  }
-
-  entry(index: number): string | undefined {
-    return this.lines[index]
-  }
-
-  /**
-   * Seed more entries, as a replay does.
-   * @param more - the lines to append, oldest first.
-   */
-  add(...more: string[]): void {
-    this.lines.push(...more)
-  }
-}
 
 /**
  * An {@link InputHistory} holding the given submissions, in order.
@@ -58,7 +33,7 @@ function type(search: HistorySearch, query: string): void {
 
 describe('HistorySearch', () => {
   it('offers nothing when the history is empty', () => {
-    const search = new HistorySearch(new GrowingHistory())
+    const search = new HistorySearch(recorded())
 
     expect(search.matches).toEqual([])
     expect(search.selected).toBe(undefined)
@@ -409,61 +384,5 @@ describe('HistorySearch: a query means the same thing however it was typed', () 
     expect(edited.query).toBe('ΟΣΑ ')
     expect(edited.matches).toEqual(fresh.matches)
     expect(edited.matches).toEqual([0])
-  })
-})
-
-describe('HistorySearch.sync()', () => {
-  it('reports no change while the corpus is the size it was', () => {
-    const search = new HistorySearch(recorded('alpha'))
-
-    expect(search.sync()).toBe(false)
-  })
-
-  it('resolves a query already typed against history that arrives later', () => {
-    // What `ctrl-r` during a resume looks like: the overlay opens over nothing,
-    // the reader types, and the replay's own history seeding lands underneath.
-    const history = new GrowingHistory()
-    const search = new HistorySearch(history)
-    type(search, 'auth')
-    expect(search.matches).toEqual([])
-    expect(search.corpusSize).toBe(0)
-
-    history.add('fix the auth retry', 'unrelated', 'auth state disappears')
-
-    expect(search.sync()).toBe(true)
-    expect(search.corpusSize).toBe(3)
-    expect(search.matches).toEqual([2, 0])
-    expect(search.selectedText).toBe('auth state disappears')
-  })
-
-  it('keeps the reader aimed at the same entry when more history arrives', () => {
-    const history = new GrowingHistory(['auth one', 'auth two'])
-    const search = new HistorySearch(history)
-    type(search, 'auth')
-    search.older()
-    expect(search.selected).toBe(0)
-
-    history.add('auth three')
-
-    expect(search.sync()).toBe(true)
-    // Aimed at the same POSITION, not at the same row: entries arriving above
-    // the selection must not move what enter would recall.
-    expect(search.selected).toBe(0)
-    expect(search.selectedText).toBe('auth one')
-    expect(search.matches).toEqual([2, 1, 0])
-    expect(search.position).toBe(3)
-  })
-
-  it('re-aims at the newest match when the aimed entry no longer matches', () => {
-    const history = new GrowingHistory()
-    const search = new HistorySearch(history)
-    history.add('alpha')
-    search.sync()
-    expect(search.selected).toBe(0)
-
-    type(search, 'zzz')
-    history.add('beta')
-    expect(search.sync()).toBe(true)
-    expect(search.selected).toBe(undefined)
   })
 })

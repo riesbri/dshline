@@ -4,7 +4,7 @@ import { createSystemMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { stripAnsi } from '@dshline/renderer'
-import { isTranscriptEvent, resumeBanner } from '../src/resume.ts'
+import { isTranscriptEvent, resumeBanner, transcriptEvents } from '../src/resume.ts'
 import { projectEvent } from '../src/transcript.ts'
 
 /**
@@ -134,11 +134,13 @@ describe('a resumed V3 transcript, over a real Session log', () => {
       sourceEventSeqs: [head.seq],
     })
 
-    const events = target.snapshotEvents()
+    // The boundary is the live Session itself: one synchronous whole-log
+    // snapshot, then the transcript gate — the same call a resumed attachment
+    // makes on the Session its AgentHandle owns.
+    const events = transcriptEvents(target)
     // Three surface events, and only the two appends reach the projection.
-    expect(events.filter(isTranscriptEvent)).toHaveLength(2)
+    expect(events).toHaveLength(2)
     const lines = events
-      .filter(isTranscriptEvent)
       .flatMap(candidate => projectEvent(candidate, 80))
       .map(stripAnsi)
       .join('\n')

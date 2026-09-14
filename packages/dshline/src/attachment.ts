@@ -34,6 +34,10 @@ import type {} from '@deepseek-ai/dsh-plan-mode'
 // Optional projection infrastructure and Todo's `SessionProjectionMap` merge.
 // dsh-base mounts both, but custom profiles may omit either without stopping TUI.
 import type {} from '@deepseek-ai/dsh-session-projection'
+// The corpus service is read below for the SUBAGENT inspector only — the
+// attached Agent's own log is read from its owned Session. It stays optional in
+// the same way: a profile without it browses no child conversations.
+import type {} from '@deepseek-ai/dsh-session-query'
 // Session titles are optional too: `/sessions` offers rename through the
 // service only when the active profile mounts it.
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -60,7 +64,7 @@ import { historyLines, InputHistory } from './history.ts'
 import { HistorySearch } from './history-search.ts'
 import { createHistorySearchOverlay } from './history-search-overlay.ts'
 import { applyHistorySearch, routeInputKey } from './input.ts'
-import { isTranscriptEvent, readTranscript, resumeBanner } from './resume.ts'
+import { transcriptEvents, resumeBanner } from './resume.ts'
 import { createToolOutputOverlay } from './tool-output.ts'
 import { modelCompletionValues, pickModel } from './model.ts'
 import { installQuestionProvider } from './questions.ts'
@@ -244,9 +248,8 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // scope registration remains the ordinary-switch owner; the explicit call in
   // the exit path makes the ordering visible before presentation teardown.
   scope.own(cancelAttachmentWork)
-  // Created before anything can ask for it: a transition requested while the
-  // transcript is still replaying must not resolve into a promise that does not
-  // exist yet.
+  // Created before the command handlers that can request a transition: each
+  // closes over it, and none may resolve into a promise that does not exist yet.
   let requestNext: (target: AttachTarget) => void = () => {}
   const switched = new Promise<AttachTarget>(resolve => { requestNext = resolve })
   const { agent, dispose: disposeAgent } = attached.handle
@@ -449,14 +452,13 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // for the same reason the usage totals do.
   let planActive = false
   let phase: ModelPhase = 'waiting'
-  // A resumed session's transcript is still being replayed into the window.
-  // While set, the status line reports it instead of `ready` (the history the
-  // reader asked to reopen is not on screen yet), and a submit is kept out of
-  // the transcript: an enter at this moment must not interleave a new turn
-  // ABOVE the historical flood that is about to land. The denied line is
-  // parked in `replayNotes` and committed after the flood, in history order.
+  // A resumed session's transcript is being replayed into the window. Set only
+  // across the replay's own synchronous pre-flood paint, so the status line
+  // reports the history the reader asked to reopen instead of claiming `ready`
+  // before it is on screen. It is never observed by a keystroke: the snapshot,
+  // the projection, and the clearing of this value all run in one
+  // run-to-completion block, so no input can interleave above the flood.
   let replaying: string | undefined
-  const replayNotes: string[] = []
 
   // Deliberately NOT registered with `ctx.commands`. That registry is shared by
   // every surface in the process, and a web client or automation server has no
@@ -1893,15 +1895,16 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
    * Completion is invalidated on the way in for the reason a submitted line
    * invalidates it: a directory read still in flight would otherwise land its
    * candidates over the query, or after it, for text that is no longer there.
+   *
+   * History is already fully seeded by the time any keystroke can reach here —
+   * the replay is synchronous — so the overlay never has to report a corpus that
+   * is still arriving.
    */
   const openHistorySearch = (): void => {
     completion.invalidate()
     const search = new HistorySearch(history)
     openSurface(ctx.tuiSlots, close => createHistorySearchOverlay({
       search,
-      // A resume seeds history from the log the replay is already reading, so
-      // `ctrl-r` during one has to say "still arriving" rather than "nothing here".
-      loading: () => replaying !== undefined,
       invalidate: () => { ctx.tuiSlots.invalidate() },
       settle: index => {
         close()
@@ -1964,28 +1967,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // Whatever was being completed is gone with the line, and any lookup it
       // had in flight must not land afterwards.
       completion.invalidate()
-      if (replaying !== undefined) {
-        // Leaving is window-global and must not wait for a slow transcript read:
-        // unlike a prompt, `/exit` cannot be interleaved with the replay flood.
-        // `ctrl-d` already takes this path at the window boundary; exempt the
-        // equivalent local commands here as well.
-        const replayCommand = parseCommand(action.text.trim())
-        if (replayCommand?.name === 'exit' || replayCommand?.name === 'quit') {
-          void localCommands.execute(replayCommand.name, replayCommand.rawInput).catch(report)
-          return
-        }
-        // The composer has already cleared its buffer. Put the draft back so the
-        // enter that could not be honoured costs nothing, and park the reason in
-        // the transcript AFTER the replay flood (this window is the one in which
-        // a live write would land above the history it belongs under).
-        composer.set(action.text)
-        replayNotes.push(paint(
-          `· still ${replaying} — nothing was sent; press enter again in a moment`,
-          'muted',
-        ))
-        draw()
-        return
-      }
       draw()
       // The gesture travels with the text rather than being re-derived here: by
       // the time this runs the key is gone, and only the composer knows which of
@@ -2022,17 +2003,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       case 'ctrl-enter': {
         if (imageDrafts.size === 0) return
         completion.invalidate()
-        if (replaying !== undefined) {
-          // Same rule a typed line gets while the transcript is still arriving:
-          // nothing is sent, the drafts are untouched, and the reason is parked
-          // to be committed after the replay flood rather than above it.
-          replayNotes.push(paint(
-            `· still ${replaying} — nothing was sent; press enter again in a moment`,
-            'muted',
-          ))
-          draw()
-          return
-        }
         draw()
         submit('', action.key.name === 'ctrl-enter' ? 'accelerated' : 'enter').catch(report)
         return
@@ -2167,26 +2137,33 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   commit(resumeNote)
 
   if (attached.reopened && target.kind === 'resume') {
-    // The live region is drawn BEFORE the replay begins, and the status line
-    // reports the replay while it runs. Replayed through the same projection
-    // the live listener uses, so a resumed session reads exactly like the one
-    // that was watched happen. Committed in ONE write: an event-by-event commit
-    // would redraw the live region thousands of times to produce a screen
-    // nobody sees until the end of it.
+    // The transcript is rebuilt from the Session the resumed Agent already owns,
+    // not from a second read of persistence: `agents.resume` has opened the log,
+    // repaired an interrupted final turn, constructed the Session, and published
+    // it, so `agent.session` is the exact repaired state this attachment goes on
+    // from. The whole block is synchronous, which is what makes one snapshot a
+    // fixed boundary: the `session/event` listener above is already registered,
+    // so an append after the snapshot is delivered live exactly once, and an
+    // event already in the snapshot is one this listener did not deliver.
+    // (Constructor-seed events are never published at all; events appended
+    // between resume and this listener belong to the snapshot alone.)
+    //
+    // Replayed through the same projection the live listener uses, so a resumed
+    // session reads exactly like the one that was watched happen. Committed in
+    // ONE write: an event-by-event commit would redraw the live region thousands
+    // of times to produce a screen nobody sees until the end of it.
     //
     // Without the early draw, a reopened session's composer and status stayed
-    // invisible — keystroke routing already live — for however long reading and
-    // projecting the log took: on a real transcript that is a multi-hundred-
-    // millisecond blank screen with a live cursor, and `ready` is a claim the
-    // reader has no history to check yet.
+    // invisible — keystroke routing already live — for however long projecting
+    // the log took: on a real transcript that is a multi-hundred-millisecond
+    // blank screen with a live cursor, and `ready` is a claim the reader has no
+    // history to check yet.
     replaying = 'resuming session…'
-    // Painted synchronously at the moment the replay begins: the read that
-    // follows is an await the frontend does not control (input may run during
-    // it), and the projection + flood commit after it are one event-loop
-    // block, so a coalesced paint has no guaranteed slot before the flood.
+    // Painted synchronously at the moment the replay begins: the projection and
+    // flood commit that follow are one event-loop block, so a coalesced paint
+    // has no guaranteed slot before the flood.
     w.paintNow()
-    const events = await readTranscript(ctx, target.id)
-    const replayed = events.filter(isTranscriptEvent)
+    const replayed = transcriptEvents(agent.session)
     replaying = replayed.length === 0
       ? 'resuming session…'
       : `replaying ${String(replayed.length)} events…`
@@ -2203,12 +2180,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // events, each of which commits its own remainder and leaves it empty.
     cards.reset()
     commit([...lines, ...resumeBanner(replayed.length)])
-    // The replay window is over. Anything an enter during it parked in
-    // `replayNotes` now lands BELOW the history it belongs under, in the order
-    // it was refused — a live write during the flood would have committed above
-    // it. The gate is cleared so the status can honestly say `ready`.
-    commit(replayNotes)
-    replayNotes.length = 0
+    // The replay is over, so the status can honestly say `ready`.
     replaying = undefined
   }
   draw()
