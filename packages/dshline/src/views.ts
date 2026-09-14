@@ -692,8 +692,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       } else if (current.replay !== undefined) {
         // A resumed session's transcript is still flooding in: `ready` would be
         // a claim the reader has no history to check yet. The replay fact is the
-        // honest reading, and it doubles as the reason an enter during the
-        // window does nothing.
+        // honest reading while the synchronous projection runs.
         bareStatus = paint(`· ${current.replay}`, 'muted')
         facts.push(bareStatus)
       } else {

@@ -68,16 +68,6 @@ export interface HistorySearchSpec {
   /** The live search model: query, matches, and selection. */
   readonly search: HistorySearch
   /**
-   * Whether this session's history is still being seeded from its durable log.
-   *
-   * Read fresh on every render rather than captured, because the honest answer
-   * changes underneath an open overlay: `ctrl-r` pressed during a resume must
-   * say the history is still arriving instead of claiming there is none, and
-   * must then resolve the query the reader typed meanwhile without a poll.
-   * @returns whether more entries are still expected.
-   */
-  loading?(): boolean
-  /**
    * Report the answer, exactly once.
    * @param index - the chosen historical position, or undefined on cancellation.
    */
@@ -112,7 +102,7 @@ interface Rendered {
 
 /**
  * Build the history-search overlay.
- * @param spec - the search model, the loading probe, and how to settle.
+ * @param spec - the search model and how to settle.
  * @returns the overlay to push onto the slot registry.
  */
 export function createHistorySearchOverlay(spec: HistorySearchSpec): TuiOverlay {
@@ -125,37 +115,16 @@ export function createHistorySearchOverlay(spec: HistorySearchSpec): TuiOverlay 
     settled = true
     spec.settle(index)
   }
-  /**
-   * Entries the current OFFER covers: what the last frame was built from.
-   *
-   * Seeded from the corpus the search was constructed over, because mounting an
-   * overlay invalidates and the frame that follows shows exactly that. It moves
-   * only when a frame is actually produced, which is what lets `enter` tell an
-   * offer the reader has seen from one that landed underneath them.
-   */
-  let offered = spec.search.corpusSize
-  /**
-   * Take on history the resume seeded, before rendering or acting on the list.
-   *
-   * Called from both halves on purpose: key delivery can reach a key before an
-   * invalidation has produced a frame, and the list must not act on a corpus it
-   * has not read.
-   * @returns whether the corpus grew.
-   */
-  const sync = (): boolean => spec.search.sync()
 
   return {
     render(columns, terminalRows = 24) {
-      sync()
-      // Whatever this frame shows is, from here on, what the reader was offered.
-      offered = spec.search.corpusSize
       const width = chromeWidth(columns)
       const inner = width - BOX_CHROME_COLUMNS
       const capacity = terminalRows - SEARCH_FIXED_ROWS - SEARCH_HEADING_ROWS
       if (capacity <= 0 || columns < SEARCH_MIN_COLUMNS) {
-        return compactFallback(spec.search, spec.loading?.() === true, columns, terminalRows)
+        return compactFallback(spec.search, columns, terminalRows)
       }
-      const rendered = renderResults(spec.search, spec.loading?.() === true, inner)
+      const rendered = renderResults(spec.search, inner)
       viewport.update(rendered.rows.length, capacity)
       if (rendered.selectedRow < viewport.start) viewport.move(rendered.selectedRow - viewport.start)
       // Follow the whole selected block, but never past its own first row: on a
@@ -183,10 +152,9 @@ export function createHistorySearchOverlay(spec: HistorySearchSpec): TuiOverlay 
       // scrollback. Checked rather than assumed, exactly as `select.ts` checks it.
       return physicalRows(frame, columns).length <= terminalRows
         ? frame
-        : compactFallback(spec.search, spec.loading?.() === true, columns, terminalRows)
+        : compactFallback(spec.search, columns, terminalRows)
     },
     handleKey(key: Key) {
-      sync()
       const { search } = spec
       if (key.kind === 'text') {
         search.append(key.text)
@@ -234,15 +202,6 @@ export function createHistorySearchOverlay(spec: HistorySearchSpec): TuiOverlay 
           spec.invalidate()
           return
         case 'enter': {
-          if (search.corpusSize !== offered) {
-            // History landed since the last frame — a resume's seeding arriving
-            // under an overlay that was showing "still loading". Accepting now
-            // would recall a line this reader has never been shown, which is a
-            // worse surprise than one wasted keystroke: the redraw puts the new
-            // selection on screen, and a second `enter` takes it.
-            spec.invalidate()
-            return
-          }
           // Recall, never send. A search result is a line to edit and then
           // decide about; submitting it on the same keystroke that found it
           // would make a typo in the query an executed command.
@@ -306,13 +265,12 @@ function queryRow(query: string, inner: number): string {
 /**
  * Draw the matching entries at a known width.
  * @param search - the live search.
- * @param loading - whether more history is still being seeded.
  * @param inner - the frame's inner width.
  * @returns the rows and where the selection sits among them.
  */
-function renderResults(search: HistorySearch, loading: boolean, inner: number): Rendered {
+function renderResults(search: HistorySearch, inner: number): Rendered {
   if (search.matches.length === 0) {
-    return { rows: [paint(truncateToWidth(emptyNote(search, loading), inner), 'muted')], selectedRow: 0, selectedHeight: 1 }
+    return { rows: [paint(truncateToWidth(emptyNote(search), inner), 'muted')], selectedRow: 0, selectedHeight: 1 }
   }
   const rows: string[] = []
   let selectedRow = 0
@@ -346,18 +304,15 @@ function renderResults(search: HistorySearch, loading: boolean, inner: number): 
 }
 
 /**
- * What an empty result list says, which is not always "nothing matched".
+ * What an empty result list says.
  *
- * A resumed session seeds its history from the log the replay is still reading,
- * so an overlay opened during that has an EMPTY corpus rather than a corpus
- * without the query in it. Reporting the first as the second is a lie the reader
- * would act on, by retyping a query that was going to work in a moment.
+ * The two remaining cases are a session with no submitted input at all and a
+ * corpus that simply has no match for the query. History is fully seeded before
+ * the overlay can open, so there is no third "still arriving" state to report.
  * @param search - the live search.
- * @param loading - whether more history is still being seeded.
  * @returns the note to draw in place of results.
  */
-function emptyNote(search: HistorySearch, loading: boolean): string {
-  if (loading) return 'Loading this session’s history…'
+function emptyNote(search: HistorySearch): string {
   if (search.corpusSize === 0) return 'Nothing has been sent in this session yet.'
   return 'No input matches that.'
 }
@@ -588,21 +543,18 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
  * picker keeps its selected choice: a reader who cannot see what `enter` would
  * recall cannot decide whether to press it.
  *
- * It also has to tell the same TRUTH the frame tells. Losing the room to draw a
- * border is not a reason to report a history that is still arriving as one that
- * matched nothing — a reader would act on that by retyping a query that was
- * about to work. So the four states the frame distinguishes survive the
+ * It also has to tell the same TRUTH the frame tells: losing the room to draw a
+ * border is not a reason to report a corpus that has no match as one that was
+ * never searched. So the two states the frame distinguishes survive the
  * degradation, and the one row spent on a result is oriented on the line that
  * matched, exactly as the framed list orients it.
  * @param search - the live search.
- * @param loading - whether more history is still being seeded.
  * @param columns - the terminal's width.
  * @param rows - the terminal's height.
  * @returns at most `rows` lines.
  */
 function compactFallback(
   search: HistorySearch,
-  loading: boolean,
   columns: number,
   rows: number,
 ): string[] {
@@ -618,7 +570,7 @@ function compactFallback(
   // A note is not a selection, so it carries neither the cursor mark nor the
   // selection styling — the same distinction the framed list draws.
   const lines = preview === undefined
-    ? [paint(truncateToWidth(emptyNote(search, loading), width), 'muted')]
+    ? [paint(truncateToWidth(emptyNote(search), width), 'muted')]
     : [paint(truncateToWidth(`${CURSOR} ${preview.lines[preview.anchor] ?? ''}`, width), 'selection')]
   if (rows > 1) {
     const query = `⌕ ${escapeControls(search.query)}█`

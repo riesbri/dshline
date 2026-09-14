@@ -179,14 +179,13 @@ export interface Window {
    * Repaint the live region synchronously, outside the turn's coalescing.
    *
    * The one frame that cannot wait for the check phase: a resumed session's
-   * transcript replay reads its log asynchronously — `readTranscript` awaits
-   * `sessionQuery.readSession`, which is the window in which input may run —
-   * and then projects and commits the flood in one event-loop block behind it.
-   * A coalesced paint scheduled around that awaits no guaranteed slot of its
-   * own, so this repaint is issued at the moment the replay begins: the
-   * composer and status are on screen before the asynchronous read, whatever
-   * the read's own internal scheduling turns out to be, and stay behind the
-   * flood when it commits.
+   * transcript replay takes one stable snapshot of the Session it already owns
+   * and then projects the whole historical log in one event-loop block. That
+   * projection is synchronous but can be slow on a large transcript, so a
+   * coalesced paint scheduled around it has no guaranteed slot of its own. This
+   * repaint is issued at the moment the replay begins — the composer and status
+   * are on screen before the projection, and stay behind the flood when it
+   * commits.
    */
   readonly paintNow: () => void
   /** Write finished rows into the terminal's own scrollback. */

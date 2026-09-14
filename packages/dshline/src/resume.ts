@@ -1,11 +1,19 @@
 /**
- * Rebuilding a past session's transcript.
+ * Rebuilding a past session's transcript from the live Session it was resumed on.
  *
  * Two halves that are easy to conflate. Resuming the AGENT is one harness call —
- * `ctx.agents.resume` needs only the session id, and takes the workspace from the
- * persisted header; choosing WHICH session belongs to `./sessions`. Rebuilding
- * the transcript is this module's whole job, and the rule that matters is which
- * events it replays.
+ * `ctx.agents.resume` opens the persisted log, repairs an interrupted final turn,
+ * constructs the live Session, publishes it, and hands back the owned
+ * `AgentHandle` — and choosing WHICH session belongs to `./sessions`. Rebuilding
+ * the transcript is this module's whole job, and it reads that owned Session
+ * rather than asking a second service to reload the same history: the handle's
+ * `agent.session` already holds the repaired log, so one stable
+ * `snapshotEvents()` is the authority for what this attachment last did, and a
+ * later append belongs to the attachment's live event listener instead.
+ *
+ * `ctx.sessionQuery` remains the authority for the logical corpus — the sessions
+ * browser, worktrees, subagent inspection, search, and lineage — where there is
+ * no owned AgentHandle to read. It is deliberately NOT consulted here.
  *
  * NOT the model-visible surface. `foldSurface` deliberately shadows ranges that a
  * compaction replaced, so folding it would erase conversation the user already
@@ -38,10 +46,8 @@
  * @module dshline/resume
  */
 
-import type { Context } from '@deepseek-ai/cordis'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { isAppendSurfaceEvent, isSurfaceEvent } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-query'
 import { paint } from '@dshline/renderer'
 
 /**
@@ -62,16 +68,19 @@ export function isTranscriptEvent(event: SessionEvent): boolean {
 }
 
 /**
- * Read a past session's log.
- * @param ctx - context carrying the session query engine.
- * @param sessionId - the session to read.
- * @returns its raw events, or an empty list when the log cannot be read.
+ * Read a resumed attachment's history from the Session its Agent owns.
+ *
+ * One stable whole-log snapshot, filtered by {@link isTranscriptEvent}. Taking
+ * the snapshot once fixes the historical prefix: an event appended after it is
+ * the attachment's live `session/event` listener's to present, never a moving
+ * replay scan's. `snapshotEvents()` is synchronous and frozen, so no await
+ * separates the listener's registration from this read and nothing can be both
+ * replayed and delivered live.
+ * @param session - the live Session held by the attached AgentHandle.
+ * @returns the events a human transcript replays.
  */
-export async function readTranscript(ctx: Context, sessionId: SessionId): Promise<readonly SessionEvent[]> {
-  const query = ctx.get('sessionQuery')
-  if (query === undefined) return []
-  const snapshot = await query.readSession(sessionId)
-  return snapshot.events
+export function transcriptEvents(session: Session): readonly SessionEvent[] {
+  return session.snapshotEvents().filter(isTranscriptEvent)
 }
 
 /**

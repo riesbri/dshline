@@ -70,16 +70,14 @@ interface Mounted {
 /**
  * Mount a search overlay over a history.
  * @param history - the corpus to search.
- * @param loading - whether the session's history is still being seeded.
  * @returns the overlay and its observed effects.
  */
-function mount(history: InputHistory, loading = false): Mounted {
+function mount(history: InputHistory): Mounted {
   const search = new HistorySearch(history)
   const settled: (number | undefined)[] = []
   let drawn = 0
   const overlay = createHistorySearchOverlay({
     search,
-    loading: () => loading,
     settle: index => { settled.push(index) },
     invalidate: () => { drawn += 1 },
   })
@@ -270,61 +268,8 @@ describe('the history-search overlay', () => {
     expect(view.redraws()).toBe(before)
   })
 
-  it('tells an empty session apart from one whose history has not arrived', () => {
+  it('reports an empty session as one with nothing sent yet', () => {
     expect(mount(recorded()).rows().join('\n')).toContain('Nothing has been sent in this session yet.')
-    expect(mount(recorded(), true).rows().join('\n')).toContain('Loading this session’s history')
-  })
-
-  it('accepts a query typed while the history is still loading, and resolves it when it lands', () => {
-    const history = new InputHistory()
-    const view = mount(history, true)
-    view.press('auth')
-    expect(view.rows().join('\n')).toContain('Loading this session’s history')
-
-    // What the replay does: seeds the same durable lines the transcript replays.
-    history.record('fix the auth retry')
-    history.record('unrelated')
-
-    expect(view.rows().join('\n')).toContain('❯ fix the auth retry')
-    expect(view.search.matches).toEqual([0])
-  })
-
-  it('will not recall a result that landed after the last frame until it has been shown', () => {
-    const history = new InputHistory()
-    const view = mount(history, true)
-    // The frame the reader is looking at says the history is still loading.
-    expect(view.rows().join('\n')).toContain('Loading this session’s history')
-    const painted = view.redraws()
-
-    history.record('landed late')
-
-    // First enter: the corpus grew under the overlay, so this press buys a
-    // redraw rather than a recall. Accepting here would hand back a line that
-    // has never been on screen.
-    view.press(key('enter'))
-    expect(view.settled).toEqual([])
-    expect(view.redraws()).toBe(painted + 1)
-
-    // The redraw puts it on screen…
-    expect(view.rows().join('\n')).toContain('❯ landed late')
-
-    // …and the second enter takes it, at its exact historical position.
-    view.press(key('enter'))
-    expect(view.settled).toEqual([0])
-  })
-
-  it('lets typing and arrows carry on normally while seeded history arrives', () => {
-    const history = new InputHistory()
-    const view = mount(history, true)
-    history.record('auth one')
-    history.record('auth two')
-
-    // Only accepting is guarded. Filtering and moving act on the corpus as it
-    // is now, which is what a reader typing through a resume expects.
-    view.press('auth')
-    expect(view.search.matches).toEqual([1, 0])
-    view.press(key('ctrl-r'))
-    expect(view.search.selectedText).toBe('auth one')
   })
 
   it('says nothing matched when the corpus is there but the query is not in it', () => {

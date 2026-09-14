@@ -43,10 +43,9 @@ export class InputHistory {
    * How many entries the history holds.
    *
    * Exposed for the one reader that needs to see the corpus rather than walk it:
-   * `ctrl-r` search matches against every submitted line at once. It doubles as
-   * the revision token that reader watches, because entries are only ever
-   * APPENDED — a resumed session seeds them after the overlay may already be
-   * open — so a changed count is exactly "there is more to search now".
+   * `ctrl-r` search snapshots every submitted line at once. The replay seeds the
+   * whole corpus before any keystroke can open that overlay, so this is a plain
+   * count rather than a revision token.
    */
   get size(): number {
     return this.entries.length

@@ -424,20 +424,12 @@ describe('the compact fallback tells the same truth as the frame', () => {
    * Render a search at a size that forces the compact path.
    * @param lines - the submissions to search.
    * @param query - the query to type.
-   * @param loading - whether the session's history is still being seeded.
-   * @param history - an existing history, when the test seeds it later.
    * @returns the fallback's rows, unstyled.
    */
-  function compact(
-    lines: readonly string[],
-    query: string,
-    loading = false,
-    history = recorded(lines),
-  ): string[] {
-    const search = new HistorySearch(history)
+  function compact(lines: readonly string[], query: string): string[] {
+    const search = new HistorySearch(recorded(lines))
     const overlay = createHistorySearchOverlay({
       search,
-      loading: () => loading,
       settle: () => {},
       invalidate: () => {},
     })
@@ -445,21 +437,8 @@ describe('the compact fallback tells the same truth as the frame', () => {
     return overlay.render(TINY, 3).map(line => stripAnsi(line))
   }
 
-  it('says the history is still loading rather than claiming nothing matched', () => {
-    const rows = compact([], 'auth', true)
-
-    // Losing the room to draw a border is not a reason to report a history that
-    // is still arriving as one that matched nothing: a reader would act on that
-    // by retyping a query that was about to work.
-    expect(rows[0]).toContain('Loading')
-    expect(rows.join('\n')).not.toContain('no match')
-    expect(rows.length).toBeLessThanOrEqual(3)
-    // And it does not offer a key it cannot honour: there is nothing to recall.
-    expect(rows.join('\n')).not.toContain('recall')
-  })
-
   it('tells an empty session apart from a query that matched nothing', () => {
-    // Truncated to the terminal, so the assertion is on what survives: the three
+    // Truncated to the terminal, so the assertion is on what survives: the two
     // states still have to be told apart at sixteen columns.
     expect(compact([], '')[0]).toContain('Nothing has been')
     expect(compact(['alpha'], 'zzz')[0]).toContain('No input matches')
@@ -480,7 +459,6 @@ describe('the compact fallback tells the same truth as the frame', () => {
       const search = new HistorySearch(recorded(['fix the auth retry\nsecond line']))
       const overlay = createHistorySearchOverlay({
         search,
-        loading: () => true,
         settle: () => {},
         invalidate: () => {},
       })

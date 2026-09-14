@@ -20,8 +20,9 @@
  *
  * Structural rather than the class itself, so the model is testable without an
  * `InputHistory` and so nothing here can reach the navigation cursor or
- * the saved draft. Entries are only ever appended, which is what makes
- * {@link SearchableHistory.size} usable as a revision token.
+ * the saved draft. The snapshot is taken once when the search is constructed —
+ * history is fully seeded before the overlay can open — so `size` is only ever
+ * read to bound that one pass.
  */
 export interface SearchableHistory {
   /** How many entries exist right now. */
@@ -96,7 +97,7 @@ export class HistorySearch {
     return this.hits.length === 0 ? 0 : this.at + 1
   }
 
-  /** How many entries were searched, which is 0 before a resume has seeded any. */
+  /** How many entries were searched. */
   get corpusSize(): number {
     return this.entries.length
   }
@@ -108,30 +109,6 @@ export class HistorySearch {
    */
   entry(index: number): string | undefined {
     return this.entries[index]
-  }
-
-  /**
-   * Take on entries the history gained since the last look.
-   *
-   * The one thing that makes `ctrl-r` pressed DURING a resume behave: the replay
-   * seeds history from the durable log it was already reading, and the overlay
-   * is redrawn when that lands, so re-reading the corpus here resolves the
-   * query the reader has meanwhile typed. No timer, no polling, no second read
-   * of the session — this is driven by the redraw the replay already causes.
-   *
-   * The selected POSITION survives where it still matches, so entries arriving
-   * underneath a reader do not move the row they were aiming at.
-   * @returns whether the corpus grew, and so whether the caller should redraw.
-   */
-  sync(): boolean {
-    if (this.history.size === this.entries.length) return false
-    const aimed = this.selected
-    this.absorb()
-    this.rescan()
-    if (aimed === undefined) return true
-    const found = this.hits.indexOf(aimed)
-    if (found >= 0) this.at = found
-    return true
   }
 
   /**
