@@ -31,6 +31,7 @@ import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
 import type { ConnectCapabilities, ConnectCreateRow, ConnectProviderRow, ConnectRow, ConnectSignInRow, ConnectState } from './model.ts'
 import {
+  connectSelectableCount,
   filterRows,
   providerDetail,
   providerFacts,
@@ -492,7 +493,10 @@ function counter(
   viewport: RowViewport,
 ): string {
   if (state.kind !== 'ready') return ''
-  const total = state.providers.length + state.signIns.length
+  // The same unfiltered row set Setup gates its Connect offer on, so `shown`
+  // and `total` can never describe different universes: the synthetic create
+  // row is one selectable row and therefore one of the total.
+  const total = connectSelectableCount(state)
   const matched = shown === total
     ? `${String(shown)} row${shown === 1 ? '' : 's'}`
     : `${String(shown)} of ${String(total)}`

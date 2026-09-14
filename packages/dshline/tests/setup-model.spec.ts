@@ -23,7 +23,7 @@ import {
   setupSteps,
 } from '../src/setup/model.ts'
 import type { SetupStepId } from '../src/setup/model.ts'
-import type { ConnectProviderRow, ConnectSignInRow, ConnectState } from '../src/connect/model.ts'
+import type { ConnectNewRouteTarget, ConnectProviderRow, ConnectSignInRow, ConnectState } from '../src/connect/model.ts'
 
 /**
  * One provider row.
@@ -383,8 +383,43 @@ describe('what setup offers next', () => {
   })
 
   it('offers no model step while nothing is registered, whatever is selected', () => {
-    const steps = setupSteps(facts({ selected: { provider: 'gone', model: 'old' }, reason: 'no-route' }))
+    // A dormant provider row keeps Connect selectable here, so the only thing
+    // this pins is that a stale selection never unlocks `/model`.
+    const steps = setupSteps(facts({
+      connect: reading({ providers: [route('openai', 'dormant')] }),
+      selected: { provider: 'gone', model: 'old' },
+      reason: 'no-route',
+    }))
     expect(steps.map(step => step.id)).toEqual(['connect', 'skip'])
+  })
+
+  it('offers no connection step when the browser it would open is empty', () => {
+    // Every seam is mounted, so a capability check alone says Connect is
+    // available — but `/connect` would list no provider, no sign-in, and no
+    // create row. Offering it hands the reader to an empty, Escape-only
+    // browser. The report still warns; the flow just ends without a picker.
+    const empty = facts({
+      connect: reading({ providers: [], signIns: [], newRouteTargets: [] }),
+    })
+    expect(setupSteps(empty).map(step => step.id)).toEqual(['skip'])
+    expect(hasRemediation(empty)).toBe(false)
+    expect(hasWarning(setupChecks(empty))).toBe(true)
+  })
+
+  it('keeps Connect available while the browser has any selectable row', () => {
+    // The three ways the top-level browser can be non-empty. A dormant route
+    // and a sign-in were the rows #211 already repaired; the create row is the
+    // synthetic one this fix must not drop from the count.
+    const target: ConnectNewRouteTarget = { settingsNs: 'llm-pi-ai', parentPath: ['providers'], revision: 3 }
+    for (const connect of [
+      reading({ providers: [route('openai', 'dormant')] }),
+      reading({ signIns: [signIn()] }),
+      reading({ newRouteTargets: [target] }),
+    ]) {
+      const withRow = facts({ connect })
+      expect(setupSteps(withRow).map(step => step.id)).toEqual(['connect', 'skip'])
+      expect(hasRemediation(withRow)).toBe(true)
+    }
   })
 
   it('offers no configuration step when no seam would accept one', () => {
