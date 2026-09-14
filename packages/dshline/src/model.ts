@@ -12,6 +12,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { LocalCommandChoice } from './local-commands.ts'
 import { promptSelect } from './select.ts'
 import type { SelectChoice } from './select.ts'
 import { rememberSelection } from './selection.ts'
@@ -28,6 +29,8 @@ export interface ModelOption {
 interface Discovery {
   options: ModelOption[]
   choices: SelectChoice[]
+  /** Canonical completion values, built from the same catalog as `choices`. */
+  completions: LocalCommandChoice[]
   /** Route keys whose listing failed, for a message that says so. */
   failed: string[]
 }
@@ -40,18 +43,29 @@ interface Discovery {
  * humans. A route whose listing fails is recorded rather than silently dropped:
  * an unreachable provider must not hide the ones that work, but it must also not
  * be reported as "nothing is configured".
+ *
+ * Route catalogs are independent, so every read begins before any of them is
+ * awaited. `Promise.all` over the mapped array then keeps `listProviders()`
+ * order in the result no matter which adapter settles first, which is what makes
+ * the concurrency invisible to the picker and to completion.
  * @param ctx - context carrying the llm registry.
- * @returns the discovered options, their rendered choices, and any failures.
+ * @returns the discovered options, their rendered choices, their completion
+ *   values, and any failures.
  */
 async function discover(ctx: Context): Promise<Discovery> {
   const options: ModelOption[] = []
   const choices: SelectChoice[] = []
+  const completions: LocalCommandChoice[] = []
   const failed: string[] = []
-  for (const provider of ctx.llm.listProviders()) {
-    let models
+  const catalogs = await Promise.all(ctx.llm.listProviders().map(async provider => {
     try {
-      models = await ctx.llm.listModels(provider.id)
+      return { provider, models: await ctx.llm.listModels(provider.id) }
     } catch {
+      return { provider, models: undefined }
+    }
+  }))
+  for (const { provider, models } of catalogs) {
+    if (models === undefined) {
       failed.push(provider.id)
       continue
     }
@@ -73,19 +87,34 @@ async function discover(ctx: Context): Promise<Discovery> {
         label,
         ...named ? { description: model.name } : {},
       })
+      // Completion inserts the QUALIFIED route. `/model` resolves a bare id to
+      // the first route that serves it, so two rows inserting the same bare id
+      // could show different providers and submit the same one. The bare id is
+      // kept as a search alias so typing it still finds every route, and the
+      // display name becomes the note once the provider no longer needs to be.
+      completions.push({
+        value: label,
+        aliases: [model.id],
+        ...named ? { note: model.name } : {},
+      })
       options.push({ provider: provider.id, model: model.id })
     }
   }
-  return { options, choices, failed }
+  return { options, choices, completions, failed }
 }
 
 /**
- * Every model on offer, for completing `/model`'s argument.
+ * Canonical completion candidates for `/model`'s argument.
+ *
+ * A value is `provider/model`, the exact route the row names, and the bare model
+ * id is carried as a search alias rather than as the inserted text. Built from
+ * the same discovery pass the picker uses, so the metadata costs no second round
+ * of `listModels` reads.
  * @param ctx - context carrying the llm registry.
  * @returns each route and model, in the order the picker lists them.
  */
-export async function listModelOptions(ctx: Context): Promise<readonly ModelOption[]> {
-  return (await discover(ctx)).options
+export async function modelCompletionValues(ctx: Context): Promise<readonly LocalCommandChoice[]> {
+  return (await discover(ctx)).completions
 }
 
 /**

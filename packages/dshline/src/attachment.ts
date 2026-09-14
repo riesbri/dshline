@@ -62,7 +62,7 @@ import { createHistorySearchOverlay } from './history-search-overlay.ts'
 import { applyHistorySearch, routeInputKey } from './input.ts'
 import { isTranscriptEvent, readTranscript, resumeBanner } from './resume.ts'
 import { createToolOutputOverlay } from './tool-output.ts'
-import { listModelOptions, pickModel } from './model.ts'
+import { modelCompletionValues, pickModel } from './model.ts'
 import { installQuestionProvider } from './questions.ts'
 import { LocalCommandRegistry } from './local-commands.ts'
 import { runThemes, themeValues } from './themes/index.ts'
@@ -677,8 +677,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     {
       name: 'model',
       description: 'Choose the provider and model for the next turn',
-      complete: async () => (await listModelOptions(ctx))
-        .map(option => ({ value: option.model, note: option.provider })),
+      // The vocabulary is model-owned: each value is the `provider/model` route
+      // the row names, with the bare id an alias for search. Building it here
+      // from a bare model list is what once let two rows insert the same
+      // ambiguous argument.
+      complete: () => modelCompletionValues(ctx),
       execute: async rawInput => {
         // The note is decided at this command seam, not inside the model
         // picker: the selection before/after are the only facts it needs, and
