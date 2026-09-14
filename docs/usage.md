@@ -1495,7 +1495,7 @@ A goal can begin without a command you typed. The harness publishes `create_goal
 
 Neither mode is given up when the terminal narrows. They are dropped only after the model name, the totals, the bar and the context reading have gone, and a running goal is the very last thing to go — after the key hints. A mode is dropped whole rather than shortened: `goal 12/25` is not a smaller truth than `goal 12/256`, it is a different one. The footer carries only this compact state and progress; `/goal` remains the objective's inspection surface.
 
-Separately from these persistent modes, a change that has just been applied can take over the status line's activity segment for a few seconds: context compaction, an applied model or reasoning change, and a permission-preset switch. The durable acknowledgement is still written to the transcript; the brief emphasis only keeps it from scrolling past while a busy agent keeps producing output. It disappears on its own, and a newer change replaces it.
+Separately from these persistent modes, a change that has just been applied can take over the status line's activity segment for a few seconds: context compaction, an applied model or reasoning change, and a permission-preset switch. Each still has its own authoritative record — compaction and permission changes are Harness-backed durable events, while local model and reasoning changes retain their committed scrollback acknowledgement — and the brief emphasis only keeps that change from scrolling past while a busy agent keeps producing output. It disappears on its own, and a newer change replaces it.
 
 ### Reasoning levels
 

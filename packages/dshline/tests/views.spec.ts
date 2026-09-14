@@ -1159,6 +1159,111 @@ describe('the status line’s attention notice', () => {
     expect(narrow).toContain('working')
     expect(narrow).not.toContain('context compacted')
   })
+
+  it('yields the notice to a running goal where the two cannot both fit', () => {
+    // The middle-width conflict: 50 columns fits `working · notice` and
+    // `working · goal`, but not `working · notice · goal`. The persistent goal
+    // must survive and the transient emphasis must be the one surrendered.
+    const state = {
+      busy: true,
+      activityWord: 'working',
+      attention: NOTICE,
+      goal: { label: 'goal 3/12', running: true },
+    }
+    const shown = noticed(state, 50)
+    expect(shown).toContain('goal 3/12')
+    expect(shown).not.toContain('context compacted')
+  })
+
+  it('never evicts a running goal to keep the notice, at any width', () => {
+    // Invariant-style: wherever the same state WITHOUT the notice still shows
+    // the goal, adding the notice must not make the goal disappear — and the
+    // line must never show the notice while the goal is absent.
+    const base = {
+      busy: true,
+      activityWord: 'working',
+      goal: { label: 'goal 3/12', running: true },
+    }
+    for (const columns of [20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 72, 80, 120]) {
+      const without = noticed(base, columns)
+      const shown = noticed({ ...base, attention: NOTICE }, columns)
+      if (without.includes('goal')) {
+        expect(shown, `${String(columns)} columns: ${JSON.stringify(shown)}`).toContain('goal')
+      }
+      expect(
+        shown.includes('context compacted') && !shown.includes('goal'),
+        `${String(columns)} columns: ${JSON.stringify(shown)}`,
+      ).toBe(false)
+    }
+  })
+
+  it('yields the notice to plan mode at a constraining width', () => {
+    const state = { busy: true, activityWord: 'working', attention: NOTICE, plan: true }
+    const shown = noticed(state, 50)
+    expect(shown).toContain('plan')
+    expect(shown).not.toContain('context compacted')
+  })
+
+  it('never evicts plan mode to keep the notice, at any width', () => {
+    const base = { busy: true, activityWord: 'working', plan: true }
+    for (const columns of [20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 72, 80, 120]) {
+      const without = noticed(base, columns)
+      const shown = noticed({ ...base, attention: NOTICE }, columns)
+      if (without.includes('plan')) {
+        expect(shown, `${String(columns)} columns: ${JSON.stringify(shown)}`).toContain('plan')
+      }
+      expect(
+        shown.includes('context compacted') && !shown.includes('plan'),
+        `${String(columns)} columns: ${JSON.stringify(shown)}`,
+      ).toBe(false)
+    }
+  })
+
+  it('yields the notice to pending input at a constraining width', () => {
+    // Pending input answers what the reader's most recent submission did, so it
+    // outlives the notice even though both are transient readings.
+    const state = {
+      busy: true,
+      activityWord: 'working',
+      attention: NOTICE,
+      pending: { queued: 1, steering: 0 },
+    }
+    const shown = noticed(state, 50)
+    expect(shown).toContain('1 queued')
+    expect(shown).not.toContain('context compacted')
+  })
+
+  it('never evicts pending input to keep the notice, at any width', () => {
+    const base = { busy: true, activityWord: 'working', pending: { queued: 1, steering: 0 } }
+    for (const columns of [20, 24, 28, 32, 36, 40, 44, 48, 52, 56, 60, 64, 72, 80, 120]) {
+      const without = noticed(base, columns)
+      const shown = noticed({ ...base, attention: NOTICE }, columns)
+      if (without.includes('queued')) {
+        expect(shown, `${String(columns)} columns: ${JSON.stringify(shown)}`).toContain('queued')
+      }
+      expect(
+        shown.includes('context compacted') && !shown.includes('queued'),
+        `${String(columns)} columns: ${JSON.stringify(shown)}`,
+      ).toBe(false)
+    }
+  })
+
+  it('still outranks the Work and Todo conveniences at a constrained width', () => {
+    // The other side of the boundary: the fix must not push the notice below
+    // everything. At 60 columns the Work and Todo readings yield while the
+    // notice stays.
+    const state = {
+      busy: true,
+      activityWord: 'working',
+      attention: NOTICE,
+      work: '2 subagents · 1 job',
+      todo: 'todo 2/5',
+    }
+    const shown = noticed(state, 60)
+    expect(shown).toContain('context compacted')
+    expect(shown).not.toContain('2 subagents')
+    expect(shown).not.toContain('todo 2/5')
+  })
 })
 
 describe('the composer viewport follows the cursor both ways', () => {

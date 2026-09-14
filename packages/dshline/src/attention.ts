@@ -1,10 +1,12 @@
 /**
  * Transient emphasis for the status line.
  *
- * The transcript is the authority: a compaction note, a model acknowledgement,
- * and a `/permission` result are all committed rows that stay where they were
- * written. But a busy agent scrolls them away within seconds, so a change that
- * matters can happen off-screen. This module adds a short-lived reading that
+ * Every change this highlights already has an authoritative record. Compaction
+ * and permission changes are Harness-backed durable Session events that replay
+ * with the session; a model or reasoning change is applied to the local
+ * selection and acknowledged in committed native scrollback for this window. In
+ * every case a busy agent can scroll the acknowledgement away within seconds, so
+ * the change can happen off-screen. This module adds a short-lived reading that
  * borrows the status line's activity segment for a few seconds and then yields
  * it back — emphasis, never a second record.
  *

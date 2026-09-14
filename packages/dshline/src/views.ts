@@ -68,9 +68,10 @@ export interface StatusState {
    *
    * While it stands it occupies the ordinary activity position, so the reader
    * sees what changed rather than which tool is running, and it is never drawn
-   * beside the activity title. It is presentation only: the authoritative fact
-   * already exists in the transcript or the status line, and the notice yields
-   * to the busy/ready/compacting base and to plan or goal modes.
+   * beside the activity title. It is presentation only: an authority — a Harness
+   * event, the applied selection, or the status line itself — already
+   * established the fact, and the notice yields to the busy/ready/compacting
+   * base and to plan or goal modes.
    */
   attention: AttentionNotice | undefined
   /** Model id alone; the provider route is in the banner. */
@@ -841,10 +842,6 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       // same rule the hints follow — a reading cut to `14k/1.0` reads as a rendering
       // fault, not as a number.
       const status = facts[0] ?? ''
-      // The notice displaces the ordinary activity reading for its lifetime and
-      // is carried through every body rung, so it outlives the model and usage
-      // conveniences it outranks. The fallback below is where it finally yields
-      // rather than pushing the base status or the context reading off the line.
       const noticed = attention === undefined ? [] : [attention]
       const doing = attention !== undefined || activity === undefined ? [] : [activity]
       const named = model === undefined ? [] : [model]
@@ -870,22 +867,33 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       // They are held back this hard because a mode cut in half is the failure
       // this whole line is arranged to avoid: `goal 12/25` is not a smaller truth
       // than `goal 12/256`, it is a different one.
-      const tails = [
-        [...planned, ...goalled, ...queuedTail, ...worked, ...todoed, ...tooled],
-        [...planned, ...goalled, ...queuedTail, ...worked, ...todoed],
-        [...planned, ...goalled, ...queuedTail, ...worked],
-        [...planned, ...goalled, ...queuedTail],
-        [...planned, ...goalled],
-        [...goalled],
-        [],
+      //
+      // The attention notice rides THIS ladder rather than the body ladder,
+      // between Work and pending input: a four-second emphasis must never evict
+      // the reader's parked words, plan mode, or a goal, but it does outlast the
+      // work, Todo, and tool-detail conveniences it outranks. Each rung says
+      // whether the notice survives it, and the first rung that fits wins. The
+      // notice is still RENDERED just after the base status, so its display
+      // position does not follow where the ladder surrenders it.
+      const rungs: readonly { readonly attention: boolean; readonly modes: readonly string[] }[] = [
+        { attention: true, modes: [...planned, ...goalled, ...queuedTail, ...worked, ...todoed, ...tooled] },
+        { attention: true, modes: [...planned, ...goalled, ...queuedTail, ...worked, ...todoed] },
+        { attention: true, modes: [...planned, ...goalled, ...queuedTail, ...worked] },
+        { attention: true, modes: [...planned, ...goalled, ...queuedTail] },
+        { attention: false, modes: [...planned, ...goalled, ...queuedTail] },
+        { attention: false, modes: [...planned, ...goalled] },
+        { attention: false, modes: [...goalled] },
+        { attention: false, modes: [] },
       ]
+      // The body ladder is the convenience facts only; the notice is not one of
+      // them, so it is surrendered by the rung above instead.
       const bodies = [
-        [status, ...noticed, ...doing, ...named, ...spent, ...cacheShare, ...bar],
-        [status, ...noticed, ...doing, ...named, ...spent, ...bar],
-        [status, ...noticed, ...named, ...spent, ...bar],
-        [status, ...noticed, ...named, ...spent, ...plain],
-        [status, ...noticed, ...spent, ...plain],
-        [status, ...noticed, ...plain],
+        [status, ...doing, ...named, ...spent, ...cacheShare, ...bar],
+        [status, ...doing, ...named, ...spent, ...bar],
+        [status, ...named, ...spent, ...bar],
+        [status, ...named, ...spent, ...plain],
+        [status, ...spent, ...plain],
+        [status, ...plain],
       ]
 
       // Room for one hint is held back from the rung choice, so a richer reading
@@ -898,23 +906,31 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       /**
        * The richest line that fits, giving things up in the order they may be lost.
        *
-       * Three nested preferences, outermost strongest. The MODES are surrendered
-       * last, and the hint reservation is spent inside each level rather than
-       * across all of them: reserving room for help at the cost of hiding a
-       * running goal would be the reservation outranking the thing it was
-       * introduced to sit beside.
+       * Three nested preferences, outermost strongest. The operating MODES and
+       * the notice are surrendered last — the notice before the modes — and the
+       * hint reservation is spent inside each level rather than across all of
+       * them: reserving room for help at the cost of hiding a running goal would
+       * be the reservation outranking the thing it was introduced to sit beside.
        * @returns the joined line, or the barest one when nothing fits.
        */
       const compose = (): string => {
-        for (const tail of tails) {
+        for (const rung of rungs) {
           for (const spare of [reserve, 0]) {
             for (const body of bodies) {
-              const joined = [...body, ...tail].join(separator)
+              // Rendered order is fixed — base status, the notice in the
+              // activity position, the body conveniences, then the modes — while
+              // the rung decides which of those survive.
+              const joined = [
+                status,
+                ...(rung.attention ? noticed : []),
+                ...body.slice(1),
+                ...rung.modes,
+              ].join(separator)
               if (displayWidth(joined) + spare <= budget) return joined
             }
           }
         }
-        // Narrower than every (body, tail) rung. Whole facts yield before the
+        // Narrower than every (body, modes) rung. Whole facts yield before the
         // activity word is ever cut: the turn elapsed goes first, then the
         // context reading, and only the bare word survives to be truncated.
         // The full status was already tried above and cannot fit, so the first
@@ -928,10 +944,10 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
           if (displayWidth(withoutElapsed) <= budget) return withoutElapsed
           return bareStatus
         }
-        // Idle and narrower than every rung. The notice yields here rather than
-        // pushing the context reading or the base status off the line: at an
-        // impossible width the truthful structural reading outranks emphasis.
-        if (attention !== undefined) return [status, ...plain].join(separator)
+        // Idle and narrower than every rung. The notice is not carried by any
+        // body, so it is already gone, and the modes are surrendered for it:
+        // only the context reading and the base status remain. At an impossible
+        // width the truthful structural reading outranks emphasis.
         return (bodies[bodies.length - 1] ?? []).join(separator)
       }
       let line = compose()
