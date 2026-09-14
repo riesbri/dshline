@@ -361,6 +361,85 @@ describe('image attachment submission', () => {
     expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('1 staged image')
   })
 
+  it('keeps an image staged while an unrelated command is still in flight', async () => {
+    // The critical ownership case. This command started with nothing staged and
+    // admitted no batch, so it owns no drafts. When it eventually succeeds, it
+    // must not consume what the reader staged while it was running.
+    let finish: ((value: unknown) => void) | undefined
+    const f = await fixture({
+      commands: [{ name: 'goal', description: 'set a goal' }],
+      execute: () => new Promise(resolve => { finish = resolve }),
+    })
+    submit(f.dispatch(), '/goal ship it')
+    await flush()
+    expect(f.commands.execute).toHaveBeenCalledOnce()
+
+    // No image admission is in progress for a command that received none, so
+    // staging another image is allowed while it runs.
+    submit(f.dispatch(), '/image later.png')
+    await flush()
+    expect(f.frame()).toContain('1 image')
+
+    finish?.({ commandId: 'c-1', result: { kind: 'success' } })
+    await flush()
+
+    // Its success consumes nothing: the image was never part of its submission.
+    expect(f.frame()).toContain('1 image')
+    submit(f.dispatch(), '/image')
+    await flush()
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('1 staged image')
+  })
+
+  it('consumes the admitted batch when an accepting command succeeds later', async () => {
+    // The other half of the invariant: a command that DID receive the staged
+    // images still consumes exactly that batch on success, even though its
+    // success arrives after the read and execute awaits.
+    let finish: ((value: unknown) => void) | undefined
+    const f = await fixture({
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } }],
+      execute: () => new Promise(resolve => { finish = resolve }),
+    })
+    submit(f.dispatch(), '/image one.png')
+    await flush()
+    submit(f.dispatch(), '/vision look')
+    await flush()
+    expect(f.commands.execute).toHaveBeenCalledWith(
+      expect.anything(),
+      '/vision look',
+      [{ type: 'image', mediaType: 'image/png', data: 'AQID', name: 'one.png' }],
+      expect.any(AbortSignal),
+    )
+    finish?.({ commandId: 'c-1', result: { kind: 'success' } })
+    await flush()
+    expect(f.frame()).not.toContain('1 image')
+    submit(f.dispatch(), '/image')
+    await flush()
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('no images staged')
+  })
+
+  it('keeps the admitted batch when an accepting command throws', async () => {
+    const f = await fixture({
+      commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } }],
+      execute: async () => { throw new Error('command exploded') },
+    })
+    submit(f.dispatch(), '/image one.png')
+    await flush()
+    submit(f.dispatch(), '/vision look')
+    await flush()
+    // A throw that never reached the command lifecycle is reported, and the
+    // batch survives for a retry rather than being consumed by the failure.
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('command exploded')
+    // The typed line is restored for the retry, so clear it before checking the
+    // draft, which the hint only shows over an empty composer.
+    expect(f.frame()).toContain('/vision look')
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-u' })
+    await flush()
+    expect(f.frame()).toContain('1 image')
+    submit(f.dispatch(), '/image')
+    await flush()
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('1 staged image')
+  })
+
   it('keeps one admission in flight and lets ctrl-c cancel it without quitting', async () => {
     const read = (signal: AbortSignal | undefined): Promise<Uint8Array> => new Promise((resolve, reject) => {
       void resolve
