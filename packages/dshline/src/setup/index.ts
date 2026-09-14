@@ -228,12 +228,16 @@ export async function runSetup(spec: SetupSpec): Promise<void> {
  */
 async function chooseModel(spec: SetupSpec): Promise<boolean> {
   const outcome = await pickModel(spec.ctx, spec.selection)
-  // `pickModel` answers undefined only for a dismissed picker, and reports its
-  // own sentence otherwise — including the refusals, which are its to word, not
-  // this module's to restate.
+  // A dismissal leaves the reader on the checklist, and a refusal must too:
+  // `pickModel` worded why nothing changed, so this only presents it. Neither
+  // is a model change, so neither re-resolves metadata or ends the flow.
   if (outcome === undefined) return false
+  if (outcome.kind === 'failed') {
+    spec.commit([paint(escapeControls(`\u2717 ${outcome.message}`), 'error')])
+    return false
+  }
   spec.onModelChanged()
-  spec.commit([paint(escapeControls(`· ${outcome}`), 'muted')])
+  spec.commit([paint(escapeControls(`\u00b7 ${outcome.message}`), 'muted')])
   // A selection that can actually serve a turn is the end of the flow; staying
   // would put the checklist back on screen to say what the line above said.
   if (await setupNeeded(spec.ctx, spec.selection)) return false

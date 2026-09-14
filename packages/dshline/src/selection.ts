@@ -20,6 +20,28 @@ import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import { escapeControls } from '@dshline/renderer'
 
 /**
+ * How one selection command ended, in words the transcript can carry.
+ *
+ * `/model` and `/reasoning` used to return a bare string for both an applied
+ * change and a refused instruction, so a caller could not choose an error mark
+ * without reading the sentence. The producer knows which happened, so it says
+ * so. `undefined` still means the picker was dismissed: that is no outcome at
+ * all, not a third kind.
+ *
+ * The distinction is about the live selection alone. A `done` whose message
+ * notes that the default could not be saved is still `done`: the write to the
+ * ref already happened, so the next turn uses the new selection, and the note
+ * is about a later session. Persistence is deliberately not part of this
+ * verdict.
+ */
+export interface SelectionOutcome {
+  /** Whether the requested change reached the live selection. */
+  readonly kind: 'done' | 'failed'
+  /** What happened, already worded for a reader. */
+  readonly message: string
+}
+
+/**
  * Store a selection as the default for sessions that come after this one.
  *
  * Never throws, and deliberately never undoes the in-memory switch on failure.

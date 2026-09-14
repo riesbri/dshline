@@ -35,13 +35,17 @@ type ListModels = (provider: string) => Promise<readonly { id: string; name: str
 /**
  * A context offering the llm registry and a slot registry that records pushes.
  * @param reasoning - what each route's `resolveModelInfo` advertises.
- * @param overrides - substitutes for the catalog read, when a test needs to
- *   control when a route answers.
+ * @param overrides - substitutes for the catalog read and the registry itself,
+ *   when a test needs to control when a route answers or pretend none is mounted.
  * @returns the context, whether an overlay was pushed, and the one that was.
  */
 function llmContext(
   reasoning: ReasoningByRoute = {},
-  overrides: { listModels?: ListModels } = {},
+  overrides: {
+    listModels?: ListModels
+    listProviders?: () => readonly { id: string; name: string }[]
+    saveSelectionError?: Error
+  } = {},
 ): {
   ctx: Context
   pushed: () => boolean
@@ -52,12 +56,17 @@ function llmContext(
   let mounted: TuiOverlay | undefined
   const saved: ModelSelection[] = []
   const services: Record<string, unknown> = {
-    agentDefaultModel: { saveSelection: async (next: ModelSelection) => { saved.push(next) } },
+    agentDefaultModel: {
+      saveSelection: async (next: ModelSelection) => {
+        if (overrides.saveSelectionError !== undefined) throw overrides.saveSelectionError
+        saved.push(next)
+      },
+    },
     settings: {},
   }
   const ctx = {
     llm: {
-      listProviders: () => Object.keys(CATALOG).map(id => ({ id, name: id })),
+      listProviders: overrides.listProviders ?? (() => Object.keys(CATALOG).map(id => ({ id, name: id }))),
       listModels: overrides.listModels ?? (async (provider: string) => CATALOG[provider] ?? []),
       resolveModelInfo: async (provider: string, model: string): Promise<LlmResolvedModelInfo> => {
         const entry = reasoning[`${provider}/${model}`]
@@ -233,9 +242,22 @@ describe('provider catalog reads', () => {
     const running = pickModel(ctx, selectionOn(), '')
     arena.fail('deepseek-official', new Error('route down'))
     arena.fail('opencode', new Error('route down'))
-    await expect(running).resolves.toBe(
-      'no models available: deepseek-official, opencode could not be listed',
-    )
+    await expect(running).resolves.toEqual({
+      kind: 'failed',
+      message: 'no models available: deepseek-official, opencode could not be listed',
+    })
+  })
+
+  it('refuses with a failed outcome when no provider advertises any model', async () => {
+    // Nothing was offered and nothing changed, so this is an error to show, not
+    // an acknowledgement.
+    const { ctx } = llmContext({}, { listProviders: () => [] })
+    const selection = selectionOn()
+    await expect(pickModel(ctx, selection, '')).resolves.toEqual({
+      kind: 'failed',
+      message: 'no provider route advertises a model; configure one first',
+    })
+    expect(selection.current?.model).toBe('deepseek-v4-flash')
   })
 })
 
@@ -300,7 +322,8 @@ describe('pickModel() with an argument', () => {
     const { ctx, pushed } = llmContext()
     const selection = selectionOn()
     const outcome = await pickModel(ctx, selection, ' deepseek-v4-pro ')
-    expect(outcome).toContain('deepseek-v4-pro')
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('deepseek-v4-pro')
     expect(selection.current?.model).toBe('deepseek-v4-pro')
     expect(pushed()).toBe(false)
   })
@@ -320,13 +343,39 @@ describe('pickModel() with an argument', () => {
     const { ctx, saved } = llmContext({ 'deepseek-official/deepseek-v4-pro': ['high', 'max'] })
     const outcome = await pickModel(ctx, selectionOn('max'), 'deepseek-v4-pro')
     expect(saved).toEqual([{ provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' }])
-    expect(outcome).toContain('also the default for new sessions')
+    expect(outcome?.message).toContain('also the default for new sessions')
   })
 
   it('does not touch reasoning when the current selection carries none', async () => {
     const { ctx, saved } = llmContext()
     await pickModel(ctx, selectionOn(), 'deepseek-v4-pro')
     expect(saved).toEqual([{ provider: 'deepseek-official', model: 'deepseek-v4-pro' }])
+  })
+
+  it('is done when it re-selects the model already in force', async () => {
+    // Nothing has to differ for the change to have landed: the ref is written
+    // to the state the user asked for, so the acknowledgement is truthful.
+    const { ctx } = llmContext()
+    const selection = selectionOn()
+    const outcome = await pickModel(ctx, selection, 'deepseek-v4-flash')
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(selection.current?.model).toBe('deepseek-v4-flash')
+  })
+
+  it('stays done when the switch landed but the default could not be saved', async () => {
+    // The ref is written before persistence is attempted, so the next turn
+    // already uses the new model. A failed save is a note about a LATER session,
+    // never a reason to report the change as failed or roll it back.
+    const failure = new Error('settings.yaml is read-only')
+    const { ctx, saved } = llmContext({}, { saveSelectionError: failure })
+    const selection = selectionOn()
+    const outcome = await pickModel(ctx, selection, 'deepseek-v4-pro')
+    expect(selection.current).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    expect(saved).toEqual([])
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('model set to deepseek-official / deepseek-v4-pro')
+    expect(outcome?.message).toContain('could not save it as the default')
+    expect(outcome?.message).toContain('read-only')
   })
 
   it('stores nothing when the name matched nothing', async () => {
@@ -339,8 +388,9 @@ describe('pickModel() with an argument', () => {
     const { ctx, pushed } = llmContext()
     const selection = selectionOn()
     const outcome = await pickModel(ctx, selection, 'gpt-9')
-    expect(outcome).toContain('no model named gpt-9')
-    expect(outcome).toContain('3')
+    expect(outcome).toMatchObject({ kind: 'failed' })
+    expect(outcome?.message).toContain('no model named gpt-9')
+    expect(outcome?.message).toContain('3')
     expect(selection.current?.model).toBe('deepseek-v4-flash')
     expect(pushed()).toBe(false)
   })
@@ -363,7 +413,7 @@ describe('reasoning effort across a model switch', () => {
     const outcome = await pickModel(ctx, selection, 'deepseek-v4-pro')
     expect(selection.current?.reasoningEffort).toBeUndefined()
     expect(saved).toEqual([{ provider: 'deepseek-official', model: 'deepseek-v4-pro' }])
-    expect(outcome).toContain('reasoning reset to provider default')
+    expect(outcome?.message).toContain('reasoning reset to provider default')
   })
 
   it('clears an effort when the target resolves with no reasoning field at all', async () => {

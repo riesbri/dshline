@@ -204,15 +204,16 @@ function harness(environment: Environment): Harness {
 /**
  * Run the flow with a harness's seams.
  * @param h - the harness.
+ * @param onModelChanged - observes a model change the conductor acknowledges.
  * @returns the promise the flow settles.
  */
-function run(h: Harness): Promise<void> {
+function run(h: Harness, onModelChanged: () => void = () => {}): Promise<void> {
   return runSetup({
     ctx: h.ctx,
     commit: lines => { h.committed.push(...lines.map(stripAnsi)) },
     version: '0.17.0',
     selection: h.selection,
-    onModelChanged: () => {},
+    onModelChanged,
   })
 }
 
@@ -476,6 +477,30 @@ describe('the guided flow', () => {
     expect(h.text()).toContain('Not now')
     expect(h.selection.current).toBeUndefined()
     // `Choose a model`, `Not now`.
+    await h.press(DOWN, ENTER)
+    await running
+    expect(h.mutations).toEqual([])
+  })
+
+  it('does not treat a refused model pick as a model change', async () => {
+    // A registered route whose catalog is empty: setup offers `Choose a model`,
+    // but the picker has nothing to offer and refuses. Nothing changed, so setup
+    // must show the error, must not re-resolve metadata through the hook, and
+    // must not print Ready on the refusal.
+    const h = harness({ registered: ['openai'], configurable: ['openai'] })
+    let changed = 0
+    const running = run(h, () => { changed += 1 })
+    await settle()
+    await h.press(ENTER)
+    await settle()
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('✗ no provider route advertises a model; configure one first')
+    expect(transcript).not.toContain('Ready.')
+    expect(changed).toBe(0)
+    // Still on the checklist, with the same repair offered again.
+    expect(h.mounted()).toBe(true)
+    expect(h.text()).toContain('Choose a model')
+    // Leave cleanly so the flow settles.
     await h.press(DOWN, ENTER)
     await running
     expect(h.mutations).toEqual([])

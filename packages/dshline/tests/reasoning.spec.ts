@@ -35,9 +35,10 @@ function selectionOn(effort?: string): ModelSelectionRef {
 
 /**
  * A context offering only the slot registry the picker touches.
+ * @param options - how the default-model service should behave, when mounted.
  * @returns the context, and a reader for whatever overlay was pushed.
  */
-function slotContext(): {
+function slotContext(options: { saveSelectionError?: Error } = {}): {
   ctx: Context
   overlay: () => TuiOverlay | undefined
   saved: { provider: string; model: string; reasoningEffort?: string }[]
@@ -47,6 +48,7 @@ function slotContext(): {
   const services: Record<string, unknown> = {
     agentDefaultModel: {
       saveSelection: async (next: { provider: string; model: string; reasoningEffort?: string }) => {
+        if (options.saveSelectionError !== undefined) throw options.saveSelectionError
         saved.push(next)
       },
     },
@@ -125,7 +127,8 @@ describe('pickReasoning()', () => {
     const named = slotContext()
     const selection = selectionOn('high')
     const outcome = await pickReasoning(named.ctx, selection, REASONING, 'max')
-    expect(outcome).toContain('max')
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('max')
     expect(selection.current?.reasoningEffort).toBe('max')
     expect(named.overlay()).toBeUndefined()
   })
@@ -175,7 +178,8 @@ describe('pickReasoning()', () => {
     // provider's own behavior, which `off` — telling it not to think — is not.
     const selection = selectionOn('max')
     return pickReasoning(ctx, selection, REASONING, 'default').then(outcome => {
-      expect(outcome).toContain('cleared')
+      expect(outcome).toMatchObject({ kind: 'done' })
+      expect(outcome?.message).toContain('cleared')
       expect(selection.current?.reasoningEffort).toBeUndefined()
     })
   })
@@ -184,7 +188,8 @@ describe('pickReasoning()', () => {
     // A bare rejection leaves the user guessing at a list only the adapter knows.
     const selection = selectionOn('high')
     return pickReasoning(ctx, selection, REASONING, 'turbo').then(outcome => {
-      expect(outcome).toContain('off, high, max, default')
+      expect(outcome).toMatchObject({ kind: 'failed' })
+      expect(outcome?.message).toContain('off, high, max, default')
       expect(selection.current?.reasoningEffort).toBe('high')
     })
   })
@@ -192,7 +197,8 @@ describe('pickReasoning()', () => {
   it('says so when the route advertises no levels at all', () => {
     const selection = selectionOn()
     return pickReasoning(ctx, selection, undefined, 'max').then(outcome => {
-      expect(outcome).toContain('deepseek-v4-flash')
+      expect(outcome).toMatchObject({ kind: 'failed' })
+      expect(outcome?.message).toContain('deepseek-v4-flash')
       expect(selection.current?.reasoningEffort).toBeUndefined()
     })
   })
@@ -200,8 +206,9 @@ describe('pickReasoning()', () => {
   it('says so on a bare /reasoning too, when the route advertises no levels', () => {
     const selection = selectionOn()
     return pickReasoning(ctx, selection, undefined, '').then(outcome => {
-      expect(outcome).toContain('deepseek-v4-flash')
-      expect(outcome).toContain('advertises no reasoning levels')
+      expect(outcome).toMatchObject({ kind: 'failed' })
+      expect(outcome?.message).toContain('deepseek-v4-flash')
+      expect(outcome?.message).toContain('advertises no reasoning levels')
     })
   })
 
@@ -211,7 +218,8 @@ describe('pickReasoning()', () => {
     // model's switch left behind — must still be able to reach it.
     const selection = selectionOn('high')
     return pickReasoning(ctx, selection, undefined, 'default').then(outcome => {
-      expect(outcome).toContain('cleared')
+      expect(outcome).toMatchObject({ kind: 'done' })
+      expect(outcome?.message).toContain('cleared')
       expect(selection.current?.reasoningEffort).toBeUndefined()
     })
   })
@@ -226,7 +234,22 @@ describe('pickReasoning()', () => {
   it('asks for a model first when none is selected', () => {
     const selection = { current: undefined, assembled: undefined } as ModelSelectionRef
     return pickReasoning(ctx, selection, REASONING, 'max').then(outcome => {
-      expect(outcome).toContain('/model')
+      expect(outcome).toMatchObject({ kind: 'failed' })
+      expect(outcome?.message).toContain('/model')
+    })
+  })
+
+  it('stays done when the level landed but the default could not be saved', () => {
+    // The ref is written before persistence is attempted, so the next step uses
+    // the new level. A failed save is a note, never a rollback or a failure.
+    const named = slotContext({ saveSelectionError: new Error('settings.yaml is read-only') })
+    const selection = selectionOn('high')
+    return pickReasoning(named.ctx, selection, REASONING, 'max').then(outcome => {
+      expect(selection.current?.reasoningEffort).toBe('max')
+      expect(named.saved).toEqual([])
+      expect(outcome).toMatchObject({ kind: 'done' })
+      expect(outcome?.message).toContain('reasoning effort set to max')
+      expect(outcome?.message).toContain('could not save it as the default')
     })
   })
 })
@@ -240,7 +263,9 @@ describe('the reasoning picker', () => {
     const settled = pickReasoning(ctx, selection, REASONING, '')
     expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? '')).toContain('❯ Max')
     overlay()?.handleKey(press('enter'))
-    expect(await settled).toContain('max')
+    const outcome = await settled
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('max')
     expect(selection.current?.reasoningEffort).toBe('max')
   })
 
@@ -252,7 +277,9 @@ describe('the reasoning picker', () => {
     const settled = pickReasoning(ctx, selection, REASONING, '')
     expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? '')).toContain('❯ Default')
     overlay()?.handleKey(press('enter'))
-    expect(await settled).toContain('cleared')
+    const outcome = await settled
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('cleared')
     expect(selection.current?.reasoningEffort).toBeUndefined()
   })
 
@@ -265,7 +292,9 @@ describe('the reasoning picker', () => {
     const settled = pickReasoning(ctx, selection, REASONING, '')
     expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? '')).toContain('❯ High')
     overlay()?.handleKey(press('enter'))
-    expect(await settled).toContain('high')
+    const outcome = await settled
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('high')
     expect(selection.current?.reasoningEffort).toBe('high')
   })
 
@@ -275,7 +304,9 @@ describe('the reasoning picker', () => {
     const settled = pickReasoning(ctx, selection, REASONING, '')
     overlay()?.handleKey(press('down'))
     overlay()?.handleKey(press('enter'))
-    expect(await settled).toContain('high')
+    const outcome = await settled
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('high')
     expect(selection.current?.reasoningEffort).toBe('high')
   })
 
@@ -285,7 +316,9 @@ describe('the reasoning picker', () => {
     const settled = pickReasoning(ctx, selection, REASONING, '')
     overlay()?.handleKey(press('end'))
     overlay()?.handleKey(press('enter'))
-    expect(await settled).toContain('cleared')
+    const outcome = await settled
+    expect(outcome).toMatchObject({ kind: 'done' })
+    expect(outcome?.message).toContain('cleared')
     expect(selection.current?.reasoningEffort).toBeUndefined()
   })
 
