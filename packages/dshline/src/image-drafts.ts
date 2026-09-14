@@ -120,6 +120,24 @@ export class ImageDrafts {
   }
 
   /**
+   * Remove exactly the drafts one command admitted, and nothing else.
+   *
+   * Identity-based rather than "clear whatever is staged now": a command owns
+   * only the paths present when its admission began, and the collection can
+   * change while an unrelated command is in flight. Consuming by path is what
+   * keeps a draft the reader stages mid-command out of an earlier command's
+   * success. Paths are the collection's stable identity because {@link stage}
+   * refuses a duplicate.
+   * @param admitted - the snapshot a command actually received.
+   */
+  consume(admitted: readonly ImageDraft[]): void {
+    const owned = new Set(admitted.map(draft => draft.path))
+    const kept = this.entries.filter(entry => !owned.has(entry.path))
+    this.entries.length = 0
+    this.entries.push(...kept)
+  }
+
+  /**
    * Remove one draft by its one-based user-facing position.
    * @param position - number shown by `/image`.
    * @returns the removed draft, or undefined when the position does not exist.

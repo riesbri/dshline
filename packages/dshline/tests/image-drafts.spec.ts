@@ -49,6 +49,26 @@ describe('session image drafts', () => {
     expect(drafts.remove(2)?.name).toBe('two.png')
     expect(drafts.items.map(item => item.name)).toEqual(['one.png'])
   })
+
+  it('consumes exactly the admitted batch and leaves later drafts alone', () => {
+    const drafts = new ImageDrafts()
+    drafts.stage('admitted.png')
+    const admitted = drafts.items
+    // A draft staged after the admission — the race the consume method exists
+    // for — is not part of what the command received.
+    drafts.stage('staged-later.png')
+    drafts.consume(admitted)
+    expect(drafts.items.map(item => item.name)).toEqual(['staged-later.png'])
+  })
+
+  it('is idempotent when the same admitted batch is consumed twice', () => {
+    const drafts = new ImageDrafts()
+    drafts.stage('one.png')
+    const admitted = drafts.items
+    drafts.consume(admitted)
+    drafts.consume(admitted)
+    expect(drafts.items).toEqual([])
+  })
 })
 
 describe('image draft reads', () => {

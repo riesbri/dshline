@@ -111,6 +111,7 @@ import { SkillCatalog } from './skills/catalog.ts'
 import { slashCandidates } from './skills/model.ts'
 import { pendingUserInput } from './steering.ts'
 import { ImageDrafts, encodeCommandImages, readImageDrafts } from './image-drafts.ts'
+import type { ImageDraft } from './image-drafts.ts'
 
 /** What `/timing` accepts, for completing its argument. */
 const TIMING_VALUES: readonly LocalCommandChoice[] = [
@@ -1687,6 +1688,13 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     const outcomesBefore = commandOutcomes
     let execution: Awaited<ReturnType<typeof ctx.commands.execute>>
     let admission: AbortController | undefined
+    // The drafts THIS submission admitted, if any. `undefined` means the
+    // command received no image envelope and therefore owns no drafts: a
+    // command that merely happens to be running must not consume what the
+    // reader stages while it is in flight. Set before any await, so the success
+    // path below reads the submission-owned batch rather than whatever the
+    // shared collection holds when the command settles.
+    let admittedImages: readonly ImageDraft[] | undefined
     const isCompactionCommand = registeredCommand?.name === 'compact'
     if (isCompactionCommand) {
       compactCommandsInFlight += 1
@@ -1711,7 +1719,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         imageAdmission = admission
         // The mutable draft collection remains visible for listing, but this
         // command owns precisely the paths present when its admission began.
+        // Recording that ownership here, before the read and execute awaits, is
+        // what lets the success path consume exactly this batch.
         const batch = imageDrafts.items
+        admittedImages = batch
         let inputs
         try {
           inputs = await readImageDrafts(
@@ -1777,8 +1788,13 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     }
     if (execution !== undefined) {
       if (scope.closed) return
-      if (execution.result.kind === 'success') imageDrafts.clear()
-      else if (imageDrafts.size > 0 && composer.isEmpty) composer.set(line)
+      // Consume exactly the batch this submission admitted. A command that
+      // admitted nothing owns nothing, so a successful command that ran with
+      // no staged images must not clear drafts the reader staged while it was
+      // in flight — that global clear was the bug.
+      if (execution.result.kind === 'success') {
+        if (admittedImages !== undefined) imageDrafts.consume(admittedImages)
+      } else if (imageDrafts.size > 0 && composer.isEmpty) composer.set(line)
       draw()
       return
     }
