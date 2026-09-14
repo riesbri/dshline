@@ -431,6 +431,56 @@ describe('compaction presentation', () => {
     // that it ran.
     expect(commits.flat().join('\n')).toContain('Compacted 2 history items.')
   })
+
+  it('temporarily emphasises a live compaction while the durable note stays', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const { ctx, session, commits, frames } = await fixture()
+      await flush()
+      for (const event of compaction(false)) ctx.emit('session/event', session, event)
+
+      expect(commits.flat().join('\n')).toContain('context compacted automatically · 2 entries · ~95k replaced')
+      expect(status(frames)).toContain('context compacted · ~95k replaced')
+
+      // Expiry clears the emphasis and redraws; the committed row is untouched.
+      vi.advanceTimersByTime(4_000)
+      expect(status(frames)).not.toContain('context compacted')
+      expect(commits.flat().join('\n')).toContain('context compacted automatically · 2 entries · ~95k replaced')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('flashes one notice per live permission preset and ignores its knob writes', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const { ctx, session, frames } = await fixture()
+      await flush()
+      ctx.emit('session/event', session, {
+        type: 'permission/preset', seq: 20, time: 1, data: { preset: 'review' },
+      } as unknown as SessionEvent)
+      expect(status(frames)).toContain('permission → review')
+
+      // The preset switch writes its knobs through their own canonical events.
+      // They are the same user change: neither may replace or restart the one
+      // notice the switch already earned.
+      vi.advanceTimersByTime(3_900)
+      ctx.emit('session/event', session, {
+        type: 'sandbox/mode', seq: 21, time: 1, data: { mode: 'read-only' },
+      } as unknown as SessionEvent)
+      ctx.emit('session/event', session, {
+        type: 'approval/policy', seq: 22, time: 1, data: { policy: 'ask' },
+      } as unknown as SessionEvent)
+      // Still the preset notice, not a knob's own: not replaced.
+      expect(status(frames)).toContain('permission → review')
+      // And it expires on the preset's own deadline rather than a restarted
+      // one, so reaching T+4000 clears it.
+      vi.advanceTimersByTime(100)
+      expect(status(frames)).not.toContain('permission → review')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('/usage', () => {

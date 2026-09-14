@@ -25,6 +25,7 @@ import {
 } from '@dshline/renderer'
 import type { CardDetail } from './cards.ts'
 import type { ActivityWord } from './activity.ts'
+import type { AttentionNotice } from './attention.ts'
 import { CHROME_MIN_COLUMNS, chromeWidth, composerFrameWidth, rootFrame } from './chrome.ts'
 import type { BusyEnter } from './delivery.ts'
 import { DEFAULT_BUSY_ENTER } from './delivery.ts'
@@ -61,6 +62,17 @@ export interface StatusState {
    * one's presentation title, and how many others are running beside it.
    */
   activity: { title: string; others: number } | undefined
+  /**
+   * A short-lived emphasis for a consequential state change that just happened,
+   * or undefined when nothing needs attention.
+   *
+   * While it stands it occupies the ordinary activity position, so the reader
+   * sees what changed rather than which tool is running, and it is never drawn
+   * beside the activity title. It is presentation only: the authoritative fact
+   * already exists in the transcript or the status line, and the notice yields
+   * to the busy/ready/compacting base and to plan or goal modes.
+   */
+  attention: AttentionNotice | undefined
   /** Model id alone; the provider route is in the banner. */
   model: string | undefined
   /** Reasoning level, only when it differs from the route's default. */
@@ -720,6 +732,14 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
           'subdued',
         )
         : undefined
+      // A transient emphasis for a change that matters, painted in the `warning`
+      // role because its meaning is "needs attention, not a failure" — how that
+      // looks is the palette's decision. It replaces the activity title while it
+      // stands rather than joining it, so the line still reads as one account of
+      // what is happening.
+      const attention = current.attention === undefined
+        ? undefined
+        : paint(escapeControls(current.attention.text), 'warning')
       const model = current.model === undefined
         ? undefined
         : paint(current.effort === undefined ? current.model : `${current.model} (${current.effort})`, 'subdued')
@@ -821,7 +841,12 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       // same rule the hints follow — a reading cut to `14k/1.0` reads as a rendering
       // fault, not as a number.
       const status = facts[0] ?? ''
-      const doing = activity === undefined ? [] : [activity]
+      // The notice displaces the ordinary activity reading for its lifetime and
+      // is carried through every body rung, so it outlives the model and usage
+      // conveniences it outranks. The fallback below is where it finally yields
+      // rather than pushing the base status or the context reading off the line.
+      const noticed = attention === undefined ? [] : [attention]
+      const doing = attention !== undefined || activity === undefined ? [] : [activity]
       const named = model === undefined ? [] : [model]
       const spent = usage === undefined ? [] : [usage]
       const cacheShare = cached === undefined ? [] : [cached]
@@ -855,12 +880,12 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         [],
       ]
       const bodies = [
-        [status, ...doing, ...named, ...spent, ...cacheShare, ...bar],
-        [status, ...doing, ...named, ...spent, ...bar],
-        [status, ...named, ...spent, ...bar],
-        [status, ...named, ...spent, ...plain],
-        [status, ...spent, ...plain],
-        [status, ...plain],
+        [status, ...noticed, ...doing, ...named, ...spent, ...cacheShare, ...bar],
+        [status, ...noticed, ...doing, ...named, ...spent, ...bar],
+        [status, ...noticed, ...named, ...spent, ...bar],
+        [status, ...noticed, ...named, ...spent, ...plain],
+        [status, ...noticed, ...spent, ...plain],
+        [status, ...noticed, ...plain],
       ]
 
       // Room for one hint is held back from the rung choice, so a richer reading
@@ -903,6 +928,10 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
           if (displayWidth(withoutElapsed) <= budget) return withoutElapsed
           return bareStatus
         }
+        // Idle and narrower than every rung. The notice yields here rather than
+        // pushing the context reading or the base status off the line: at an
+        // impossible width the truthful structural reading outranks emphasis.
+        if (attention !== undefined) return [status, ...plain].join(separator)
         return (bodies[bodies.length - 1] ?? []).join(separator)
       }
       let line = compose()

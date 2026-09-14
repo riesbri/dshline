@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Composer, displayWidth, Screen, stripAnsi } from '@dshline/renderer'
+import { Composer, displayWidth, paint, Screen, stripAnsi } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
 import { bannerLines, composerGutter, composerHintRow, composerInner, createComposerView, createStatusView, widthStableLabel } from '../src/views.ts'
@@ -423,6 +423,7 @@ describe('the status line', () => {
       elapsedMs: undefined,
       activityWord: 'waiting',
       activity: undefined,
+      attention: undefined,
       model: 'deepseek-v4-flash',
       effort: undefined,
       usage: undefined,
@@ -1042,6 +1043,121 @@ describe('the status line', () => {
     const line = status({ compacting: true }, 16)
     expect(line).toContain('compacting')
     expect(displayWidth(line)).toBeLessThanOrEqual(16)
+  })
+})
+
+describe('the status line’s attention notice', () => {
+  /**
+   * Render one attention state and return the raw row, escapes intact.
+   * @param overrides - values to override on the default state.
+   * @param columns - the terminal width.
+   * @returns the rendered row exactly as the terminal receives it.
+   */
+  function raw(overrides: Partial<StatusState> = {}, columns = 160): string {
+    return createStatusView(() => ({
+      busy: false,
+      tick: 0,
+      elapsedMs: undefined,
+      activityWord: 'waiting',
+      activity: undefined,
+      attention: undefined,
+      model: undefined,
+      effort: undefined,
+      usage: undefined,
+      cacheRead: undefined,
+      tokens: undefined,
+      contextWindow: undefined,
+      detail: 'compact',
+      work: undefined,
+      pending: undefined,
+      todo: undefined,
+      plan: false,
+      replay: undefined,
+      goal: undefined,
+      ...overrides,
+    })).render(columns)[0] ?? ''
+  }
+
+  /**
+   * The same row as a person reads it, styling removed.
+   * @param overrides - values to override on the default state.
+   * @param columns - the terminal width.
+   * @returns the visible row.
+   */
+  function noticed(overrides: Partial<StatusState> = {}, columns = 160): string {
+    return stripAnsi(raw(overrides, columns))
+  }
+
+  /** The ordinary activity reading the notice displaces. */
+  const ACTIVITY = { title: 'Read output from background job bash-18', others: 0 }
+  /** The transient emphasis under test. */
+  const NOTICE = { text: 'context compacted · ~95k replaced' }
+
+  it('replaces the activity reading without hiding the busy state or the goal', () => {
+    const shown = noticed({
+      busy: true,
+      elapsedMs: 42_000,
+      activityWord: 'working',
+      activity: ACTIVITY,
+      attention: NOTICE,
+      goal: { label: 'goal 3/12', running: true },
+    })
+    expect(shown).toContain('working')
+    expect(shown).toContain('context compacted · ~95k replaced')
+    expect(shown).not.toContain('Read output from background job bash-18')
+    expect(shown).toContain('goal 3/12')
+  })
+
+  it('lets the authoritative activity return once the notice is gone', () => {
+    // The notice is not cached: the getter reads current state each frame, so
+    // the activity segment reappears on its own when attention is absent.
+    const shown = noticed({
+      busy: true,
+      elapsedMs: 42_000,
+      activityWord: 'working',
+      activity: ACTIVITY,
+    })
+    expect(shown).toContain('Read output from background job bash-18')
+    expect(shown).not.toContain('context compacted')
+  })
+
+  it('coexists with the idle ready reading', () => {
+    const shown = noticed({ attention: NOTICE })
+    expect(shown).toContain('ready')
+    expect(shown).toContain('context compacted · ~95k replaced')
+  })
+
+  it('keeps the notice while the model and usage conveniences are given up', () => {
+    const state = {
+      attention: NOTICE,
+      model: 'deepseek-v4-flash',
+      usage: '↑130k ↓12.4k $1.24',
+      tokens: 130_000,
+      contextWindow: 1_000_000,
+    }
+    const narrow = noticed(state, 60)
+    expect(narrow).toContain('context compacted')
+    expect(narrow).not.toContain('deepseek-v4-flash')
+    expect(narrow).not.toContain('$1.24')
+  })
+
+  it('uses the warning semantic role rather than a named colour', () => {
+    // Role assertion rather than an ANSI snapshot: the row contains exactly the
+    // bytes `paint(text, 'warning')` emits, whatever a theme maps warning to.
+    expect(raw({ attention: NOTICE })).toContain(paint(NOTICE.text, 'warning'))
+  })
+
+  it('yields to the truthful base status on an impossibly narrow terminal', () => {
+    const state = {
+      busy: true,
+      elapsedMs: 42_000,
+      activityWord: 'working',
+      attention: NOTICE,
+      model: 'deepseek-v4-flash',
+    }
+    const narrow = noticed(state, 12)
+    expect(narrow).toContain('working')
+    expect(narrow).not.toContain('context compacted')
   })
 })
 

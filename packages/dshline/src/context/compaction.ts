@@ -38,6 +38,34 @@ export interface CompactionNote {
 /** Nothing to say about this event. */
 const SILENT: CompactionNote = { lines: [], presentedSeq: undefined }
 
+/** What one compaction summary structurally says, independent of presentation. */
+export interface CompactionSummaryFact {
+  /** How many history entries the summary replaced. */
+  readonly entries: number
+  /**
+   * The replaced content's estimated price, phrased as `~95k replaced`.
+   *
+   * Shared rather than rebuilt by each caller so the durable note and the
+   * transient attention notice cannot drift about what the number means.
+   */
+  readonly replaced: string
+}
+
+/**
+ * The structural fact a `compaction/summary` carries.
+ *
+ * `shadowedTokenCount` is documented as the shadowed content's price under the
+ * meter's fixed estimator, not a provider count, so the `~` is part of the
+ * fact rather than a rendering choice.
+ * @param event - the committed event.
+ * @returns the summary fact, or undefined for every other event.
+ */
+export function compactionSummaryFact(event: SessionEvent): CompactionSummaryFact | undefined {
+  if (event.type !== 'compaction/summary') return undefined
+  const entries = event.data.shadowedSeqs.length
+  return { entries, replaced: `~${formatTokens(event.data.shadowedTokenCount)} replaced` }
+}
+
 /**
  * Project one compaction lifecycle event.
  *
@@ -64,17 +92,14 @@ const SILENT: CompactionNote = { lines: [], presentedSeq: undefined }
  */
 export function compactionNote(event: SessionEvent, columns: number): CompactionNote {
   if (event.type === 'compaction/summary') {
-    const { shadowedSeqs, shadowedTokenCount, sourceCommandId } = event.data
-    const entries = shadowedSeqs.length
-    const items = `${String(entries)} ${entries === 1 ? 'entry' : 'entries'}`
-    // `~`, without exception: `shadowedTokenCount` is documented as the shadowed
-    // content's price under the meter's fixed estimator, not a provider count.
-    const replaced = `~${formatTokens(shadowedTokenCount)} replaced`
+    const fact = compactionSummaryFact(event)
+    if (fact === undefined) return SILENT
+    const items = `${String(fact.entries)} ${fact.entries === 1 ? 'entry' : 'entries'}`
     // A manual run was asked for and its command line is already echoed above,
     // so it needs no subject; an automatic one arrived unbidden and does.
-    const text = sourceCommandId === undefined
-      ? `context compacted automatically · ${items} · ${replaced}`
-      : `compacted ${items} · ${replaced}`
+    const text = event.data.sourceCommandId === undefined
+      ? `context compacted automatically · ${items} · ${fact.replaced}`
+      : `compacted ${items} · ${fact.replaced}`
     return {
       lines: note(text, columns, 'muted'),
       presentedSeq: event.seq,

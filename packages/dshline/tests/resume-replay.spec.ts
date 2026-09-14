@@ -337,6 +337,36 @@ describe('replaying a resumed transcript from its live Session', () => {
     expect(latest(frames)).toContain('/permission read-only')
   })
 
+  it('replays old compaction and permission events without flashing them', async () => {
+    // The load-bearing boundary: the shared projector is also the replay path,
+    // so a resumed session's history must rebuild the transcript WITHOUT
+    // claiming any of it just happened. Attention is live-only.
+    const historical: SessionEvent[] = [
+      {
+        type: 'compaction/summary',
+        seq: 3,
+        time: 3,
+        data: {
+          compactionId: 'old',
+          summary: [{ type: 'text', text: 's' }],
+          shadowedRange: { start: 0, end: 1 },
+          shadowedSeqs: [0, 1],
+          shadowedTokenCount: 95_000,
+          provider: 'p',
+          model: 'm',
+        },
+      },
+      { type: 'permission/preset', seq: 4, time: 4, data: { preset: 'review' } },
+    ] as unknown as SessionEvent[]
+    const { commits, frames } = await fixture({ session: overEvents(historical) })
+
+    expect(stripAnsi(commits.flat().join('\n'))).toContain('context compacted automatically · 2 entries · ~95k replaced')
+    const shown = status(frames)
+    expect(shown).toContain('ready')
+    expect(shown).not.toContain('context compacted')
+    expect(shown).not.toContain('permission →')
+  })
+
   it('leaves the attachment usable once the synchronous replay returns', async () => {
     const { agent, dispatch } = await fixture()
     typeText(dispatch(), 'hello')

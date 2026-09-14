@@ -59,6 +59,12 @@ import { BUSY_ENTER_CHOICES, runEnterCommand } from './enter.ts'
 import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from './activity.ts'
 import type { ModelPhase } from './activity.ts'
 import { installApprovalAnswerer } from './approval.ts'
+import {
+  createAttentionController,
+  liveSessionAttention,
+  modelRouteAttention,
+  reasoningAttention,
+} from './attention.ts'
 import { createCompletion } from './completion.ts'
 import { historyLines, InputHistory } from './history.ts'
 import { HistorySearch } from './history-search.ts'
@@ -434,6 +440,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // does not track them.
   let compactCommandsInFlight = 0
   const compactionActive = (): boolean => compactCommandsInFlight > 0
+  // One transient emphasis slot per attachment. It is created here, before the
+  // command handlers that show into it, and registered with the session scope so
+  // switching sessions clears the deadline rather than letting a stale notice
+  // paint into the next attachment.
+  const attention = createAttentionController(draw)
+  scope.own(attention.dispose)
   // Measured from `turn/start`, so the `· turn` label agrees with the timing
   // panel's turn totals instead of including agent startup before the turn.
   let turnStartedAt: number | undefined
@@ -726,6 +738,12 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           return
         }
         w.refreshModelInfo()
+        // Decided from the actual route before/after, never from the
+        // acknowledgement: `/model` returning `done` on the already-current
+        // route is a successful operation but not a state transition, and a
+        // refusal never reaches here. A default-persistence failure still earns
+        // the notice, because the route really did change for this session.
+        attention.show(modelRouteAttention(before, selection.current))
         const lines = [selectionOutcomeLine(outcome)]
         const note = cacheTransitionNote(before, selection.current)
         if (note !== undefined) lines.push(paint(`· ${note}`, 'muted'))
@@ -782,8 +800,17 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       execute: async rawInput => {
         // The levels are a short fixed set a person learns by heart, so
         // `/reasoning max` should not cost a picker.
+        const before = selection.current?.reasoningEffort
         const outcome = await pickReasoning(ctx, selection, w.modelInfo.reasoning, rawInput)
         if (outcome !== undefined) commit([selectionOutcomeLine(outcome)])
+        // Only a `done` moved the stored effort: a refusal leaves the selection
+        // exactly as it was, and a dismissal changes nothing. Comparing the
+        // stored value rather than the adapter's advertised default keeps a
+        // reselected level, or clearing an already-absent one, quiet while
+        // either real transition speaks.
+        if (outcome?.kind === 'done') {
+          attention.show(reasoningAttention(before, selection.current?.reasoningEffort))
+        }
         draw()
       },
     },
@@ -894,12 +921,22 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // in the profile reader and the whole Connect catalog, which is startup
         // a launch that already has a model should not pay for.
         const { runSetup } = await import('./setup/index.ts')
+        // The attachment owns the notice, not Setup: the conductor only says a
+        // model change landed through `onModelChanged`, and the comparison
+        // against the last route seen here decides whether it was a transition.
+        // `seen` advances on every acknowledgement so two successful picks in
+        // one pass each compare against their real predecessor.
+        let seen = selection.current
         await runSetup({
           ctx,
           commit,
           version: w.version,
           selection,
-          onModelChanged: () => { w.refreshModelInfo() },
+          onModelChanged: () => {
+            w.refreshModelInfo()
+            attention.show(modelRouteAttention(seen, selection.current))
+            seen = selection.current
+          },
         })
         draw()
       },
@@ -1232,6 +1269,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       elapsedMs: turnStartedAt === undefined ? undefined : Date.now() - turnStartedAt,
       activityWord: primaryActivity(phase, cards.semanticActivity()),
       activity: cards.inFlight(),
+      attention: attention.current(),
       model: selection.current?.model,
       effort: effortLabel(selection.current?.reasoningEffort, w.modelInfo.reasoning),
       usage: formatUsage(usage.reading, prefs.usageMode),
@@ -1428,6 +1466,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     if (event.type === 'tool/call' && cards.inFlight() === undefined) phase = 'waiting'
     phase = modelPhaseAfter(phase, event)
     commit(project(event, columns))
+    // Live only. `project` above is also the replay path, so an event-derived
+    // notice raised there would flash a resumed session's old compactions and
+    // permission switches as if they had just happened. This listener sees only
+    // events appended after it attached, which is exactly "just happened".
+    attention.show(liveSessionAttention(event))
     draw()
   }))
 
