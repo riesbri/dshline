@@ -150,6 +150,26 @@ describe('what the picker offers', () => {
     overlay()?.handleKey({ kind: 'key', name: 'escape' })
     await running
   })
+
+  it('opens on the exact current route and model, not the first discovery', async () => {
+    // `opencode/deepseek-v4-pro` is the third discovered option and shares its
+    // model id with a direct route, so a first-row fallback would switch the
+    // route out from under the user on a bare Enter.
+    const { ctx, overlay, saved } = llmContext()
+    const selection = {
+      current: { provider: 'opencode', model: 'deepseek-v4-pro' },
+      assembled: undefined,
+    } as unknown as ModelSelectionRef
+    const running = pickModel(ctx, selection, '')
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? ''))
+      .toContain('❯ opencode/deepseek-v4-pro')
+    overlay()?.handleKey({ kind: 'key', name: 'enter' })
+    await running
+    expect(selection.current?.provider).toBe('opencode')
+    expect(selection.current?.model).toBe('deepseek-v4-pro')
+    expect(saved).toEqual([{ provider: 'opencode', model: 'deepseek-v4-pro' }])
+  })
 })
 
 describe('pickModel() with an argument', () => {

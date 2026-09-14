@@ -87,6 +87,29 @@ export function effortLabel(
 }
 
 /**
+ * The picker value for the effort already in force.
+ *
+ * Absence is its own row (`default`), NOT the adapter's `defaultEffort`: a
+ * provider that happens to default to `high` is still unset until the user
+ * chooses it, and the user did not choose the provider's default. An explicit
+ * effort that is no longer among the advertised levels has no row, so this
+ * returns undefined and the picker falls back to its first row rather than
+ * highlighting a level the adapter would reject.
+ * @param effort - the effort the selection carries, when it carries one.
+ * @param efforts - what the adapter advertises for the current route.
+ * @returns the opaque choice value, or undefined when an explicit effort is
+ *   absent from the advertised levels.
+ */
+function currentReasoningChoiceValue(
+  effort: string | undefined,
+  efforts: readonly LlmReasoningEffortInfo[],
+): string | undefined {
+  if (effort === undefined) return DEFAULT_CHOICE
+  const index = efforts.findIndex(one => one.id === effort)
+  return index < 0 ? undefined : String(index)
+}
+
+/**
  * Apply one effort to the selection, preserving the route, and remember it.
  *
  * The effort is stored alongside the route rather than on its own, because the
@@ -172,10 +195,12 @@ export async function pickReasoning(
     description: 'Let the provider decide, as it does when nothing is set',
   })
   const current = selection.current.reasoningEffort
+  const initialValue = currentReasoningChoiceValue(current, efforts)
   const picked = await promptSelect(ctx, {
     title: 'Select a reasoning level',
     view: 'Reasoning',
     detail: `current: ${current ?? 'whatever the provider decides'}`,
+    ...initialValue === undefined ? {} : { initialValue },
     choices,
   })
   if (picked === undefined) return undefined
