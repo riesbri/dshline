@@ -535,3 +535,43 @@ describe('u never widens its own scope', () => {
     expect(help).toContain('r remove')
   })
 })
+
+describe('the overflow hint answers a question about choices', () => {
+  it('does not claim more below for the selected profile detail alone', () => {
+    // Capacity is one (9 - PROFILES_FIXED_ROWS - three header rows). The solo
+    // profile's two pending-build lines are the only rows below the window; the
+    // profile itself is fully visible.
+    const view = mount(ready([profile('solo', { pendingBuilds: ['dep-a'] })]))
+    const text = view.text(90, 9)
+    expect(text).toContain('1 row')
+    expect(text).not.toContain('more below')
+  })
+
+  it('still claims more below when a real bundle child is hidden', () => {
+    // The selected profile's detail pushes its first bundle child below the
+    // window; that child is a real choice, so the hint must survive.
+    const view = mount(ready([profile('solo', {
+      bundles: [bundle('@x/one')],
+      pendingBuilds: ['dep-a'],
+    })]))
+    expect(view.text(90, 11)).toContain('more below')
+  })
+
+  it('still claims more below when a real plain dependency is hidden', () => {
+    // The "Installed, composes nothing" caption sits above its plain child, so
+    // the hidden row that earns the hint is the choice, not the caption.
+    const view = mount(ready([profile('solo', {
+      plain: [{ packageName: '@x/inert', version: '1.0.0', declaresBundle: false }],
+    })]))
+    expect(view.text(90, 10)).toContain('more below')
+  })
+
+  it('does not claim more below when later choices are already visible', () => {
+    // Both profiles fit. An index comparison (0 < 1) would still believe the
+    // later profile is hidden, so this pins the viewport-based condition.
+    const view = mount(ready([profile('a'), profile('b')]))
+    const text = view.text(90, 14)
+    expect(text).toContain('2 rows')
+    expect(text).not.toContain('more below')
+  })
+})

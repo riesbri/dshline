@@ -94,10 +94,18 @@ interface Notice {
   readonly expiresAt: number
 }
 
-/** The drawn rows, and where the selected row landed among them. */
+/**
+ * The drawn document, and where its choices landed among the physical rows.
+ *
+ * `rows` is exactly what {@link RowViewport} scrolls over, so every entry line
+ * and the selected entry's detail line count toward its length. `selectableRows`
+ * narrows that down to the entry lines alone, because `more below` answers a
+ * question about choices and only these lines are choices.
+ */
 interface Rendered {
   readonly rows: readonly string[]
   readonly selectedRow: number
+  readonly selectableRows: readonly number[]
 }
 
 /** The Plugins overlay, plus the one thing its owner pushes back into it. */
@@ -392,7 +400,8 @@ function presetName(state: Extract<PluginsState, { kind: 'ready' }>, id: string)
  * @param rows - the filtered composition rows.
  * @param selected - the selected row's index among them.
  * @param inner - the frame's inner width in columns.
- * @returns the rows and the selection's row index among them.
+ * @returns the physical rows, the selection's row index among them, and the
+ *   physical row of every selectable entry line.
  */
 function renderRows(
   state: PluginsState,
@@ -414,10 +423,15 @@ function renderRows(
     )
   }
   const out: string[] = []
+  const selectableRows: number[] = []
   let selectedRow = 0
   rows.forEach((row, index) => {
     const active = index === selected
     if (active) selectedRow = out.length
+    // Recorded before the entry and its detail line are pushed, so this is the
+    // entry's own physical row. The detail line below it is presentation and is
+    // deliberately not recorded: selecting a row is not a second choice.
+    selectableRows.push(out.length)
     const health = rowHealth(row, host)
     out.push(entryRow(row, active, inner, unbackedWhileEnabled(row, health)))
     if (active) {
@@ -429,7 +443,7 @@ function renderRows(
       }
     }
   })
-  return { rows: out, selectedRow }
+  return { rows: out, selectedRow, selectableRows }
 }
 
 /**
@@ -439,7 +453,11 @@ function renderRows(
  * @returns the single row.
  */
 function single(text: string, inner: number): Rendered {
-  return { rows: [paint(truncateToWidth(escapeControls(text), inner), 'muted')], selectedRow: 0 }
+  return {
+    rows: [paint(truncateToWidth(escapeControls(text), inner), 'muted')],
+    selectedRow: 0,
+    selectableRows: [],
+  }
 }
 
 /**
@@ -502,14 +520,17 @@ function queryRow(query: string, searching: boolean, right: string, inner: numbe
 }
 
 /**
- * What the counter says: how many rows, and whether more are below.
+ * What the counter says: how many rows, and whether another choice is below.
+ *
+ * `more below` means another selectable plugin entry sits outside the viewport,
+ * not merely that the selected entry's own detail line was cut off.
  * @param shown - selectable rows after the query.
- * @param rendered - the drawn rows.
+ * @param rendered - the drawn rows and where their choices landed.
  * @param viewport - the scroll position over them.
  * @returns the counter text.
  */
 function counter(shown: number, rendered: Rendered, viewport: RowViewport): string {
-  const more = viewport.end < rendered.rows.length ? ' · more below' : ''
+  const more = rendered.selectableRows.some(row => row >= viewport.end) ? ' · more below' : ''
   return `${String(shown)} row${shown === 1 ? '' : 's'}${more}`
 }
 

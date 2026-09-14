@@ -113,10 +113,19 @@ interface Notice {
   readonly expiresAt: number
 }
 
-/** The drawn rows, and where the selected row landed among them. */
+/**
+ * The drawn document, and where its choices landed among the physical rows.
+ *
+ * `rows` is exactly what {@link RowViewport} scrolls over, so group captions,
+ * the selected profile's detail lines, and every entry line count toward its
+ * length. `entryRows` narrows that to the profile, bundle, and plain-dependency
+ * lines alone — the browser's actual choices — because `more below` must not be
+ * earned by a caption or by the selected profile's own detail.
+ */
 interface Rendered {
   readonly rows: readonly string[]
   readonly selectedRow: number
+  readonly entryRows: readonly number[]
 }
 
 /** The Profiles overlay, plus what its owner pushes back into it. */
@@ -474,7 +483,8 @@ function headerRows(state: ProfilesState, inner: number): string[] {
  * @param rows - the selectable sequence.
  * @param selected - the selected row's index among them.
  * @param inner - the frame's inner width in columns.
- * @returns the rows and the selection's row index among them.
+ * @returns the physical rows, the selection's row index among them, and the
+ *   physical row of every selectable entry line.
  */
 function renderRows(
   state: ProfilesState,
@@ -494,6 +504,7 @@ function renderRows(
     )
   }
   const out: string[] = []
+  const entryRows: number[] = []
   let selectedRow = 0
   rows.forEach((row, index) => {
     const active = index === selected
@@ -511,6 +522,10 @@ function renderRows(
       out.push(paint(truncateToWidth('    Installed, composes nothing', inner), 'subdued'))
     }
     if (active) selectedRow = out.length
+    // Recorded after any group caption and before the entry line, so this is the
+    // choice's own physical row. Captions and the selected profile's trailing
+    // detail are presentation and are deliberately not recorded.
+    entryRows.push(out.length)
     out.push(row.kind === 'profile'
       ? profileLine(row.profile, active, inner)
       : row.kind === 'bundle'
@@ -528,7 +543,7 @@ function renderRows(
       }
     }
   })
-  return { rows: out, selectedRow }
+  return { rows: out, selectedRow, entryRows }
 }
 
 /**
@@ -538,7 +553,11 @@ function renderRows(
  * @returns the single row.
  */
 function single(text: string, inner: number): Rendered {
-  return { rows: [paint(truncateToWidth(escapeControls(text), inner), 'muted')], selectedRow: 0 }
+  return {
+    rows: [paint(truncateToWidth(escapeControls(text), inner), 'muted')],
+    selectedRow: 0,
+    entryRows: [],
+  }
 }
 
 /**
@@ -624,14 +643,18 @@ function queryRow(query: string, searching: boolean, right: string, inner: numbe
 }
 
 /**
- * What the counter says: how many rows, and whether more are below.
+ * What the counter says: how many rows, and whether another choice is below.
+ *
+ * `more below` means another selectable profile, bundle, or plain-dependency
+ * entry sits outside the viewport, not merely that a group caption or the
+ * selected profile's own detail line was cut off.
  * @param shown - selectable rows after the query.
- * @param rendered - the drawn rows.
+ * @param rendered - the drawn rows and where their choices landed.
  * @param viewport - the scroll position over them.
  * @returns the counter text.
  */
 function counter(shown: number, rendered: Rendered, viewport: RowViewport): string {
-  const more = viewport.end < rendered.rows.length ? ' · more below' : ''
+  const more = rendered.entryRows.some(row => row >= viewport.end) ? ' · more below' : ''
   return `${String(shown)} row${shown === 1 ? '' : 's'}${more}`
 }
 
