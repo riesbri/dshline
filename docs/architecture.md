@@ -1092,12 +1092,15 @@ that can disagree with the configuration it claims to describe, and re-asking
 live state every launch cannot.
 
 What setup contributes is a reading and an ordering, and nothing else. The
-ordering leads with whatever is missing: once a route is registered, `Choose a
-model` goes first, and when `/connect` closes having produced the first usable
-route while the selection is still absent or stale, the conductor opens the
-picker itself rather than returning to a checklist that would only say to open
-it. The conductor does that, never `/connect` — the browser stays a browser and
-knows nothing about setup — and only when the model is the missing piece, since
+ordering is keyed to warnings in that reading: a repair step appears only when
+the report carries the warning it answers, so an all-clear returns `✓ Ready.`
+and the composer rather than a picker of optional changes. It leads with
+whatever is missing: once a route is registered, `Choose a model` goes first,
+and when `/connect` closes having produced the first usable route while the
+selection is still absent or stale, the conductor opens the picker itself
+rather than returning to a checklist that would only say to open it. The
+conductor does that, never `/connect` — the browser stays a browser and knows
+nothing about setup — and only when the model is the missing piece, since
 connecting a second provider is not a request to change a working selection.
 
 Each step hands off to a browser that is already the authority for what it does

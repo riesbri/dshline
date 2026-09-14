@@ -35,8 +35,10 @@
  * passes all three pays the fourth, one narrow local read of that ONE route.
  * No adapter is asked for a catalog either way — see {@link setupReason} for
  * why a route count is not the question. That is the one condition worth
- * interrupting for, and an installation that works never sees this flow.
- * `/setup` runs it on demand regardless.
+ * interrupting for, and an installation that works never sees this flow on its
+ * own. `/setup` runs it on demand regardless, and there a clean pass ends at
+ * `✓ Ready.` rather than a picker: the report is the whole answer, and
+ * `/model` and `/connect` remain the commands for optional changes.
  * @module dshline/setup
  */
 
@@ -48,7 +50,7 @@ import { pickModel } from '../model.ts'
 import { promptSelect } from '../select.ts'
 import { gatherSetupFacts } from './harness.ts'
 import type { SetupFacts } from './harness.ts'
-import { hasActiveRoute, needsModelChoice, setupChecks, setupReason, setupSteps } from './model.ts'
+import { hasActiveRoute, hasWarning, needsModelChoice, setupChecks, setupReason, setupSteps } from './model.ts'
 import type { SetupCheck } from './model.ts'
 
 export type { HarnessGeneration, SetupFacts, SetupSelection } from './harness.ts'
@@ -161,6 +163,15 @@ export async function runSetup(spec: SetupSpec): Promise<void> {
     // showing the checklist again is how they see what their own action did.
     const facts = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
     commit(reportLines(facts))
+    // A clean pass is the whole answer. `/model` and `/connect` remain the
+    // authorities for optional changes and are always available as commands,
+    // so a healthy /setup must not open an action picker whose first row is an
+    // optional change the report just called ready. Warnings still get the
+    // picker, including the provider diagnostic that leaves a launch sendable.
+    if (!hasWarning(setupChecks(facts))) {
+      commit(['', paint('✓ Ready.', 'success'), ''])
+      return
+    }
     const steps = setupSteps(facts)
     const picked = await promptSelect(ctx, {
       title: 'Setup',
@@ -246,7 +257,7 @@ function setupDetail(facts: SetupFacts): string {
   if (facts.reason === 'credential-missing') {
     return 'A model is selected, but its route has no credential, so the next turn would fail.'
   }
-  return 'A model is selected and ready. Change it, connect another provider, or start the session.'
+  return 'A model is selected and ready. /connect and /model are always available.'
 }
 
 /**

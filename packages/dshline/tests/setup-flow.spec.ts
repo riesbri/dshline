@@ -475,8 +475,8 @@ describe('the guided flow', () => {
     expect(h.text()).toContain('Choose a model')
     expect(h.text()).toContain('Not now')
     expect(h.selection.current).toBeUndefined()
-    // `Choose a model`, `Connect another provider`, `Not now`.
-    await h.press(DOWN, DOWN, ENTER)
+    // `Choose a model`, `Not now`.
+    await h.press(DOWN, ENTER)
     await running
     expect(h.mutations).toEqual([])
   })
@@ -504,29 +504,26 @@ describe('the guided flow', () => {
     expect(h.committed.join('\n')).toContain('Ready.')
   })
 
-  it('does not reopen the picker when a usable model is already selected', async () => {
-    // Connecting a second provider is not a request to change models, so a
-    // working selection is left exactly as it was.
+  it('prints a clean report and returns without a picker when nothing is wrong', async () => {
+    // The whole point: a healthy manual /setup is a reading that ends at the
+    // composer. `/model` and `/connect` are the commands for changing a
+    // working installation, so setup must not raise a menu that leads with
+    // "Choose a model" right after calling the model ready.
     const h = harness({
       registered: ['openai'],
       configurable: ['openai'],
-      models: { openai: [{ id: 'gpt-x', name: 'GPT X' }] },
       selected: { provider: 'openai', model: 'gpt-x' },
     })
     const running = run(h)
     await settle()
-    // `Choose a model`, `Connect another provider`, `Start the session`.
-    await h.press(DOWN, ENTER)
-    await settle()
-    await h.press(ESCAPE)
-    await settle()
-    // Back at the checklist, with the selection untouched and no picker raised.
-    expect(h.text()).toContain('Start the session')
-    expect(h.selection.current).toEqual({ provider: 'openai', model: 'gpt-x' })
-    await h.press(DOWN, DOWN, ENTER)
-    await running
+    expect(h.mounted()).toBe(false)
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('Setup')
+    expect(transcript).toContain('openai/gpt-x')
+    expect(transcript).toContain('Ready.')
     expect(h.selection.current).toEqual({ provider: 'openai', model: 'gpt-x' })
     expect(h.mutations).toEqual([])
+    await running
   })
 
   it('offers no configuration step, and still a way out, when no seam would accept one', async () => {

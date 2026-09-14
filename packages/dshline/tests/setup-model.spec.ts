@@ -320,7 +320,7 @@ describe('the setup report', () => {
       connect: reading({ providers: [diagnostic] }),
       selected: { provider: 'openai', model: 'healthy' },
       reason: undefined,
-    })).map(step => step.id)).toEqual(['connect', 'model', 'skip'])
+    })).map(step => step.id)).toEqual(['connect', 'skip'])
   })
 
   it('names the selected model when a turn could be sent', () => {
@@ -357,9 +357,9 @@ describe('what setup offers next', () => {
       connect: reading({ providers: [route('openai', 'active')] }),
       reason: 'no-selection',
     }))
-    expect(steps.map(step => step.id)).toEqual(['model', 'connect', 'skip'])
-    // Not "Start the session": the composer could not send a turn yet.
-    expect(steps[2]?.label).toBe('Not now')
+    expect(steps.map(step => step.id)).toEqual(['model', 'skip'])
+    // Not "Continue": the composer could not send a turn yet.
+    expect(steps[1]?.label).toBe('Not now')
   })
 
   it('leads with connecting when the credential is what is missing', () => {
@@ -372,10 +372,12 @@ describe('what setup offers next', () => {
     expect(steps[2]?.label).toBe('Not now')
   })
 
-  it('calls the way out a start only when a turn could actually be sent', () => {
+  it('offers only the way out when the report is healthy', () => {
+    // `/model` and `/connect` remain available as commands; setup does not
+    // present optional changes as if they were repairs.
     const steps = setupSteps(ready())
-    expect(steps.map(step => step.id)).toEqual(['model', 'connect', 'skip'])
-    expect(steps[2]?.label).toBe('Start the session')
+    expect(steps.map(step => step.id)).toEqual(['skip'])
+    expect(steps[0]?.label).toBe('Continue')
   })
 
   it('offers no model step while nothing is registered, whatever is selected', () => {

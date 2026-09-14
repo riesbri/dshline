@@ -21,6 +21,13 @@
  * offer that opens an empty picker is worse than no offer — and when it does
  * appear it goes first, because by then it is the step between the reader and
  * a working session.
+ *
+ * **A healthy report offers nothing to repair.** `/model` and `/connect` are
+ * the authorities for changing a working installation, and setup does not
+ * present them as next steps merely because a reader asked it to look. The
+ * steps below are keyed to warnings the report actually carries, so the
+ * picker never opens on a screen with nothing to fix, and the flow that
+ * printed an all-clear returns to the composer instead of offering a menu.
  * @module dshline/setup/model
  */
 
@@ -381,15 +388,19 @@ export function hasWarning(checks: readonly SetupCheck[]): boolean {
 }
 
 /**
- * What setup offers to do next, given what it just read.
+ * The steps that answer a warning in the report, most useful first.
  *
- * Ordered by what the reader most likely needs, and filtered by what the
- * mounted seams would actually accept — so no offer here can open a surface
- * that has nothing in it.
+ * Keyed to warnings, not to what a reader might optionally want. Empty in the
+ * healthy state on purpose: `/model` and `/connect` already own optional
+ * changes as commands, and an offer to make one is exactly what turned a
+ * clean setup report into a configuration menu.
+ *
+ * Each step is filtered by what the mounted seams would accept, so no offer
+ * here can open a surface that has nothing in it.
  * @param facts - what one setup pass established.
- * @returns the offered steps, most useful first; never empty.
+ * @returns the repair steps, most useful first; empty when nothing is wrong.
  */
-export function setupSteps(facts: SetupFacts): SetupStep[] {
+function remediationSteps(facts: SetupFacts): SetupStep[] {
   const connect = facts.connect
   const steps: SetupStep[] = []
   const active = hasActiveRoute(connect)
@@ -398,11 +409,13 @@ export function setupSteps(facts: SetupFacts): SetupStep[] {
     : undefined
   const canConfigure = connect.kind === 'ready'
     && (connect.capabilities.settings || connect.capabilities.credentials || connect.capabilities.authorization)
-  // Whichever step is actually missing leads. With a model selected on a route
-  // that cannot authenticate, that is connecting; otherwise, once a route can
-  // serve a turn, it is choosing what to send — burying THAT under "connect
-  // another provider" is how a first run stalls one keystroke short of working.
-  if (canConfigure && (selectedDiagnostic !== undefined || facts.reason === 'credential-missing')) {
+  const credentialMissing = facts.reason === 'credential-missing'
+  // Connecting answers three warnings: no route can serve a turn at all, the
+  // selected route's credential is positively absent, or Harness reports a
+  // configuration diagnostic for it. Leading with the missing piece is what
+  // keeps a first run from stalling one keystroke short of working; the
+  // optional "connect another provider" that used to trail it is gone.
+  if (canConfigure && (!active || credentialMissing || selectedDiagnostic !== undefined)) {
     steps.push({
       id: 'connect',
       label: selectedDiagnostic === undefined ? 'Connect a provider' : 'Review provider configuration',
@@ -411,33 +424,43 @@ export function setupSteps(facts: SetupFacts): SetupStep[] {
         : 'Opens /connect to review or repair the selected provider configuration',
     })
   }
-  if (active) {
-    const modelLabel = facts.reason === 'credential-missing'
-      ? 'Choose a model on another route'
-      : 'Choose a model'
+  // Choosing answers a selection that is absent or stale, and offers the way
+  // around a route that cannot authenticate. It is never offered for a
+  // selection that already serves a turn.
+  if (active && (needsModelChoice(facts) || credentialMissing)) {
     steps.push({
       id: 'model',
-      label: modelLabel,
+      label: credentialMissing ? 'Choose a model on another route' : 'Choose a model',
       description: 'Opens /model over the routes that are active now',
     })
   }
-  if (canConfigure && selectedDiagnostic === undefined && facts.reason !== 'credential-missing') {
-    steps.push({
-      id: 'connect',
-      label: active ? 'Connect another provider' : 'Connect a provider',
-      description: 'Opens /connect: sign in to an account, store an API key, or activate a route',
-    })
-  }
+  return steps
+}
+
+/**
+ * What setup offers to do next, given what it just read.
+ *
+ * The repair steps, then the way out. In the healthy state that is the way out
+ * alone — and {@link "./index.ts"} does not open the picker then at all,
+ * because the clean report is already the whole answer.
+ * @param facts - what one setup pass established.
+ * @returns the offered steps, most useful first; never empty.
+ */
+export function setupSteps(facts: SetupFacts): SetupStep[] {
   // Worded from what a turn would actually do, not from route count: a window
   // whose selection is missing or stale reaches a composer that cannot send,
-  // and calling that "start the session" would be the one untrue line here.
+  // and "Continue" there would be the one untrue line here. `Continue` rather
+  // than "Start the session", because manual /setup can run mid-session and a
+  // label must not pretend the session has not begun.
   const ready = facts.reason === undefined
-  steps.push({
-    id: 'skip',
-    label: ready ? 'Start the session' : 'Not now',
-    description: ready
-      ? 'Go to the composer with the model selected above'
-      : 'Go to the composer; run /setup again whenever you want this back',
-  })
-  return steps
+  return [
+    ...remediationSteps(facts),
+    {
+      id: 'skip',
+      label: ready ? 'Continue' : 'Not now',
+      description: ready
+        ? 'Go to the composer with the model selected above'
+        : 'Go to the composer; run /setup again whenever you want this back',
+    },
+  ]
 }

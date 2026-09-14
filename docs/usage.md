@@ -284,6 +284,12 @@ flow on demand. The selection is judged by its **provider**, not its model id.
 Startup does not turn catalog membership into an execution whitelist or perform
 an exact-model preflight that belongs to the adapter.
 
+A manual `/setup` on a session that can already send is a **health check, not a
+menu**. It prints the same report and returns with `✓ Ready.`; it does not open
+the action picker, because `/model` and `/connect` are the commands for changing
+a working installation and setup exists to reach a working one, not to offer
+optional edits.
+
 It writes a reading of your installation into ordinary scrollback, so you can
 scroll back to it and paste it into a bug report:
 
@@ -317,11 +323,14 @@ that fact visible without treating the catalog as execution validation:
   Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.
 ```
 
-Then it offers what the mounted seams would actually accept, leading with
-whatever is missing: **Review provider configuration** when Harness has supplied
-a diagnostic, **Choose a model** when the selection is the missing piece, then a
-way out. Exact model validity is checked by the adapter when a turn executes.
-Backing out at
+When the report carries a warning, setup then offers what the mounted seams
+would actually accept, leading with whatever is missing: **Review provider
+configuration** when Harness has supplied a diagnostic, **Choose a model** when
+the selection is the missing piece, then a way out. Those are repairs only — the
+optional `Connect another provider` and `Choose a model` offers are gone, since
+`/connect` and `/model` already own optional changes. The way out reads
+**Continue** when a turn could be sent and **Not now** when it could not. Exact
+model validity is checked by the adapter when a turn executes. Backing out at
 any point writes nothing; there is no saved "already set up" flag anywhere,
 because each run re-reads Harness from scratch.
 
