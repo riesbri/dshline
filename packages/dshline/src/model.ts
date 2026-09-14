@@ -118,6 +118,31 @@ function pricingKeyOf(option: ModelOption): string {
 }
 
 /**
+ * The picker value for the route and model already in force.
+ *
+ * Choices carry their discovery index as an opaque value, so the current
+ * selection is mapped back to that same index rather than to a
+ * `provider/model` string — nothing has to parse an id back out of a label.
+ * A selection no longer in the discovered catalog has no row, and this returns
+ * undefined so the picker falls back to its first row rather than claiming a
+ * different route is current.
+ * @param current - the selection being replaced, when there is one.
+ * @param options - every option discovery returned, in choice order.
+ * @returns the opaque choice value, or undefined when the selection is absent
+ *   or no longer offered.
+ */
+function currentModelChoiceValue(
+  current: ModelSelectionRef['current'],
+  options: readonly ModelOption[],
+): string | undefined {
+  const index = current === undefined
+    ? -1
+    : options.findIndex(option =>
+      option.provider === current.provider && option.model === current.model)
+  return index < 0 ? undefined : String(index)
+}
+
+/**
  * Prompt for a model and apply the choice to `selection`.
  * @param ctx - context carrying the llm registry and the slot registry.
  * @param selection - the agent's mutable selection ref.
@@ -147,10 +172,12 @@ export async function pickModel(
     }
     return apply(ctx, selection, wanted, current)
   }
+  const initialValue = currentModelChoiceValue(current, options)
   const picked = await promptSelect(ctx, {
     title: 'Select a model',
     view: 'Model',
     ...current === undefined ? {} : { detail: `current: ${current.provider}/${current.model}` },
+    ...initialValue === undefined ? {} : { initialValue },
     choices,
   })
   if (picked === undefined) return undefined

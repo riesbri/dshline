@@ -39,9 +39,10 @@ function slotContext(): { ctx: Context; overlay: () => TuiOverlay | undefined } 
 /**
  * A window's theme seams, recording what was applied and committed.
  * @param depth - what the fake terminal can show.
+ * @param initial - the palette already in force when the picker opens.
  * @returns the spec, plus readers for the applied palette and committed rows.
  */
-function windowSeams(depth: ColorDepth = 24): {
+function windowSeams(depth: ColorDepth = 24, initial: Palette = DEFAULT_PALETTE): {
   ctx: Context
   overlay: () => TuiOverlay | undefined
   spec: Parameters<typeof runThemes>[0]
@@ -51,7 +52,7 @@ function windowSeams(depth: ColorDepth = 24): {
   const { ctx, overlay } = slotContext()
   const applied: Palette[] = []
   const committed: string[] = []
-  let current: Palette = DEFAULT_PALETTE
+  let current: Palette = initial
   return {
     ctx,
     overlay,
@@ -123,6 +124,28 @@ describe('runThemes() with no argument', () => {
     await running
     expect(w.applied).toHaveLength(1)
     expect(w.applied[0]?.id).not.toBe('default')
+  })
+
+  it('opens on the theme already in use, not the first row', async () => {
+    // `ember` is not row 0, and a picker that opened on row 0 would confirm
+    // `default` instead — the misleading interaction this guards against.
+    const ember = findTheme('ember')
+    if (ember === undefined) throw new Error('ember theme missing')
+    const w = windowSeams(24, ember)
+    const asked: string[] = []
+    const spec = { ...w.spec, remember: async (id: string) => { asked.push(id); return undefined } }
+    const running = runThemes(spec, '')
+    const overlay = w.overlay()
+    expect(overlay).toBeDefined()
+    expect(stripAnsi(overlay?.render(80, 24).join('\n') ?? '')).toContain('❯ Ember')
+    overlay?.handleKey(press('enter'))
+    await running
+    // Confirming the current theme retries the write and says it was already in
+    // use; it must not switch to `default`.
+    expect(asked).toStrictEqual(['ember'])
+    expect(w.applied).toStrictEqual([])
+    expect(w.spec.current().id).toBe('ember')
+    expect(stripAnsi(w.committed.join('\n'))).toContain('already in use')
   })
 
   it('changes and reports nothing when the picker is dismissed', async () => {

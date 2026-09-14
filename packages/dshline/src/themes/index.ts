@@ -125,6 +125,10 @@ export async function runThemes(spec: ThemeCommand, rawInput: string): Promise<v
       title: 'Theme',
       view: 'Theme',
       detail: `current: ${current.id}`,
+      // Theme choices already carry the stable id as their value, so the
+      // current palette maps directly; an id no longer shipped simply matches
+      // nothing and the picker falls back to its first row.
+      initialValue: current.id,
       choices: THEMES.map(theme => ({
         value: theme.id,
         label: theme.name,

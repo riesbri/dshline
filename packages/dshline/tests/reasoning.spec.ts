@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { LlmModelReasoningInfo, LlmReasoningEffortInfo } from '@deepseek-ai/dsh-llm'
+import { stripAnsi } from '@dshline/renderer'
 import type { Key } from '@dshline/renderer'
 import { effortLabel, pickReasoning, reasoningValues, resolveEffort } from '../src/reasoning.ts'
 import type { TuiOverlay } from '../src/slots.ts'
@@ -231,9 +232,46 @@ describe('pickReasoning()', () => {
 })
 
 describe('the reasoning picker', () => {
-  it('applies the highlighted level on enter', async () => {
+  it('opens on the current explicit level, not the first row', async () => {
+    // `max` is row 2. Entering immediately must keep the level in force; a
+    // picker that opened on row 0 would silently choose `off`.
+    const { ctx, overlay } = slotContext()
+    const selection = selectionOn('max')
+    const settled = pickReasoning(ctx, selection, REASONING, '')
+    expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? '')).toContain('❯ Max')
+    overlay()?.handleKey(press('enter'))
+    expect(await settled).toContain('max')
+    expect(selection.current?.reasoningEffort).toBe('max')
+  })
+
+  it('opens on Default when no explicit effort is stored', async () => {
+    // `default` is semantic absence, not the adapter's `defaultEffort` of
+    // `high`: an unset selection must not become the first advertised level.
+    const { ctx, overlay } = slotContext()
+    const selection = selectionOn()
+    const settled = pickReasoning(ctx, selection, REASONING, '')
+    expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? '')).toContain('❯ Default')
+    overlay()?.handleKey(press('enter'))
+    expect(await settled).toContain('cleared')
+    expect(selection.current?.reasoningEffort).toBeUndefined()
+  })
+
+  it('keeps an explicit level that happens to match the provider default', async () => {
+    // `high` is both the stored selection and `defaultEffort`; the picker must
+    // highlight the explicit `High` row, not `Default`, because the stored
+    // choice is semantically an explicit one.
     const { ctx, overlay } = slotContext()
     const selection = selectionOn('high')
+    const settled = pickReasoning(ctx, selection, REASONING, '')
+    expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? '')).toContain('❯ High')
+    overlay()?.handleKey(press('enter'))
+    expect(await settled).toContain('high')
+    expect(selection.current?.reasoningEffort).toBe('high')
+  })
+
+  it('moves from the current level one row at a time', async () => {
+    const { ctx, overlay } = slotContext()
+    const selection = selectionOn('off')
     const settled = pickReasoning(ctx, selection, REASONING, '')
     overlay()?.handleKey(press('down'))
     overlay()?.handleKey(press('enter'))
@@ -245,7 +283,7 @@ describe('the reasoning picker', () => {
     const { ctx, overlay } = slotContext()
     const selection = selectionOn('max')
     const settled = pickReasoning(ctx, selection, REASONING, '')
-    overlay()?.handleKey(press('up'))
+    overlay()?.handleKey(press('end'))
     overlay()?.handleKey(press('enter'))
     expect(await settled).toContain('cleared')
     expect(selection.current?.reasoningEffort).toBeUndefined()
