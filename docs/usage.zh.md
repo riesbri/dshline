@@ -283,7 +283,7 @@ Setup
   Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.
 ```
 
-当报告带有警告时，setup 随后才提供那些已挂载 seam 真的会接受的动作，并且由「缺什么」领头：Harness 提供诊断时先显示 **Review provider configuration**，选择缺失时显示 **Choose a model**，然后提供一个离开的出口。这些只是修复动作——可选的 `Connect another provider` 与 `Choose a model` 入口已经移除，因为它们属于 `/connect` 与 `/model` 的职责。当回合可以发送时出口显示 **Continue**，否则显示 **Not now**。确切的模型有效性在执行回合时由适配器检查。
+当某个警告存在可用的修复时，setup 随后才提供那些已挂载 seam 真的会接受的动作，并且由「缺什么」领头：Harness 提供诊断时先显示 **Review provider configuration**，选择缺失时显示 **Choose a model**，然后提供一个离开的出口。这些只是修复动作——可选的 `Connect another provider` 与 `Choose a model` 入口已经移除，因为它们属于 `/connect` 与 `/model` 的职责。当回合可以发送时出口显示 **Continue**，否则显示 **Not now**。setup 无法修复的警告——Harness 世代不一致，或 profile 完全没有挂载任何能配置提供方的东西——会留在报告里，并以自己的结束语收尾，而不是打开一个只会提供出口的单行选择器。确切的模型有效性在执行回合时由适配器检查。
 
 它还会替你走出那个显而易见的下一步，而不是描述它。当 `/connect` 关闭、并且刚刚产生了第一条可用路由、而此时还没有选中模型时，setup 会直接打开模型选择器，而不是把你送回一张只会告诉你「去打开它」的清单。这**只**在模型正是那块缺失的拼图时发生：一个已经可用的选择永远不会被替换，因为连接第二个提供方并不是更换模型的请求。取消选择器会把你送回清单，而不是把你丢在一个仍然发不出东西的输入框前。
 

@@ -526,18 +526,42 @@ describe('the guided flow', () => {
     await running
   })
 
-  it('offers no configuration step, and still a way out, when no seam would accept one', async () => {
+  it('closes on the report when no mounted seam could remediate a warning', async () => {
     // Neither seam: the harness mounts a credential store by default now, and
-    // "no seam would accept one" has to mean exactly that.
+    // "no seam would accept one" has to mean exactly that. There is nothing a
+    // picker could do, so a one-item picker would be pure friction.
     const h = harness({ settings: false, credentials: false })
     const running = run(h)
     await settle()
-    expect(h.text()).not.toContain('Connect a provider')
-    expect(h.text()).toContain('Not now')
-    await h.press(ENTER)
-    await running
     expect(h.mounted()).toBe(false)
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('this profile mounts nothing that can configure a provider')
+    expect(transcript).toContain('no provider is configured yet')
+    // A warning setup cannot repair must never be closed with a clean bill.
+    expect(transcript).not.toContain('Ready.')
     expect(h.mutations).toEqual([])
+    await running
+  })
+
+  it('closes with its own line when the only warning is diagnostic', async () => {
+    // A healthy route and selection with no configuring seam: the report warns
+    // about Connecting, but no step can improve it, so the generic closing line
+    // runs instead of a one-item picker.
+    const h = harness({
+      registered: ['openai'],
+      configurable: ['openai'],
+      selected: { provider: 'openai', model: 'gpt-x' },
+      settings: false,
+      credentials: false,
+    })
+    const running = run(h)
+    await settle()
+    expect(h.mounted()).toBe(false)
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('this profile mounts nothing that can configure a provider')
+    expect(transcript).toContain('/connect and /model are always available')
+    expect(transcript).not.toContain('Ready.')
+    await running
   })
 
   it('stays inside a narrow or short terminal, because its picker is a bounded overlay', async () => {

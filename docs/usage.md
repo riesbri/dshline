@@ -323,13 +323,16 @@ that fact visible without treating the catalog as execution validation:
   Open /connect to review or repair it; the Harness adapter remains authoritative for exact model validity.
 ```
 
-When the report carries a warning, setup then offers what the mounted seams
-would actually accept, leading with whatever is missing: **Review provider
+When a warning has a repair, setup then offers what the mounted seams would
+actually accept, leading with whatever is missing: **Review provider
 configuration** when Harness has supplied a diagnostic, **Choose a model** when
 the selection is the missing piece, then a way out. Those are repairs only — the
 optional `Connect another provider` and `Choose a model` offers are gone, since
 `/connect` and `/model` already own optional changes. The way out reads
-**Continue** when a turn could be sent and **Not now** when it could not. Exact
+**Continue** when a turn could be sent and **Not now** when it could not. A
+warning setup cannot repair — a Harness generation mismatch, or a profile that
+mounts nothing to configure a provider — stays in the report and closes with its
+own line instead of raising a picker whose only row would be the way out. Exact
 model validity is checked by the adapter when a turn executes. Backing out at
 any point writes nothing; there is no saved "already set up" flag anywhere,
 because each run re-reads Harness from scratch.

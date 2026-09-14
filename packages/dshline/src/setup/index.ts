@@ -36,9 +36,10 @@
  * No adapter is asked for a catalog either way — see {@link setupReason} for
  * why a route count is not the question. That is the one condition worth
  * interrupting for, and an installation that works never sees this flow on its
- * own. `/setup` runs it on demand regardless, and there a clean pass ends at
- * `✓ Ready.` rather than a picker: the report is the whole answer, and
- * `/model` and `/connect` remain the commands for optional changes.
+ * own. `/setup` runs it on demand regardless, and a pass with no interactive
+ * repair ends without one: a clean report at `✓ Ready.`, a warning only Harness
+ * or a shell command can answer above its closing line. `/model` and
+ * `/connect` remain the commands for optional changes.
  * @module dshline/setup
  */
 
@@ -50,7 +51,7 @@ import { pickModel } from '../model.ts'
 import { promptSelect } from '../select.ts'
 import { gatherSetupFacts } from './harness.ts'
 import type { SetupFacts } from './harness.ts'
-import { hasActiveRoute, hasWarning, needsModelChoice, setupChecks, setupReason, setupSteps } from './model.ts'
+import { hasActiveRoute, hasRemediation, hasWarning, needsModelChoice, setupChecks, setupReason, setupSteps } from './model.ts'
 import type { SetupCheck } from './model.ts'
 
 export type { HarnessGeneration, SetupFacts, SetupSelection } from './harness.ts'
@@ -59,6 +60,7 @@ export type { SetupCheck, SetupMark, SetupReason, SetupStep, SetupStepId } from 
 export {
   awaitingActivation,
   hasActiveRoute,
+  hasRemediation,
   hasWarning,
   needsModelChoice,
   setupChecks,
@@ -162,14 +164,18 @@ export async function runSetup(spec: SetupSpec): Promise<void> {
     // previous reading is exactly the thing most likely to be out of date, and
     // showing the checklist again is how they see what their own action did.
     const facts = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
+    const checks = setupChecks(facts)
     commit(reportLines(facts))
-    // A clean pass is the whole answer. `/model` and `/connect` remain the
-    // authorities for optional changes and are always available as commands,
-    // so a healthy /setup must not open an action picker whose first row is an
-    // optional change the report just called ready. Warnings still get the
-    // picker, including the provider diagnostic that leaves a launch sendable.
-    if (!hasWarning(setupChecks(facts))) {
-      commit(['', paint('✓ Ready.', 'success'), ''])
+    // Interaction follows remediation, not the mere presence of a warning. The
+    // report decides what deserves a warning — a Harness generation mismatch
+    // and a profile that mounts nothing to configure a provider are both real —
+    // but when no step can improve the state, the report is the whole answer:
+    // a clean one ends at `✓ Ready.`, a warned one closes with its own
+    // sentence. A picker whose only row is the way out is friction, not
+    // remediation. `/model` and `/connect` remain the commands for optional
+    // changes and are always available.
+    if (!hasRemediation(facts)) {
+      commit(hasWarning(checks) ? leavingLines(facts) : ['', paint('✓ Ready.', 'success'), ''])
       return
     }
     const steps = setupSteps(facts)

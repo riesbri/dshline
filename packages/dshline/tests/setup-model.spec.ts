@@ -15,12 +15,14 @@ import type { SetupFacts } from '../src/setup/harness.ts'
 import {
   awaitingActivation,
   hasActiveRoute,
+  hasRemediation,
   hasWarning,
   needsModelChoice,
   setupChecks,
   setupReason,
   setupSteps,
 } from '../src/setup/model.ts'
+import type { SetupStepId } from '../src/setup/model.ts'
 import type { ConnectProviderRow, ConnectSignInRow, ConnectState } from '../src/connect/model.ts'
 
 /**
@@ -402,6 +404,97 @@ describe('what setup offers next', () => {
     ]) {
       expect(setupSteps(facts({ connect })).some(step => step.id === 'skip')).toBe(true)
     }
+  })
+})
+
+describe('which warnings setup can repair', () => {
+  /**
+   * Every warning the report can raise, and the repair steps it unlocks.
+   *
+   * The report and the picker answer different questions: the report shows
+   * every warning Harness is entitled to state, while the picker only opens
+   * for a warning a step can act on. An empty `repair` here means the flow
+   * must end on the report alone — a one-item picker would be friction.
+   */
+  const cases: { what: string; facts: SetupFacts; repair: SetupStepId[] }[] = [
+    {
+      what: 'a matching topology with nothing to change at all',
+      facts: ready(),
+      repair: [],
+    },
+    {
+      what: 'a Harness generation mismatch, whose fix is a shell command',
+      facts: ready({ harness: { kind: 'mismatch', adopted: '0.1.5-rc.2', installed: '0.1.2-rc.1' } }),
+      repair: [],
+    },
+    {
+      what: 'a profile that mounts nothing to configure a provider',
+      facts: ready({
+        connect: reading({ capabilities: { settings: false, credentials: false, authorization: false } }),
+      }),
+      repair: [],
+    },
+    {
+      what: 'a catalog read that failed',
+      facts: facts({ connect: { kind: 'failed', message: 'settings.yaml is unreadable' }, reason: 'no-route' }),
+      repair: [],
+    },
+    {
+      what: 'a catalog that has not been read',
+      facts: facts({ connect: { kind: 'loading' }, reason: 'no-route' }),
+      repair: [],
+    },
+    {
+      what: 'no active route',
+      facts: facts({
+        connect: reading({ providers: [route('openai', 'dormant')] }),
+        selected: { provider: 'openai', model: 'gpt-x' },
+        reason: undefined,
+      }),
+      repair: ['connect'],
+    },
+    {
+      what: 'a provider configuration diagnostic',
+      facts: ready({
+        connect: reading({ providers: [{ ...route('openai', 'active'), error: 'broken override' }] }),
+      }),
+      repair: ['connect'],
+    },
+    {
+      what: 'a registered route with no selection',
+      facts: facts({ connect: reading({ providers: [route('openai', 'active')] }), reason: 'no-selection' }),
+      repair: ['model'],
+    },
+    {
+      what: 'a selection naming no registered route',
+      facts: facts({
+        connect: reading({ providers: [route('openai', 'active')] }),
+        selected: { provider: 'gone', model: 'old' },
+        reason: 'unregistered-selection',
+      }),
+      repair: ['model'],
+    },
+    {
+      what: 'a selected route with no credential',
+      facts: ready({ reason: 'credential-missing', credentialRef: 'DEEPSEEK_API_KEY' }),
+      repair: ['connect', 'model'],
+    },
+  ]
+
+  for (const { what, facts: state, repair } of cases) {
+    it(`${repair.length === 0 ? 'ends on the report for' : 'opens a repair for'} ${what}`, () => {
+      expect(setupSteps(state).filter(step => step.id !== 'skip').map(step => step.id)).toEqual(repair)
+      expect(hasRemediation(state)).toBe(repair.length > 0)
+    })
+  }
+
+  it('keeps a warning with no repair out of the picker', () => {
+    // The deliberate shape of the invariant: the report still warns, but since
+    // no step can improve it, there is nothing for a picker to offer.
+    const mismatch = ready({ harness: { kind: 'mismatch', adopted: '0.1.5-rc.2', installed: '0.1.2-rc.1' } })
+    expect(hasWarning(setupChecks(mismatch))).toBe(true)
+    expect(hasRemediation(mismatch)).toBe(false)
+    expect(setupSteps(mismatch).map(step => step.id)).toEqual(['skip'])
   })
 })
 

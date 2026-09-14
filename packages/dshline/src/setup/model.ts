@@ -28,6 +28,13 @@
  * steps below are keyed to warnings the report actually carries, so the
  * picker never opens on a screen with nothing to fix, and the flow that
  * printed an all-clear returns to the composer instead of offering a menu.
+ *
+ * **A warning and a repair are different questions.** The report shows every
+ * warning Harness is entitled to state, including ones whose only guidance is
+ * a shell command or a settings file; the steps answer only the warnings setup
+ * can act on interactively. {@link hasRemediation} is the picker's gate, so a
+ * diagnostic-only warning stays in scrollback and never forces a one-item
+ * picker.
  * @module dshline/setup/model
  */
 
@@ -390,15 +397,17 @@ export function hasWarning(checks: readonly SetupCheck[]): boolean {
 /**
  * The steps that answer a warning in the report, most useful first.
  *
- * Keyed to warnings, not to what a reader might optionally want. Empty in the
- * healthy state on purpose: `/model` and `/connect` already own optional
- * changes as commands, and an offer to make one is exactly what turned a
- * clean setup report into a configuration menu.
+ * Keyed to warnings, not to what a reader might optionally want. Empty when no
+ * warning has an interactive repair: `/model` and `/connect` already own
+ * optional changes as commands, and an offer to make one is exactly what turned
+ * a clean setup report into a configuration menu. {@link hasRemediation} is
+ * whether this list is non-empty, and that is what decides whether the flow
+ * opens at all.
  *
  * Each step is filtered by what the mounted seams would accept, so no offer
  * here can open a surface that has nothing in it.
  * @param facts - what one setup pass established.
- * @returns the repair steps, most useful first; empty when nothing is wrong.
+ * @returns the repair steps, most useful first; empty when nothing is repairable.
  */
 function remediationSteps(facts: SetupFacts): SetupStep[] {
   const connect = facts.connect
@@ -440,9 +449,10 @@ function remediationSteps(facts: SetupFacts): SetupStep[] {
 /**
  * What setup offers to do next, given what it just read.
  *
- * The repair steps, then the way out. In the healthy state that is the way out
- * alone — and {@link "./index.ts"} does not open the picker then at all,
- * because the clean report is already the whole answer.
+ * The repair steps, then the way out. A list holding nothing but the way out is
+ * not a picker: {@link hasRemediation} is what {@link "./index.ts"} checks
+ * before opening one, so a healthy report and a warning with no interactive
+ * repair both end without interaction.
  * @param facts - what one setup pass established.
  * @returns the offered steps, most useful first; never empty.
  */
@@ -463,4 +473,21 @@ export function setupSteps(facts: SetupFacts): SetupStep[] {
         : 'Go to the composer; run /setup again whenever you want this back',
     },
   ]
+}
+
+/**
+ * Whether setup has a step that can improve the state this pass found.
+ *
+ * This is the picker's gate, and it is deliberately narrower than
+ * {@link hasWarning}. The report shows every warning Harness is entitled to
+ * state; the steps answer only the ones setup can act on interactively. A
+ * Harness generation mismatch and a profile that mounts nothing to configure a
+ * provider are both real warnings whose guidance is a shell command or a
+ * settings file — so the report carries them, and the flow closes with its own
+ * sentence instead of raising a picker whose only row is the way out.
+ * @param facts - what one setup pass established.
+ * @returns whether at least one step can improve the state.
+ */
+export function hasRemediation(facts: SetupFacts): boolean {
+  return remediationSteps(facts).length > 0
 }
