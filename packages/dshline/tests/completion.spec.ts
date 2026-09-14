@@ -28,7 +28,7 @@ const COMMANDS = [
 ]
 
 /** Values the frontend's own commands offer; everything else offers none. */
-const ARGUMENTS: Record<string, { value: string; note?: string }[]> = {
+const ARGUMENTS: Record<string, { value: string; note?: string; aliases?: readonly string[] }[]> = {
   reasoning: [
     { value: 'off', note: 'no thinking' },
     { value: 'high', note: 'the usual level' },
@@ -38,6 +38,14 @@ const ARGUMENTS: Record<string, { value: string; note?: string }[]> = {
   // One value that is a prefix of another, which is the case the
   // stop-when-finished rule must not swallow.
   prefixes: [{ value: 'max' }, { value: 'maxi' }],
+  // The shape `/model` offers: a qualified route as the inserted value, with
+  // the bare model id as a search alias. Two routes share one model id, so the
+  // bare spelling is not itself a finished value.
+  model: [
+    { value: 'deepseek-official/deepseek-v4-flash', aliases: ['deepseek-v4-flash'] },
+    { value: 'deepseek-official/deepseek-v4-pro', aliases: ['deepseek-v4-pro'] },
+    { value: 'opencode/deepseek-v4-pro', aliases: ['deepseek-v4-pro'] },
+  ],
 }
 
 /**
@@ -234,6 +242,65 @@ describe('completing a command argument', () => {
     const { completion } = typed('see @pack')
     await completion.refresh()
     expect(rows(completion).every(row => !row.startsWith('/'))).toBe(true)
+  })
+})
+
+describe('completing an argument whose value is qualified', () => {
+  it('finds every route from the bare model id alone', async () => {
+    // Insertion is `provider/model`, so the bare prefix a reader knows must
+    // match a search alias or the row would offer nothing at all.
+    const { completion } = typed('/model deepseek-v4')
+    await completion.refresh()
+    expect(rows(completion)).toEqual([
+      '/model deepseek-official/deepseek-v4-flash',
+      '/model deepseek-official/deepseek-v4-pro',
+      '/model opencode/deepseek-v4-pro',
+    ])
+  })
+
+  it('keeps the route choice visible when the bare id is typed in full', async () => {
+    // An alias is not a finished value: two routes serve this id, so the list
+    // must stand rather than treating the alias as an exact canonical match.
+    const { completion } = typed('/model deepseek-v4-pro')
+    await completion.refresh()
+    expect(rows(completion)).toEqual([
+      '/model deepseek-official/deepseek-v4-pro',
+      '/model opencode/deepseek-v4-pro',
+    ])
+  })
+
+  it('gets out of the way when a unique alias is typed in full', async () => {
+    // Only one route serves `deepseek-v4-flash`, and `/model` already accepts
+    // the bare spelling, so the word is a finished instruction. Leaving the row
+    // standing would make the first Enter a canonicalization and only the
+    // second one a submission.
+    const { composer, completion } = typed('/model deepseek-v4-flash')
+    await completion.refresh()
+    expect(rows(completion)).toEqual([])
+    expect(completion.active).toBe(false)
+    // Enter reaches the composer instead of being consumed to rewrite the word.
+    const enter = { kind: 'key', name: 'enter' } as const
+    expect(completion.handleKey(enter)).toBe(false)
+    expect(composer.handle(enter)).toEqual({
+      kind: 'submit',
+      text: '/model deepseek-v4-flash',
+      gesture: 'enter',
+    })
+  })
+
+  it('inserts the canonical value, not the alias that matched', async () => {
+    const { composer, completion } = typed('/model deepseek-v4-pro')
+    await completion.refresh()
+    completion.handleKey({ kind: 'key', name: 'down' })
+    completion.handleKey({ kind: 'key', name: 'tab' })
+    expect(composer.value).toBe('/model opencode/deepseek-v4-pro ')
+  })
+
+  it('hides the list once the canonical value itself is complete', async () => {
+    const { completion } = typed('/model opencode/deepseek-v4-pro')
+    await completion.refresh()
+    expect(rows(completion)).toEqual([])
+    expect(completion.active).toBe(false)
   })
 })
 

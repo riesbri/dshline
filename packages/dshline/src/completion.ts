@@ -71,10 +71,16 @@ export interface CompletionSources {
    * is a live fact: which reasoning levels exist depends on the route currently
    * selected, and which models exist depends on what the adapters advertise.
    * @param name - the command, without its leading slash.
-   * @returns the offered values, in the order they should be listed.
+   * @returns the offered values, in the order they should be listed. A value
+   *   may carry `aliases`: extra text a prefix matches against, which is never
+   *   what accepting the row inserts.
    * @throws nothing a caller must handle; a command with no arguments yields none.
    */
-  commandArguments(name: string): Promise<readonly { readonly value: string; readonly note?: string }[]>
+  commandArguments(name: string): Promise<readonly {
+    readonly value: string
+    readonly note?: string
+    readonly aliases?: readonly string[]
+  }[]>
   /**
    * Directory children for a path completion.
    * @param directory - the directory to list, relative to the workspace, or empty
@@ -459,12 +465,29 @@ async function argumentCandidates(token: Token, sources: CompletionSources): Pro
   const typed = ARGUMENT.exec(token.text)?.groups?.value ?? ''
   const lower = typed.toLowerCase()
   const values = await sources.commandArguments(command)
-  const matched = values.filter(offered => offered.value.toLowerCase().startsWith(lower))
-  // Nothing is offered once the word is already one of them and nothing longer
-  // begins with it. `/reasoning high` is a finished instruction, and a list
-  // still standing over it is a popup between the user and the enter key —
-  // while a value that is merely a PREFIX of another keeps offering the rest.
-  if (matched.length === 1 && matched[0]?.value.toLowerCase() === lower) return []
+  // A choice matches on its canonical value OR on one of its aliases. The alias
+  // is a search domain, never a replacement: `provider/model` is what gets
+  // inserted, and offering a second row per alias would pretend otherwise.
+  // Without this, qualifying an inserted value (`opencode/deepseek-v4-pro`)
+  // would make the bare id a reader types (`deepseek-v4`) match nothing.
+  const matched = values.filter(offered =>
+    offered.value.toLowerCase().startsWith(lower)
+    || (offered.aliases ?? []).some(alias => alias.toLowerCase().startsWith(lower)))
+  // One candidate whose canonical value OR accepted alias is exactly what was
+  // typed, and nothing longer beginning with it, is a finished instruction: the
+  // list would only canonicalize a spelling the command already accepts, at the
+  // cost of an extra Enter. An alias shared by several candidates keeps the list
+  // standing, because choosing among those routes is the remaining work. The
+  // alias is an alternate spelling the command itself accepts, never an
+  // arbitrary keyword, which is why only `value` and `aliases` are compared.
+  const only = matched.length === 1 ? matched[0] : undefined
+  if (
+    only !== undefined
+    && (
+      only.value.toLowerCase() === lower
+      || (only.aliases ?? []).some(alias => alias.toLowerCase() === lower)
+    )
+  ) return []
   return matched
     .map(offered => ({
       // The whole token is replaced, name included, so accepting normalizes the

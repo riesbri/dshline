@@ -5,7 +5,7 @@ import type { TuiOverlay } from '../src/slots.ts'
 import type { ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import type { ModelOption } from '../src/model.ts'
-import { listModelOptions, pickModel, resolveModel } from '../src/model.ts'
+import { modelCompletionValues, pickModel, resolveModel } from '../src/model.ts'
 
 /** Two routes serving overlapping model ids, which is the case worth pinning. */
 const CATALOG: Record<string, { id: string; name: string }[]> = {
@@ -29,11 +29,20 @@ const OPTIONS: readonly ModelOption[] = [
  */
 type ReasoningByRoute = Record<string, readonly string[] | 'fail'>
 
+/** A `listModels` stand-in, for a test that controls when a route catalog lands. */
+type ListModels = (provider: string) => Promise<readonly { id: string; name: string }[]>
+
 /**
  * A context offering the llm registry and a slot registry that records pushes.
+ * @param reasoning - what each route's `resolveModelInfo` advertises.
+ * @param overrides - substitutes for the catalog read, when a test needs to
+ *   control when a route answers.
  * @returns the context, whether an overlay was pushed, and the one that was.
  */
-function llmContext(reasoning: ReasoningByRoute = {}): {
+function llmContext(
+  reasoning: ReasoningByRoute = {},
+  overrides: { listModels?: ListModels } = {},
+): {
   ctx: Context
   pushed: () => boolean
   overlay: () => TuiOverlay | undefined
@@ -49,7 +58,7 @@ function llmContext(reasoning: ReasoningByRoute = {}): {
   const ctx = {
     llm: {
       listProviders: () => Object.keys(CATALOG).map(id => ({ id, name: id })),
-      listModels: async (provider: string) => CATALOG[provider] ?? [],
+      listModels: overrides.listModels ?? (async (provider: string) => CATALOG[provider] ?? []),
       resolveModelInfo: async (provider: string, model: string): Promise<LlmResolvedModelInfo> => {
         const entry = reasoning[`${provider}/${model}`]
         if (entry === 'fail') throw new Error('model info unavailable')
@@ -69,6 +78,42 @@ function llmContext(reasoning: ReasoningByRoute = {}): {
     get: (name: string) => services[name],
   } as unknown as Context
   return { ctx, pushed: () => opened, overlay: () => mounted, saved }
+}
+
+/**
+ * A `listModels` whose route catalogs settle only when the test says so.
+ * @returns the stand-in, the route keys it was called for in order, and the
+ *   controls to settle or fail one route.
+ */
+function deferredCatalogs(): {
+  listModels: ListModels
+  called: string[]
+  settle: (provider: string, models: readonly { id: string; name: string }[]) => void
+  fail: (provider: string, error: Error) => void
+} {
+  const called: string[] = []
+  const pending = new Map<string, {
+    resolve: (models: readonly { id: string; name: string }[]) => void
+    reject: (error: Error) => void
+  }>()
+  return {
+    called,
+    listModels: provider => {
+      called.push(provider)
+      return new Promise((resolve, reject) => { pending.set(provider, { resolve, reject }) })
+    },
+    settle: (provider, models) => { pending.get(provider)?.resolve(models) },
+    fail: (provider, error) => { pending.get(provider)?.reject(error) },
+  }
+}
+
+/**
+ * Let queued microtasks and a macrotask run, so a promise that will not settle
+ * is distinguishable from one that has simply not settled yet.
+ * @returns a promise resolving after the pending work.
+ */
+async function settled(): Promise<void> {
+  return new Promise(resolve => { setTimeout(resolve, 0) })
 }
 
 /**
@@ -109,10 +154,88 @@ describe('resolveModel()', () => {
   })
 })
 
-describe('listModelOptions()', () => {
-  it('lists every route and model, for completing the argument', async () => {
+describe('modelCompletionValues()', () => {
+  it('qualifies every value with its route, so two routes never share one', async () => {
     const { ctx } = llmContext()
-    expect(await listModelOptions(ctx)).toEqual(OPTIONS)
+    expect((await modelCompletionValues(ctx)).map(choice => choice.value)).toEqual([
+      'deepseek-official/deepseek-v4-flash',
+      'deepseek-official/deepseek-v4-pro',
+      'opencode/deepseek-v4-pro',
+    ])
+  })
+
+  it('keeps the bare model id as a search alias, never as the value', async () => {
+    // Completion inserts the qualified route; the alias only lets a reader
+    // discover the row by typing the model id they know.
+    const { ctx } = llmContext()
+    expect((await modelCompletionValues(ctx))[2]?.aliases).toEqual(['deepseek-v4-pro'])
+  })
+
+  it('round-trips every value back to the exact route and model it names', async () => {
+    const { ctx } = llmContext()
+    const values = await modelCompletionValues(ctx)
+    values.forEach((choice, index) => {
+      expect(resolveModel(choice.value, OPTIONS)).toEqual(OPTIONS[index])
+    })
+    // The overlapping id is the one a bare spelling cannot disambiguate.
+    expect(resolveModel('opencode/deepseek-v4-pro', OPTIONS))
+      .toEqual({ provider: 'opencode', model: 'deepseek-v4-pro' })
+  })
+
+  it('notes a display name only when it says something the id does not', async () => {
+    // `DeepSeek-V4-Flash` differs from its id only in capitals, so repeating it
+    // would spend columns saying nothing. `DeepSeek V4 Pro` earns its note.
+    const { ctx } = llmContext()
+    const values = await modelCompletionValues(ctx)
+    expect(values[0]?.note).toBeUndefined()
+    expect(values[2]?.note).toBe('DeepSeek V4 Pro')
+  })
+})
+
+describe('provider catalog reads', () => {
+  it('begins every route before awaiting any, and keeps listProviders order', async () => {
+    // The two catalogs are independent: a slow first route must not delay the
+    // start of the second, and settling the second first must not reorder them.
+    const arena = deferredCatalogs()
+    const { ctx } = llmContext({}, { listModels: arena.listModels })
+    const running = modelCompletionValues(ctx)
+    expect(arena.called).toEqual(['deepseek-official', 'opencode'])
+
+    // Settling the later route alone cannot finish discovery: the earlier one
+    // is still outstanding, which is what proves they were read together.
+    let landed = false
+    void running.then(() => { landed = true })
+    arena.settle('opencode', [{ id: 'later-model', name: '' }])
+    await settled()
+    expect(landed).toBe(false)
+
+    arena.settle('deepseek-official', [{ id: 'earlier-model', name: '' }])
+    expect((await running).map(choice => choice.value)).toEqual([
+      'deepseek-official/earlier-model',
+      'opencode/later-model',
+    ])
+  })
+
+  it('keeps a healthy route when another route fails, and never rejects', async () => {
+    const arena = deferredCatalogs()
+    const { ctx } = llmContext({}, { listModels: arena.listModels })
+    const running = modelCompletionValues(ctx)
+    arena.fail('deepseek-official', new Error('route down'))
+    arena.settle('opencode', [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }])
+    await expect(running).resolves.toEqual([
+      { value: 'opencode/deepseek-v4-pro', aliases: ['deepseek-v4-pro'], note: 'DeepSeek V4 Pro' },
+    ])
+  })
+
+  it('names every route that could not be listed when none is available', async () => {
+    const arena = deferredCatalogs()
+    const { ctx } = llmContext({}, { listModels: arena.listModels })
+    const running = pickModel(ctx, selectionOn(), '')
+    arena.fail('deepseek-official', new Error('route down'))
+    arena.fail('opencode', new Error('route down'))
+    await expect(running).resolves.toBe(
+      'no models available: deepseek-official, opencode could not be listed',
+    )
   })
 })
 

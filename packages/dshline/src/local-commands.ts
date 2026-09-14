@@ -12,6 +12,16 @@ export interface LocalCommandChoice {
   readonly value: string
   /** Optional explanation shown beside the value. */
   readonly note?: string
+  /**
+   * Additional text a typed prefix may match without ever being inserted.
+   *
+   * A value that qualifies its subject — `provider/model`, where the command
+   * also accepts a bare `model` — would otherwise stop matching the short
+   * spelling a reader actually types. An alias is a visible-domain search
+   * domain, not a second candidate: matching one offers the same row, and
+   * accepting it inserts the canonical `value`.
+   */
+  readonly aliases?: readonly string[]
 }
 
 /** One command this terminal frontend handles itself. */
