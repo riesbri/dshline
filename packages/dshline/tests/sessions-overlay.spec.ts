@@ -1228,3 +1228,197 @@ describe('a terminal too small for the frame', () => {
     expect(drawn[0]).toContain('esc back')
   })
 })
+
+describe('content-search overflow and selected evidence', () => {
+  /**
+   * One content result, optionally carrying a Harness match excerpt.
+   * @param index - the result's index, used for its id and title.
+   * @param snippet - the Harness-selected excerpt, when it has one.
+   * @returns the entry.
+   */
+  function result(index: number, snippet?: string): SessionEntry {
+    return entry({
+      id: `result-${String(index)}` as SessionId,
+      title: `Result ${String(index)}`,
+      ...(snippet === undefined ? {} : { snippet }),
+    })
+  }
+
+  /**
+   * A page of content results.
+   * @param count - how many results.
+   * @param withSnippet - whether each result carries an excerpt.
+   * @returns the entries.
+   */
+  function results(count: number, withSnippet: boolean): SessionEntry[] {
+    return Array.from({ length: count }, (_unused, index) => result(index, withSnippet ? `match ${String(index)}` : undefined))
+  }
+
+  it('does not claim more below for a selected excerpt alone, and keeps it visible', () => {
+    // 11 results fill the 11-row window exactly; the last result's excerpt is
+    // the only row that would otherwise be below. Selecting a result is not a
+    // second choice, so the hint stays away — but the excerpt is the evidence
+    // for the hit, so the viewport must still reveal it.
+    const view = mount({ content: contentReady(results(11, true)) })
+    view.press(key('tab'))
+    view.render(COLUMNS, 16)
+    for (let step = 0; step < 10; step += 1) {
+      view.press(key('down'))
+      view.render(COLUMNS, 16)
+    }
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('11 results · end')
+    expect(drawn).not.toContain('more below')
+    expect(drawn).toContain('match 10')
+  })
+
+  it('converges whether the last result is reached by Down or by End', () => {
+    // The same logical selection must present the same viewport and counter,
+    // whatever route reached it. An index-based predicate or a viewport that
+    // follows only the entry row would let these two frames disagree.
+    const items = results(11, true)
+    const viaDown = mount({ content: contentReady(items) })
+    viaDown.press(key('tab'))
+    viaDown.render(COLUMNS, 16)
+    for (let step = 0; step < 10; step += 1) {
+      viaDown.press(key('down'))
+      viaDown.render(COLUMNS, 16)
+    }
+    const viaEnd = mount({ content: contentReady(items) })
+    viaEnd.press(key('tab'))
+    viaEnd.render(COLUMNS, 16)
+    viaEnd.press(key('end'))
+    const downFrame = screen(viaDown, COLUMNS, 16)
+    const endFrame = screen(viaEnd, COLUMNS, 16)
+    expect(downFrame).toBe(endFrame)
+    expect(endFrame).toContain('match 10')
+    expect(endFrame).not.toContain('more below')
+  })
+
+  it('settles on the first End press when selecting the last result reveals its excerpt', () => {
+    // Before selection this document is 11 rows. Selecting the last result adds
+    // its excerpt as row 12, but `End` pins the bottom against the OLD geometry,
+    // so the render-time block follow has to finish the job in the same frame.
+    const items = [...Array.from({ length: 10 }, (_unused, index) => result(index)), result(10, 'match 10')]
+    const view = mount({ content: contentReady(items) })
+    view.press(key('tab'))
+    view.render(COLUMNS, 16)
+    view.press(key('end'))
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('match 10')
+    expect(drawn).not.toContain('more below')
+  })
+
+  it('does not claim more below for a Loading more status row alone', () => {
+    // `loading more` already reports the in-flight request; the dimmed row is
+    // not a choice, so it cannot be the reason for a second hint. The Harness
+    // cursor fact stays.
+    const view = mount({
+      content: contentReady(results(11, false), { more: true, loadingMore: true }),
+    })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('11 results')
+    expect(drawn).toContain('more available')
+    expect(drawn).toContain('loading more')
+    expect(drawn).not.toContain('more below')
+  })
+
+  it('does not claim more below for a Loading more row after the cursor ended', () => {
+    const view = mount({
+      content: contentReady(results(11, false), { more: false, loadingMore: true }),
+    })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('end')
+    expect(drawn).toContain('loading more')
+    expect(drawn).not.toContain('more below')
+  })
+
+  it('still claims more below when the Load more action is below the viewport', () => {
+    // `more available` is the Harness cursor; `more below` is the local fact
+    // that the action which spends it is off-screen. They must be able to agree.
+    const view = mount({ content: contentReady(results(11, false), { more: true }) })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('more available')
+    expect(drawn).toContain('more below')
+  })
+
+  it('lets end and more below coexist when Refresh is the hidden choice', () => {
+    // A cursor restart clears `content.more` but leaves a selectable Refresh
+    // action, so `end · more below` is truthful and must not be tied to the
+    // Harness cursor fact.
+    const view = mount({
+      content: contentReady(results(11, false), { more: false, restart: true }),
+    })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('11 results · end')
+    expect(drawn).toContain('more below')
+  })
+
+  it('still claims more below when a selected excerpt pushes a later result below', () => {
+    const view = mount({ content: contentReady(results(11, true)) })
+    view.press(key('tab'))
+    view.render(COLUMNS, 16)
+    for (let step = 0; step < 5; step += 1) {
+      view.press(key('down'))
+      view.render(COLUMNS, 16)
+    }
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('match 5')
+    expect(drawn).toContain('more below')
+  })
+
+  it('does not claim more below when every choice and the excerpt fit', () => {
+    // The cursor is on the first result, not the last; a predicate derived from
+    // logical ordering would still claim later choices are hidden.
+    const view = mount({ content: contentReady(results(5, true)) })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('5 results · end')
+    expect(drawn).toContain('match 0')
+    expect(drawn).not.toContain('more below')
+  })
+
+  it('keeps a zero-result explanation unselectable behind its Load more continuation', () => {
+    // Presentation filtering can leave zero visible rows while the opaque cursor
+    // still has a next page. The explanation is not a session, so only the
+    // continuation is a choice. Framed content geometry always fits the two-row
+    // message + continuation document, so there is nothing below to claim; that
+    // Enter reaches the continuation and never the explanation is what pins the
+    // selectable set.
+    const view = mount({
+      filters: { ...NO_FILTERS, origin: 'delegated' },
+      content: contentReady([], { returned: 50, matched: 0, more: true, revision: 1 }),
+    })
+    for (const one of typed('needle')) view.press(one)
+    view.press(key('tab'))
+    view.render(COLUMNS, 16)
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('No returned results match the active filters yet.')
+    expect(drawn).toContain('Load more…')
+    expect(drawn).not.toContain('more below')
+    view.press(key('enter'))
+    expect(view.loadMoreCalls()).toBe(1)
+    expect(view.resumed).toEqual([])
+  })
+
+  it('keeps a zero-result explanation unselectable behind its Refresh continuation', () => {
+    const view = mount({
+      filters: { ...NO_FILTERS, origin: 'delegated' },
+      content: contentReady([], { returned: 50, matched: 0, more: false, restart: true, revision: 1 }),
+    })
+    for (const one of typed('needle')) view.press(one)
+    view.press(key('tab'))
+    view.render(COLUMNS, 16)
+    const drawn = screen(view, COLUMNS, 16)
+    expect(drawn).toContain('No returned results match the active filters yet.')
+    expect(drawn).toContain('Refresh (results changed)')
+    expect(drawn).not.toContain('more below')
+    view.press(key('enter'))
+    expect(view.restartCalls()).toBe(1)
+    expect(view.resumed).toEqual([])
+  })
+})

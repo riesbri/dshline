@@ -160,10 +160,24 @@ interface Resolved {
   readonly content: Extract<ContentState, { kind: 'ready' }> | undefined
 }
 
-/** Rendered rows and the physical row holding the cursor. */
+/**
+ * The drawn document, where the selected block sits, and where the choices are.
+ *
+ * `rows` is exactly what {@link RowViewport} scrolls over, so the selected
+ * result's excerpt and an optional continuation row count toward its length.
+ * `selectedRow` and `selectedHeight` describe the block the viewport follows —
+ * an entry with its match excerpt is two rows, everything else is one — so the
+ * evidence that explains a content hit does not scroll off the moment its entry
+ * reaches the last visible row. `selectableRows` narrows `rows` to the physical
+ * lines that are actual choices — every session entry, plus a `Load more…` or
+ * `Refresh` continuation — because `more below` answers a question about
+ * choices, and neither an excerpt nor a `Loading more…` status row is one.
+ */
 interface Rendered {
   readonly rows: readonly string[]
   readonly selectedRow: number
+  readonly selectedHeight: number
+  readonly selectableRows: readonly number[]
 }
 
 /**
@@ -442,7 +456,17 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       const rendered = renderResolved(resolved, spec, mode, selected, trailing, inner)
       viewport.update(rendered.rows.length, capacity)
       if (rendered.selectedRow < viewport.start) viewport.move(rendered.selectedRow - viewport.start)
-      if (rendered.selectedRow >= viewport.end) viewport.move(rendered.selectedRow - viewport.end + 1)
+      // Follow the selected BLOCK — an entry plus its match excerpt — rather than
+      // the entry row alone, so the evidence for a content hit is not scrolled
+      // off exactly when the reader is judging it. `End` pins the physical
+      // bottom against the previous frame's geometry, so this render-time follow
+      // is what makes one `End` press settle immediately. When the window cannot
+      // hold the whole block, the ENTRY row wins: it identifies the result, and a
+      // reader who cannot see which row is selected cannot judge its excerpt
+      // either. `Math.min` caps the scroll at the entry's own row.
+      const selectedEnd = rendered.selectedRow + rendered.selectedHeight
+      const overshoot = selectedEnd - viewport.end
+      if (overshoot > 0) viewport.move(Math.min(overshoot, rendered.selectedRow - viewport.start))
       const count = counter(resolved, rendered, viewport)
       const filtered = !equalFilters(spec.filters(), NO_FILTERS)
       const context = mode === 'content'
@@ -647,7 +671,13 @@ function contentTrailing(resolved: Resolved, locallyLoading: boolean): Trailing 
   return content.more ? { kind: 'more' } : undefined
 }
 
-/** Draw entries, the selected row's excerpt, and an optional continuation row. */
+/**
+ * Draw entries, the selected row's excerpt, and an optional continuation row.
+ *
+ * Also reports the physical extent of the selected block and the physical row of
+ * every selectable row, so the viewport can follow the block and the counter can
+ * describe choices rather than every physical line.
+ */
 function renderResolved(
   resolved: Resolved,
   spec: SessionsOverlaySpec,
@@ -659,30 +689,43 @@ function renderResolved(
   if (resolved.entries.length === 0) {
     // A zero-visible-row result can still carry a selectable continuation: the
     // message row is not a session, so Enter on the trailing row must be the
-    // only activation, and the message itself never resumes.
+    // only activation, and the message itself never resumes. The explanation is
+    // presentation only and is never a choice; only the continuation is recorded.
     const rows = [paint(truncateToWidth(escapeControls(resolved.message ?? ''), inner), 'muted')]
+    const selectableRows: number[] = []
     let selectedRow = 0
     if (trailing !== undefined) {
       const active = trailing.kind !== 'loading'
       if (active) selectedRow = rows.length
+      if (active) selectableRows.push(rows.length)
       rows.push(trailingRow(trailing, active, inner))
     }
-    return { rows, selectedRow }
+    return { rows, selectedRow, selectedHeight: 1, selectableRows }
   }
   const rows: string[] = []
+  const selectableRows: number[] = []
   let selectedRow = 0
+  let selectedHeight = 1
   resolved.entries.forEach((entry, index) => {
     const active = index === selected
     if (active) selectedRow = rows.length
+    // Every visible entry is a choice; the excerpt below the selected one is not.
+    selectableRows.push(rows.length)
     rows.push(entryRow(entry, active, spec, inner))
-    if (active) rows.push(...snippetRows(entry, mode, inner))
+    if (active) {
+      const excerpt = snippetRows(entry, mode, inner)
+      rows.push(...excerpt)
+      selectedHeight = rows.length - selectedRow
+    }
   })
   if (trailing !== undefined) {
     const active = selected === resolved.entries.length && trailing.kind !== 'loading'
     if (active) selectedRow = rows.length
+    // Only the actionable continuations are choices; `loading` is a status row.
+    if (trailing.kind === 'more' || trailing.kind === 'refresh') selectableRows.push(rows.length)
     rows.push(trailingRow(trailing, active, inner))
   }
-  return { rows, selectedRow }
+  return { rows, selectedRow, selectedHeight, selectableRows }
 }
 
 /** Draw one session row: the title, and the age that orders the list. */
@@ -836,7 +879,15 @@ function factRow(fact: SessionFact, inner: number): string {
   return `  ${paint(label, 'muted')}${value}`
 }
 
-/** Count sessions and continuation facts without inventing page numbers. */
+/**
+ * Count sessions and continuation facts without inventing page numbers.
+ *
+ * `more below` is the one local-geometry fact here: it says another selectable
+ * entry or continuation action sits outside the viewport, and stays separate
+ * from the Harness cursor's `more available` / `end` and the local `loading
+ * more`. The selected result's excerpt and a `Loading more…` status row are
+ * physical rows without being choices, so they never earn it.
+ */
 function counter(resolved: Resolved, rendered: Rendered, viewport: RowViewport): string {
   const content = resolved.content
   let count: string
@@ -854,7 +905,10 @@ function counter(resolved: Resolved, rendered: Rendered, viewport: RowViewport):
       : `${String(shown)} of ${String(resolved.listed)}`
     if (resolved.corpus !== undefined) count += ` · newest of ${String(resolved.corpus)}`
   }
-  if (viewport.end < rendered.rows.length) count += ' · more below'
+  // `viewport.end` is exclusive, so a choice exactly at that row is below. Only
+  // recorded choices can earn the hint; a hidden excerpt or `Loading more…` row
+  // is geometry, not another choice.
+  if (rendered.selectableRows.some(row => row >= viewport.end)) count += ' · more below'
   return count
 }
 
