@@ -15,12 +15,14 @@ import type { SetupFacts } from '../src/setup/harness.ts'
 import {
   awaitingActivation,
   hasActiveRoute,
+  hasRemediation,
   hasWarning,
   needsModelChoice,
   setupChecks,
   setupReason,
   setupSteps,
 } from '../src/setup/model.ts'
+import type { SetupStepId } from '../src/setup/model.ts'
 import type { ConnectProviderRow, ConnectSignInRow, ConnectState } from '../src/connect/model.ts'
 
 /**
@@ -320,7 +322,7 @@ describe('the setup report', () => {
       connect: reading({ providers: [diagnostic] }),
       selected: { provider: 'openai', model: 'healthy' },
       reason: undefined,
-    })).map(step => step.id)).toEqual(['connect', 'model', 'skip'])
+    })).map(step => step.id)).toEqual(['connect', 'skip'])
   })
 
   it('names the selected model when a turn could be sent', () => {
@@ -357,9 +359,9 @@ describe('what setup offers next', () => {
       connect: reading({ providers: [route('openai', 'active')] }),
       reason: 'no-selection',
     }))
-    expect(steps.map(step => step.id)).toEqual(['model', 'connect', 'skip'])
-    // Not "Start the session": the composer could not send a turn yet.
-    expect(steps[2]?.label).toBe('Not now')
+    expect(steps.map(step => step.id)).toEqual(['model', 'skip'])
+    // Not "Continue": the composer could not send a turn yet.
+    expect(steps[1]?.label).toBe('Not now')
   })
 
   it('leads with connecting when the credential is what is missing', () => {
@@ -372,10 +374,12 @@ describe('what setup offers next', () => {
     expect(steps[2]?.label).toBe('Not now')
   })
 
-  it('calls the way out a start only when a turn could actually be sent', () => {
+  it('offers only the way out when the report is healthy', () => {
+    // `/model` and `/connect` remain available as commands; setup does not
+    // present optional changes as if they were repairs.
     const steps = setupSteps(ready())
-    expect(steps.map(step => step.id)).toEqual(['model', 'connect', 'skip'])
-    expect(steps[2]?.label).toBe('Start the session')
+    expect(steps.map(step => step.id)).toEqual(['skip'])
+    expect(steps[0]?.label).toBe('Continue')
   })
 
   it('offers no model step while nothing is registered, whatever is selected', () => {
@@ -400,6 +404,97 @@ describe('what setup offers next', () => {
     ]) {
       expect(setupSteps(facts({ connect })).some(step => step.id === 'skip')).toBe(true)
     }
+  })
+})
+
+describe('which warnings setup can repair', () => {
+  /**
+   * Every warning the report can raise, and the repair steps it unlocks.
+   *
+   * The report and the picker answer different questions: the report shows
+   * every warning Harness is entitled to state, while the picker only opens
+   * for a warning a step can act on. An empty `repair` here means the flow
+   * must end on the report alone — a one-item picker would be friction.
+   */
+  const cases: { what: string; facts: SetupFacts; repair: SetupStepId[] }[] = [
+    {
+      what: 'a matching topology with nothing to change at all',
+      facts: ready(),
+      repair: [],
+    },
+    {
+      what: 'a Harness generation mismatch, whose fix is a shell command',
+      facts: ready({ harness: { kind: 'mismatch', adopted: '0.1.5-rc.2', installed: '0.1.2-rc.1' } }),
+      repair: [],
+    },
+    {
+      what: 'a profile that mounts nothing to configure a provider',
+      facts: ready({
+        connect: reading({ capabilities: { settings: false, credentials: false, authorization: false } }),
+      }),
+      repair: [],
+    },
+    {
+      what: 'a catalog read that failed',
+      facts: facts({ connect: { kind: 'failed', message: 'settings.yaml is unreadable' }, reason: 'no-route' }),
+      repair: [],
+    },
+    {
+      what: 'a catalog that has not been read',
+      facts: facts({ connect: { kind: 'loading' }, reason: 'no-route' }),
+      repair: [],
+    },
+    {
+      what: 'no active route',
+      facts: facts({
+        connect: reading({ providers: [route('openai', 'dormant')] }),
+        selected: { provider: 'openai', model: 'gpt-x' },
+        reason: undefined,
+      }),
+      repair: ['connect'],
+    },
+    {
+      what: 'a provider configuration diagnostic',
+      facts: ready({
+        connect: reading({ providers: [{ ...route('openai', 'active'), error: 'broken override' }] }),
+      }),
+      repair: ['connect'],
+    },
+    {
+      what: 'a registered route with no selection',
+      facts: facts({ connect: reading({ providers: [route('openai', 'active')] }), reason: 'no-selection' }),
+      repair: ['model'],
+    },
+    {
+      what: 'a selection naming no registered route',
+      facts: facts({
+        connect: reading({ providers: [route('openai', 'active')] }),
+        selected: { provider: 'gone', model: 'old' },
+        reason: 'unregistered-selection',
+      }),
+      repair: ['model'],
+    },
+    {
+      what: 'a selected route with no credential',
+      facts: ready({ reason: 'credential-missing', credentialRef: 'DEEPSEEK_API_KEY' }),
+      repair: ['connect', 'model'],
+    },
+  ]
+
+  for (const { what, facts: state, repair } of cases) {
+    it(`${repair.length === 0 ? 'ends on the report for' : 'opens a repair for'} ${what}`, () => {
+      expect(setupSteps(state).filter(step => step.id !== 'skip').map(step => step.id)).toEqual(repair)
+      expect(hasRemediation(state)).toBe(repair.length > 0)
+    })
+  }
+
+  it('keeps a warning with no repair out of the picker', () => {
+    // The deliberate shape of the invariant: the report still warns, but since
+    // no step can improve it, there is nothing for a picker to offer.
+    const mismatch = ready({ harness: { kind: 'mismatch', adopted: '0.1.5-rc.2', installed: '0.1.2-rc.1' } })
+    expect(hasWarning(setupChecks(mismatch))).toBe(true)
+    expect(hasRemediation(mismatch)).toBe(false)
+    expect(setupSteps(mismatch).map(step => step.id)).toEqual(['skip'])
   })
 })
 

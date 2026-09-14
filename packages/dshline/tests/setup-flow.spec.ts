@@ -475,8 +475,8 @@ describe('the guided flow', () => {
     expect(h.text()).toContain('Choose a model')
     expect(h.text()).toContain('Not now')
     expect(h.selection.current).toBeUndefined()
-    // `Choose a model`, `Connect another provider`, `Not now`.
-    await h.press(DOWN, DOWN, ENTER)
+    // `Choose a model`, `Not now`.
+    await h.press(DOWN, ENTER)
     await running
     expect(h.mutations).toEqual([])
   })
@@ -504,43 +504,64 @@ describe('the guided flow', () => {
     expect(h.committed.join('\n')).toContain('Ready.')
   })
 
-  it('does not reopen the picker when a usable model is already selected', async () => {
-    // Connecting a second provider is not a request to change models, so a
-    // working selection is left exactly as it was.
+  it('prints a clean report and returns without a picker when nothing is wrong', async () => {
+    // The whole point: a healthy manual /setup is a reading that ends at the
+    // composer. `/model` and `/connect` are the commands for changing a
+    // working installation, so setup must not raise a menu that leads with
+    // "Choose a model" right after calling the model ready.
     const h = harness({
       registered: ['openai'],
       configurable: ['openai'],
-      models: { openai: [{ id: 'gpt-x', name: 'GPT X' }] },
       selected: { provider: 'openai', model: 'gpt-x' },
     })
     const running = run(h)
     await settle()
-    // `Choose a model`, `Connect another provider`, `Start the session`.
-    await h.press(DOWN, ENTER)
-    await settle()
-    await h.press(ESCAPE)
-    await settle()
-    // Back at the checklist, with the selection untouched and no picker raised.
-    expect(h.text()).toContain('Start the session')
-    expect(h.selection.current).toEqual({ provider: 'openai', model: 'gpt-x' })
-    await h.press(DOWN, DOWN, ENTER)
-    await running
+    expect(h.mounted()).toBe(false)
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('Setup')
+    expect(transcript).toContain('openai/gpt-x')
+    expect(transcript).toContain('Ready.')
     expect(h.selection.current).toEqual({ provider: 'openai', model: 'gpt-x' })
     expect(h.mutations).toEqual([])
+    await running
   })
 
-  it('offers no configuration step, and still a way out, when no seam would accept one', async () => {
+  it('closes on the report when no mounted seam could remediate a warning', async () => {
     // Neither seam: the harness mounts a credential store by default now, and
-    // "no seam would accept one" has to mean exactly that.
+    // "no seam would accept one" has to mean exactly that. There is nothing a
+    // picker could do, so a one-item picker would be pure friction.
     const h = harness({ settings: false, credentials: false })
     const running = run(h)
     await settle()
-    expect(h.text()).not.toContain('Connect a provider')
-    expect(h.text()).toContain('Not now')
-    await h.press(ENTER)
-    await running
     expect(h.mounted()).toBe(false)
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('this profile mounts nothing that can configure a provider')
+    expect(transcript).toContain('no provider is configured yet')
+    // A warning setup cannot repair must never be closed with a clean bill.
+    expect(transcript).not.toContain('Ready.')
     expect(h.mutations).toEqual([])
+    await running
+  })
+
+  it('closes with its own line when the only warning is diagnostic', async () => {
+    // A healthy route and selection with no configuring seam: the report warns
+    // about Connecting, but no step can improve it, so the generic closing line
+    // runs instead of a one-item picker.
+    const h = harness({
+      registered: ['openai'],
+      configurable: ['openai'],
+      selected: { provider: 'openai', model: 'gpt-x' },
+      settings: false,
+      credentials: false,
+    })
+    const running = run(h)
+    await settle()
+    expect(h.mounted()).toBe(false)
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('this profile mounts nothing that can configure a provider')
+    expect(transcript).toContain('/connect and /model are always available')
+    expect(transcript).not.toContain('Ready.')
+    await running
   })
 
   it('stays inside a narrow or short terminal, because its picker is a bounded overlay', async () => {
