@@ -2,8 +2,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
+import type { LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
 import PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
 import type { Config, PermissionSelect } from '@deepseek-ai/dsh-permission-presets'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
@@ -59,12 +60,22 @@ function type(dispatch: () => ((key: Key) => void) | undefined, text: string): v
 async function fixture(options: {
   readonly projection?: PermissionSelect
   readonly commandListed?: boolean
+  /** Routes an adapter registers, for model discovery. */
+  readonly providers?: readonly string[]
+  /** Models each route advertises, keyed by route. */
+  readonly models?: Record<string, readonly { id: string; name: string }[]>
+  /** What the selected route advertises for reasoning, as the window caches it. */
+  readonly reasoning?: LlmModelReasoningInfo
+  /** The selection the window opens with. */
+  readonly selected?: ModelSelectionRef['current']
 } = {}): Promise<{
   readonly dispatch: () => ((key: Key) => void) | undefined
   readonly ctx: Context
   readonly commands: { readonly execute: ReturnType<typeof vi.fn> }
   readonly commits: string[][]
   readonly frames: string[][]
+  /** Whether the window re-resolved model metadata. */
+  readonly refreshModelInfo: ReturnType<typeof vi.fn>
 }> {
   const ctx = new Context()
   await ctx.plugin(TuiSlots)
@@ -84,12 +95,18 @@ async function fixture(options: {
   ctx.provide('commands', commands as never)
   ctx.provide('tools', { get: () => undefined })
   ctx.provide('userQuestions', {} as never)
+  ctx.provide('llm', {
+    listProviders: () => (options.providers ?? []).map(id => ({ id, name: id })),
+    listModels: async (provider: string) => options.models?.[provider] ?? [],
+    resolveModelInfo: async (provider: string, model: string) => ({ provider, id: model, name: model }),
+  } as never)
 
   const commits: string[][] = []
   const frames: string[][] = []
   const draw = (): void => { frames.push([...ctx.tuiSlots.compose(80, 24).lines]) }
   ctx.on('tui/render', draw)
   let dispatch: ((key: Key) => void) | undefined
+  const refreshModelInfo = vi.fn()
   const window = {
     ctx,
     terminal: { columns: () => 80, rows: () => 24 },
@@ -98,8 +115,8 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
-    modelInfo: { contextWindow: undefined, reasoning: undefined },
+    selection: { current: options.selected },
+    modelInfo: { contextWindow: undefined, reasoning: options.reasoning },
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },
     colorDepth: 0,
     palette: () => ({}),
@@ -110,7 +127,7 @@ async function fixture(options: {
     paintNow: draw,
     commit: lines => { commits.push([...lines]) },
     clear: () => {},
-    refreshModelInfo: () => {},
+    refreshModelInfo,
     setDispatch: (handler: ((key: Key) => void) | undefined) => { dispatch = handler },
     setExit: () => {},
   } as unknown as Window
@@ -135,7 +152,7 @@ async function fixture(options: {
     attached: { handle: { agent, dispose: async () => {} }, reopened: false },
   } as unknown as AttachOutcome
   void attachSession(window, outcome)
-  return { dispatch: () => dispatch, ctx, commands, commits, frames }
+  return { dispatch: () => dispatch, ctx, commands, commits, frames, refreshModelInfo }
 }
 
 /** Most recently painted terminal frame, as a reader sees it. */
@@ -283,6 +300,69 @@ describe('/thinking presentation command', () => {
     await flush()
     expect(mounted.commands.execute).not.toHaveBeenCalled()
     expect(mounted.commits.flat().map(stripAnsi)).not.toContain('· thinking:')
+  })
+})
+
+/** What a selected route advertises, for the /reasoning presentation tests. */
+const REASONING = {
+  efforts: [
+    { id: 'off', name: 'Off' },
+    { id: 'high', name: 'High' },
+    { id: 'max', name: 'Max' },
+  ],
+  defaultEffort: 'high',
+} as unknown as LlmModelReasoningInfo
+
+describe('/model and /reasoning presentation', () => {
+  const MODELS = { openai: [{ id: 'gpt-x', name: 'GPT X' }] }
+
+  it('marks a rejected model name as an error, never an acknowledgement', async () => {
+    const mounted = await fixture({ providers: ['openai'], models: MODELS })
+    type(mounted.dispatch, '/model does-not-exist')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    const rows = mounted.commits.flat().map(stripAnsi)
+    expect(rows).toContain('✗ no model named does-not-exist; type /model to choose from 1')
+    expect(rows.some(row => row.startsWith('· '))).toBe(false)
+    // Nothing changed, so nothing re-resolves the route's metadata.
+    expect(mounted.refreshModelInfo).not.toHaveBeenCalled()
+  })
+
+  it('marks an applied model change as a muted acknowledgement', async () => {
+    const mounted = await fixture({ providers: ['openai'], models: MODELS })
+    type(mounted.dispatch, '/model gpt-x')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    const rows = mounted.commits.flat().map(stripAnsi)
+    expect(rows).toContain('· model set to openai / gpt-x')
+    expect(rows.some(row => row.startsWith('✗'))).toBe(false)
+    expect(mounted.refreshModelInfo).toHaveBeenCalledOnce()
+  })
+
+  it('marks a rejected reasoning level as an error, never an acknowledgement', async () => {
+    const mounted = await fixture({
+      selected: { provider: 'openai', model: 'gpt-x' },
+      reasoning: REASONING,
+    })
+    type(mounted.dispatch, '/reasoning turbo')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    const rows = mounted.commits.flat().map(stripAnsi)
+    expect(rows).toContain('✗ no reasoning level named turbo; try one of: off, high, max, default')
+    expect(rows.some(row => row.startsWith('· '))).toBe(false)
+  })
+
+  it('marks an applied reasoning level as a muted acknowledgement', async () => {
+    const mounted = await fixture({
+      selected: { provider: 'openai', model: 'gpt-x' },
+      reasoning: REASONING,
+    })
+    type(mounted.dispatch, '/reasoning high')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    const rows = mounted.commits.flat().map(stripAnsi)
+    expect(rows).toContain('· reasoning effort set to high')
+    expect(rows.some(row => row.startsWith('✗'))).toBe(false)
   })
 })
 

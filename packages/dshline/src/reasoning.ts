@@ -17,6 +17,7 @@ import type { LlmModelReasoningInfo, LlmReasoningEffortInfo } from '@deepseek-ai
 import { promptSelect } from './select.ts'
 import type { SelectChoice } from './select.ts'
 import { rememberSelection } from './selection.ts'
+import type { SelectionOutcome } from './selection.ts'
 
 /**
  * The word that clears the effort, in both the argument and the picker.
@@ -118,15 +119,18 @@ function currentReasoningChoiceValue(
  * @param ctx - context carrying the default-model service.
  * @param selection - the agent's mutable selection ref.
  * @param effort - the effort to set, or undefined to restore the provider's default.
- * @returns a line to report in the transcript.
+ * @returns the applied change, always `done`: the ref below is written before
+ *   persistence is attempted, so a save failure only adds a note.
  */
 async function apply(
   ctx: Context,
   selection: ModelSelectionRef,
   effort: LlmReasoningEffortInfo | undefined,
-): Promise<string> {
+): Promise<SelectionOutcome> {
   const current = selection.current
-  if (current === undefined) return 'no model is selected; choose one with /model first'
+  if (current === undefined) {
+    return { kind: 'failed', message: 'no model is selected; choose one with /model first' }
+  }
   const next = {
     provider: current.provider,
     model: current.model,
@@ -140,7 +144,7 @@ async function apply(
   const said = effort === undefined
     ? 'reasoning effort cleared; the provider decides again'
     : `reasoning effort set to ${effort.id}`
-  return note === undefined ? said : `${said} \u00b7 ${note}`
+  return { kind: 'done', message: note === undefined ? said : `${said} \u00b7 ${note}` }
 }
 
 /**
@@ -149,7 +153,7 @@ async function apply(
  * @param selection - the agent's mutable selection ref.
  * @param reasoning - what the adapter published for the current route, when resolved.
  * @param argument - the text after `/reasoning`; empty opens the picker.
- * @returns a line to report in the transcript, or undefined when the user
+ * @returns a typed line to report in the transcript, or undefined when the user
  *   dismissed the picker without choosing.
  */
 export async function pickReasoning(
@@ -157,8 +161,10 @@ export async function pickReasoning(
   selection: ModelSelectionRef,
   reasoning: LlmModelReasoningInfo | undefined,
   argument: string,
-): Promise<string | undefined> {
-  if (selection.current === undefined) return 'no model is selected; choose one with /model first'
+): Promise<SelectionOutcome | undefined> {
+  if (selection.current === undefined) {
+    return { kind: 'failed', message: 'no model is selected; choose one with /model first' }
+  }
   const efforts = reasoning?.efforts ?? []
   const wanted = argument.trim()
   // `default` is not one of the adapter's levels — it deletes the stored
@@ -168,7 +174,7 @@ export async function pickReasoning(
   // An unresolved route and one that genuinely reasons at a fixed level look the
   // same from here, so the message names the route rather than claiming either.
   if (efforts.length === 0) {
-    return `${selection.current.model} advertises no reasoning levels`
+    return { kind: 'failed', message: `${selection.current.model} advertises no reasoning levels` }
   }
 
   if (wanted !== '') {
@@ -177,7 +183,7 @@ export async function pickReasoning(
     // leaves the user typing guesses at a list only the adapter knows.
     if (effort === undefined) {
       const names = [...efforts.map(one => one.id), DEFAULT_CHOICE].join(', ')
-      return `no reasoning level named ${wanted}; try one of: ${names}`
+      return { kind: 'failed', message: `no reasoning level named ${wanted}; try one of: ${names}` }
     }
     return apply(ctx, selection, effort)
   }

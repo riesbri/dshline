@@ -73,6 +73,7 @@ import type { AttachOutcome, AttachTarget } from './sessions/reopen.ts'
 import { shouldClearDisplay } from './sessions/reopen.ts'
 import { StreamBuffer } from './stream.ts'
 import { effortLabel, pickReasoning, reasoningValues } from './reasoning.ts'
+import type { SelectionOutcome } from './selection.ts'
 import { THINKING_VALUES, pickThinking, thinkingAcknowledgement, validThinkingArgument } from './thinking.ts'
 import { createTimingView, TurnTimer } from './timing.ts'
 import { planModeAfter } from './modes.ts'
@@ -145,6 +146,25 @@ function imageFilesystemFailure(error: unknown): string {
     case 'FS_SANDBOX_DENIED': return 'image file cannot be read by this profile'
     default: return 'image file could not be read'
   }
+}
+
+/**
+ * One selection outcome as a transcript row.
+ *
+ * Mirrors `outcomeLines` in connect, profiles, and plugins: escaped as a whole
+ * before styling, because the message can carry a typed model or effort name
+ * and a persistence failure's own words, none of it written by this frontend.
+ * The mark and role follow the fact the producer reported, never the sentence:
+ * a refused instruction is an error, an applied change is an acknowledgement.
+ * @param outcome - what the picker settled.
+ * @returns the single line to commit.
+ */
+function selectionOutcomeLine(outcome: SelectionOutcome): string {
+  const mark = outcome.kind === 'failed' ? '\u2717' : '\u00b7'
+  return paint(
+    escapeControls(`${mark} ${outcome.message}`),
+    outcome.kind === 'failed' ? 'error' : 'muted',
+  )
 }
 
 /** Fixed status row every ordinary live-region composition ends with. */
@@ -692,13 +712,22 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // the note depends on the real provider/model move alone.
         const before = selection.current
         const outcome = await pickModel(ctx, selection, rawInput)
-        if (outcome !== undefined) {
-          w.refreshModelInfo()
-          const lines = [paint(`· ${outcome}`, 'muted')]
-          const note = cacheTransitionNote(before, selection.current)
-          if (note !== undefined) lines.push(paint(`· ${note}`, 'muted'))
-          commit(lines)
+        if (outcome === undefined) {
+          draw()
+          return
         }
+        // Only a `done` is a model change, so only a `done` re-resolves metadata
+        // or earns a cache note. A refusal is presented from its own kind.
+        if (outcome.kind === 'failed') {
+          commit([selectionOutcomeLine(outcome)])
+          draw()
+          return
+        }
+        w.refreshModelInfo()
+        const lines = [selectionOutcomeLine(outcome)]
+        const note = cacheTransitionNote(before, selection.current)
+        if (note !== undefined) lines.push(paint(`· ${note}`, 'muted'))
+        commit(lines)
         draw()
       },
     },
@@ -752,7 +781,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // The levels are a short fixed set a person learns by heart, so
         // `/reasoning max` should not cost a picker.
         const outcome = await pickReasoning(ctx, selection, w.modelInfo.reasoning, rawInput)
-        if (outcome !== undefined) commit([paint(`· ${outcome}`, 'muted')])
+        if (outcome !== undefined) commit([selectionOutcomeLine(outcome)])
         draw()
       },
     },

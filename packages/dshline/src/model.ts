@@ -16,6 +16,7 @@ import type { LocalCommandChoice } from './local-commands.ts'
 import { promptSelect } from './select.ts'
 import type { SelectChoice } from './select.ts'
 import { rememberSelection } from './selection.ts'
+import type { SelectionOutcome } from './selection.ts'
 
 /** One offered model, kept beside its choice so nothing has to be parsed back. */
 export interface ModelOption {
@@ -176,19 +177,22 @@ function currentModelChoiceValue(
  * @param ctx - context carrying the llm registry and the slot registry.
  * @param selection - the agent's mutable selection ref.
  * @param argument - the text after `/model`; empty opens the picker.
- * @returns a line to report in the transcript, or undefined when the user
+ * @returns a typed line to report in the transcript, or undefined when the user
  *   dismissed the picker without choosing.
  */
 export async function pickModel(
   ctx: Context,
   selection: ModelSelectionRef,
   argument = '',
-): Promise<string | undefined> {
+): Promise<SelectionOutcome | undefined> {
   const { options, choices, failed } = await discover(ctx)
   if (choices.length === 0) {
-    return failed.length === 0
-      ? 'no provider route advertises a model; configure one first'
-      : `no models available: ${failed.join(', ')} could not be listed`
+    return {
+      kind: 'failed',
+      message: failed.length === 0
+        ? 'no provider route advertises a model; configure one first'
+        : `no models available: ${failed.join(', ')} could not be listed`,
+    }
   }
   const current = selection.current
   const named = argument.trim()
@@ -197,7 +201,10 @@ export async function pickModel(
     // Naming what IS on offer would mean listing every model every provider
     // advertises, which is what the picker is for; the count says how far it is.
     if (wanted === undefined) {
-      return `no model named ${named}; type /model to choose from ${String(options.length)}`
+      return {
+        kind: 'failed',
+        message: `no model named ${named}; type /model to choose from ${String(options.length)}`,
+      }
     }
     return apply(ctx, selection, wanted, current)
   }
@@ -251,14 +258,15 @@ async function stillSupported(
  * @param selection - the agent's mutable selection ref.
  * @param chosen - the model to select.
  * @param current - the selection being replaced, for what it carries forward.
- * @returns a line to report in the transcript.
+ * @returns the applied change, always `done`: the ref above is written before
+ *   persistence is attempted, so a save failure only adds a note.
  */
 async function apply(
   ctx: Context,
   selection: ModelSelectionRef,
   chosen: ModelOption,
   current: ModelSelectionRef['current'],
-): Promise<string> {
+): Promise<SelectionOutcome> {
   // Preserve the reasoning effort across the switch, but only when the target
   // route still advertises it \u2014 carrying forward one it does not would send
   // the very next turn straight into UNSUPPORTED_REASONING_EFFORT.
@@ -276,5 +284,5 @@ async function apply(
   if (wanted !== undefined && reasoningEffort === undefined) said.push('reasoning reset to provider default')
   const note = await rememberSelection(ctx, next)
   if (note !== undefined) said.push(note)
-  return said.join(' \u00b7 ')
+  return { kind: 'done', message: said.join(' \u00b7 ') }
 }
