@@ -308,6 +308,30 @@ export function filterRows<T extends ConnectRow>(rows: readonly T[], query: stri
 }
 
 /**
+ * How many rows the top-level Connect browser can select in one unfiltered reading.
+ *
+ * The one definition of the browser's row set, shared by its counter and by
+ * Setup's decision to offer a handed-off `/connect`. It counts browser ROWS,
+ * never available actions: a provider or sign-in row whose action picker has
+ * nothing to offer is still a row the reader can move to and select, which is
+ * why neither this function nor its callers is named for configuration or
+ * remediation.
+ *
+ * The three arrays do not add up one-for-one. Every declarable target is
+ * attached to the single synthetic "Add custom provider" row the browser
+ * draws, so `newRouteTargets` contributes one whether it holds a single entry
+ * or many; nothing may multiply the total by its length.
+ * @param state - the current reading.
+ * @returns the number of selectable rows; zero until a reading lands.
+ */
+export function connectSelectableCount(state: ConnectState): number {
+  if (state.kind !== 'ready') return 0
+  return state.providers.length
+    + state.signIns.length
+    + (state.newRouteTargets.length > 0 ? 1 : 0)
+}
+
+/**
  * Read the credential readiness for a provider row.
  *
  * A provider diagnostic remains separate from this credential judgement; a

@@ -38,6 +38,7 @@
  * @module dshline/setup/model
  */
 
+import { connectSelectableCount } from '../connect/index.ts'
 import type { ConnectCapabilities, ConnectReadiness, ConnectState } from '../connect/index.ts'
 import type { HarnessGeneration, SetupFacts, SetupSelection } from './harness.ts'
 
@@ -416,7 +417,13 @@ function remediationSteps(facts: SetupFacts): SetupStep[] {
   const selectedDiagnostic = connect.kind === 'ready' && facts.selected !== undefined
     ? connect.providers.find(row => row.provider === facts.selected?.provider)?.error
     : undefined
+  // A mounted seam is necessary but not sufficient. Opening /connect with no
+  // provider row, sign-in row, or create row is an empty browser whose only
+  // key is Escape, so the offer needs the browser's own unfiltered row set —
+  // the same count its counter uses — to be non-empty. The capability clause
+  // stays, because a row does not make a deployment able to write.
   const canConfigure = connect.kind === 'ready'
+    && connectSelectableCount(connect) > 0
     && (connect.capabilities.settings || connect.capabilities.credentials || connect.capabilities.authorization)
   const credentialMissing = facts.reason === 'credential-missing'
   // Connecting answers three warnings: no route can serve a turn at all, the

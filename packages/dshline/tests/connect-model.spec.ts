@@ -4,10 +4,13 @@ import { describe, expect, it } from 'vitest'
 import type {
   ConnectCapabilities,
   ConnectCreateRow,
+  ConnectNewRouteTarget,
   ConnectProviderRow,
   ConnectSignInRow,
+  ConnectState,
 } from '../src/connect/model.ts'
 import {
+  connectSelectableCount,
   derivedCredentialRef,
   filterRows,
   matchesRow,
@@ -66,6 +69,52 @@ function signIn(overrides: Partial<ConnectSignInRow> = {}): ConnectSignInRow {
     ...overrides,
   }
 }
+
+/**
+ * A complete reading, for the row-set tests below.
+ * @param providers - provider rows.
+ * @param signIns - sign-in rows.
+ * @param capabilities - which seams are mounted.
+ * @param newRouteTargets - declarable targets.
+ * @returns the reading.
+ */
+function reading(
+  providers: readonly ConnectProviderRow[] = [],
+  signIns: readonly ConnectSignInRow[] = [],
+  capabilities: ConnectCapabilities = ALL,
+  newRouteTargets: readonly ConnectNewRouteTarget[] = [],
+): ConnectState {
+  return { kind: 'ready', providers, signIns, capabilities, newRouteTargets }
+}
+
+describe('how many rows the unfiltered browser can select', () => {
+  it('counts nothing until a reading lands', () => {
+    expect(connectSelectableCount({ kind: 'loading' })).toBe(0)
+    expect(connectSelectableCount({ kind: 'failed', message: 'nope' })).toBe(0)
+  })
+
+  it('counts nothing for a complete reading with nothing in it', () => {
+    expect(connectSelectableCount(reading())).toBe(0)
+  })
+
+  it('counts provider rows and sign-in rows once each', () => {
+    expect(connectSelectableCount(reading([provider()]))).toBe(1)
+    expect(connectSelectableCount(reading([], [signIn()]))).toBe(1)
+    expect(connectSelectableCount(reading([provider()], [signIn()]))).toBe(2)
+  })
+
+  it('counts any number of create targets as the one create row', () => {
+    // The browser draws ONE "Add custom provider" row however many addresses
+    // could satisfy it, so this count must not be multiplied by the array
+    // length — the bug that let `/setup` and the counter disagree.
+    const targets: readonly ConnectNewRouteTarget[] = [
+      { settingsNs: 'llm-pi-ai', parentPath: ['providers'], revision: 3 },
+      { settingsNs: 'llm-other', parentPath: ['providers'], revision: 1 },
+    ]
+    expect(connectSelectableCount(reading([], [], ALL, targets))).toBe(1)
+    expect(connectSelectableCount(reading([provider()], [], ALL, targets))).toBe(2)
+  })
+})
 
 describe('readiness', () => {
   it('is ready only for a live route whose named reference is confirmed present', () => {

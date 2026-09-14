@@ -411,4 +411,25 @@ describe('the create-route entry point', () => {
     expect(view.text()).toContain('Add custom provider')
     expect(view.text()).not.toContain('openai')
   })
+
+  it('counts the create row in the unfiltered total, never reading "3 of 2"', () => {
+    // `shown` and `total` must describe the same row set. Before the shared
+    // count, the create row was visible but excluded from the denominator.
+    const shown = mount(ready([provider()], [signIn()], true, [TARGET])).text()
+    expect(shown).toContain('3 rows')
+    expect(shown).not.toContain('3 of 2')
+  })
+
+  it('narrows that same total when a query matches only the create row', () => {
+    const view = mount(ready([provider()], [signIn()], true, [TARGET]))
+    view.render()
+    view.press({ kind: 'text', text: 'custom' })
+    expect(view.text()).toContain('1 of 3')
+  })
+
+  it('calls a lone create row one row rather than "1 of 0"', () => {
+    const shown = mount(ready([], [], true, [TARGET])).text()
+    expect(shown).toContain('1 row')
+    expect(shown).not.toContain('1 of 0')
+  })
 })

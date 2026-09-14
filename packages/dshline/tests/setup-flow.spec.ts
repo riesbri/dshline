@@ -543,6 +543,23 @@ describe('the guided flow', () => {
     await running
   })
 
+  it('closes on the report when the mounted seams still cannot fill /connect', async () => {
+    // Settings and credentials are mounted, so a capability check alone would
+    // offer Connect — but no provider, sign-in, or create row exists, so the
+    // browser it opened would show nothing to select. The report still warns;
+    // the flow just ends without raising an empty picker.
+    const h = harness({})
+    const running = run(h)
+    await settle()
+    expect(h.mounted()).toBe(false)
+    const transcript = h.committed.join('\n')
+    expect(transcript).toContain('no provider route is active')
+    expect(transcript).toContain('no provider is configured yet')
+    expect(transcript).not.toContain('Ready.')
+    expect(h.mutations).toEqual([])
+    await running
+  })
+
   it('closes with its own line when the only warning is diagnostic', async () => {
     // A healthy route and selection with no configuring seam: the report warns
     // about Connecting, but no step can improve it, so the generic closing line

@@ -72,6 +72,7 @@ export type {
   ConnectState,
 } from './model.ts'
 export {
+  connectSelectableCount,
   derivedCredentialRef,
   filterRows,
   matchesRow,
