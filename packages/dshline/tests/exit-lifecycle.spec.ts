@@ -9,6 +9,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
@@ -40,6 +41,10 @@ interface Fixture {
   readonly events: string[]
   readonly agent: { readonly status: 'idle' | 'running'; readonly cancel: ReturnType<typeof vi.fn> }
   readonly commandSignal: () => AbortSignal | undefined
+  /** Live-region repaints requested so far. */
+  readonly draws: () => number
+  /** Deliver one committed session event to the attachment's live listener. */
+  readonly emit: (event: SessionEvent) => void
 }
 
 /** Let the attachment's submitted command reach its Harness double. */
@@ -96,6 +101,8 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     exitHandler = handler
   }
   let dispatch: ((key: Key) => void) | undefined
+  let draws = 0
+  const session = { id: 'exit-test', header: { cwd: '/workspace' }, events: [] }
   const windowRequestExit = createWindowExitRequest(exit, () => exitHandler)
   const window = {
     ctx,
@@ -119,7 +126,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     setPalette: () => {},
     themeSettings: {},
     pendingTask: undefined,
-    draw: () => {},
+    draw: () => { draws += 1 },
     paintNow: () => {},
     commit: () => {},
     clear: () => {},
@@ -129,7 +136,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     setExit,
   } as unknown as Window
   const agent = {
-    session: { id: 'exit-test', header: { cwd: '/workspace' }, events: [] },
+    session,
     status: options.status ?? 'idle',
     inbox: { nextStep: [], nextTurn: [] },
     followup: vi.fn(),
@@ -154,6 +161,8 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     events,
     agent,
     commandSignal: () => commandSignal,
+    draws: () => draws,
+    emit: event => { ctx.emit('session/event', session, event) },
   }
 }
 
@@ -237,5 +246,24 @@ describe('attachment exit lifecycle', () => {
     const f = await fixture({ cleanupFailure: true })
     f.requestExit()
     expect(f.exit).toHaveBeenCalledOnce()
+  })
+
+  it('clears a pending attention notice on teardown without a stale redraw', async () => {
+    // The notice's deadline belongs to the attachment. A session switch or exit
+    // must cancel it outright; otherwise the timer would paint the departed
+    // session's notice into whatever the window shows next.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const f = await fixture()
+      f.emit({ type: 'permission/preset', seq: 1, time: 1, data: { preset: 'review' } } as unknown as SessionEvent)
+      const afterNotice = f.draws()
+      expect(afterNotice).toBeGreaterThan(0)
+      f.requestExit()
+      const afterExit = f.draws()
+      vi.advanceTimersByTime(60_000)
+      expect(f.draws()).toBe(afterExit)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

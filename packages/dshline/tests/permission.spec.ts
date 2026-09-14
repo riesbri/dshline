@@ -20,6 +20,23 @@ import { pricingFrom } from '../src/usage.ts'
 import type { AttachOutcome } from '../src/sessions/reopen.ts'
 import type { Window } from '../src/window.ts'
 
+/**
+ * What the mocked Setup conductor does next: apply one route and acknowledge it,
+ * or do nothing at all (a refusal or dismissal).
+ *
+ * Setup's real flow is covered by `setup-flow.spec.ts`; here it only has to
+ * prove the attachment's `onModelChanged` boundary turns an applied change into
+ * a notice without Setup knowing anything about attention.
+ */
+const SETUP = vi.hoisted(() => ({ next: undefined as { provider: string; model: string } | undefined }))
+vi.mock('../src/setup/index.ts', () => ({
+  runSetup: async (spec: { selection: { current: unknown }; onModelChanged: () => void }) => {
+    if (SETUP.next === undefined) return
+    spec.selection.current = SETUP.next
+    spec.onModelChanged()
+  },
+}))
+
 /** A deployment-defined projection, deliberately unlike dsh-base's preset table. */
 const OPTIONS: PermissionSelect = {
   options: [
@@ -68,6 +85,8 @@ async function fixture(options: {
   readonly reasoning?: LlmModelReasoningInfo
   /** The selection the window opens with. */
   readonly selected?: ModelSelectionRef['current']
+  /** Mount a default-model service whose save rejects, for applied-but-unsaved. */
+  readonly saveFailure?: boolean
 } = {}): Promise<{
   readonly dispatch: () => ((key: Key) => void) | undefined
   readonly ctx: Context
@@ -100,6 +119,11 @@ async function fixture(options: {
     listModels: async (provider: string) => options.models?.[provider] ?? [],
     resolveModelInfo: async (provider: string, model: string) => ({ provider, id: model, name: model }),
   } as never)
+  if (options.saveFailure === true) {
+    ctx.provide('agentDefaultModel', {
+      saveSelection: async () => { throw new Error('settings are read-only') },
+    } as never)
+  }
 
   const commits: string[][] = []
   const frames: string[][] = []
@@ -207,6 +231,12 @@ describe('real Harness permission capability', () => {
     const logged = session.snapshotEvents()
     expect(logged.filter(event => event.type === 'command/run')).toHaveLength(1)
     expect(logged.filter(event => event.type === 'command/done')).toHaveLength(1)
+    // The durable log-only intent event the attention notice reads, exactly as
+    // Harness publishes it — the notice is derived from this, never from the
+    // command's `preset review` prose. The last one is the switch; the session's
+    // constructor seed pinned `normal` before any command ran.
+    const presets = logged.filter(event => event.type === 'permission/preset')
+    expect(presets.at(-1)?.data).toEqual({ preset: 'review' })
     expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('review')
   })
 })
@@ -363,6 +393,139 @@ describe('/model and /reasoning presentation', () => {
     const rows = mounted.commits.flat().map(stripAnsi)
     expect(rows).toContain('· reasoning effort set to high')
     expect(rows.some(row => row.startsWith('✗'))).toBe(false)
+  })
+})
+
+describe('attention on applied selection changes', () => {
+  const MODELS = { openai: [{ id: 'gpt-x', name: 'GPT X' }] }
+
+  it('flashes a route notice when /model actually changes the model', async () => {
+    const mounted = await fixture({ providers: ['openai'], models: MODELS })
+    type(mounted.dispatch, '/model gpt-x')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).toContain('model → openai/gpt-x')
+    // The durable acknowledgement is committed as well; the notice is emphasis.
+    expect(mounted.commits.flat().map(stripAnsi)).toContain('· model set to openai / gpt-x')
+  })
+
+  it('stays quiet when /model selects the route already in force', async () => {
+    const mounted = await fixture({
+      providers: ['openai'],
+      models: MODELS,
+      selected: { provider: 'openai', model: 'gpt-x' },
+    })
+    type(mounted.dispatch, '/model gpt-x')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).not.toContain('model →')
+  })
+
+  it('stays quiet when /model fails', async () => {
+    const mounted = await fixture({ providers: ['openai'], models: MODELS })
+    type(mounted.dispatch, '/model does-not-exist')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).not.toContain('model →')
+  })
+
+  it('still flashes when the live route change could not be saved', async () => {
+    // The ref is written before persistence, so the next turn really does use
+    // the new model; a storage failure is a note, not an undo.
+    const mounted = await fixture({ providers: ['openai'], models: MODELS, saveFailure: true })
+    type(mounted.dispatch, '/model gpt-x')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).toContain('model → openai/gpt-x')
+    expect(mounted.commits.flat().map(stripAnsi).join('\n')).toContain('could not save it as the default')
+  })
+
+  it('flashes when /reasoning changes the stored effort', async () => {
+    const mounted = await fixture({
+      selected: { provider: 'openai', model: 'gpt-x' },
+      reasoning: REASONING,
+    })
+    type(mounted.dispatch, '/reasoning max')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).toContain('reasoning → max')
+  })
+
+  it('stays quiet when the same explicit effort is selected again', async () => {
+    const mounted = await fixture({
+      selected: { provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' },
+      reasoning: REASONING,
+    })
+    type(mounted.dispatch, '/reasoning max')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).not.toContain('reasoning →')
+  })
+
+  it('names the provider default when the explicit effort is cleared', async () => {
+    const mounted = await fixture({
+      selected: { provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' },
+      reasoning: REASONING,
+    })
+    type(mounted.dispatch, '/reasoning default')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).toContain('reasoning → provider default')
+  })
+
+  it('stays quiet when the reasoning instruction is refused', async () => {
+    const mounted = await fixture({
+      selected: { provider: 'openai', model: 'gpt-x' },
+      reasoning: REASONING,
+    })
+    type(mounted.dispatch, '/reasoning turbo')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).not.toContain('reasoning →')
+  })
+
+  it('still flashes when the live effort change could not be saved', async () => {
+    const mounted = await fixture({
+      selected: { provider: 'openai', model: 'gpt-x' },
+      reasoning: REASONING,
+      saveFailure: true,
+    })
+    type(mounted.dispatch, '/reasoning max')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).toContain('reasoning → max')
+  })
+})
+
+describe('attention after Setup applies a model', () => {
+  it('shows the route notice when Setup actually changes the model', async () => {
+    // The conductor only acknowledges the change through `onModelChanged`; the
+    // attachment's comparison against the last route seen decides whether that
+    // was a transition. Setup itself never formats a notice.
+    const mounted = await fixture({ selected: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    SETUP.next = { provider: 'openai', model: 'gpt-x' }
+    type(mounted.dispatch, '/setup')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).toContain('model → openai/gpt-x')
+  })
+
+  it('stays quiet when Setup ends without changing anything', async () => {
+    const mounted = await fixture({ selected: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    SETUP.next = undefined
+    type(mounted.dispatch, '/setup')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).not.toContain('model →')
+  })
+
+  it('stays quiet when Setup ends on the route already in force', async () => {
+    const mounted = await fixture({ selected: { provider: 'openai', model: 'gpt-x' } })
+    SETUP.next = { provider: 'openai', model: 'gpt-x' }
+    type(mounted.dispatch, '/setup')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(frame(mounted.frames)).not.toContain('model →')
   })
 })
 

@@ -118,6 +118,8 @@ A model name is pinned to the right edge in some interfaces, which reads well an
 
 Room for one hint is held back before any of that is decided, so a richer reading can never be the reason the last hint disappears. Without that, adding the session total was enough to leave an eighty-column terminal — the width most of them open at — showing every number and no help at all. What gets given up instead is the bar, which is a picture of numbers printed beside it; a hint is the only place this interface says how to leave it.
 
+A consequential change can also borrow the activity segment for a few seconds. Compaction and permission changes are Harness-backed durable Session events that replay with the session; an applied model or reasoning change is a local command whose acknowledgement is committed native scrollback in this window alone. Either acknowledgement can scroll away before anyone reads it, so the change briefly takes the place of `activity`, in the warning role, and then whatever the session is doing returns on its own. It is emphasis, never a second record: it is not persisted, it is not replayed, and the durable event or committed acknowledgement it points at is unchanged. There is one slot, and a newer notice replaces the older one rather than queueing behind it.
+
 ## Prices are shipped, and every one of them is wrong eventually
 
 Tokens are counted by the provider and read out of the session log, so `↑` and `↓` are what you were billed for. They are folded in the same projection that draws the transcript, which is why reopening a session brings its totals back: the replay walks the same events past the same counter, and there is no second restore path to fall out of step with the first.
