@@ -542,3 +542,59 @@ describe('host capability health on a row', () => {
     expect(text).toContain('provider "absent" unavailable in this Host')
   })
 })
+
+describe('the overflow hint answers a question about choices', () => {
+  /**
+   * One composition row carrying a config summary, so selecting it earns a
+   * detail line and the physical document grows longer than the choice list.
+   * @param index - the row's index, used for its id, path, and name.
+   * @returns the row.
+   */
+  function detailed(index: number): CompositionRow {
+    return row({
+      locator: { steps: [{ index, name: `@x/p${String(index)}`, id: `p${String(index)}` }] },
+      path: [`p${String(index)}`],
+      id: `p${String(index)}`,
+      name: `@x/p${String(index)}`,
+      configSummary: `cfg ${String(index)}`,
+    })
+  }
+
+  it('does not claim more below for the selected row detail alone', () => {
+    // Capacity is three (10 - PLUGINS_FIXED_ROWS - two header rows). Three
+    // choices fill it exactly; the last choice's own detail line is the only
+    // row below, and selecting a row is not another choice.
+    const view = mount(ready([detailed(0), detailed(1), detailed(2)]))
+    view.render(90, 10)
+    view.press(key('down'), key('down'))
+    const text = view.text(90, 10)
+    expect(text).toContain('3 rows')
+    expect(text).not.toContain('more below')
+  })
+
+  it('still claims more below when a real entry is hidden', () => {
+    // Capacity two at height 9: selecting p0 inserts its detail, which pushes
+    // p1 and p2 — real choices — below the window. The hint must survive.
+    const view = mount(ready([detailed(0), detailed(1), detailed(2)]))
+    const text = view.text(90, 9)
+    expect(text).toContain('more below')
+  })
+
+  it('does not claim more below when later choices are already visible', () => {
+    // A tall window holds every choice. An index comparison (0 < 2) would still
+    // believe later rows are hidden, so this pins the viewport-based condition.
+    const view = mount(ready([detailed(0), detailed(1), detailed(2)]))
+    const text = view.text(90, 13)
+    expect(text).toContain('3 rows')
+    expect(text).not.toContain('more below')
+  })
+
+  it('does not claim more below for a single detailed match', () => {
+    // Capacity one at height 8: the sole choice is visible and only its detail
+    // is below.
+    const view = mount(ready([detailed(0)]))
+    const text = view.text(90, 8)
+    expect(text).toContain('1 row')
+    expect(text).not.toContain('more below')
+  })
+})
