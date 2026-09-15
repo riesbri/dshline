@@ -18,7 +18,8 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { LAUNCHER_PACKAGE, onPath, resolveLauncher } from '../src/launcher.ts'
+import { LAUNCHER_PACKAGE, onPath, resolveLauncher, splitCommandLine as splitFromSource } from '../src/launcher.ts'
+import { splitCommandLine as splitFromWrapper } from '../bin/dshline.mjs'
 
 let dirs: string[] = []
 
@@ -117,8 +118,45 @@ describe('DSH_HARNESS, when the launcher is a source checkout', () => {
     expect(found.launcher.cwd).toBe(dir)
   })
 
-  it('reports a directory that is not a checkout', async () => {
-    const dir = await tempDir()
+  it('keeps a quoted program path whole, which Windows needs', async () => {
+    // Node lives under `C:\Program Files\nodejs` on a default Windows install, and a
+    // checkout naming its interpreter in full is one token only because it is quoted.
+    // Splitting on whitespace turned it into `C:\Program` plus
+    // `Files\nodejs\node.exe`, and the launch failed with ENOENT beside a checkout
+    // that worked from a shell. The harness's own script happens to use a bare `node`,
+    // which is why this went unnoticed; any machine whose PATH needs the full path is
+    // where it shows.
+    const dir = await checkout('"C:\\Program Files\\nodejs\\node.exe" apps/cli.ts')
+    const found = resolveLauncher({ DSH_HARNESS: dir }, NO_PACKAGES)
+    if (found.kind !== 'found') throw new Error('expected found')
+    expect(found.launcher.command).toBe('C:\\Program Files\\nodejs\\node.exe')
+    expect(found.launcher.prefix).toEqual(['apps/cli.ts'])
+  })
+
+  it('marks where the launcher came from, which decides the pnpm remedy', async () => {
+    // Not how it is run: what a prerequisite failure should say. A checkout declares
+    // its own pnpm in `packageManager`, so corepack is the remedy that keeps that
+    // version; a package install gets the global one.
+    const checkoutDir = await checkout('node bin.ts')
+    const local = resolveLauncher({ DSH_HARNESS: checkoutDir }, NO_PACKAGES)
+    if (local.kind !== 'found') throw new Error('expected found')
+    expect(local.launcher.origin).toBe('checkout')
+
+    const binDirectory = await tempDir()
+    const bin = join(binDirectory, 'dsh')
+    await writeFile(bin, '', 'utf8')
+    const explicit = resolveLauncher({ DSH_BIN: bin }, NO_PACKAGES)
+    if (explicit.kind !== 'found') throw new Error('expected found')
+    expect(explicit.launcher.origin).toBe('package')
+
+    const path = await tempDir()
+    await writeFile(join(path, 'dsh'), '', 'utf8')
+    const found = resolveLauncher({ PATH: path }, NO_PACKAGES)
+    if (found.kind !== 'found') throw new Error('expected found')
+    expect(found.launcher.origin).toBe('package')
+  })
+
+  it('reports a directory that is not a checkout', async () => {    const dir = await tempDir()
     const found = resolveLauncher({ DSH_HARNESS: dir }, NO_PACKAGES)
     expect(found.kind).toBe('misconfigured')
     if (found.kind !== 'misconfigured') throw new Error('expected misconfigured')
@@ -229,6 +267,28 @@ describe('one launcher policy, two implementations', () => {
 
   it('still runs the package fallback through this Node in the wrapper too', () => {
     expect(wrapper).toContain('process.execPath')
+  })
+
+  it('splits a checkout command line identically in both copies', () => {
+    // A `dsh` script naming its interpreter in full is the case that needs quoting, and
+    // a wrapper honoring quotes while `/profiles` did not would mean a session that
+    // launches where a profile mutation then fails, or the reverse. Asserted as
+    // equality of the two implementations rather than of each against a literal, so
+    // whichever one drifts is the one that fails.
+    const lines = [
+      'node --import tsx/esm apps/cli/src/bin.ts',
+      '"C:\\Program Files\\nodejs\\node.exe" apps/cli.ts',
+      "'/opt/my node/bin/node' apps/cli.ts",
+      'node ""',
+      '   ',
+      'pnpm dsh',
+    ]
+    for (const line of lines) {
+      expect(splitFromWrapper(line), line).toEqual(splitFromSource(line))
+    }
+    // And the answer is the useful one, not two copies agreeing on something wrong.
+    expect(splitFromSource('"C:\\Program Files\\nodejs\\node.exe" apps/cli.ts'))
+      .toEqual(['C:\\Program Files\\nodejs\\node.exe', 'apps/cli.ts'])
   })
 
   it('names the Windows shim case in both PATH lookups', () => {

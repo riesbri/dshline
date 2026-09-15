@@ -17,11 +17,27 @@
  * involvement: the mutation is `dsh plugin --profile dshline add` for this wrapper's OWN
  * version under dshline's release-age window (see `installArguments`), run
  * through the launcher found below, because the harness owns profile initialization,
- * package installation, pnpm, the bundle list, and every reconciliation between them.
- * This wrapper decides only whether to offer that one command — and only when the
- * profile has never been initialized at all. A profile that exists and is broken is the
- * harness's to diagnose; a second package manager here would be a second answer to the
- * same question.
+ * package installation, the bundle list, and every reconciliation between them.
+ *
+ * Three narrow things it does decide, and each exists because leaving it to the
+ * harness produced a failure a user could not act on:
+ *
+ * - Whether `pnpm` is reachable BEFORE it offers to mutate anything. The harness
+ *   installs a profile's plugins with pnpm, so a machine without it got a profile
+ *   created, an install that never ran, and a message about a command not found.
+ * - Whether this package is actually recorded in its own profile (see `profileState`).
+ *   A manifest is written before the install runs, so "the profile exists" was never
+ *   the same claim as "setup finished", and treating the two as one launched a
+ *   frontend into an empty profile — a blank terminal with no way out.
+ * - Whether the profile's recorded release is the release this wrapper is. The profile
+ *   holds the frontend that runs, so a pair that disagrees died inside the harness on
+ *   an error naming its own internals.
+ *
+ * What it still does not do is judge profile health. A coherent bundle list, a
+ * resolvable node_modules, another plugin's breakage: those stay the harness's to
+ * diagnose, and a second package manager here would be a second answer to the same
+ * question. The three questions above are about dshline's own package in dshline's own
+ * profile, which is the part this wrapper is entitled to answer.
  *
  * Deliberately a launcher and nothing else: it starts no session logic of its own,
  * so there is only ever one implementation of the frontend to reason about.
@@ -113,8 +129,60 @@ const CANCELLED = 130
 /**
  * How to run the harness launcher: a command and any arguments that must precede
  * the ones this wrapper passes.
- * @typedef {{ command: string, prefix: string[], cwd?: string, describe: string }} Launcher
+ *
+ * `origin` is not how the launcher is run — it is what a prerequisite failure should
+ * say. A checkout gets pnpm through its own declaration; a package install gets it
+ * globally. Reading it from the launcher rather than from the environment keeps the
+ * two together, since the launcher already knows which mechanism produced it.
+ * @typedef {{ command: string, prefix: string[], cwd?: string, describe: string, origin: 'package' | 'checkout' }} Launcher
  */
+
+/**
+ * Split a command line from a manifest into a program and its arguments.
+ *
+ * Quote-aware, because a command line is what a shell would read and a program path
+ * may legally contain a space. The one real case is Windows: Node lives under
+ * `C:\Program Files\nodejs` on a default install, so a checkout whose `dsh` script
+ * names its interpreter in full — `"C:\Program Files\nodejs\node.exe" apps/cli.ts` —
+ * was split into `C:\Program` and `Files\nodejs\node.exe`, and the launch failed with
+ * ENOENT beside a checkout that worked from a shell. The harness's own script happens
+ * to use a bare `node`, which is why this survived: any machine whose PATH needs the
+ * full path is where it shows.
+ *
+ * Not a shell parser and deliberately not one: no expansion, no escapes, no
+ * redirection. A value that needs those is a value this cannot honour, and the
+ * alternative — running it through a shell — is the one thing this file never does.
+ * @param line - the command line, as a manifest wrote it.
+ * @returns the program and its arguments, in order.
+ */
+export function splitCommandLine(line) {
+  const parts = []
+  let current = ''
+  let quote = ''
+  let quoted = false
+  for (const character of line.trim()) {
+    if (quote !== '') {
+      if (character === quote) quote = ''
+      else current += character
+      continue
+    }
+    if (character === '"' || character === '\'') {
+      quote = character
+      quoted = true
+      continue
+    }
+    if (/\s/u.test(character)) {
+      // A quoted empty argument is still an argument; an unquoted run of spaces is not.
+      if (quoted || current !== '') parts.push(current)
+      current = ''
+      quoted = false
+      continue
+    }
+    current += character
+  }
+  if (quoted || current !== '') parts.push(current)
+  return parts
+}
 
 /**
  * Where a command is on PATH.
@@ -127,11 +195,12 @@ const CANCELLED = 130
  * run: `spawn('dsh')` on Windows looks for a `dsh` with no extension and finds
  * nothing.
  * @param name - the command to look for.
+ * @param env - the environment whose PATH is searched; defaults to this process's.
  * @returns the path of the first match, or undefined when there is none.
  */
-function onPath(name) {
+function onPath(name, env = process.env) {
   const candidates = process.platform === 'win32' ? [`${name}.cmd`, `${name}.exe`, `${name}.bat`, name] : [name]
-  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+  for (const directory of (env.PATH ?? env.Path ?? '').split(delimiter)) {
     if (directory === '') continue
     for (const candidate of candidates) {
       const path = join(directory, candidate)
@@ -160,7 +229,7 @@ function findLauncher() {
     if (!existsSync(configured)) {
       return { error: `$DSH_BIN points at ${configured}, which does not exist.${sourceCheckoutHint(configured)}` }
     }
-    return { command: configured, prefix: [], describe: `$DSH_BIN (${configured})` }
+    return { command: configured, prefix: [], describe: `$DSH_BIN (${configured})`, origin: 'package' }
   }
   const checkout = (process.env.DSH_HARNESS ?? '').trim()
   if (checkout !== '') {
@@ -179,21 +248,22 @@ function findLauncher() {
       return { error: `${manifestPath} has no "${HARNESS_SCRIPT}" script, so this does not look like a harness checkout.` }
     }
     // The script is a plain command line — `node --import tsx/esm apps/cli/src/bin.ts`
-    // — with paths relative to the checkout, so it runs from there. Split on
-    // whitespace because that is what the value is; nothing here quotes arguments.
-    const [program, ...rest] = command.trim().split(/\s+/u)
+    // — with paths relative to the checkout, so it runs from there. Split the way a
+    // shell would read it, so a quoted program path survives; see `splitCommandLine`.
+    const [program, ...rest] = splitCommandLine(command)
     return {
       command: program ?? 'node',
       prefix: rest,
       cwd: expanded,
       describe: `$DSH_HARNESS (${expanded}: ${command})`,
+      origin: 'checkout',
     }
   }
   const found = onPath('dsh')
   if (found !== undefined) {
     // The bare name everywhere but Windows, so Node resolves it the way a shell
     // would; the shim's own path there, because a bare `dsh` names no file.
-    return { command: process.platform === 'win32' ? found : HARNESS_SCRIPT, prefix: [], describe: 'dsh on your PATH' }
+    return { command: process.platform === 'win32' ? found : HARNESS_SCRIPT, prefix: [], describe: 'dsh on your PATH', origin: 'package' }
   }
   try {
     const require = createRequire(import.meta.url)
@@ -205,7 +275,7 @@ function findLauncher() {
     if (!existsSync(script)) return undefined
     // Run through this Node rather than the script's own shebang, so it does not
     // matter whether the file is executable in the install that provided it.
-    return { command: process.execPath, prefix: [script], describe: `${LAUNCHER_PACKAGE} (${script})` }
+    return { command: process.execPath, prefix: [script], describe: `${LAUNCHER_PACKAGE} (${script})`, origin: 'package' }
   } catch {
     return undefined
   }
@@ -232,23 +302,81 @@ function profileDirectory() {
 }
 
 /**
- * Whether the harness has ever initialized this profile.
+ * Spec forms that name a folder, a link, or a version-control source rather than a
+ * registry release.
  *
- * The manifest, not the directory: `dsh plugin` decides the same way — it
- * initializes when `package.json` is absent and treats the profile as existing when
- * it is there — and an interrupted first install leaves the directory behind without
- * one. A wrapper that asked whether the folder existed would then refuse to offer
- * setup for a profile the harness itself considers uninitialized.
- *
- * Nothing beyond the manifest is examined on purpose. Absent dependencies, an empty
- * node_modules, a package that will not resolve, a malformed bundle list — those are
- * an existing profile that is broken, and the harness's loader is the authority that
- * says so. A wrapper that reinstalled on any of them would hide the diagnosis behind
- * a package operation nobody asked for.
- * @returns whether the profile manifest exists.
+ * A profile built from a checkout records a path. A path is not a version: it cannot
+ * be compared with this wrapper's own release, and reporting it as a stale one would
+ * break the supported way to run unreleased code. Source-checkout development is a
+ * first-class mode, so the state model has to tell the two apart rather than reading
+ * "not this exact version string" as "wrong".
  */
-function profileInitialized() {
-  return existsSync(join(profileDirectory(), 'package.json'))
+const SOURCE_SPEC = /^(?:file:|link:|portal:|workspace:|git\+|github:|gitlab:|bitbucket:|https?:)/iu
+
+/**
+ * Whether a dependency spec names a folder or a remote source rather than a release.
+ * @param spec - the recorded dependency spec.
+ * @returns whether it is a source spec.
+ */
+function isSourceSpec(spec) {
+  return SOURCE_SPEC.test(spec)
+    // Bare paths, in the spellings pnpm accepts: `./x`, `../x`, `/x`, `C:\x`, `\\host\x`.
+    || spec.startsWith('.')
+    || spec.startsWith('/')
+    || spec.startsWith('\\')
+    || /^[A-Za-z]:[\\/]/u.test(spec)
+}
+
+/**
+ * The first release-shaped version inside a dependency spec.
+ *
+ * Only the leading `major.minor.patch`, with any prerelease tag, because that is what
+ * a comparison between a wrapper and a profile is about; the range operator in front
+ * of it (`^`, `~`, `>=`) says how the install was allowed to move, not which release
+ * is recorded.
+ * @param spec - the recorded dependency spec.
+ * @returns the version, or undefined when the spec names no release.
+ */
+export function versionInSpec(spec) {
+  return /(?<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/u.exec(spec)?.groups?.version
+}
+
+/**
+ * What this package's own profile says about this package — and nothing else.
+ *
+ * The narrow question this wrapper is entitled to answer, because it is about its own
+ * package in its own profile, and because answering it wrong is what turned a failed
+ * setup into a blank terminal. `dsh plugin` WRITES the manifest before it installs
+ * anything, so a manifest on disk proves a setup began and never that one finished;
+ * the dependency list is the first thing that can tell the two apart.
+ *
+ * Everything else about a profile stays the harness's judgement: a coherent bundle
+ * list, a resolvable node_modules, another plugin's breakage. Reinstalling on any of
+ * those would hide a diagnosis behind a package operation nobody asked for.
+ *
+ * Four states, and the two that are easy to conflate are kept apart on purpose:
+ * `incomplete` is a setup that did not finish, while `registry` with a different
+ * version is a setup that finished and then went out of step with this wrapper. They
+ * need different sentences and, in the end, the same repair.
+ * @param profileDir - the profile folder; defaults to this wrapper's own profile.
+ * @returns one of `absent`, `incomplete`, `local`, or `registry`.
+ */
+export function profileState(profileDir = profileDirectory()) {
+  const manifestPath = join(profileDir, 'package.json')
+  if (!existsSync(manifestPath)) return { kind: 'absent' }
+  let manifest
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  } catch {
+    // A manifest that cannot be read describes no installed package, which is the
+    // same answer as one that lists none.
+    return { kind: 'incomplete' }
+  }
+  const recorded = manifest?.dependencies?.[PACKAGE]
+  if (typeof recorded !== 'string' || recorded.trim() === '') return { kind: 'incomplete' }
+  const spec = recorded.trim()
+  if (isSourceSpec(spec)) return { kind: 'local', spec }
+  return { kind: 'registry', spec, version: versionInSpec(spec) }
 }
 
 /**
@@ -279,21 +407,100 @@ function choosesCwd(args) {
  *   language directly, so nothing here inspects, creates, or repairs anything. That
  *   holds for `--profile dshline` too: the distinction is ownership, not which name
  *   was typed. The old wrapper checked its own profile no matter which one was asked
- *   for, which is how `dshline --profile other` could refuse to start.
- * - An initialized profile launches, whatever state it is in.
- * - Otherwise setup is offered, and only with a terminal on both ends: it may install
- *   packages from the network, so a scripted run must say so and stop rather than
- *   mutate anything.
- * @param decision - the arguments, and the two facts about this invocation.
+ *   for, which is how `dshline --profile other` could refuse to start — and it is
+ *   also the escape hatch from the two diagnostics below, because naming the profile
+ *   is a decision to drive the harness directly.
+ * - A profile that names a source spec launches. A checkout is a decision already
+ *   made, and there is no registry release to compare it with.
+ * - A profile recording this same release launches.
+ * - A profile that never finished being set up, or that records a different release,
+ *   is reported by cause and never launched into. Both used to reach the harness and
+ *   die inside it — an empty profile or a mismatched pair — which is a blank terminal
+ *   or an error about Cordis internals, neither of which a user can act on.
+ * - An absent profile is offered setup, and only with a terminal on both ends: it may
+ *   install packages from the network, so a scripted run must say so and stop rather
+ *   than mutate anything.
+ *
+ * `interactive` governs the first-run question, which is the one case where the
+ * answer is to ask. The two repair causes are returned as themselves rather than as
+ * a question, because whether to offer the repair is a decision about this terminal
+ * and belongs to the caller with it in hand.
+ * @param decision - the arguments, the profile's state, and the two facts about this invocation.
  * @param decision.args - the arguments this wrapper was given.
- * @param decision.initialized - whether the profile manifest exists.
+ * @param decision.state - what `profileState` found in dshline's own profile.
+ * @param decision.wrapperVersion - this wrapper's own version, from its manifest.
  * @param decision.interactive - whether stdin and stdout are both terminals.
- * @returns `'launch'`, `'confirm'`, or `'no-terminal'`.
+ * @returns `'launch'`, `'confirm'`, `'no-terminal'`, `'incomplete'`, or `'skew'`.
  */
-export function bootstrapPlan({ args, initialized, interactive }) {
+export function bootstrapPlan({ args, state, wrapperVersion, interactive }) {
   if (choosesProfile(args)) return 'launch'
-  if (initialized) return 'launch'
-  return interactive ? 'confirm' : 'no-terminal'
+  switch (state.kind) {
+    case 'absent':
+      return interactive ? 'confirm' : 'no-terminal'
+    case 'incomplete':
+      return 'incomplete'
+    case 'registry':
+      // A spec naming no release — a tag, a wildcard — cannot be compared, and an
+      // unprovable mismatch is not worth refusing to start over.
+      return state.version !== undefined && state.version !== wrapperVersion ? 'skew' : 'launch'
+    default:
+      return 'launch'
+  }
+}
+
+/**
+ * Whether `pnpm` can be reached the way the harness will reach it.
+ *
+ * The harness installs a profile's plugins with pnpm, so a first run without it got
+ * as far as creating the profile and no further: the install never ran, and the only
+ * symptom was `'pnpm' is not recognized` printed by `cmd.exe`. Checking first is the
+ * difference between a sentence before anything changes and a half-made profile after.
+ *
+ * Asked of PATH rather than by running `pnpm --version`, for the reason the launcher
+ * lookup is: the answer is already on the filesystem, and a probe would put a whole
+ * process startup in front of it.
+ * @param env - the environment whose PATH is searched; defaults to this process's.
+ * @returns whether pnpm is available.
+ */
+export function pnpmAvailable(env = process.env) {
+  return onPath('pnpm', env) !== undefined
+}
+
+/**
+ * Whether setup can start, and what to print when it cannot.
+ *
+ * A checkout is told about `corepack` first because a harness checkout declares its
+ * own pnpm in `packageManager`, so that is the route that keeps the version the
+ * checkout asked for; a package install has no such declaration and gets the global
+ * one. Both are real commands, and neither is a dependency-resolution bypass.
+ * @param decision - whether pnpm was found, and how the launcher was reached.
+ * @param decision.available - whether `pnpmAvailable` found it.
+ * @param decision.origin - `'checkout'` for a `$DSH_HARNESS` launcher, else `'package'`.
+ * @returns `{ ok: true }`, or `{ ok: false }` with the message to print.
+ */
+export function pnpmRequirement({ available, origin }) {
+  if (available) return { ok: true }
+  const install = origin === 'checkout'
+    ? ['  corepack enable pnpm        # the harness checkout declares its own pnpm',
+      '  npm install -g pnpm         # if corepack is not available']
+    : ['  npm install -g pnpm']
+  return {
+    ok: false,
+    message: [
+      `dshline: cannot set up the "${PROFILE}" profile, because pnpm is not available.`,
+      '',
+      'The harness installs a profile\'s plugins with pnpm, so pnpm has to be on your',
+      'PATH before setup can begin. Nothing has been changed: no profile was created',
+      'and nothing was installed.',
+      '',
+      'Install pnpm, then run setup again:',
+      '',
+      ...install,
+      '',
+      '  dshline --setup',
+      '',
+    ].join('\n'),
+  }
 }
 
 /**
@@ -596,9 +803,182 @@ async function setUpProfile(launcher) {
     // Nothing is launched after a failed setup: the harness has already said what
     // went wrong, and starting the frontend anyway would bury that under a second
     // failure from a profile that was never installed.
-    process.stderr.write(`\ndshline: setup did not finish, so nothing was started. Try again with:\n\n  dshline --setup\n\n`)
+    process.stderr.write(setupFailedMessage())
     leaveAs(ended)
   }
+}
+
+/**
+ * What to print when a setup the user authorized did not finish.
+ *
+ * The one prerequisite dshline can see for itself — pnpm — is checked before setup
+ * starts, so what reaches here is whatever the harness itself reported. The earlier
+ * message said only "try again", which reads as advice to repeat something that may
+ * fail identically; this says that a retry is safe, where the reason is, and how to
+ * look at the profile without starting a session.
+ * @returns the message, ending in a newline.
+ */
+function setupFailedMessage() {
+  return [
+    '',
+    'dshline: setup did not finish, so nothing was started.',
+    '',
+    'The harness printed the reason above — a package it could not install, a network',
+    'failure, or a release still inside this package\'s release-age window. Nothing is',
+    'launched until a setup succeeds, and running it again is safe:',
+    '',
+    '  dshline --setup',
+    '',
+    'To see what the profile loads, and from where:',
+    '',
+    '  dsh --profile dshline --dump-config',
+    '',
+  ].join('\n')
+}
+
+/**
+ * Why a profile cannot be launched into, in plain language.
+ *
+ * `incomplete` and `skew` are different facts about the same profile and need
+ * different sentences, because the reader has to know whether they are finishing
+ * something or repairing it. What they share is the requirement that the failure is
+ * described here: left to the harness, the first was a blank terminal with no message
+ * at all, and the second was `cannot get property "agent" without inject`.
+ * @param cause - `'incomplete'` or `'skew'`.
+ * @param detail - the wrapper's version, and the recorded one when there is one.
+ * @returns the explanation, as lines.
+ */
+function profileProblem(cause, { wrapperVersion, version }) {
+  if (cause === 'incomplete') {
+    return [
+      `dshline: the "${PROFILE}" profile is half set up, so there is nothing to launch.`,
+      '',
+      'A previous setup created the profile and then stopped before installing this',
+      'package into it. The profile exists and is empty, which is a state the harness',
+      'never gets far enough to report: a launch into it used to open a blank terminal',
+      'and wait there.',
+    ]
+  }
+  return [
+    `dshline: this dshline is ${wrapperVersion}, but the "${PROFILE}" profile has`,
+    `@dshline/dshline ${version ?? 'another release'}.`,
+    '',
+    'The profile holds the frontend that actually runs and this wrapper only starts it,',
+    'so the two have to be the same release. A mismatched pair fails inside the harness,',
+    'with an error about its own internals rather than about the versions.',
+  ]
+}
+
+/**
+ * The question asked before repairing a profile, on a terminal.
+ *
+ * Asking rather than reconciling on sight: the repair is a package install into a
+ * profile the user already has, and doing that uninvited is the mutation this wrapper
+ * refuses to make everywhere else.
+ * @param cause - `'incomplete'` or `'skew'`.
+ * @param detail - the wrapper's version, and the recorded one when there is one.
+ * @returns the prompt, ending in the answer position.
+ */
+function repairQuestion(cause, detail) {
+  return [
+    ...profileProblem(cause, detail),
+    '',
+    'This will run:',
+    '',
+    `  dsh ${installArguments().join(' ')}`,
+    '',
+    cause === 'incomplete' ? 'Set it up now? [Y/n] ' : 'Reconcile it now? [Y/n] ',
+  ].join('\n')
+}
+
+/**
+ * What to print about a profile that cannot be launched into, with no terminal.
+ * @param cause - `'incomplete'` or `'skew'`.
+ * @param detail - the wrapper's version, and the recorded one when there is one.
+ * @returns the message, ending in a newline.
+ */
+function profileProblemMessage(cause, detail) {
+  return [
+    ...profileProblem(cause, detail),
+    '',
+    'Bring the profile back in step with this wrapper:',
+    '',
+    '  dshline --setup',
+    '',
+    'That needs no terminal, so a script can run it. To drive the harness with this',
+    'profile as it is, name it explicitly — that is you using harness profiles directly:',
+    '',
+    `  dshline --profile ${PROFILE}`,
+    '',
+  ].join('\n')
+}
+
+/**
+ * Refuse a setup whose prerequisite is missing, before anything is created.
+ * @param launcher - how the harness is reached, which decides the remedy.
+ */
+function requirePnpm(launcher) {
+  const requirement = pnpmRequirement({ available: pnpmAvailable(), origin: launcher.origin })
+  if (requirement.ok) return
+  process.stderr.write(requirement.message)
+  process.exit(1)
+}
+
+/**
+ * The wrapper's own help.
+ *
+ * Wrapper-owned, like `--version`, so somebody working out why an installation will
+ * not start can read it on the machine where the harness, the profile, or both are
+ * the broken part. It documents the wrapper and names the harness command for
+ * everything else rather than restating a CLI reference that would then drift.
+ *
+ * The wording of the first line matters: the harness reports its own usage as
+ * `dsh --profile dshline`, and repeating that here would name a command the reader
+ * did not type.
+ * @returns the help text, ending in a newline.
+ */
+function helpText() {
+  return [
+    `dshline ${ownVersion()} — a terminal frontend for the DeepSeek Harness.`,
+    '',
+    'Usage:',
+    '  dshline [harness options] [task...]',
+    '',
+    'Wrapper options:',
+    '  --setup [spec]   install this package into the "dshline" harness profile, then',
+    '                   stop. With no spec: the exact version this wrapper is, which is',
+    '                   also how a profile is finished or repaired. With a path',
+    '                   (`dshline --setup ./packages/dshline`): that folder instead,',
+    '                   which is how code from a source checkout is used.',
+    '                   Needs no terminal, so it is also the scriptable path.',
+    '  -V, --version    this package\'s version. No harness and no profile needed.',
+    '  -h, --help       this text. No harness and no profile needed either.',
+    '',
+    'Anything else is forwarded to the harness\'s own launcher unchanged, with',
+    '`--profile dshline` and `--cwd <current folder>` added unless you gave them:',
+    '',
+    '  dshline                         start a session in this folder',
+    '  dshline "run the tests"         start a session with a first task',
+    '  dshline --resume                reopen a past session',
+    '  dshline -C ~/code/api           start in another folder',
+    '  dshline --profile other         use another harness profile; dshline then',
+    '                                  inspects nothing and forwards the choice',
+    '',
+    'The harness\'s own options belong to the harness, which documents them itself:',
+    '',
+    '  dsh --profile dshline --help',
+    '  dsh --profile dshline --dump-config    what the profile loads, and from where',
+    '',
+    'Environment:',
+    '  DSH_BIN        an explicit harness launcher executable',
+    '  DSH_HARNESS    a harness SOURCE CHECKOUT; the `dsh` script it declares is run',
+    '  DSH_HOME       where profiles live (~/.dsh by default)',
+    '',
+    `The "${PROFILE}" profile holds the frontend that runs, so it has to be the same`,
+    'release as this wrapper. `dshline --setup` reconciles it. A profile installed from',
+    'a checkout path is a decision already made and is left alone.',
+    '',
+  ].join('\n')
 }
 
 /**
@@ -642,15 +1022,25 @@ function noTerminalMessage() {
  * @param args - the arguments after the executable.
  */
 async function main(args) {
-  // Before the launcher is looked for, and before anything touches a profile: the
-  // answer is this package's own, and a bug report has to be able to get it from a
-  // machine where the rest of the setup is what is broken.
+  // Before the launcher is looked for, and before anything touches a profile: these
+  // answers are this package's own, and a bug report — or somebody working out why an
+  // installation will not start — has to be able to get them from a machine where the
+  // rest of the setup is what is broken.
   if (args[0] === '--version' || args[0] === '-V') {
     process.stdout.write(`${ownVersion()}\n`)
     return
   }
+  if (args[0] === '--help' || args[0] === '-h') {
+    process.stdout.write(helpText())
+    return
+  }
   if (args[0] === '--setup') {
     const launcher = launcherOrExit()
+    // Before anything is created. The harness installs a profile's plugins with pnpm,
+    // so without it setup created a profile and stopped there; refusing here leaves the
+    // filesystem exactly as it was, which is the whole difference between a sentence
+    // and a half-made profile.
+    requirePnpm(launcher)
     // A source may be given instead of the published package — `dshline --setup
     // ./packages/dshline` is how someone testing a checkout installs it, and it is the
     // same argument `dsh plugin add` takes, so it is passed through rather than
@@ -681,12 +1071,40 @@ async function main(args) {
     return
   }
   const launcher = launcherOrExit()
-  const plan = bootstrapPlan({ args, initialized: profileInitialized(), interactive: hasTerminal() })
+  const wrapperVersion = ownVersion()
+  const state = profileState()
+  const plan = bootstrapPlan({ args, state, wrapperVersion, interactive: hasTerminal() })
   if (plan === 'no-terminal') {
     process.stderr.write(noTerminalMessage())
     process.exit(1)
   }
+  if (plan === 'incomplete' || plan === 'skew') {
+    // A profile this wrapper cannot launch into and cannot repair without installing a
+    // package. Reported as a diagnostic where there is no terminal to ask on, because
+    // the repair is a mutation; offered as the same question the first run asks where
+    // there is one, because the state a failed setup leaves behind is otherwise one the
+    // user can only escape by guessing.
+    const detail = { wrapperVersion, version: state.kind === 'registry' ? state.version : undefined }
+    if (!hasTerminal()) {
+      process.stderr.write(profileProblemMessage(plan, detail))
+      process.exit(1)
+    }
+    const answer = await ask(repairQuestion(plan, detail))
+    if (answer === undefined) {
+      process.stdout.write('\n')
+      process.exit(CANCELLED)
+    }
+    if (!saidYes(answer)) {
+      process.stdout.write(`\nNothing was changed. When you want it:\n\n  dshline --setup\n\n`)
+      process.exit(DECLINED)
+    }
+    requirePnpm(launcher)
+    await setUpProfile(launcher)
+  }
   if (plan === 'confirm') {
+    // Asked before the question rather than after the answer: agreeing to a setup that
+    // cannot run is exactly how a profile came to be created and left empty.
+    requirePnpm(launcher)
     const answer = await ask(firstRunQuestion())
     if (answer === undefined) {
       // The question was cancelled, and the cursor is sitting at the end of it.

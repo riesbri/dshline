@@ -1055,25 +1055,50 @@ lifecycle this document forbids.
 
 ### The launcher's one lifecycle decision
 
-`bin/dshline.mjs` is a launcher wrapper, and a first run is the only moment it
-touches lifecycle at all. It asks one question and, when the answer is yes, runs
+`bin/dshline.mjs` is a launcher wrapper, and it touches lifecycle at exactly
+three narrow points, each because leaving that state to Harness produced a failure
+a user could not act on. It asks one question and, when the answer is yes, runs
 one Harness command — `dsh plugin --profile dshline add @dshline/dshline` —
 through the same launcher an ordinary start uses, then continues into the launch
-that was originally asked for. It writes no profile file, never calls pnpm, and
-never reads a package's `dsh.bundle` declaration: each of those belongs to
+that was originally asked for. It writes no profile file, never reads a package's
+`dsh.bundle` declaration, and never resolves a package itself: those belong to
 `dsh plugin`, which already initializes a profile on first use and reconciles
 `dsh.profile.bundles` against what is actually installed.
 
-The boundary is one file. **Uninitialized** means the profile has no
-`package.json` — the same test `dsh plugin` itself applies — and everything else
-is an **existing** profile. A profile whose install was interrupted, whose
-dependency is missing, whose `node_modules` is empty, or which fails to boot is
-therefore launched anyway, and Harness's own loader says what is wrong.
-Repairing it here would mean guessing at a diagnosis Harness makes
-authoritatively and hiding it behind a package operation nobody asked for. An
-explicit `--profile` — including `--profile dshline` — turns the behaviour off
-entirely: the caller is using harness profile semantics directly, so the wrapper
-adds nothing to them.
+The first point is **a prerequisite, checked before any mutation.** Harness
+installs a profile's plugins with pnpm, so a machine without it created the
+profile and stopped at `'pnpm' is not recognized`. The wrapper asks PATH whether
+pnpm is reachable — a lookup, not a probe, for the reason the launcher lookup is
+one — and refuses before creating anything, naming the mechanism the launcher came
+from: `corepack enable pnpm` for a checkout, which declares the pnpm version it
+wants in its own `packageManager`, and `npm install -g pnpm` otherwise.
+
+The second and third points are the profile state, and the boundary there is one
+question asked of one dependency: **does this profile record dshline's own
+package, at dshline's own release?** A profile with no `package.json` is
+**uninitialized** — the same test `dsh plugin` itself applies — and setup is
+offered. A profile that records this package at this release is launched. A
+recorded spec naming a folder or a VCS source is launched too: someone already
+made that decision, and a path has no release to disagree with. The two states
+left between them are reported instead of launched into, and each is a failure a
+user has already met. A manifest with no dependency on this package is a setup
+that stopped partway, which opened a blank terminal and waited, because Harness
+never gets far enough to complain about a profile nothing was installed into. A
+recorded release that is not this wrapper's is a profile an upgrade left behind,
+which died inside Harness on `cannot get property "agent" without inject`. Both
+are answered with `dshline --setup`, and on a terminal the wrapper offers to run
+it, which is the same question a first run already asks.
+
+Everything else about a profile stays Harness's judgement. A coherent bundle
+list, a resolvable `node_modules`, a third plugin's breakage, a profile that fails
+to boot for any other reason: launched anyway, and Harness's own loader says what
+is wrong. Repairing those here would mean guessing at a diagnosis Harness makes
+authoritatively and hiding it behind a package operation nobody asked for — and
+reading them would be the second Harness dependency resolver this document
+forbids. An explicit `--profile` — including `--profile dshline` — turns the
+behaviour off entirely: the caller is using harness profile semantics directly, so
+the wrapper adds nothing to them. It is also the documented way past either
+diagnostic.
 
 **dshline does not serialize or repair Harness profile mutations.** Concurrent
 package mutation is Harness's to define; dshline delegates the setup it was given
@@ -1094,7 +1119,7 @@ on opposite sides of one boundary. `bin/dshline.mjs` can create the profile and
 nothing else — it runs before any Host exists, so `ctx.llm`, `ctx.settings`,
 `ctx.credentials`, and `ctx.authorization` are all out of reach, and reaching
 for them would make the wrapper a second reader of Harness state outside
-Harness. Everything past "the profile has a manifest" therefore belongs to the
+Harness. Everything past that one question therefore belongs to the
 plugin, which is where every one of those seams already is.
 
 So `src/setup/` runs inside the composed Host, and `dshline --setup` keeps its

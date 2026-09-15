@@ -11,13 +11,13 @@
 | `dshline "run the tests"` | 启动时发送第一条消息 |
 | `dshline --resume` | 浏览、搜索并重新打开过去的会话 |
 | `dshline --resume <id>` | 重新打开你知道 id 的会话 |
-| `dshline --help` | 本界面新增的所有命令行选项 |
+| `dshline --help` | 本封装自己的参数，以及它如何透传其余内容 |
 | `dshline --version` | 本包的版本号，提交问题报告时用 |
 | `dshline --setup` | 显式安装配置文件：脚本、重试或源码检出时用 |
 
-首次运行时——还没有 `dshline` 配置文件——`dshline` 会询问一次是否允许 Harness 创建它并把本包安装进去，然后继续执行你输入的内容。没有可供询问的终端时它的行为，以及为什么已存在的配置文件从不被修复，见[安装](install.zh.md)。
+首次运行时——还没有 `dshline` 配置文件——`dshline` 会询问一次是否允许 Harness 创建它并把本包安装进去，然后继续执行你输入的内容。没有可供询问的终端时它的行为，以及它拒绝启动进入的两种配置文件状态，见[安装](install.zh.md)。
 
-`dshline` 是 Harness 自带启动器的一层轻量封装：它找到 `dsh`、加上 `--profile dshline`，并把会话固定在你运行它的文件夹。其余一切透传，因此 `dshline <anything>` 与 `dsh --profile dshline <anything>` 行为一致。用你喜欢的那个即可。
+`dshline` 是 Harness 自带启动器的一层轻量封装：它找到 `dsh`、加上 `--profile dshline`，并把会话固定在你运行它的文件夹。其余一切透传，因此 `dshline "run the tests"` 与 `dsh --profile dshline "run the tests"` 行为一致。用你喜欢的那个即可。有三个参数会停在这层封装里——`--setup`、`--version` 与 `--help`——因为每一个都必须在 Harness 或配置文件恰好就是坏掉的那台机器上可用；`dsh --profile dshline --help` 打印的是 Harness 自己的选项。
 
 `-C`（或 `--cwd`）设置*会话*工作的文件夹。它不改变命令本身从哪里运行。
 

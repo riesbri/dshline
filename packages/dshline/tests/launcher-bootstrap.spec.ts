@@ -90,6 +90,14 @@ interface Fixture {
    */
   shim: string
   shimDir: string
+  /**
+   * A folder holding a `pnpm` that exists and does nothing.
+   *
+   * Every profile mutation needs pnpm, so the default fixture provides one: the
+   * wrapper asks PATH rather than running it, so a file is the whole requirement.
+   * Cases that need it missing drop this folder from PATH.
+   */
+  pnpmDir: string
   home: string
   /** Where the profile would live, whether or not it exists. */
   profileDir: string
@@ -132,6 +140,13 @@ async function fixture(): Promise<Fixture> {
   await mkdir(shimDir, { recursive: true })
   const shim = join(shimDir, 'dsh.cmd')
   await writeFile(shim, `@echo off\r\n"${process.execPath}" "${recorder}" %*\r\n`, 'utf8')
+  const pnpmDir = join(root, 'pnpm-bin')
+  await mkdir(pnpmDir, { recursive: true })
+  await writeFile(
+    join(pnpmDir, process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'),
+    process.platform === 'win32' ? '@echo off\r\n' : '#!/bin/sh\n',
+    'utf8',
+  )
   return {
     root,
     // On Windows the stub IS the shim: `$DSH_BIN` there names what npm installs,
@@ -140,6 +155,7 @@ async function fixture(): Promise<Fixture> {
     dsh: process.platform === 'win32' ? shim : dsh,
     shim,
     shimDir,
+    pnpmDir,
     home,
     profileDir: join(home, 'profiles', 'dshline'),
     manifest: join(home, 'profiles', 'dshline', 'package.json'),
@@ -191,11 +207,23 @@ if (args[0] === 'plugin') {
   const finish = () => {
     process.stdout.write('stub: plugin done\\n')
     const signal = process.env.STUB_SETUP_SIGNAL ?? ''
+    const code = Number(process.env.STUB_SETUP_CODE ?? '0')
+    // A setup that FINISHES records the dependency, which is precisely what a setup
+    // that stops never gets to do. Modelling only the manifest write would leave every
+    // successful install looking like the half-made profile this file now tests for.
+    if (code === 0 && signal === '') {
+      const dir = join(process.env.DSH_HOME, 'profiles', args[2])
+      const spec = args[args.length - 1].replace(/^@dshline\\/dshline@/, '')
+      writeFileSync(
+        join(dir, 'package.json'),
+        JSON.stringify({ name: 'dsh-profile-' + args[2], dependencies: { '@dshline/dshline': spec } }) + '\\n',
+      )
+    }
     if (signal !== '') {
       process.kill(process.pid, signal)
       return
     }
-    process.exit(Number(process.env.STUB_SETUP_CODE ?? '0'))
+    process.exit(code)
   }
   const delay = Number(process.env.STUB_SETUP_DELAY_MS ?? '0')
   if (delay > 0) setTimeout(finish, delay)
@@ -244,7 +272,7 @@ function environment(fix: Fixture, overrides: Record<string, string | undefined>
     ...system,
     // Node's own folder first, for the stub's shebang. Deliberately not the
     // developer's PATH: a real `dsh` there could answer instead of the stub.
-    PATH: [join(process.execPath, '..'), ...systemPath].join(delimiter),
+    PATH: [join(process.execPath, '..'), fix.pnpmDir, ...systemPath].join(delimiter),
     DSH_BIN: fix.dsh,
     DSH_HOME: fix.home,
     STUB_LOG: fix.log,
@@ -464,40 +492,151 @@ function launchArgs(cwd: string, rest: readonly string[] = []): string[] {
   return ['--profile', 'dshline', '--cwd', cwd, ...rest]
 }
 
-/** Mark a profile as initialized the way the harness would. */
+/**
+ * Mark a profile as set up, the way a finished install leaves it.
+ *
+ * The recorded spec is this wrapper's own version, because that is what `dshline
+ * --setup` installs and what the version check compares against. A fixture writing
+ * some other version would be describing a skewed profile, which is a different case
+ * with its own tests below.
+ */
 async function initializeProfile(fix: Fixture): Promise<void> {
+  await initializeProfileRecording(fix, VERSION)
+}
+
+/**
+ * Mark a profile as recording a given dependency spec.
+ * @param fix - the fixture.
+ * @param spec - the spec to record against this package.
+ */
+async function initializeProfileRecording(fix: Fixture, spec: string): Promise<void> {
   await mkdir(fix.profileDir, { recursive: true })
-  await writeFile(fix.manifest, `${JSON.stringify({ name: 'dsh-profile-dshline', dependencies: { '@dshline/dshline': '^0.1.0' } })}\n`, 'utf8')
+  await writeFile(
+    fix.manifest,
+    `${JSON.stringify({ name: 'dsh-profile-dshline', dependencies: { '@dshline/dshline': spec } })}\n`,
+    'utf8',
+  )
+}
+
+/**
+ * Mark a profile as one a failed setup left behind.
+ *
+ * The exact state the QA run found: `dsh plugin` writes the manifest before it
+ * installs anything, so a setup that stops — no pnpm, a package it could not fetch —
+ * leaves a profile that exists and holds nothing at all.
+ * @param fix - the fixture.
+ */
+async function initializeEmptyProfile(fix: Fixture): Promise<void> {
+  await mkdir(fix.profileDir, { recursive: true })
+  await writeFile(fix.manifest, `${JSON.stringify({ name: 'dsh-profile-dshline', dependencies: {} })}\n`, 'utf8')
 }
 
 describe('the bootstrap decision', () => {
-  it('launches an initialized profile, whatever else is true', () => {
-    expect(bootstrapPlan({ args: [], initialized: true, interactive: true })).toBe('launch')
-    expect(bootstrapPlan({ args: [], initialized: true, interactive: false })).toBe('launch')
+  /**
+   * The plan for one profile state.
+   * @param state - what `profileState` found.
+   * @param options - the arguments and terminal this invocation has.
+   * @returns the plan.
+   */
+  function plan(
+    state: Record<string, unknown>,
+    options: { args?: string[], interactive?: boolean, wrapperVersion?: string } = {},
+  ): string {
+    return bootstrapPlan({
+      args: options.args ?? [],
+      // The wrapper is plain JavaScript, so this import carries no type for the
+      // state union; the shapes below are the four `profileState` returns.
+      state: state as never,
+      wrapperVersion: options.wrapperVersion ?? VERSION,
+      interactive: options.interactive ?? true,
+    }) as string
+  }
+
+  it('launches a profile that records this same release', () => {
+    // The invariant `dshline --setup` establishes: it installs this wrapper's exact
+    // version, so the two agreeing is the ordinary case and must stay silent.
+    for (const spec of [VERSION, `^${VERSION}`, `~${VERSION}`]) {
+      expect(plan({ kind: 'registry', spec, version: VERSION }), spec).toBe('launch')
+    }
   })
 
-  it('offers setup for an uninitialized profile with a terminal', () => {
-    expect(bootstrapPlan({ args: [], initialized: false, interactive: true })).toBe('confirm')
+  it('offers setup for an absent profile with a terminal', () => {
+    expect(plan({ kind: 'absent' })).toBe('confirm')
   })
 
   it('refuses to install anything without a terminal to ask on', () => {
     // Not a silent install: the mutation reaches the network through pnpm, and
     // a scripted launch never agreed to one.
-    expect(bootstrapPlan({ args: [], initialized: false, interactive: false })).toBe('no-terminal')
+    expect(plan({ kind: 'absent' }, { interactive: false })).toBe('no-terminal')
+  })
+
+  it('reports a profile a failed setup left behind, and launches nothing into it', () => {
+    // The QA state, and the one that produced a blank terminal: the manifest exists,
+    // so the old wrapper read the profile as initialized and handed over to a
+    // frontend that had never been installed. A terminal must not change the answer —
+    // the repair is asked about by the caller, not decided by this function.
+    expect(plan({ kind: 'incomplete' })).toBe('incomplete')
+    expect(plan({ kind: 'incomplete' }, { interactive: false })).toBe('incomplete')
+  })
+
+  it('reports a profile recording a different release, and launches nothing into it', () => {
+    // The other QA state: `npm i -g @dshline/dshline@latest` moved the wrapper to
+    // 0.22.0 while the profile still had 0.20.0, and the launch died with
+    // `cannot get property "agent" without inject`.
+    for (const older of ['0.0.1', '0.20.0']) {
+      expect(plan({ kind: 'registry', spec: older, version: older }), older).toBe('skew')
+      expect(plan({ kind: 'registry', spec: older, version: older }, { interactive: false }), older).toBe('skew')
+    }
+  })
+
+  it('does not call an unparsable registry spec a mismatch', () => {
+    // A tag or a wildcard names no release, so there is nothing to compare, and an
+    // unprovable mismatch is not worth refusing to start over.
+    for (const spec of ['latest', '*', 'next']) {
+      expect(plan({ kind: 'registry', spec }), spec).toBe('launch')
+    }
+  })
+
+  it('leaves a checkout spec alone, however it differs from this release', () => {
+    // Source-checkout development is a supported mode. The recorded spec is a folder
+    // rather than a release, so there is nothing for it to be out of step WITH — and
+    // subjecting it to npm-version equality would break the mode outright.
+    const specs = [
+      './packages/dshline',
+      '../dshline/packages/dshline',
+      '/srv/dshline/packages/dshline',
+      'file:../dshline',
+      'link:../dshline',
+      'workspace:*',
+      'github:riesbri/dshline',
+    ]
+    for (const spec of specs) {
+      expect(plan({ kind: 'local', spec }), spec).toBe('launch')
+      expect(plan({ kind: 'local', spec }, { interactive: false }), spec).toBe('launch')
+    }
   })
 
   it('stands aside entirely when the caller chose a profile', () => {
     // Ownership, not string equality: `--profile dshline` is someone using
     // harness profile semantics directly, so the wrapper's own lifecycle
-    // behaviour is off — including for the profile it would have picked.
+    // behaviour is off — including for the profile it would have picked. That is
+    // also the documented way past either diagnostic.
+    const states: Record<string, unknown>[] = [
+      { kind: 'absent' },
+      { kind: 'incomplete' },
+      { kind: 'registry', spec: '0.0.1', version: '0.0.1' },
+    ]
     for (const args of [['--profile', 'other'], ['--profile=other'], ['--profile', 'dshline'], ['--profile=dshline']]) {
-      expect(bootstrapPlan({ args, initialized: false, interactive: true }), args.join(' ')).toBe('launch')
-      expect(bootstrapPlan({ args, initialized: false, interactive: false }), args.join(' ')).toBe('launch')
+      for (const state of states) {
+        const label = `${args.join(' ')} ${String(state.kind)}`
+        expect(plan(state, { args }), label).toBe('launch')
+        expect(plan(state, { args, interactive: false }), label).toBe('launch')
+      }
     }
   })
 
   it('reads a profile choice wherever it appears, including after a task', () => {
-    expect(bootstrapPlan({ args: ['run the tests', '--profile', 'other'], initialized: false, interactive: false })).toBe('launch')
+    expect(plan({ kind: 'absent' }, { args: ['run the tests', '--profile', 'other'], interactive: false })).toBe('launch')
   })
 })
 
@@ -682,17 +821,263 @@ describe('an initialized profile', () => {
     }
   })
 
-  it('is never repaired, however broken it is', async () => {
-    // The manifest exists, so the profile exists. No dependency on this
-    // package, no node_modules, nothing installed — and still no hidden
-    // `plugin add`: the harness's loader is what diagnoses that, and a
-    // reinstall here would hide the diagnosis behind a package operation.
+  it('is never silently repaired, however broken it is', async () => {
+    // A profile recording this package at this release launches, whatever else is
+    // wrong with it: no node_modules, a bundle list that resolves to nothing. Those
+    // stay the harness's to diagnose, and a reinstall here would hide the diagnosis
+    // behind a package operation nobody asked for. What this wrapper answers for is
+    // the one fact it can see — whether its OWN package is in its OWN profile at its
+    // OWN release — and a profile that disagrees is a different case, below.
     const fix = await fixture()
-    await mkdir(fix.profileDir, { recursive: true })
-    await writeFile(fix.manifest, `${JSON.stringify({ name: 'dsh-profile-dshline', dependencies: {} })}\n`, 'utf8')
+    await initializeProfile(fix)
     const run = await runWrapper(fix, [], { cwd: fix.root })
     expect(run.calls.map(call => call.argv[0])).toEqual(['--profile'])
     expect(run.calls.some(call => call.argv.includes('plugin'))).toBe(false)
+  })
+})
+
+describe('a profile a failed setup left behind', () => {
+  it('is reported by cause, and nothing is launched into it', async () => {
+    // The QA state, and the failure this block exists for. `dsh plugin` writes the
+    // manifest BEFORE it installs anything, so a setup that stopped — no pnpm, a
+    // package it could not fetch — leaves a profile that exists and holds nothing.
+    // The harness never gets far enough to complain about it, so a launch used to
+    // open a blank terminal and wait there: no message, no exit, no way out.
+    const fix = await fixture()
+    await initializeEmptyProfile(fix)
+    const run = await runWrapper(fix, [], { cwd: fix.root })
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('half set up')
+    expect(run.stderr).toContain('dshline --setup')
+    expect(run.calls).toEqual([])
+  })
+
+  it('is a different sentence from a version mismatch', async () => {
+    // Two causes, two messages. Reporting an empty profile as a version mismatch
+    // would send the reader looking for a release that was never installed.
+    const fix = await fixture()
+    await initializeEmptyProfile(fix)
+    const run = await runWrapper(fix, [], { cwd: fix.root })
+    expect(run.stderr).toContain('half set up')
+    expect(run.stderr).not.toContain('profile has')
+    expect(run.stderr).not.toContain(VERSION)
+  })
+
+  it('names the explicit profile as the way to drive it anyway', async () => {
+    // The escape hatch, and it is the ownership rule that already existed rather than
+    // anything new: naming a profile is a decision to use harness profiles directly.
+    const fix = await fixture()
+    await initializeEmptyProfile(fix)
+    const run = await runWrapper(fix, [], { cwd: fix.root })
+    expect(run.stderr).toContain('dshline --profile dshline')
+  })
+
+  terminalCase('offers to finish it, and finishes it when told yes', async fix => {
+    // A dead end turned back into the first-run path the user already knows. Asked
+    // rather than done, because the repair is a package install into a profile that
+    // already exists.
+    await initializeEmptyProfile(fix)
+    const run = await runOnTerminal(fix, [], [{ after: 'Set it up now?', send: 'y\n' }], { cwd: fix.root })
+    expect(run.code).toBe(0)
+    expect(run.calls.map(call => call.argv)).toEqual([INSTALL, launchArgs(fix.root)])
+  })
+
+  terminalCase('changes nothing when the repair is declined', async fix => {
+    await initializeEmptyProfile(fix)
+    const run = await runOnTerminal(fix, [], [{ after: 'Set it up now?', send: 'n\n' }], { cwd: fix.root })
+    expect(run.code).toBe(1)
+    expect(run.calls).toEqual([])
+    expect(run.stdout).toContain('dshline --setup')
+  })
+})
+
+describe('a profile recording a different release', () => {
+  it('is reported by cause, and nothing is launched into it', async () => {
+    // The upgrade the QA run followed, and the crash it produced:
+    // `npm i -g @dshline/dshline@latest` moved the wrapper to a new release while the
+    // profile still held the old one, and the launch died inside the harness with
+    // `cannot get property "agent" without inject` — an error about Cordis internals
+    // rather than about the two versions that disagreed.
+    const fix = await fixture()
+    await initializeProfileRecording(fix, '0.0.1')
+    const run = await runWrapper(fix, [], { cwd: fix.root })
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('0.0.1')
+    expect(run.stderr).toContain(VERSION)
+    expect(run.stderr).toContain('dshline --setup')
+    expect(run.calls).toEqual([])
+  })
+
+  it('launches when the recorded spec names this release behind a range', async () => {
+    for (const spec of [VERSION, `^${VERSION}`, `~${VERSION}`]) {
+      const fix = await fixture()
+      await initializeProfileRecording(fix, spec)
+      const run = await runWrapper(fix, [], { cwd: fix.root })
+      expect(run.code, spec).toBe(0)
+      expect(run.calls[0]?.argv, spec).toEqual(launchArgs(fix.root))
+    }
+  })
+
+  it('leaves a profile installed from a checkout alone, however it differs', async () => {
+    // The mode this must never break. A recorded path is not a release, so there is
+    // nothing for it to be out of step with, and subjecting it to npm-version equality
+    // would make source-checkout development unusable.
+    for (const spec of ['./packages/dshline', '../dshline/packages/dshline', 'file:../dshline', 'link:../dshline']) {
+      const fix = await fixture()
+      await initializeProfileRecording(fix, spec)
+      const run = await runWrapper(fix, [], { cwd: fix.root })
+      expect(run.code, spec).toBe(0)
+      expect(run.calls[0]?.argv, spec).toEqual(launchArgs(fix.root))
+    }
+  })
+
+  terminalCase('offers to reconcile it, and does when told yes', async fix => {
+    await initializeProfileRecording(fix, '0.0.1')
+    const run = await runOnTerminal(fix, [], [{ after: 'Reconcile it now?', send: 'y\n' }], { cwd: fix.root })
+    expect(run.code).toBe(0)
+    expect(run.calls.map(call => call.argv)).toEqual([INSTALL, launchArgs(fix.root)])
+  })
+})
+
+describe('the pnpm prerequisite', () => {
+  /**
+   * A PATH that resolves no pnpm at all.
+   *
+   * Only the system folders: deliberately not the folder Node lives in, because some
+   * installs (nvm on Windows, for one) put a global `pnpm` beside `node`, and a PATH
+   * built from `process.execPath`'s directory would find it and prove nothing. Nothing
+   * is spawned in the cases that use this, so a PATH without node is still faithful.
+   * @returns the PATH value.
+   */
+  function noPnpmPath(): string {
+    return (process.platform === 'win32' ? [systemFolder()] : ['/bin', '/usr/bin']).join(delimiter)
+  }
+
+  it('is checked before --setup can create anything', async () => {
+    // What the QA run hit: setup ran, the harness created the profile, and only then
+    // did the machine say `'pnpm' is not recognized`. The profile was left half made
+    // and the next launch hung on it. Nothing here may create anything at all.
+    const fix = await fixture()
+    const run = await runWrapper(fix, ['--setup'], { env: { PATH: noPnpmPath() }, cwd: fix.root })
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('pnpm is not available')
+    expect(run.stderr).toContain('npm install -g pnpm')
+    expect(run.stderr).toContain('Nothing has been changed')
+    // A package install has no declared pnpm of its own, so corepack is not the
+    // remedy here and must not be offered as one.
+    expect(run.stderr).not.toContain('corepack')
+    expect(existsSync(fix.profileDir)).toBe(false)
+    expect(run.calls).toEqual([])
+  })
+
+  it('is not reached by a scripted first run, which is refused before it', async () => {
+    // With no terminal there is no question to ask, so setup is never offered: the
+    // answer is `dshline --setup`, which then meets the check above. Nothing is created
+    // on either path, which is the property that matters.
+    const fix = await fixture()
+    const run = await runWrapper(fix, [], { env: { PATH: noPnpmPath() }, cwd: fix.root })
+    expect(run.code).toBe(1)
+    expect(run.stderr).toContain('is not set up')
+    expect(run.calls).toEqual([])
+    expect(existsSync(fix.profileDir)).toBe(false)
+  })
+
+  terminalCase('is checked before the first-run question is even asked', async fix => {
+    // Agreeing to a setup that cannot run is how the half-made profile happened, so
+    // the check belongs before the question rather than after the answer.
+    const run = await runOnTerminal(fix, [], [], { env: { PATH: noPnpmPath() }, cwd: fix.root })
+    expect(run.code).toBe(1)
+    expect(run.output).toContain('pnpm is not available')
+    expect(run.output).not.toContain('Set it up now?')
+    expect(run.calls).toEqual([])
+    expect(existsSync(fix.profileDir)).toBe(false)
+  })
+
+  it('names corepack for a harness checkout, which declares its own pnpm', async () => {
+    // A checkout is not an npm-global install: it declares its own pnpm in
+    // `packageManager`, so the remedy that keeps that version is corepack rather than
+    // a second global one.
+    const fix = await fixture()
+    const checkout = join(fix.root, 'harness')
+    await mkdir(checkout, { recursive: true })
+    await writeFile(join(checkout, 'launch.cjs'), STUB_LAUNCHER, 'utf8')
+    await writeFile(
+      join(checkout, 'package.json'),
+      `${JSON.stringify({ name: 'harness', packageManager: 'pnpm@11.7.0', scripts: { dsh: `"${process.execPath}" launch.cjs` } })}\n`,
+      'utf8',
+    )
+    const run = await runWrapper(fix, ['--setup'], {
+      env: { DSH_BIN: undefined, DSH_HARNESS: checkout, PATH: noPnpmPath() },
+      cwd: fix.root,
+    })
+    expect(run.code).toBe(1)
+    // corepack first, because the checkout declares the pnpm version it wants; a
+    // second global install is the fallback rather than the recommendation.
+    expect(run.stderr).toContain('corepack')
+    expect(run.stderr.indexOf('corepack')).toBeLessThan(run.stderr.indexOf('npm install -g pnpm'))
+    expect(run.calls).toEqual([])
+  })
+
+  it('proceeds once pnpm is available', async () => {
+    const fix = await fixture()
+    const run = await runWrapper(fix, ['--setup'], { cwd: fix.root })
+    expect(run.code).toBe(0)
+    expect(run.calls.map(call => call.argv)).toEqual([INSTALL])
+    expect(existsSync(fix.manifest)).toBe(true)
+  })
+})
+
+describe('--help', () => {
+  it('answers with no harness, no profile, and no terminal', async () => {
+    // Wrapper-owned, like --version, and for the same reason: the person working out
+    // why an installation will not start is exactly the person who cannot get a
+    // profile to exist first.
+    const fix = await fixture()
+    for (const flag of ['--help', '-h']) {
+      const run = await runWrapper(fix, [flag], { env: { DSH_BIN: undefined, PATH: '' } })
+      expect(run.code, flag).toBe(0)
+      expect(run.stdout, flag).toContain('--setup')
+      expect(run.stdout, flag).toContain('--version')
+      expect(run.calls, flag).toEqual([])
+    }
+    expect(existsSync(fix.profileDir)).toBe(false)
+  })
+
+  it('names dshline rather than the harness invocation it forwards to', async () => {
+    // The harness reports its own usage as `dsh --profile dshline`, and repeating that
+    // as the primary program name tells the reader to run a command they did not type.
+    const fix = await fixture()
+    const run = await runWrapper(fix, ['--help'], { env: { DSH_BIN: undefined, PATH: '' } })
+    expect(run.stdout).toContain('Usage:')
+    expect(run.stdout).toContain('dshline [harness options]')
+    expect(run.stdout).not.toContain('Usage: dsh --profile dshline')
+  })
+
+  it('carries the diagnostics command the documentation has to agree with', async () => {
+    // One canonical answer for the profile dump, and it is the harness's own option
+    // reached through the harness — not a second wrapper flag that would have to be
+    // maintained beside it.
+    const fix = await fixture()
+    const run = await runWrapper(fix, ['--help'], { env: { DSH_BIN: undefined, PATH: '' } })
+    expect(run.stdout).toContain('dsh --profile dshline --dump-config')
+  })
+
+  it('still works with a half-made profile, which is when it is needed most', async () => {
+    const fix = await fixture()
+    await initializeEmptyProfile(fix)
+    const run = await runWrapper(fix, ['--help'], { cwd: fix.root })
+    expect(run.code).toBe(0)
+    expect(run.stdout).toContain('--setup')
+    expect(run.calls).toEqual([])
+  })
+
+  it('is forwarded when something precedes it, because only the first argument is ours', async () => {
+    // The same rule --version follows. A caller who put a task first is asking the
+    // harness for help, not this wrapper.
+    const fix = await fixture()
+    await initializeProfile(fix)
+    const run = await runWrapper(fix, ['run the tests', '--help'], { cwd: fix.root })
+    expect(run.calls[0]?.argv).toEqual(launchArgs(fix.root, ['run the tests', '--help']))
   })
 })
 
@@ -835,9 +1220,13 @@ describe('finding the launcher', () => {
     const checkout = join(fix.root, 'harness')
     await mkdir(checkout, { recursive: true })
     await writeFile(join(checkout, 'launch.cjs'), STUB_LAUNCHER, 'utf8')
+    // Quoted, because a command line is what a shell would read and this program path
+    // contains a space on Windows (`C:\Program Files\nodejs`, or an nvm install under
+    // a folder with one). An unquoted run of tokens naming one file is genuinely
+    // ambiguous, which is why the wrapper honors quotes rather than guessing.
     await writeFile(
       join(checkout, 'package.json'),
-      `${JSON.stringify({ name: 'harness', scripts: { dsh: `${process.execPath} launch.cjs` } })}\n`,
+      `${JSON.stringify({ name: 'harness', scripts: { dsh: `"${process.execPath}" launch.cjs` } })}\n`,
       'utf8',
     )
     const run = await runWrapper(fix, [], { env: { DSH_BIN: undefined, DSH_HARNESS: checkout }, cwd: fix.root })
@@ -1133,15 +1522,14 @@ describe('a Windows npm install', () => {
 
     it('reaches it for a first run, then launches', async () => {
       const fix = await fixture()
-      const setup = await runWrapper(fix, ['--setup'], {
-        env: { DSH_BIN: undefined, PATH: [fix.shimDir, join(process.execPath, '..'), systemFolder()].join(delimiter) },
-      })
+      // `fix.pnpmDir` is on this PATH because the first-run setup is a profile
+      // mutation, and the wrapper refuses one without pnpm. The lookup itself is what
+      // this case is about; the prerequisite is checked before it does anything.
+      const path = [fix.shimDir, fix.pnpmDir, join(process.execPath, '..'), systemFolder()].join(delimiter)
+      const setup = await runWrapper(fix, ['--setup'], { env: { DSH_BIN: undefined, PATH: path } })
       expect(setup.code).toBe(0)
       await rm(fix.log, { force: true })
-      const launch = await runWrapper(fix, [], {
-        env: { DSH_BIN: undefined, PATH: [fix.shimDir, join(process.execPath, '..'), systemFolder()].join(delimiter) },
-        cwd: fix.root,
-      })
+      const launch = await runWrapper(fix, [], { env: { DSH_BIN: undefined, PATH: path }, cwd: fix.root })
       expect(launch.calls[0]?.argv).toEqual(launchArgs(fix.root))
     }, CHILD_TIMEOUT_MS + 10_000)
 
