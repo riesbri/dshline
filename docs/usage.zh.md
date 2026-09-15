@@ -260,7 +260,7 @@ Setup
 
 · Node       24.4.0
 · dshline    0.17.0
-✓ Harness    0.1.5-rc.2
+✓ Harness    0.1.6-alpha.1
 ✓ Profile    dshline
 ✓ Connecting API key · account sign-in
 ⚠ Models     no provider route is active, so /model has nothing to offer
@@ -294,9 +294,9 @@ Setup
 **Harness 比较两个精确版本。**dshline 一次只支持一个 Harness 世代：它面向的版本是每个 `dsh-*` 依赖被钉住的那个版本，你拥有的版本则从你的 profile 所组合的 `@deepseek-ai/dsh-base` 读出。不一致是一个 `⚠`，同时给出两者，以及会让它们重新一致的两条命令：
 
 ```
-⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.5-rc.2
+⚠ Harness    0.1.2-rc.1 installed · dshline targets 0.1.6-alpha.1
   dshline supports one Harness generation at a time.
-  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.5-rc.2
+  Install the generation this dshline targets: npm install -g @deepseek-ai/dsh@0.1.6-alpha.1
   Or move to a dshline release that explicitly targets the generation you have installed, if one exists —
   updating dshline does not by itself land on the installed generation, and this report cannot tell you which release would.
 ```
