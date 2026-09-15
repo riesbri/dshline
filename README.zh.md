@@ -6,9 +6,11 @@
 
 [English](README.md) | 中文
 
-**面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件生态系统的终端原生前端。**
+**面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的终端原生前端。**
 
 agent（智能体）在你的终端里，而不是取代你的终端。完成后的输出会留在终端自身的滚动缓冲区（scrollback）中，只有有界的活动区域会重绘。
+
+dshline 在 Harness 进程内运行，是 Harness 能力的直接消费方，而不是另建一套 agent 运行时或状态层。
 
 **网站：**[dshline.xyz](https://dshline.xyz)
 
@@ -20,7 +22,7 @@ agent（智能体）在你的终端里，而不是取代你的终端。完成后
 ## 实际效果
 
 <p align="center">
-  <img src=".github/assets/dshline-demo.gif" alt="dshline 的终端动画演示：选择模型、浏览插件，以及跟进一个 subagent 任务。" />
+  <img src=".github/assets/dshline-demo.gif" alt="dshline 的终端动画演示：选择 Harness 模型、委派一个仓库任务，以及查看进行中的工作。" />
 </p>
 
 ## 安装
@@ -37,7 +39,7 @@ dshline
 
 ## 为什么选择 dshline？
 
-Harness 插件发布能力；dshline 在终端中以原生方式呈现受支持的能力。它在进程内运行并消费 Harness 约定，而不是创建独立的提供方运行时、状态存储或策略。
+Harness 插件发布能力；dshline 在终端中以原生方式呈现受支持的能力。它消费 Harness 约定，而不是创建独立的提供方运行时、状态存储或策略。
 
 `Harness plugin → standard capability → dshline presentation adapter → native terminal UI`
 
@@ -49,7 +51,7 @@ Harness 拥有能力、状态、运行时、持久化与策略；dshline 只负�
 
 ### 通用能力集成
 
-dshline 通过标准 Harness 能力进行集成，而不是编写提供方专用代码。Work 视图消费 `ctx.jobs` 和 `ctx.subagents`；Sessions 视图使用 `ctx.sessionQuery`；`/connect` 使用 Harness 的模型、设置、凭据和授权服务；`/plugins` 通过 `ctx.agentPresets` 读取并切换运行中 agent 的组合；`/profiles` 通过 Harness 自己的 home-path 服务读取配置文件名册，并把每一项变更转发给 `dsh plugin`。因此，新提供方可以经由现有接口接入，无需专门的 dshline 实现。
+dshline 通过标准 Harness 能力进行集成，而不是编写提供方专用代码。Work 视图消费 `ctx.jobs` 和 `ctx.subagents`；Sessions 视图使用 `ctx.sessionQuery`；`/connect` 使用 Harness 的模型、设置、凭据和授权服务；`/plugins` 通过 `ctx.agentPresets` 读取并切换运行中 agent 的组合；`/profiles` 通过 Harness 自己的 home-path 服务读取配置文件名册，并把每一项变更转发给 `dsh plugin`。因此，新提供方可以经由现有接口接入，无需专门的 dshline 实现。真实的 Codex 提供方已经通过通用的 `ctx.subagents` 与 `ctx.jobs` 呈现跨过了这条边界，且不需要提供方专用的 dshline 生产代码；见 [Provider 验收](docs/provider-acceptance.md)。
 
 它不附带提供方列表，也没有登录协议：`/connect` 提供所有已挂载适配器声明为可配置的内容，并运行 Harness 已注册的所有流程，因此终端与官方 Web 的 Models 页面可以基于同一份设置文档和同一个凭据存储，访问相同的提供方。
 
