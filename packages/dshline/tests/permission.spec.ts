@@ -304,30 +304,51 @@ describe('real Harness permission capability', () => {
 
   it('keeps a live catalog contribution out of durable session state', async () => {
     // The catalog changes while the session's own history does not. A frontend
-    // that had copied the catalog into session-scoped state would now be wrong
-    // in both directions.
+    // that had copied the catalog into session-scoped state would be wrong in
+    // both directions.
+    //
+    // "No durable state moved" is read from two supported live surfaces rather
+    // than from a synchronous history snapshot: `session/event` is what Harness
+    // publishes for every append, so no call means no append, and the
+    // projection cut's `asOfSeq` cannot advance without one.
     const { ctx, session } = await permissionHarness(PRESETS)
-    const before = session.snapshotEvents().length
+    const appended = vi.fn()
+    ctx.on('session/event', appended)
+    const cutBefore = ctx.sessionProjections.snapshot(session).asOfSeq
     const changed = vi.fn()
     ctx.on('permission-presets/catalog-changed', changed)
 
     const dispose = ctx.permissionPresets.registerAuto(() => {})
     expect(changed).toHaveBeenCalledTimes(1)
     expect(ctx.permissionPresets.catalog().options.map(option => option.value)).toEqual(['review', 'normal', 'auto'])
-    // Nothing durable moved: no event, and the same current selection.
-    expect(session.snapshotEvents()).toHaveLength(before)
+    expect(appended).not.toHaveBeenCalled()
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBe(cutBefore)
     expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'normal' })
 
     await dispose()
     expect(changed).toHaveBeenCalledTimes(2)
     expect(ctx.permissionPresets.catalog().options.map(option => option.value)).toEqual(['review', 'normal'])
-    expect(session.snapshotEvents()).toHaveLength(before)
+    expect(appended).not.toHaveBeenCalled()
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBe(cutBefore)
+
+    // Positive control, so the two silent assertions above are a real claim
+    // rather than a listener that was never wired: a genuine selection change
+    // on the same session does reach both surfaces.
+    ctx.permissionPresets.set(session, 'review')
+    expect(appended.mock.calls.map(([, event]) => (event as { type: string }).type))
+      .toContain('permission/preset')
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBeGreaterThan(cutBefore)
   })
 
   it('leaves a withdrawn option for Harness to refuse rather than applying it', async () => {
     // A picker held open across `permission-presets/catalog-changed` can only
     // submit a command line, and the live catalog is what validates it. This is
     // why dshline needs no second catalog state machine to stay truthful.
+    //
+    // The assertion is the contract, not the copy: Harness refuses, and nothing
+    // durable moves. An upstream rewording of its own error prose must not
+    // break a dshline architecture probe, so the text is only checked for the
+    // id it refused.
     const { ctx, session } = await permissionHarness(PRESETS)
     const agent = await permissionAgent(ctx, session)
     const dispose = ctx.permissionPresets.registerAuto(() => {})
@@ -338,9 +359,22 @@ describe('real Harness permission capability', () => {
     expect(stale?.choices.map(choice => choice.value)).toContain('auto')
     await dispose()
 
+    const appended = vi.fn()
+    ctx.on('session/event', appended)
+    const cutBefore = ctx.sessionProjections.snapshot(session).asOfSeq
     const execution = await ctx.commands.execute(agent, '/permission auto', [], new AbortController().signal)
-    expect(execution?.result).toEqual({ kind: 'error', text: 'unknown preset "auto" (available: review, normal)' })
+
+    expect(execution?.result?.kind).toBe('error')
+    expect(execution?.result?.text).toContain('auto')
+    // The withdrawn id was never applied, and dshline mutated nothing locally.
     expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'normal' })
+    expect(ctx.permissionPresets.current(session)).toBe('normal')
+    // The command's own lifecycle is all that reached the log — the refusal was
+    // recorded, no permission knob moved. Naming the whole list rather than one
+    // absence keeps this from passing on an unwired listener.
+    expect(appended.mock.calls.map(([, event]) => (event as { type: string }).type))
+      .toEqual(['command/run', 'command/done'])
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBeGreaterThan(cutBefore)
   })
 })
 

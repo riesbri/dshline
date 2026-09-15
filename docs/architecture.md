@@ -194,6 +194,26 @@ unchanged. A current value the live catalog does not list is reported as current
 and offered as nothing: `custom` is how Harness derives exactly that state, and
 inventing a catalog row for it would offer a command Harness rejects.
 
+**dshline does not subscribe to `permission-presets/catalog-changed`.** Harness
+publishes it, and what dshline takes from its existence is that the catalog is
+live — which is why the read happens at the interaction boundary rather than
+once at startup. A picker that was open across a change can only submit an
+option id, and Harness's own command handler validates that id against the
+catalog as it stands; a withdrawn option is refused there, not filtered here. A
+subscription would buy nothing but a second copy of state Harness already owns,
+and a second copy is the thing this boundary exists to prevent. The terminal
+picker is ephemeral by construction: its rows live for one interaction.
+
+The one risk this leaves with dshline is presentation. Harness publishes the
+selectable catalog but no per-option risk metadata — `PresetOption` is a value,
+a name and a description — so which options need an explicit human
+acknowledgement before a *picker* dispatches them is a frontend decision. dshline
+makes the same one Harness Web makes, for the same two upstream-known options
+(full access, and the live `auto` review preset), as a small explicit table
+keyed by opaque id. It never infers risk from sandbox or approval internals, nor
+from an option's display name, and a typed `/permission <preset>` is ordinary
+Harness command input that this step never sees.
+
 Context intelligence is the fourth, and it is the one that separates a cheap
 authority from an expensive one. `@deepseek-ai/dsh-token-meter` publishes three
 projection units — `contextPressure` (the provider's newest prompt sample, the

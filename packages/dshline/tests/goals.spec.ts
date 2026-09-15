@@ -15,8 +15,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent, SessionStartSource } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalActivation, GoalPhase, GoalProjection, GoalView } from '@deepseek-ai/dsh-goal'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -217,8 +217,24 @@ describe('the Goal authority split', () => {
   })
 })
 
-/** Mount the real goal domain beside the real registry and agent store. */
-async function harness(): Promise<{ ctx: Context; agent: Agent; observer: SessionProjectionObserver }> {
+/**
+ * Mount the real goal domain beside the real registry and agent store.
+ *
+ * `enter()` and `announce()` are used rather than `register()` because they are
+ * the registry's own two-step publication seam, and holding them apart is what
+ * lets a caller arrange a session's durable state BEFORE the one creation edge
+ * — which is the shape a reopened session actually has. `register()` is the
+ * convenience that fuses them and can only ever report `startup`.
+ * @param source - how this agent is published, or `defer` to publish later.
+ * @returns the mounted context, the entered agent, an observer, and — when
+ *   deferred — the single publication the caller still owes.
+ */
+async function harness(source: SessionStartSource | 'defer' = 'startup'): Promise<{
+  ctx: Context
+  agent: Agent
+  observer: SessionProjectionObserver
+  publish: (as: SessionStartSource) => Promise<void>
+}> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
@@ -228,13 +244,17 @@ async function harness(): Promise<{ ctx: Context; agent: Agent; observer: Sessio
   // The goal service needs the registry's exact live agent and nothing else
   // about one: no loop, no provider, no model.
   const agent = { id: session.id, session, ctx } as unknown as Agent
-  // Registration publishes the agent and awaits its serial `agent/created`
-  // listeners — the Goal service's disarm among them — before returning.
-  await ctx.agents.register(agent)
+  ctx.agents.enter(agent, undefined)
+  const publish = async (as: SessionStartSource): Promise<void> => {
+    // Awaited: `agent/created` is serial and part of publication, so every
+    // listener has finished before this resolves.
+    await ctx.agents.announce(agent, as)
+  }
+  if (source !== 'defer') await publish(source)
   const observer = new SessionProjectionObserver({
     registry: ctx.sessionProjections, session, invalidate: () => {},
   })
-  return { ctx, agent, observer }
+  return { ctx, agent, observer, publish }
 }
 
 describe('the real Goal service and session projection', () => {
@@ -286,18 +306,23 @@ describe('the real Goal service and session projection', () => {
   })
 
   it('starts a reopened session idle and rearms only on a real resume', async () => {
-    // The `agent/created` edge the service installs is what makes every
-    // reopened session start disarmed; `resume()` is the authorized way back.
+    // One real publication, not a synthetic second edge. The agent is entered
+    // but unpublished, the session's goal is put in place the way a reopened
+    // log already carries one, and then the agent is announced exactly once
+    // with `source: 'resume'` — the registry's own seam, the real serial
+    // `agent/created` dispatch, awaited.
     //
-    // Driven through Harness's own agent-scoped dispatcher, which is what makes
-    // this a lifecycle probe rather than a string: `agent/created` is serial,
-    // awaited, and part of publication, so a listener that disarms here is
-    // guaranteed to have run before the resumed agent's first model request.
-    // An unscoped `ctx.emit` would reach the same listener while proving none
-    // of that.
-    const { ctx, agent, observer } = await harness()
+    // That ordering is the whole point: the disarm is part of publication, so
+    // it is guaranteed to have happened before the resumed agent could take a
+    // single model turn. `resume()` is the authorized way back.
+    const { ctx, agent, observer, publish } = await harness('defer')
     const created = ctx.goals.create(agent, { objective: 'ship the release', maxGoalRounds: 8 })
-    await agentEvents(ctx, agent).serial('agent/created', { source: 'resume' })
+    // Armed before publication, so the disarm below is a real transition.
+    expect(goalReading(observer.snapshot(), () => ctx.goals.get(agent)?.activation)?.running).toBe(true)
+
+    await publish('resume')
+
+    // Durable authority untouched by the lifecycle edge; live authority disarmed.
     expect(observer.snapshot()?.values.goal?.goal.phase).toBe('active')
     expect(goalReading(observer.snapshot(), () => ctx.goals.get(agent)?.activation))
       .toEqual({ label: 'goal idle', running: false })

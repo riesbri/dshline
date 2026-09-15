@@ -11,6 +11,10 @@
  * `announce(agent, source)` awaits the serial `agent/created` listeners that
  * complete initialization before any queued work proceeds.
  *
+ * It proves the registry's own dispatch and the lifecycle source each
+ * publication reports — not AgentLoop creation, model setup, persistence
+ * loading, announcement policy, or provider behavior.
+ *
  * The factory below is deliberately local: its returned handles and agents do
  * not prove concrete loop creation, persistence loading, setup, announcement
  * policy, or lifecycle behavior. Those are owned by the installed provider.
@@ -24,6 +28,7 @@ import AgentRegistry, {
   type AgentHandle,
   type CreateAgentOptions,
   type ResumeAgentOptions,
+  type SessionStartSource,
 } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
@@ -36,15 +41,22 @@ function localAgent(ctx: Context, id: SessionId): Agent {
 
 /**
  * Publish a local handle through the real registry, as an AgentFactory would.
+ *
+ * The source is a parameter rather than a constant because `agent/created`
+ * carries it as part of the upstream lifecycle contract, and a factory that
+ * announced every publication as `startup` would misreport its own resume path
+ * to every listener that reads it. `SessionStartSource` is upstream's own
+ * union; no parallel one is declared here.
  * @param ctx - context carrying the real registry.
  * @param id - shared agent/session identity.
+ * @param source - why this agent is being published, as the lifecycle edge reports it.
  * @returns a local handle backed by the registry's real registration path,
  *   after its awaited creation announcement has settled.
  */
-async function localHandle(ctx: Context, id: SessionId): Promise<AgentHandle> {
+async function localHandle(ctx: Context, id: SessionId, source: SessionStartSource): Promise<AgentHandle> {
   const agent = localAgent(ctx, id)
   const detach = ctx.agents.enter(agent, undefined)
-  await ctx.agents.announce(agent, 'startup')
+  await ctx.agents.announce(agent, source)
   return {
     agent,
     dispose: async () => { detach() },
@@ -81,18 +93,23 @@ describe('capability: agents', () => {
     }
   })
 
-  it('delegates create and resume options through the AgentFactory seam', async () => {
+  it('delegates create and resume options through the AgentFactory seam, each with its own lifecycle source', async () => {
     const ctx = await mounted()
     const creates: CreateAgentOptions[] = []
     const resumes: ResumeAgentOptions[] = []
+    // What every `agent/created` listener saw, in publication order. The Goal
+    // service is one such listener in production, and `source` is the only
+    // thing distinguishing a fresh start from a reopened session on that edge.
+    const sources: SessionStartSource[] = []
+    ctx.on('agent/created', ({ source }) => { sources.push(source) })
     const factory: AgentFactory = {
       createAgent: async (_ownerCtx, options) => {
         creates.push(options)
-        return await localHandle(ctx, options.sessionId)
+        return await localHandle(ctx, options.sessionId, 'startup')
       },
       resume: async (_ownerCtx, options) => {
         resumes.push(options)
-        return await localHandle(ctx, options.resumeSessionId)
+        return await localHandle(ctx, options.resumeSessionId, 'resume')
       },
     }
     const disposeFactory = ctx.agents.setFactory(factory)
@@ -115,6 +132,10 @@ describe('capability: agents', () => {
       expect(resumed.agent).toBe(ctx.agents.get(resumeOptions.resumeSessionId))
       await resumed.dispose()
       expect(ctx.agents.get(resumeOptions.resumeSessionId)).toBeUndefined()
+
+      // The two paths are distinguishable on the edge itself, not merely in the
+      // factory's own bookkeeping.
+      expect(sources).toEqual(['startup', 'resume'])
     } finally {
       disposeFactory()
       await ctx.fiber.dispose()

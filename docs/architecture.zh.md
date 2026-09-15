@@ -126,6 +126,20 @@ ctx.permissionPresets.catalog()        ctx.sessionProjections
 只作为当前状态报告，而不作为可选项提供：`custom` 正是 Harness 推导出这种状态的方式，
 为它编造一个目录条目只会提供一条 Harness 会拒绝的命令。
 
+**dshline 不订阅 `permission-presets/catalog-changed`。**Harness 发布这个事件，而
+dshline 从它的存在中获得的信息只有一条：目录是实时的——正因如此，读取发生在交互边界，
+而不是在启动时读一次。跨越一次变化仍然开着的选择器只能提交一个选项 id，Harness 自己的
+命令处理器会用当时的目录校验它；被撤下的选项在那里被拒绝，而不是在这里被过滤。订阅只会
+换来一份 Harness 已经拥有的状态的副本，而副本正是这条边界要防止的东西。终端选择器在
+构造上就是易逝的：它的行只存活一次交互。
+
+这条边界留给 dshline 的唯一风险属于呈现。Harness 发布可选目录，但不发布逐选项的风险
+元数据——`PresetOption` 只有值、名称和描述——因此哪些选项在*选择器*派发之前需要一次
+明确的人工确认，是一个前端决定。dshline 作出与 Harness Web 相同的决定，针对同样两个
+上游已知的选项（完全权限，以及实时的 `auto` 审查预设），实现为一张按不透明 id 索引的
+小而显式的表。它绝不从沙箱或审批内部推断风险，也不从选项的显示名称推断；而键入的
+`/permission <preset>` 是普通的 Harness 命令输入，这一步永远看不到它。
+
 上下文智能是第四个，也是把便宜权威与昂贵权威区分开来的那一个。
 `@deepseek-ai/dsh-token-meter` 发布三个投影单元——`contextPressure`（提供方最新的
 提示词采样、同一采样加上此后 surface 变动的带符号启发式重定价，以及最新记录的路线

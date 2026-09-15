@@ -40,7 +40,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'agents',
     files: ['packages/dshline/tests/capability/agents.probe.spec.ts'],
-    note: 'real AgentRegistry get/create/resume dispatch over entered agents and the published AgentFactory seam; local factory behavior does not prove AgentLoop creation, persistence, setup, or lifecycle policy',
+    note: 'real AgentRegistry get/create/resume dispatch over entered agents, the awaited enter/announce publication seam, and the `agent/created` source each path reports (startup vs resume) through the published AgentFactory; local factory behavior does not prove AgentLoop creation, persistence, setup, or lifecycle policy',
   },
   {
     name: 'jobs',
@@ -142,7 +142,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'permissionPresets',
     files: ['packages/dshline/tests/permission.spec.ts'],
-    note: 'real PermissionPresetService catalog()/registerAuto contribution and the current-value-only `permissions` projection, joined by dshline’s picker adapter and mutated only through the registered `/permission` command; deployment preset tables and the sandbox/approval knobs behind them are host-owned',
+    note: 'real PermissionPresetService catalog() over a real preset table plus a live registerAuto contribution, and the current-value-only `permissions` session projection, joined by dshline’s picker adapter for presentation only — no dshline catalog state, no catalog-change subscription, and mutation solely through the registered `/permission` command, whose refusal of a withdrawn option is exercised; deployment preset tables and the sandbox/approval knobs behind them are host-owned',
   },
   {
     name: 'commands',
@@ -175,7 +175,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'goals',
     files: ['packages/dshline/tests/goals.spec.ts'],
-    note: 'real GoalService/projection plus dshline `goalReading` adapter path, source rule, and the awaited agent-scoped `agent/created` lifecycle edge that disarms a reopened session; no mounted status line is exercised',
+    note: 'real GoalService/projection plus dshline `goalReading` adapter path, source rule, and one real awaited `announce(agent, \'resume\')` publication whose serial `agent/created` dispatch disarms the reopened session; no AgentLoop, provider, or mounted status line is exercised',
   },
   {
     name: 'approval',
