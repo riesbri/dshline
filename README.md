@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/dshline-hero.svg" alt="dshline: a terminal-native frontend for DeepSeek Harness. Harness plugins flow through capability contracts into native terminal UI." />
+  <img src=".github/assets/dshline-hero.svg" alt="" />
 </p>
 
 # dshline
