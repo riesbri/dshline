@@ -435,6 +435,14 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       const length = selectableLength()
       selected = Math.min(selected, Math.max(0, length - 1))
 
+      // The framed footer and the compact fallback must agree about what Enter
+      // runs for the current selection, so classify it once. A content cursor's
+      // `more available` is a Harness fact; the `↵ load more` action belongs to
+      // the Load more row only while that row is actually under the cursor.
+      const selectedTrailing = selected === visible.length ? trailing : undefined
+      const resumable = focusedEntry() !== undefined
+      const enterAction = selectedEnterAction(resumable, selectedTrailing)
+
       const disclosed = submode === 'detail' ? focusedEntry() : undefined
       if (disclosed !== undefined) {
         const available = actions(disclosed)
@@ -448,11 +456,11 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       const compactContent = mode === 'content'
         && (columns <= CONTENT_COMPACT_COLUMNS || terminalRows <= CONTENT_COMPACT_ROWS)
       if (compactContent || terminalRows <= SESSIONS_FIXED_ROWS || columns < SESSIONS_MIN_COLUMNS) {
-        return compactFallback(resolved, columns, terminalRows, active)
+        return compactFallback(resolved, columns, terminalRows, active, enterAction)
       }
       const inner = chromeWidth(columns) - BOX_CHROME_COLUMNS
       const capacity = terminalRows - SESSIONS_FIXED_ROWS - (active === undefined ? 0 : 1)
-      if (capacity <= 0) return compactFallback(resolved, columns, terminalRows, active)
+      if (capacity <= 0) return compactFallback(resolved, columns, terminalRows, active, enterAction)
       const rendered = renderResolved(resolved, spec, mode, selected, trailing, inner)
       viewport.update(rendered.rows.length, capacity)
       if (rendered.selectedRow < viewport.start) viewport.move(rendered.selectedRow - viewport.start)
@@ -486,14 +494,14 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
           footer: fitFooterHelp(
-            help(mode, query, focusedEntry() !== undefined, selected === visible.length ? trailing : undefined),
+            help(mode, query, resumable, selectedTrailing),
             footerBudget(columns),
           ),
         }),
       ]
       return physicalRows(frame, columns).length <= terminalRows
         ? frame
-        : compactFallback(resolved, columns, terminalRows, active)
+        : compactFallback(resolved, columns, terminalRows, active, enterAction)
     },
     handleKey(key: Key) {
       if (submode === 'detail') {
@@ -880,6 +888,38 @@ function factRow(fact: SessionFact, inner: number): string {
 }
 
 /**
+ * The content-search facts as whole segments, most significant first.
+ *
+ * The one source of wording truth for the framed counter and the compact
+ * fallback. It states only what Sessions owns: the retained-versus-returned
+ * relationship, whether Harness's opaque cursor has a next page, and whether a
+ * page is already in flight. It never infers a page number or a remainder.
+ * @param content - the landed content-search state.
+ * @returns the count, the cursor fact, and an optional in-flight fact.
+ */
+function contentCounterSegments(
+  content: Extract<ContentState, { kind: 'ready' }>,
+): readonly [string, string, ...string[]] {
+  const count = content.matched < content.returned
+    ? `${String(content.matched)} of ${String(content.returned)} matched`
+    : `${String(content.returned)} result${content.returned === 1 ? '' : 's'}`
+  return [
+    count,
+    content.more ? 'more available' : 'end',
+    ...content.loadingMore ? ['loading more'] : [],
+  ]
+}
+
+/**
+ * The framed content counter, before any local geometry is appended.
+ * @param content - the landed content-search state.
+ * @returns the counter text.
+ */
+function contentCount(content: Extract<ContentState, { kind: 'ready' }>): string {
+  return contentCounterSegments(content).join(' · ')
+}
+
+/**
  * Count sessions and continuation facts without inventing page numbers.
  *
  * `more below` is the one local-geometry fact here: it says another selectable
@@ -892,11 +932,7 @@ function counter(resolved: Resolved, rendered: Rendered, viewport: RowViewport):
   const content = resolved.content
   let count: string
   if (content !== undefined) {
-    count = content.matched < content.returned
-      ? `${String(content.matched)} of ${String(content.returned)} matched`
-      : `${String(content.returned)} result${content.returned === 1 ? '' : 's'}`
-    count += content.more ? ' · more available' : ' · end'
-    if (content.loadingMore) count += ' · loading more'
+    count = contentCount(content)
   } else {
     const shown = resolved.entries.length
     if (shown === 0) return ''
@@ -910,6 +946,26 @@ function counter(resolved: Resolved, rendered: Rendered, viewport: RowViewport):
   // is geometry, not another choice.
   if (rendered.selectableRows.some(row => row >= viewport.end)) count += ' · more below'
   return count
+}
+
+/**
+ * The action Enter will run for the current selection.
+ *
+ * Derived from the SELECTION rather than from `content.more`: `more available`
+ * is a Harness cursor fact, while `↵ load more` belongs to the local Load more
+ * row being selected. A `loading` trailing row is a status row and is never
+ * selectable, so it contributes no action.
+ * @param resumable - whether a real session row is under the cursor.
+ * @param selectedTrailing - the continuation row, when it is the selection.
+ * @returns the action label, or undefined when Enter has no browser action.
+ */
+function selectedEnterAction(
+  resumable: boolean,
+  selectedTrailing: Trailing | undefined,
+): string | undefined {
+  if (selectedTrailing?.kind === 'more') return '↵ load more'
+  if (selectedTrailing?.kind === 'refresh') return '↵ refresh'
+  return resumable ? '↵ reopen' : undefined
 }
 
 /**
@@ -930,9 +986,7 @@ function help(
   resumable: boolean,
   selectedTrailing: Trailing | undefined,
 ): string {
-  const action = selectedTrailing?.kind === 'more'
-    ? '↵ load more'
-    : selectedTrailing?.kind === 'refresh' ? '↵ refresh' : resumable ? '↵ reopen' : undefined
+  const action = selectedEnterAction(resumable, selectedTrailing)
   return [
     ...selectableHelp(resumable || action !== undefined),
     mode === 'content' ? 'tab filter' : 'tab search contents',
@@ -969,22 +1023,73 @@ function noticeLine(text: string, inner: number): string {
   return paint(truncateToWidth(flat, Math.max(1, inner)), 'error')
 }
 
-/** Give a tiny terminal one safe, closable Sessions summary. */
+/**
+ * Give a tiny terminal one safe, closable Sessions summary.
+ *
+ * A landed content result projects the SAME facts the framed counter states —
+ * results, cursor, in-flight load — plus the action Enter will actually run.
+ * Ordinary filter mode keeps its existing `N sessions · ↵ reopen` line.
+ * @param resolved - the resolved corpus.
+ * @param columns - terminal width.
+ * @param rows - terminal height.
+ * @param notice - an active refusal, which owns the row.
+ * @param enterAction - the action Enter will run for the current selection.
+ * @returns one fitted physical row, or nothing.
+ */
 function compactFallback(
   resolved: Resolved,
   columns: number,
   rows: number,
   notice: Notice | undefined,
+  enterAction: string | undefined,
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {
     return [noticeLine(notice.text, Math.max(1, columns))]
   }
-  const summary = resolved.entries.length === 0
-    ? 'Sessions · esc close'
-    : `${String(resolved.entries.length)} sessions · ↵ reopen · esc close`
-  const shown = [summary, 'esc close', 'esc'].find(candidate => displayWidth(candidate) <= columns)
+  const content = resolved.content
+  const candidates = content === undefined
+    ? [
+      resolved.entries.length === 0
+        ? 'Sessions · esc close'
+        : `${String(resolved.entries.length)} sessions · ↵ reopen · esc close`,
+      'esc close',
+      'esc',
+    ]
+    : compactContentLines(content, enterAction)
+  const shown = candidates.find(candidate => displayWidth(candidate) <= columns)
   return shown === undefined ? [] : [paint(shown, 'overlay-headline')]
+}
+
+/**
+ * The compact content summary, most complete first.
+ *
+ * Each candidate is a whole-segment projection of the same facts the framed
+ * counter states, followed by the current Enter action and the exit. A narrower
+ * terminal drops whole segments rather than wrapping or substituting a generic
+ * sentence: a `sessions` count would be a lie here because a content row is a
+ * result, and the action must stay the one Enter will run. `more below` is
+ * deliberately absent — it describes viewport geometry the one-line form has no
+ * viewport to measure.
+ * @param content - the landed content-search state.
+ * @param action - the Enter action for the current selection, when there is one.
+ * @returns candidate lines, widest first.
+ */
+function compactContentLines(
+  content: Extract<ContentState, { kind: 'ready' }>,
+  action: string | undefined,
+): readonly string[] {
+  const [count, cursor, ...inFlight] = contentCounterSegments(content)
+  const withTail = (segments: readonly string[]): string =>
+    [...segments, ...action === undefined ? [] : [action], 'esc close'].join(' · ')
+  return [
+    withTail([count, cursor, ...inFlight]),
+    withTail([count, cursor]),
+    withTail([count]),
+    withTail([]),
+    'esc close',
+    'esc',
+  ]
 }
 
 /** Give a tiny terminal one safe detail-surface summary. */

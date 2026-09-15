@@ -1422,3 +1422,186 @@ describe('content-search overflow and selected evidence', () => {
     expect(view.resumed).toEqual([])
   })
 })
+
+describe('compact content-search summaries', () => {
+  /**
+   * The height-triggered compact geometry with columns to spare, so the full
+   * truthful line can survive and only a genuinely narrow width makes it degrade.
+   */
+  const COMPACT_ROWS = 15
+
+  /**
+   * One retained content result.
+   * @param index - the result's index, used for its id and title.
+   * @returns the entry.
+   */
+  function hit(index: number): SessionEntry {
+    return entry({ id: `compact-hit-${String(index)}` as SessionId, title: `Compact hit ${String(index)}` })
+  }
+
+  /**
+   * A landed content page retaining `count` rows.
+   * @param count - how many rows presentation keeps.
+   * @param overrides - Harness facts to replace.
+   * @returns the content state.
+   */
+  function page(
+    count: number,
+    overrides: Partial<Extract<ContentState, { kind: 'ready' }>> = {},
+  ): ContentState {
+    return contentReady(Array.from({ length: count }, (_unused, index) => hit(index)), overrides)
+  }
+
+  it('labels content-search rows as results, never as sessions', () => {
+    // Deliberate break: the generic compact fallback said `3 sessions`, a count
+    // of picks rather than of Harness hits.
+    const view = mount({ content: page(3) })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, COMPACT_ROWS)
+    expect(drawn).toContain('3 results')
+    expect(drawn).toContain('end')
+    expect(drawn).toContain('↵ reopen')
+    expect(drawn).toContain('esc close')
+    expect(drawn).not.toContain('sessions')
+  })
+
+  it('keeps the Harness cursor continuation fact', () => {
+    const view = mount({ content: page(3, { more: true }) })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, COMPACT_ROWS)
+    expect(drawn).toContain('3 results')
+    expect(drawn).toContain('more available')
+    expect(drawn).not.toContain('end')
+  })
+
+  it('keeps the in-flight load fact separate from the cursor fact', () => {
+    const continuing = mount({ content: page(3, { more: true, loadingMore: true }) })
+    continuing.press(key('tab'))
+    const withMore = screen(continuing, COLUMNS, COMPACT_ROWS)
+    expect(withMore).toContain('3 results')
+    expect(withMore).toContain('more available')
+    expect(withMore).toContain('loading more')
+
+    const ended = mount({ content: page(3, { more: false, loadingMore: true }) })
+    ended.press(key('tab'))
+    const withoutMore = screen(ended, COLUMNS, COMPACT_ROWS)
+    expect(withoutMore).toContain('end')
+    expect(withoutMore).toContain('loading more')
+    expect(withoutMore).not.toContain('more available')
+  })
+
+  it('keeps X-of-Y matched semantics after presentation filtering', () => {
+    // Deliberate break: deriving the count from visible rows reports `2 results`
+    // for a Harness page that returned three and retained two.
+    const view = mount({ content: contentReady([hit(0), hit(1)], { returned: 3, matched: 2 }) })
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, COMPACT_ROWS)
+    expect(drawn).toContain('2 of 3 matched')
+    expect(drawn).not.toContain('2 results')
+  })
+
+  it('names the selected Load more action and runs it', () => {
+    // Deliberate break: deciding the action from `content.more` alone, or
+    // hard-coding `↵ reopen`, lies about what Enter does on the trailing row.
+    const view = mount({ content: page(3, { more: true }) })
+    view.press(key('tab'))
+    view.render(COLUMNS, ROWS)
+    view.press(key('end'))
+    view.render(COLUMNS, ROWS)
+    const drawn = screen(view, COLUMNS, COMPACT_ROWS)
+    expect(drawn).toContain('↵ load more')
+    expect(drawn).not.toContain('↵ reopen')
+    view.press(key('enter'))
+    expect(view.loadMoreCalls()).toBe(1)
+    expect(view.resumed).toEqual([])
+  })
+
+  it('names the selected Refresh action and runs it', () => {
+    // `end` here is the Harness cursor having ended or staled; Refresh is the
+    // current local choice, so both facts must be able to coexist.
+    const view = mount({ content: page(3, { more: false, restart: true }) })
+    view.press(key('tab'))
+    view.render(COLUMNS, ROWS)
+    view.press(key('end'))
+    view.render(COLUMNS, ROWS)
+    const drawn = screen(view, COLUMNS, COMPACT_ROWS)
+    expect(drawn).toContain('end')
+    expect(drawn).toContain('↵ refresh')
+    expect(drawn).not.toContain('↵ reopen')
+    view.press(key('enter'))
+    expect(view.restartCalls()).toBe(1)
+    expect(view.loadMoreCalls()).toBe(0)
+  })
+
+  it('does not turn the non-selectable loading row into an action', () => {
+    const selectedResult = mount({ content: page(3, { more: true, loadingMore: true }) })
+    selectedResult.press(key('tab'))
+    const withResult = screen(selectedResult, COLUMNS, COMPACT_ROWS)
+    expect(withResult).toContain('↵ reopen')
+    expect(withResult).not.toContain('↵ load more')
+
+    const noRow = mount({
+      content: contentReady([], { returned: 3, matched: 0, more: true, loadingMore: true }),
+    })
+    noRow.press(key('tab'))
+    const stranded = screen(noRow, COLUMNS, COMPACT_ROWS)
+    expect(stranded).toContain('loading more')
+    expect(stranded).not.toContain('↵ load more')
+    expect(stranded).not.toContain('↵ reopen')
+  })
+
+  it('keeps a zero-visible result pageable and names Load more', () => {
+    // The explanation row is not a session and is not a choice; only the
+    // continuation is, so Enter on it must still load.
+    const view = mount({
+      filters: { ...NO_FILTERS, origin: 'delegated' },
+      content: contentReady([], { returned: 3, matched: 0, more: true, revision: 1 }),
+    })
+    for (const one of typed('needle')) view.press(one)
+    view.press(key('tab'))
+    const drawn = screen(view, COLUMNS, COMPACT_ROWS)
+    expect(drawn).toContain('0 of 3 matched')
+    expect(drawn).toContain('more available')
+    expect(drawn).toContain('↵ load more')
+    view.press(key('enter'))
+    expect(view.loadMoreCalls()).toBe(1)
+    expect(view.resumed).toEqual([])
+  })
+
+  it('degrades at the narrow threshold without saying anything false', () => {
+    const view = mount({ content: page(3, { more: true }) })
+    view.press(key('tab'))
+    view.render(COLUMNS, ROWS)
+    view.press(key('end')) // select the Load more action
+    view.render(COLUMNS, ROWS)
+    for (const columns of [40, 30, 20, 12]) {
+      const drawn = view.render(columns, COMPACT_ROWS).map(stripAnsi)
+      const line = drawn.join('\n')
+      expect(drawn.length, `columns=${String(columns)}`).toBeLessThanOrEqual(COMPACT_ROWS)
+      expect(line, `columns=${String(columns)}`).toContain('esc')
+      expect(line, `columns=${String(columns)}`).not.toContain('sessions')
+      // Load more is selected, so `↵ reopen` would be a lie; when the truthful
+      // action cannot fit, the line states no action at all.
+      expect(line, `columns=${String(columns)}`).not.toContain('↵ reopen')
+    }
+    // With a real result under the cursor the same width tells the truth.
+    view.press(key('home'))
+    const reopened = screen(view, 40, COMPACT_ROWS)
+    expect(reopened).toContain('3 results')
+    expect(reopened).toContain('↵ reopen')
+    expect(reopened).not.toContain('sessions')
+  })
+
+  it('leaves ordinary filter-mode compact wording unchanged', () => {
+    const view = mount({
+      listing: {
+        kind: 'ready',
+        entries: [entry({ id: 'one' as SessionId }), entry({ id: 'two' as SessionId })],
+        truncated: 0,
+      },
+    })
+    // Rows, not columns: height alone forces the fallback while leaving the full
+    // filter line room, so this pins the wording rather than the shortening.
+    expect(screen(view, COLUMNS, 5)).toBe('2 sessions · ↵ reopen · esc close')
+  })
+})
