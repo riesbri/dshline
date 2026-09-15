@@ -34,6 +34,8 @@ dshline
 
 首次运行会先询问一次，然后才让 Harness 创建 `dshline` 配置文件并把本包安装进去。它需要你的 `PATH` 上有 `pnpm`，因为 Harness 用 pnpm 安装配置文件的插件；它会在改动任何东西之前检查，缺失时会明确告诉你。关于系统要求、校验、用 `dshline --setup` 显式安装以及源码安装，请参阅[安装](docs/install.zh.md)。
 
+**Harness 兼容性：**dshline 一次只支持一个 Harness 世代。如果 npm 报告依赖冲突，或 `/setup` 报告 Harness 版本不匹配，请不要使用 `--force` 或 `--legacy-peer-deps`；请参阅[安装 → Harness 版本不匹配](docs/install.zh.md#harness-version-mismatch)。
+
 > [!WARNING]
 > 沙箱和工具权限由当前激活的 Harness 配置文件控制；普通工具调用可能在未经逐次审查的情况下直接运行。在对重要代码使用 dshline 之前，请先参阅[权限与沙箱](docs/usage.zh.md#permissions-and-the-sandbox)。
 
