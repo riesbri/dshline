@@ -164,6 +164,26 @@ the npm package name, or an absolute path to `packages/dshline`.
 
 ## Troubleshooting
 
+### Harness version mismatch
+
+dshline supports one Harness generation at a time. Its Harness-facing dependencies are
+pinned to that generation rather than widened across neighbouring releases, so the normal
+versionless install stays the recommended command:
+
+```sh
+npm install -g @deepseek-ai/dsh @dshline/dshline
+```
+
+A mismatch can present in two ways: npm reports a dependency or peer conflict, or
+[`/setup`](usage.md#setup) shows different installed and targeted Harness versions. Do not
+combine them with `--force` or `--legacy-peer-deps`; those options can produce an
+installation that completes but contains no supported Harness generation.
+
+dshline and Harness are published independently, so their npm channels can occasionally be
+temporarily out of alignment. `/setup` already shows both versions and the generation this
+dshline targets, and gives the deterministic recovery when one is known — follow that
+diagnostic rather than forcing the dependency graph.
+
 ### `cannot set up the "dshline" profile, because pnpm is not available`
 
 ```

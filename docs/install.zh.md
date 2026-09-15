@@ -148,6 +148,20 @@ dsh plugin --profile dshline add github:riesbri/dshline   # do not use this
 
 ## 故障排查
 
+<a id="harness-version-mismatch"></a>
+
+### Harness 版本不匹配
+
+dshline 一次只支持一个 Harness 世代。它面向 Harness 的依赖被钉在那一代上，而不是放宽到相邻版本，因此普通的、不指定版本的安装命令仍是推荐做法：
+
+```sh
+npm install -g @deepseek-ai/dsh @dshline/dshline
+```
+
+不匹配可能以两种方式出现：npm 报告依赖或 peer 冲突，或者 [`/setup`](usage.zh.md#setup) 显示出不同的已安装与目标 Harness 版本。请不要用 `--force` 或 `--legacy-peer-deps` 把它们凑到一起；这些选项可能产生一次安装完成了、却不含任何受支持 Harness 世代的结果。
+
+dshline 与 Harness 是独立发布的，所以它们的 npm 渠道偶尔可能暂时不同步。`/setup` 已经同时显示两个版本以及本次 dshline 面向的世代，并在已知时给出确定性的恢复方式——请遵循那份诊断，而不是强行拼装依赖图。
+
 ### `cannot set up the "dshline" profile, because pnpm is not available`
 
 ```

@@ -34,6 +34,8 @@ dshline
 
 The first run asks once before letting Harness create the `dshline` profile and install this package into it. It needs `pnpm` on your `PATH`, because the harness installs profile plugins with pnpm; it checks before it changes anything and says so if it is missing. See [Install](docs/install.md) for requirements, verification, explicit setup with `dshline --setup`, and source installs.
 
+**Harness compatibility:** dshline supports one Harness generation at a time. If npm reports a dependency conflict or `/setup` reports a Harness version mismatch, do not use `--force` or `--legacy-peer-deps`; see [Installation → Harness version mismatch](docs/install.md#harness-version-mismatch).
+
 > [!WARNING]
 > Sandbox and tool permissions are controlled by the active Harness profile; ordinary tool calls may run without per-call review. See [Permissions and the sandbox](docs/usage.md#permissions-and-the-sandbox) before using dshline on important code.
 
