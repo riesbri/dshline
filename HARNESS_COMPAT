@@ -42,4 +42,4 @@
 # file descriptor 2 for the life of the run, which on an interactive launch is
 # the terminal the live region is drawn on. Read the module header before
 # touching this record.
-shim packages/dshline/src/stderr.ts 0.1.5-rc.2
+shim packages/dshline/src/stderr.ts 0.1.6-alpha.1
