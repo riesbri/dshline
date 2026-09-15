@@ -1,108 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1728" height="864" viewBox="0 0 1728 864">
+<svg xmlns="http://www.w3.org/2000/svg" width="1728" height="720" viewBox="0 0 1728 720" role="img">
+<title>dshline — a terminal-native frontend for DeepSeek Harness</title>
 <defs>
   <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
     <stop offset="0" stop-color="#070b0f"/><stop offset=".55" stop-color="#091015"/><stop offset="1" stop-color="#05080b"/>
   </linearGradient>
-  <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#0d141a"/><stop offset="1" stop-color="#080d12"/>
-  </linearGradient>
+  <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+    <stop offset="0" stop-color="#28d8d2" stop-opacity=".12"/><stop offset="1" stop-color="#28d8d2" stop-opacity="0"/>
+  </radialGradient>
   <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
     <circle cx="2" cy="2" r="1" fill="#17313a" opacity=".55"/>
   </pattern>
   <style>
-    .sans{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
     .mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace}
-    .white{fill:#f4f7f8} .muted{fill:#aeb9bf} .dim{fill:#68757d}
-    .cyan{fill:#28d8d2} .blue{fill:#66a9ff} .amber{fill:#f5bd4f} .green{fill:#59d68b}
+    .white{fill:#f4f7f8} .muted{fill:#aeb9bf} .cyan{fill:#28d8d2}
   </style>
-</defs><rect width="1728" height="864" fill="url(#bg)"/><rect y="690" width="1728" height="174" fill="url(#dots)"/><rect x="51" y="180" width="91" height="100" rx="14" fill="none" stroke="#2bd5d0" stroke-width="5"/>
-<text x="73" y="241" class="mono white" font-size="43" font-weight="700" text-anchor="start" letter-spacing="0">&gt;_</text>
-<text x="181" y="270" class="mono white" font-size="122" font-weight="700" text-anchor="start" letter-spacing="-4">dsh</text>
-<text x="388" y="270" class="mono cyan" font-size="122" font-weight="700" text-anchor="start" letter-spacing="-4">line</text>
-<text x="54" y="358" class="mono muted" font-size="38" font-weight="400" text-anchor="start" letter-spacing="0">Terminal-native frontend</text>
-<text x="54" y="411" class="mono muted" font-size="38" font-weight="400" text-anchor="start" letter-spacing="0">for DeepSeek Harness</text>
-<line x1="54" y1="471" x2="95" y2="471" stroke="#28d8d2" stroke-width="3"/>
-<text x="54" y="538" class="mono white" font-size="28" font-weight="400" text-anchor="start" letter-spacing="0">Harness plugins</text>
-<text x="322" y="538" class="mono cyan" font-size="31" font-weight="700" text-anchor="start" letter-spacing="0">→</text>
-<text x="360" y="538" class="mono cyan" font-size="28" font-weight="400" text-anchor="start" letter-spacing="0">native terminal UI</text>
-<text x="54" y="674" class="mono cyan" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">✣</text>
-<text x="106" y="674" class="mono white" font-size="21" font-weight="400" text-anchor="start" letter-spacing="0">Plugin-native</text>
-<circle cx="306" cy="667" r="3" fill="#6d787e"/><text x="329" y="674" class="mono cyan" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">◎</text>
-<text x="381" y="674" class="mono white" font-size="21" font-weight="400" text-anchor="start" letter-spacing="0">Provider-neutral</text>
-<circle cx="618" cy="667" r="3" fill="#6d787e"/><text x="644" y="674" class="mono cyan" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">&gt;_</text>
-<text x="696" y="674" class="mono white" font-size="21" font-weight="400" text-anchor="start" letter-spacing="0">Real terminal scrollback</text>
-<rect x="720" y="124" width="958" height="510" rx="18" fill="url(#panel)" stroke="#303b43" stroke-width="2"/>
-<line x1="720" y1="186" x2="1678" y2="186" stroke="#303b43" stroke-width="2"/>
-<circle cx="752" cy="156" r="9" fill="#ef655d"/><circle cx="781" cy="156" r="9" fill="#efb54c"/><circle cx="810" cy="156" r="9" fill="#59c56f"/><text x="1200" y="165" class="mono cyan" font-size="24" font-weight="700" text-anchor="middle" letter-spacing="0">dshline</text>
-<text x="806" y="231" class="mono dim" font-size="17" font-weight="700" text-anchor="start" letter-spacing="0">HARNESS SURFACES</text>
-<text x="1090" y="231" class="mono dim" font-size="17" font-weight="700" text-anchor="start" letter-spacing="0">PRESENTATION ADAPTERS</text>
-<text x="1427" y="231" class="mono dim" font-size="17" font-weight="700" text-anchor="start" letter-spacing="0">NATIVE TERMINAL UI</text>
-<rect x="744" y="264" width="258" height="96" rx="10" fill="#0b1116" stroke="#29343b" stroke-width="2"/>
-<text x="766" y="302" class="mono cyan" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">♙</text>
-<text x="811" y="300" class="mono cyan" font-size="16" font-weight="700" text-anchor="start" letter-spacing="0">ctx.subagents</text>
-<text x="811" y="328" class="mono dim" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">children · lifecycle</text>
-<rect x="744" y="383" width="258" height="96" rx="10" fill="#0b1116" stroke="#29343b" stroke-width="2"/>
-<text x="766" y="421" class="mono cyan" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">≡</text>
-<text x="811" y="419" class="mono cyan" font-size="16" font-weight="700" text-anchor="start" letter-spacing="0">ctx.jobs</text>
-<text x="811" y="447" class="mono dim" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">list · observe · changes</text>
-<rect x="744" y="502" width="258" height="96" rx="10" fill="#0b1116" stroke="#29343b" stroke-width="2"/>
-<text x="766" y="540" class="mono cyan" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">◉</text>
-<text x="811" y="538" class="mono cyan" font-size="14" font-weight="700" text-anchor="start" letter-spacing="0" textLength="186" lengthAdjust="spacingAndGlyphs">ctx.sessionProjections</text>
-<text x="811" y="566" class="mono dim" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">snapshot · changes</text>
-<rect x="1059" y="264" width="258" height="96" rx="10" fill="#0b1116" stroke="#29343b" stroke-width="2"/>
-<text x="1080" y="303" class="mono amber" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">{}</text>
-<text x="1120" y="301" class="mono white" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0">Work adapter</text>
-<text x="1120" y="328" class="mono dim" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">subagents</text>
-<rect x="1059" y="383" width="258" height="96" rx="10" fill="#0b1116" stroke="#29343b" stroke-width="2"/>
-<text x="1080" y="422" class="mono amber" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">{}</text>
-<text x="1120" y="420" class="mono white" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0">Work adapter</text>
-<text x="1120" y="447" class="mono dim" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">jobs</text>
-<rect x="1059" y="502" width="258" height="96" rx="10" fill="#0b1116" stroke="#29343b" stroke-width="2"/>
-<text x="1080" y="541" class="mono amber" font-size="25" font-weight="700" text-anchor="start" letter-spacing="0">{}</text>
-<text x="1120" y="541" class="mono white" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0">Todo adapter</text>
-<text x="1120" y="568" class="mono dim" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">known projection</text>
-<line x1="1002" y1="312" x2="1058" y2="312" stroke="#25c9c6" stroke-width="2"/>
-<polyline points="1050,307 1058,312 1050,317" fill="none" stroke="#25c9c6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<line x1="1318" y1="312" x2="1370" y2="312" stroke="#f2b94b" stroke-width="2"/>
-<polyline points="1362,307 1370,312 1362,317" fill="none" stroke="#f2b94b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<line x1="1002" y1="431" x2="1058" y2="431" stroke="#25c9c6" stroke-width="2"/>
-<polyline points="1050,426 1058,431 1050,436" fill="none" stroke="#25c9c6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<line x1="1318" y1="431" x2="1370" y2="431" stroke="#f2b94b" stroke-width="2"/>
-<polyline points="1362,426 1370,431 1362,436" fill="none" stroke="#f2b94b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<line x1="1002" y1="550" x2="1058" y2="550" stroke="#25c9c6" stroke-width="2"/>
-<polyline points="1050,545 1058,550 1050,555" fill="none" stroke="#25c9c6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<line x1="1318" y1="550" x2="1370" y2="550" stroke="#f2b94b" stroke-width="2"/>
-<polyline points="1362,545 1370,550 1362,555" fill="none" stroke="#f2b94b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<rect x="1370" y="257" width="268" height="358" rx="10" fill="#091015" stroke="#24c8c8" stroke-width="2"/>
-<text x="1392" y="295" class="mono cyan" font-size="18" font-weight="700" text-anchor="start" letter-spacing="0">dshline</text>
-<circle cx="1552" cy="291" r="4" fill="#59d68b"/><text x="1562" y="295" class="mono dim" font-size="10" font-weight="400" text-anchor="start" letter-spacing="0">connected</text>
-<line x1="1392" y1="312" x2="1616" y2="312" stroke="#1c2b31" stroke-width="1"/>
-<text x="1392" y="344" class="mono muted" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0">Subagents</text>
-<text x="1392" y="488" class="mono muted" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0">Jobs</text>
-<text x="1392" y="518" class="mono muted" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0">Session projections</text>
-<text x="1392" y="548" class="mono muted" font-size="14" font-weight="600" text-anchor="start" letter-spacing="0">Native scrollback</text>
-<text x="1410" y="372" class="mono dim" font-size="11" font-weight="400" text-anchor="start" letter-spacing="0">ID</text>
-<text x="1536" y="372" class="mono dim" font-size="11" font-weight="400" text-anchor="start" letter-spacing="0">STATUS</text>
-<text x="1410" y="399" class="mono white" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">researcher</text>
-<text x="1537" y="399" class="mono dim" font-size="13" font-weight="600" text-anchor="start" letter-spacing="0">idle</text>
-<text x="1410" y="426" class="mono white" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">coder</text>
-<text x="1537" y="426" class="mono green" font-size="13" font-weight="600" text-anchor="start" letter-spacing="0">running</text>
-<text x="1410" y="453" class="mono white" font-size="13" font-weight="400" text-anchor="start" letter-spacing="0">reviewer</text>
-<text x="1537" y="453" class="mono dim" font-size="13" font-weight="600" text-anchor="start" letter-spacing="0">idle</text>
-<text x="1392" y="588" class="mono cyan" font-size="15" font-weight="700" text-anchor="start" letter-spacing="0">&gt;_</text>
-<rect x="1410" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1428" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1446" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1464" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1482" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1500" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1518" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1536" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1554" y="578" width="12" height="12" rx="2" fill="#151f26" stroke="none" stroke-width="0"/>
-<rect x="1051" y="708" width="627" height="80" rx="12" fill="#080e13" stroke="#28343b" stroke-width="2"/>
-<text x="1080" y="758" class="mono white" font-size="30" font-weight="700" text-anchor="start" letter-spacing="0">◉</text>
-<text x="1127" y="758" class="mono white" font-size="22" font-weight="400" text-anchor="start" letter-spacing="0" textLength="106" lengthAdjust="spacingAndGlyphs">riesbri/</text>
-<text x="1247" y="758" class="mono cyan" font-size="22" font-weight="700" text-anchor="start" letter-spacing="0">dshline</text>
-<line x1="1375" y1="728" x2="1375" y2="770" stroke="#29343b" stroke-width="1"/>
-<text x="1405" y="758" class="mono muted" font-size="20" font-weight="400" text-anchor="start" letter-spacing="0">☆  Open source</text>
+</defs>
+<rect width="1728" height="720" fill="url(#bg)"/>
+<rect y="540" width="1728" height="180" fill="url(#dots)"/>
+<ellipse cx="864" cy="272" rx="640" ry="290" fill="url(#glow)"/>
+
+<rect x="554" y="190" width="91" height="100" rx="14" fill="none" stroke="#2bd5d0" stroke-width="5"/>
+<text x="576" y="251" class="mono white" font-size="43" font-weight="700">&gt;_</text>
+<text x="689" y="280" class="mono white" font-size="122" font-weight="700" letter-spacing="-4">dsh</text>
+<text x="897" y="280" class="mono cyan" font-size="122" font-weight="700" letter-spacing="-4">line</text>
+
+<text x="864" y="394" class="mono muted" font-size="44" text-anchor="middle">A <tspan class="white">terminal-native</tspan> frontend for DeepSeek Harness</text>
+
+<line x1="828" y1="460" x2="900" y2="460" stroke="#28d8d2" stroke-width="3"/>
+
+<text x="864" y="536" class="mono white" font-size="30" text-anchor="middle">Real terminal scrollback <tspan class="cyan">&#183;</tspan> Direct Harness <tspan class="cyan">&#183;</tspan> Provider-neutral</text>
 </svg>

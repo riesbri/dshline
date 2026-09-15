@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/dshline-hero.svg" alt="dshline：面向 DeepSeek Harness 的终端原生前端。Harness 插件通过能力约定流入原生终端 UI。" />
+  <img src=".github/assets/dshline-hero.svg" alt="" />
 </p>
 
 # dshline
