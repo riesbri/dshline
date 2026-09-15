@@ -502,15 +502,19 @@ seam 能重新链接一个已组合 Host 的 bundle 层，而发明一个正是�
 
 ### 启动器唯一的生命周期决定
 
-`bin/dshline.mjs` 是一层启动器封装，首次运行是它唯一触及生命周期的时刻。它询问一个问题，回答“是”时通过与普通启动完全相同的启动器执行一条 Harness 命令——`dsh plugin --profile dshline add @dshline/dshline`——然后继续执行最初要求的那次启动。它不写任何配置文件文件，从不调用 pnpm，也从不读取某个包的 `dsh.bundle` 声明：这些都属于 `dsh plugin`，它本来就会在首次使用时初始化配置文件，并按实际安装状态对账 `dsh.profile.bundles`。
+`bin/dshline.mjs` 是一层启动器封装，它只在三个很窄的点上触及生命周期，每一个都是因为把该状态留给 Harness 会产生用户无法应对的失败。它询问一个问题，回答“是”时通过与普通启动完全相同的启动器执行一条 Harness 命令——`dsh plugin --profile dshline add @dshline/dshline`——然后继续执行最初要求的那次启动。它不写任何配置文件，从不读取某个包的 `dsh.bundle` 声明，也从不自己解析软件包：这些都属于 `dsh plugin`，它本来就会在首次使用时初始化配置文件，并按实际安装状态对账 `dsh.profile.bundles`。
 
-边界就是一个文件。**未初始化**意味着配置文件没有 `package.json`——这正是 `dsh plugin` 自己采用的判据——其余一切都是**已存在**的配置文件。因此，安装被中断的、缺少依赖的、`node_modules` 为空的，或者根本启动失败的配置文件，仍然会照常启动，由 Harness 自己的加载器说明问题所在。在这里修复它，等于去猜一个 Harness 有权威结论的诊断，并把它藏在一次没人要求的软件包操作背后。显式的 `--profile`——包括 `--profile dshline`——会完全关闭这个行为：调用方在直接使用 Harness 的配置文件语义，封装层不再往里添加任何东西。
+第一点是**前置条件，在任何变更之前检查**。Harness 用 pnpm 安装配置文件的插件，所以没有它的机器会创建出配置文件，然后停在 `'pnpm' is not recognized`。封装层向 PATH 询问 pnpm 是否可达——是查找，不是探测，理由与启动器查找相同——并在创建任何东西之前拒绝，同时点名启动器来自的机制：检出的情况给出 `corepack enable pnpm`（检出在自己的 `packageManager` 中声明了它想要的 pnpm 版本），否则给出 `npm install -g pnpm`。
+
+第二点和第三点是配置文件状态，而那里的边界只是就一个依赖提出的一个问题：**这个配置文件是否记录了 dshline 自己的包，且记录的是 dshline 自己的发布版本？**没有 `package.json` 的配置文件是**未初始化**——这正是 `dsh plugin` 自己采用的判据——于是提供配置。记录了本包且版本一致的配置文件会启动。记录的 spec 指向文件夹或 VCS 来源的配置文件同样会启动：那是别人已经做出的决定，而路径没有可供分歧的发布版本。两者之间剩下的两种状态会被报告，而不是被启动进入，而且每一种都是用户已经遇到过的失败。清单里没有对本包的依赖，是一次半途停止的配置：它会打开一个空白终端并一直等待，因为 Harness 永远走不到会抱怨一个什么都没装进去的配置文件的那一步。记录的发布版本不是这个封装的，是一次升级遗留的配置文件：它会在 Harness 内部以 `cannot get property "agent" without inject` 死掉。两者都用 `dshline --setup` 作答；在终端上，封装层会主动提出执行它——那正是首次运行已经问过的同一个问题。
+
+配置文件的其他一切仍然是 Harness 的判断。一致的 bundle 列表、可解析的 `node_modules`、第三个插件的损坏、因任何其他原因启动失败的配置文件：照常启动，由 Harness 自己的加载器说明问题所在。在这里修复它们，等于去猜一个 Harness 有权威结论的诊断，并把它藏在一次没人要求的软件包操作背后——而读取它们就会成为本文档所禁止的第二个 Harness 依赖解析器。显式的 `--profile`——包括 `--profile dshline`——会完全关闭这个行为：调用方在直接使用 Harness 的配置文件语义，封装层不再往里添加任何东西。它同时也是文档中绕过这两种诊断的途径。
 
 **dshline 不为 Harness 的配置文件变更做串行化，也不修复它们。**并发的软件包变更由 Harness 定义；dshline 只执行它获得许可的那次安装，并把 Harness 的成功或失败当作权威结论——安装失败就让这次调用失败，什么都不启动。因此两次重叠的首次运行各自委派一次，而不是其中一个去判定另一个的安装已经完成。那个判定在本地没有诚实的答案：`dsh plugin` 在安装*之前*就写入配置文件清单，所以该文件只能证明有一次安装开始了，永远无法证明某次已经完成，而要分辨这一点就得去读依赖、node_modules 或 bundle 状态——也就是上一段留给 Harness 的配置文件健康状况。在 `$DSH_HOME` 下加锁，正是本文档禁止的竞争性生命周期。
 
 ## Setup：一个指挥者，而不是向导
 
-在「安装 dshline」与「发送一个回合」之间隔着两件事，而它们分处一条边界的两侧。`bin/dshline.mjs` 只能创建 profile，此外什么都做不了——它在任何 Host 存在之前运行，因此 `ctx.llm`、`ctx.settings`、`ctx.credentials` 与 `ctx.authorization` 全都够不着，而去够它们会让这个 wrapper 成为 Harness 之外的第二个 Harness 状态读取者。因此「profile 有了 manifest」之后的一切都属于插件，而那些 seam 本来就都在那里。
+在「安装 dshline」与「发送一个回合」之间隔着两件事，而它们分处一条边界的两侧。`bin/dshline.mjs` 只能创建 profile，此外什么都做不了——它在任何 Host 存在之前运行，因此 `ctx.llm`、`ctx.settings`、`ctx.credentials` 与 `ctx.authorization` 全都够不着，而去够它们会让这个 wrapper 成为 Harness 之外的第二个 Harness 状态读取者。因此那一个问题之后的一切都属于插件，而那些 seam 本来就都在那里。
 
 所以 `src/setup/` 在已组合的 Host 内运行，而 `dshline --setup` 保留它既有的含义（把这个包安装进 profile）。该流程在第一次附着之前自动打开；`/setup` 则随时按需打开它。
 

@@ -10,10 +10,15 @@ English | [中文](install.zh.md)
 ## Requirements
 
 - **Node.js** `^22.19 || >=24`.
-- **A working [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) installation** with a model configured. If `dsh web` starts and answers a prompt, you are ready.
+- **A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) installation.** `npm install -g @deepseek-ai/dsh` is enough. A harness source checkout works too — see [Development and source checkouts](#development-and-source-checkouts).
+- **pnpm on your `PATH`.** The harness installs a profile's plugins with pnpm, so profile setup cannot begin without it. `npm install -g pnpm`, or `corepack enable pnpm` where your harness checkout declares its own. `dshline` checks for this *before* it changes anything and tells you so if it is missing, rather than creating a profile and stopping.
 - **A real terminal.** This interface needs a terminal for both input and output. If either is redirected, it exits with an error instead of waiting with nothing on screen. For scripts, use `--profile headless` instead.
 
-## The short version
+**A configured model is not a prerequisite.** A fresh installation opens on [`/setup`](usage.md#setup), which prints what your installation is and offers to open `/connect` — sign in to an account, or store the key a route needs — and then goes on to `/model`. Nothing is written unless you choose it.
+
+## Normal installation
+
+The short version:
 
 ```sh
 npm install -g @deepseek-ai/dsh @dshline/dshline   # the harness, and this interface
@@ -24,8 +29,7 @@ The first time you run it, `dshline` asks whether Harness may create the `dshlin
 
 The rest of this page explains each step, and what to do when one of them does not apply to you.
 
-## 1. Make sure you have a `dsh` command
-
+### 1. Make sure you have a `dsh` command
 This plugin is started by the harness's own command-line program, so you need a way to run it. Either option works.
 
 Install the harness globally:
@@ -43,7 +47,7 @@ pnpm dsh --version
 
 The rest of this page writes `dsh`. If you use the second option, write `pnpm dsh` instead, and run it from inside the harness folder.
 
-## 2. Manual setup through Harness
+### 2. Manual setup through Harness
 
 ```sh
 dsh plugin --profile dshline add @dshline/dshline
@@ -52,32 +56,9 @@ dsh --profile dshline
 
 A **profile** is a named set of plugins, stored in `$DSH_HOME/profiles/<name>` (by default `~/.dsh`). The first command creates the `dshline` profile if it does not exist, installs this plugin into it, and adds it to the profile's plugin list. Your profile is now the harness's standard set plus this interface.
 
-### Installing from a source checkout
+To install from a source checkout instead of the registry, see [Development and source checkouts](#development-and-source-checkouts) — there are two independent choices there, not one.
 
-To run changes that are not released yet:
-
-```sh
-git clone https://github.com/riesbri/dshline && cd dshline
-pnpm install && pnpm build
-dsh plugin --profile dshline add ./packages/dshline
-```
-
-A relative path is resolved against the folder the command runs in. With `pnpm dsh` that folder is the harness checkout, not this one, so give an absolute path:
-
-```sh
-pnpm dsh plugin --profile dshline add ~/path/to/dshline/packages/dshline
-pnpm dsh --profile dshline
-```
-
-The same applies to `dshline --setup` when `DSH_HARNESS` names a harness checkout: that launcher only runs with the checkout as its working folder, so `dshline --setup ./packages/dshline` would install a folder of that name from inside the harness. Name the path in full:
-
-```sh
-dshline --setup ~/path/to/dshline/packages/dshline
-```
-
-Installing directly from a Git URL is not supported. `dsh plugin add github:riesbri/dshline` would install the repository root, which is a workspace containing two packages rather than the plugin itself. Use the npm package name, or a path to `packages/dshline`.
-
-## 3. Get a one-word command
+### 3. Get a one-word command
 
 Installing this package globally puts a `dshline` command on your PATH:
 
@@ -85,10 +66,15 @@ Installing this package globally puts a `dshline` command on your PATH:
 npm install -g @dshline/dshline
 dshline             # the same as: dsh --profile dshline --cwd "$PWD"
 dshline --setup     # the same as: dsh plugin --profile dshline add @dshline/dshline
-dshline --version   # this package's version, with no harness and no profile needed
+dshline --version   # this package's version: no harness, no profile, no terminal
+dshline --help      # what this wrapper owns and how it forwards: same, no profile needed
 ```
 
-It is a small wrapper around the harness's launcher, and nothing more: it finds `dsh`, adds `--profile dshline` unless you asked for another profile, pins the session to the folder you ran it from, and passes everything else through. So `dshline --resume`, `dshline "run the tests"` and `dshline --help` all reach the real launcher.
+It is a small wrapper around the harness's launcher, and nothing more: it finds `dsh`, adds `--profile dshline` unless you asked for another profile, pins the session to the folder you ran it from, and passes everything else through. So `dshline --resume` and `dshline "run the tests"` reach the real launcher unchanged. Three arguments are the wrapper's own and stop here instead — `--setup`, `--version` and `--help` — because each has to work on a machine where the harness, the profile, or both are exactly what is broken. For the harness's own options, ask the harness:
+
+```sh
+dsh --profile dshline --help
+```
 
 Two things it needs to find:
 
@@ -104,20 +90,24 @@ Two things it needs to find:
 
 - **The profile.** The first run offers to create it: one question, then `dsh plugin --profile dshline add @dshline/dshline` through the launcher it just found, then the session you originally asked for — `dshline --resume`, `dshline -C ~/code/api` and `dshline "run the tests"` all continue into what you typed. Answer no and nothing is installed.
 
-  Three things that behaviour deliberately does not do. It does not run without a terminal to ask on: a script or a CI job is told to run `dshline --setup`, because the install reaches the network through pnpm and nothing scripted agreed to that. It does not touch a profile that already exists, however broken it looks — the harness's own loader is what diagnoses a failed profile, and `dshline --setup` is the retry. And it does not apply at all when you name a profile yourself: `dshline --profile other`, or even `dshline --profile dshline`, is you using harness profiles directly, so `dshline` inspects nothing and simply forwards the choice.
+  What it does about a profile that already exists is deliberately narrow. It looks at one thing — whether its own package is recorded in its own profile, and at which release — and refuses to launch into the two states that have no working frontend behind them: a profile a failed setup left empty, and a profile recording a different release from the wrapper starting it. Each is reported with its cause and with the repair, `dshline --setup`, and on a terminal it offers to run that repair. Everything else about a profile — a bundle list, `node_modules`, another plugin — is left to the harness's loader, which is the authority on it.
+
+  Three things that behaviour still does not do. It does not run setup without a terminal to ask on: a script or a CI job is told to run `dshline --setup`, because the install reaches the network through pnpm and nothing scripted agreed to that. It does not begin a setup whose prerequisite is missing — pnpm is checked first, so a machine without it gets a sentence instead of a half-made profile. And it does not apply at all when you name a profile yourself: `dshline --profile other`, or even `dshline --profile dshline`, is you using harness profiles directly, so `dshline` inspects nothing and simply forwards the choice.
 
   `dshline --setup` is also how you install from a checkout instead of the registry: give it the path, `dshline --setup ./packages/dshline`.
 
 The npm package is scoped as `@dshline/dshline`. The unscoped `dshline` package on npm is unrelated.
 
-## 4. Confirm it worked
+### 4. Confirm it worked
 
 ```sh
-dshline --version          # the version a bug report asks for
-dshline --dump-config      # look for a "# == dshline" section
-dshline --help             # the flags this interface adds
-dshline                    # a banner, an input line, and a "ready" status line
+dshline --version                    # the version a bug report asks for
+dshline --help                       # what this wrapper owns, and how it forwards
+dsh --profile dshline --dump-config  # look for a "# == dshline" section
+dshline                              # a banner, an input line, and a "ready" status line
 ```
+
+`--dump-config` belongs to the harness, not to `dshline`. It dumps the composed profile — the harness's own structure — and `dsh --profile dshline --dump-config` is the one canonical spelling, which is also what the bug report template asks for. There is deliberately no `dshline --dump-config` alias: a second flag would have to be maintained beside the harness's, and would drift from it.
 
 **A fresh install has no model yet, and dshline says so rather than leaving you at a prompt that cannot send.** When the launch would otherwise open a composer with no usable model — no route, no selection, or a selection whose route is gone — the session opens on [`/setup`](usage.md#setup): it prints what your installation is — Node, dshline, the Harness generation, the profile, and why there is no model — and then offers to open `/connect`, going straight into `/model` once connecting produces the missing route. Nothing is written unless you choose it, `esc` goes straight to the composer, and `/setup` reopens the flow at any time. Once a route is configured and a model is selected it never appears on its own again.
 
@@ -125,7 +115,112 @@ Inside the session, type `/` to list the commands your profile provides, then pr
 
 If a keyboard shortcut does nothing, run `node tools/keyprobe.mjs` from a checkout of this repository. It shows what your terminal sends and how this project reads it, which is what a bug report needs.
 
+## Development and source checkouts
+
+Harness and dshline are two independent choices, and which one is a checkout changes
+what you type. A checkout of either is a decision already made, so nothing here
+compares it against a released version.
+
+| Harness | dshline | Command sequence |
+| --- | --- | --- |
+| npm package | npm package | `npm install -g @deepseek-ai/dsh @dshline/dshline` then `dshline` |
+| npm package | local dshline checkout | `npm install -g @deepseek-ai/dsh` · `pnpm install && pnpm build` in the dshline checkout · `dshline --setup /abs/path/to/dshline/packages/dshline` · `dshline` |
+| local Harness checkout | npm dshline package | `npm install -g @dshline/dshline` · `export DSH_HARNESS=~/path/to/deepseek-harness` · `dshline` |
+| local Harness checkout | local dshline checkout | both of the above: `DSH_HARNESS` set **and** `dshline --setup /abs/path/to/dshline/packages/dshline` |
+
+The first row is the ordinary installation and the only one this page walks through
+above. The other three exist for working on unreleased code, and each needs one thing
+named:
+
+- **A dshline checkout** is installed by path, not by name: `dshline --setup
+  /abs/path/to/dshline/packages/dshline`. Give an **absolute** path. With
+  `DSH_HARNESS` set, `dsh plugin` runs with the *harness* checkout as its working
+  folder, so a relative `./packages/dshline` would name a folder inside the harness.
+  The profile then records that path, which is why `dshline` never treats it as an
+  out-of-date release: there is no release to compare it with.
+- **A harness checkout** is named with `DSH_HARNESS`, never with `DSH_BIN`. A checkout
+  has no `dsh` executable — its launcher is the `dsh` script in its own `package.json`,
+  run through a loader — so `dshline` reads that script and runs it from the checkout.
+  `DSH_BIN` is for a real executable: the one `npm install -g @deepseek-ai/dsh` puts on
+  your PATH, or a `node_modules/.bin/dsh` from a harness installed as a dependency.
+
+Then rebuild after every source change — the plugin resolves to the compiled `lib/`,
+not to `src/`:
+
+```sh
+pnpm build     # in the dshline checkout
+```
+
+### Not supported: installing the repository root
+
+```sh
+dsh plugin --profile dshline add github:riesbri/dshline   # do not use this
+```
+
+This installs `dshline-workspace`, the repository root, which is a workspace holding
+two packages rather than the plugin itself. It is not a profile layer, so the profile
+you get has no frontend in it, and the harness says as much when it installs it. Use
+the npm package name, or an absolute path to `packages/dshline`.
+
 ## Troubleshooting
+
+### `cannot set up the "dshline" profile, because pnpm is not available`
+
+```
+$ dshline
+dshline: cannot set up the "dshline" profile, because pnpm is not available.
+
+The harness installs a profile's plugins with pnpm, so pnpm has to be on your
+PATH before setup can begin. Nothing has been changed: no profile was created
+and nothing was installed.
+```
+
+The harness installs a profile's plugins with pnpm, so profile setup cannot start
+without it. `dshline` checks for pnpm *before* it creates anything, which is why you get
+this sentence rather than a profile that exists and holds nothing — the state that used
+to leave the next launch hanging on a blank screen. Install it, then run setup again:
+
+```sh
+npm install -g pnpm
+dshline --setup
+```
+
+A harness **checkout** declares the pnpm version it wants in its own `packageManager`
+field, so `corepack enable pnpm` is offered there first, to keep that version.
+
+### `the "dshline" profile is half set up, so there is nothing to launch`
+
+```
+$ dshline
+dshline: the "dshline" profile is half set up, so there is nothing to launch.
+```
+
+A previous setup created the profile and then stopped before installing anything into
+it. The harness writes the profile manifest *before* it installs, so the manifest being
+there proves a setup began and never that one finished — which is why trusting it used
+to open a blank terminal and wait. Run `dshline --setup` to finish it, or accept the
+offer to do so when it appears on a terminal.
+
+### `this dshline is X, but the "dshline" profile has @dshline/dshline Y`
+
+```
+$ npm install -g @dshline/dshline@latest
+$ dshline
+dshline: this dshline is 0.22.0, but the "dshline" profile has
+@dshline/dshline 0.20.0.
+```
+
+The profile holds the frontend that actually runs; the global command is only the
+wrapper that starts it, so updating one does not update the other. Reconcile them, or
+accept the offer to do so when it appears on a terminal:
+
+```sh
+dshline --setup
+```
+
+To drive the harness with the profile exactly as it is, name the profile yourself —
+`dshline --profile dshline` — which switches this wrapper's lifecycle behaviour off
+entirely, the same as naming any other profile.
 
 ### `Command "dsh" not found`
 

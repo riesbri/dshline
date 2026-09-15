@@ -11,13 +11,13 @@ English | [中文](usage.zh.md)
 | `dshline "run the tests"` | Send a first message on startup |
 | `dshline --resume` | Browse, search, and reopen a past session |
 | `dshline --resume <id>` | Reopen a session you know the id of |
-| `dshline --help` | All flags this interface adds |
+| `dshline --help` | This wrapper's own arguments, and how it forwards the rest |
 | `dshline --version` | The version of this package, for a bug report |
 | `dshline --setup` | Install the profile explicitly: for a script, a retry, or a source checkout |
 
-On a first run — no `dshline` profile yet — `dshline` asks once whether Harness may create it and install this package into it, then carries on into whatever you typed. See [Install](install.md) for what it does without a terminal to ask on, and why an existing profile is never repaired.
+On a first run — no `dshline` profile yet — `dshline` asks once whether Harness may create it and install this package into it, then carries on into whatever you typed. See [Install](install.md) for what it does without a terminal to ask on, and for the two profile states it refuses to launch into.
 
-`dshline` is a small wrapper around the harness's own launcher: it finds `dsh`, adds `--profile dshline`, and pins the session to the folder you ran it from. Everything else is passed through, so `dshline <anything>` and `dsh --profile dshline <anything>` behave the same. Use whichever you prefer.
+`dshline` is a small wrapper around the harness's own launcher: it finds `dsh`, adds `--profile dshline`, and pins the session to the folder you ran it from. Everything else is passed through, so `dshline "run the tests"` and `dsh --profile dshline "run the tests"` behave the same. Use whichever you prefer. Three arguments stop at the wrapper instead — `--setup`, `--version` and `--help` — because each has to work on a machine where the harness or the profile is what is broken; `dsh --profile dshline --help` prints the harness's own options.
 
 `-C` (or `--cwd`) sets the folder the *session* works in. It does not change where the command itself runs from.
 

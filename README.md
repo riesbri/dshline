@@ -32,7 +32,7 @@ npm install -g @deepseek-ai/dsh @dshline/dshline
 dshline
 ```
 
-The first run asks once before letting Harness create the `dshline` profile and install this package into it. See [Install](docs/install.md) for requirements, verification, explicit setup with `dshline --setup`, and source installs.
+The first run asks once before letting Harness create the `dshline` profile and install this package into it. It needs `pnpm` on your `PATH`, because the harness installs profile plugins with pnpm; it checks before it changes anything and says so if it is missing. See [Install](docs/install.md) for requirements, verification, explicit setup with `dshline --setup`, and source installs.
 
 > [!WARNING]
 > Sandbox and tool permissions are controlled by the active Harness profile; ordinary tool calls may run without per-call review. See [Permissions and the sandbox](docs/usage.md#permissions-and-the-sandbox) before using dshline on important code.

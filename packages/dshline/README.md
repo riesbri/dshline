@@ -13,7 +13,7 @@ npm install -g @deepseek-ai/dsh @dshline/dshline
 dshline
 ```
 
-The first run asks once before letting Harness create the `dshline` profile and install this package into it; `dshline --setup` does that install explicitly, for a script or a source checkout.
+The first run asks once before letting Harness create the `dshline` profile and install this package into it; `dshline --setup` does that install explicitly, for a script or a source checkout. `pnpm` has to be on your `PATH` for either, because the harness installs profile plugins with pnpm — `dshline` checks first and says so rather than leaving a half-made profile behind.
 
 The presentation core is small and dependency-light; its renderer has no runtime dependencies and knows nothing about agents or providers.
 
