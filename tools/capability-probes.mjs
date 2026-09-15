@@ -67,7 +67,7 @@ export const CAPABILITY_PROBES = [
       'packages/dshline/tests/goals.spec.ts',
       'packages/dshline/tests/permission.spec.ts',
     ],
-    note: 'real projection/service assertions layered with dshline acceptance fixtures for Todo, Goal, and permission',
+    note: 'real projection/service assertions layered with dshline acceptance fixtures for Todo, Goal, and the current-selection-only permission view',
   },
   {
     name: 'sessionStats',
@@ -140,12 +140,17 @@ export const CAPABILITY_PROBES = [
     note: 'real abstract CredentialProvider contract with a local reference/record implementation; backend storage policy is not proved, and AuthorizationService covers record orchestration separately',
   },
   {
+    name: 'permissionPresets',
+    files: ['packages/dshline/tests/permission.spec.ts'],
+    note: 'real PermissionPresetService catalog()/registerAuto contribution and the current-value-only `permissions` projection, joined by dshline’s picker adapter and mutated only through the registered `/permission` command; deployment preset tables and the sandbox/approval knobs behind them are host-owned',
+  },
+  {
     name: 'commands',
     files: [
       'packages/dshline/tests/permission.spec.ts',
       'packages/dshline/tests/capability/command-attachments.probe.spec.ts',
     ],
-    note: 'real CommandRuntime execute/lifecycle for `/permission review`, plus its own attachment admission over a local AttachmentStore — the `input.attachments` declaration and the discriminated image submission `/image` sends a command; local dispatch/list decoration and other fixtures are not discovery evidence',
+    note: 'real CommandRuntime execute/lifecycle for `/permission review` and its refusal of a withdrawn catalog option, plus its own attachment admission over a local AttachmentStore — the `input.attachments` declaration and the discriminated image submission `/image` sends a command; local dispatch/list decoration and other fixtures are not discovery evidence',
   },
   {
     name: 'tools',

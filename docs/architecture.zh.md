@@ -52,6 +52,7 @@ native terminal
 | 工具 | `ctx.tools` | 渲染工具拥有的呈现意图，而不是工具名的特例。 |
 | 人类应答 | `ctx.userQuestions` | 注册一个终端应答者；认领本前端能够呈现的请求，绝不假设该请求只发给了本前端。 |
 | 审批 | `ctx.approval` | 只回答属于本前端的请求；对于其他 agent 身份让 waterfall 失败关闭。 |
+| 权限预设 | `ctx.permissionPresets` + `ctx.sessionProjections`（`permissions`） | 两个权威，而不是一个。在选择器打开的那一刻用 `catalog()` 读取进程级实时目录，当前的持久选择来自投影；两者都不保留副本。只通过已注册的 `/permission <preset>` 命令变更，并且绝不提供实时目录未列出的项。两者都视为可选。 |
 | 会话 | `ctx.sessionQuery` | 查询 Harness 偏好活动的会话语料库；不构建另一个数据库。其全文方法是抽象的，因此把内容搜索视为可选。它的 `SessionHeader.cwd` 值也是唯一的工作目录权威：只做临时分组，绝不存储目录清单、worktree registry 或 Git 状态缓存。 |
 | 附件 | `ctx.fs` + `ctx.attachments` | 路径只作为会话本地草稿；通过当前文件系统执行有界读取，并把持久图片引用作为一个批次发布。绝不持久化字节、base64 或主机路径。 |
 | 日志派生的状态 | `ctx.sessionProjections` | 消费已注册的领域快照与变更。 |
@@ -102,10 +103,28 @@ dshline Todo presentation
 
 它不得检查 `todo_write` 调用或渲染后的卡片来推断状态。
 
-权限选择遵循同一条边界：可选的 `permissions` 投影提供部署定义的可选值与当前状态；
-裸终端 `/permission` 只呈现这个选择，而选中的值运行已注册的 Harness
-`/permission <preset>` 命令。dshline 从不折叠权限事件或直接调用预设服务；没有该
-投影时，裸命令原样回退。
+权限选择遵循同一条边界，但它面对的是两个 Harness 权威而不是一个，因为 Harness 在
+两个不同的作用域上拥有它们。`ctx.permissionPresets.catalog()` 是进程级的实时可选项
+列表，它随着贡献而变化，Harness 通过 `permission-presets/catalog-changed` 公布这种
+变化；`permissions` 会话投影只承载持久的当前选择。预期路径是：
+
+```
+ctx.permissionPresets.catalog()        ctx.sessionProjections
+        ↓ live selectable options              ↓ permissions: current selection
+                        \                     /
+                         dshline permission picker
+                                    ↓
+                         /permission <option id>
+                                    ↓
+                           Harness-owned mutation
+```
+
+裸终端 `/permission` 在选择器打开的那一刻读取两者，把它们连接起来用于呈现，并把选中
+的不透明选项 id 交回已注册的 Harness `/permission <preset>` 命令。dshline 从不折叠
+权限事件，从不调用预设服务来变更，也从不保留目录的副本——它是实时进程状态，不是会话
+历史。两个权威都是可选的；缺少其中任何一个时，裸命令原样回退。实时目录未列出的当前值
+只作为当前状态报告，而不作为可选项提供：`custom` 正是 Harness 推导出这种状态的方式，
+为它编造一个目录条目只会提供一条 Harness 会拒绝的命令。
 
 上下文智能是第四个，也是把便宜权威与昂贵权威区分开来的那一个。
 `@deepseek-ai/dsh-token-meter` 发布三个投影单元——`contextPressure`（提供方最新的

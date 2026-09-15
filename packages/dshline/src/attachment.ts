@@ -47,6 +47,12 @@ import type {} from '@deepseek-ai/dsh-tool-todo'
 // and the `ctx.goals` service type (live activation, read below). Optional in
 // the same way — a profile without it reports no goal at all.
 import type { GoalActivation } from '@deepseek-ai/dsh-goal'
+// The permission package publishes both of the bare `/permission` picker's
+// authorities: the `permissions` key of `SessionProjectionMap` (durable current
+// selection, read from the shared snapshot) and the `ctx.permissionPresets`
+// service type whose `catalog()` owns the live selectable options. Optional in
+// the same way — a profile without it leaves the command entirely to Harness.
+import type {} from '@deepseek-ai/dsh-permission-presets'
 // `fs` is read optionally for path completion: a profile that mounts no filesystem
 // offers none rather than failing, so this carries the type without a hard need.
 import type {} from '@deepseek-ai/dsh-fs'
@@ -1721,7 +1727,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       parsed.rawInput.trim() === '' &&
       ctx.commands.list(agent).some(command => command.name === 'permission')
     ) {
-      const picker = permissionPicker(projections.snapshot()?.values.permissions)
+      // Two authorities, read at the interaction boundary and neither retained:
+      // the live process catalog owns the selectable rows, the attached
+      // session's durable projection owns the current one. `permissionPresets`
+      // is optional — an absent capability leaves the bare command to Harness
+      // rather than producing rows dshline would have had to infer.
+      const picker = permissionPicker(
+        ctx.get('permissionPresets')?.catalog(),
+        projections.snapshot()?.values.permissions,
+      )
       if (picker !== undefined && picker.choices.length > 0) {
         const picked = await promptSelect(ctx, {
           title: 'Permissions',
