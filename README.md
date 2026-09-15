@@ -6,9 +6,11 @@
 
 English | [中文](README.zh.md)
 
-**The terminal-native frontend for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin ecosystem.**
+**A terminal-native frontend for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).**
 
 An agent in your terminal — not instead of it. Finished output stays in your terminal's own scrollback; only a bounded live region redraws.
+
+dshline runs in-process as a direct consumer of Harness capabilities rather than creating a parallel agent runtime or state layer.
 
 **Website:** [dshline.xyz](https://dshline.xyz)
 
@@ -20,7 +22,7 @@ An agent in your terminal — not instead of it. Finished output stays in your t
 ## See it in action
 
 <p align="center">
-  <img src=".github/assets/dshline-demo.gif" alt="Animated terminal walkthrough of dshline: choosing a model, browsing plugins, and following a subagent task." />
+  <img src=".github/assets/dshline-demo.gif" alt="Animated terminal walkthrough of dshline: selecting a Harness model, delegating a repository task, and inspecting active work." />
 </p>
 
 ## Install
@@ -37,7 +39,7 @@ The first run asks once before letting Harness create the `dshline` profile and 
 
 ## Why dshline?
 
-Harness plugins publish capabilities; dshline presents supported capabilities natively in the terminal. It runs in-process and consumes Harness contracts rather than creating separate provider runtimes, state stores, or policy.
+Harness plugins publish capabilities; dshline presents supported capabilities natively in the terminal. It consumes Harness contracts rather than creating separate provider runtimes, state stores, or policy.
 
 `Harness plugin → standard capability → dshline presentation adapter → native terminal UI`
 
@@ -49,7 +51,7 @@ Harness owns capabilities, state, runtime, persistence, and policy. dshline owns
 
 ### Generic capability integration
 
-dshline integrates through standard Harness capabilities instead of provider-specific code. Work consumes `ctx.jobs` and `ctx.subagents`; Sessions uses `ctx.sessionQuery`; `/connect` uses Harness's model, settings, credentials, and authorization services; `/plugins` reads and switches the running agent's composition through `ctx.agentPresets`; `/profiles` reads the profile roster through Harness's own home-path service and forwards every change to `dsh plugin`. New providers can therefore flow through existing interfaces without requiring a dedicated dshline implementation.
+dshline integrates through standard Harness capabilities instead of provider-specific code. Work consumes `ctx.jobs` and `ctx.subagents`; Sessions uses `ctx.sessionQuery`; `/connect` uses Harness's model, settings, credentials, and authorization services; `/plugins` reads and switches the running agent's composition through `ctx.agentPresets`; `/profiles` reads the profile roster through Harness's own home-path service and forwards every change to `dsh plugin`. New providers can therefore flow through existing interfaces without requiring a dedicated dshline implementation. A real Codex provider has already passed this boundary through generic `ctx.subagents` and `ctx.jobs` presentation, with no provider-specific dshline production code; see [Provider acceptance](docs/provider-acceptance.md).
 
 It ships no provider list and no login protocol: `/connect` offers whatever the mounted adapters declare configurable and runs whatever flows Harness has registered, so the same providers are reachable from the terminal and from the official web Models page, over one settings document and one credential store.
 
