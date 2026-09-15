@@ -58,6 +58,14 @@ export interface Launcher {
   readonly cwd?: string
   /** How to name this launcher in a diagnostic. */
   readonly describe: string
+  /**
+   * Which mechanism produced this launcher.
+   *
+   * Not how it is run — what a prerequisite failure should say. A checkout declares
+   * its own pnpm in `packageManager`, so the remedy that keeps that version is
+   * corepack; a package install has no such declaration and gets the global one.
+   */
+  readonly origin: 'package' | 'checkout'
 }
 
 /** What resolution found: a launcher, a misconfiguration, or nothing. */
@@ -108,6 +116,56 @@ export function onPath(name: string, env: NodeJS.ProcessEnv): string | undefined
 }
 
 /**
+ * Split a manifest's `dsh` command line into a program and its arguments.
+ *
+ * Quote-aware, because a command line is what a shell would read and a program path
+ * may legally contain a space. The case that needs it is Windows: Node lives under
+ * `C:\Program Files\nodejs` on a default install, so a checkout naming its
+ * interpreter in full — `"C:\Program Files\nodejs\node.exe" apps/cli.ts` — was split
+ * into `C:\Program` and `Files\nodejs\node.exe`, and every launch failed with ENOENT
+ * beside a checkout that worked from a shell.
+ *
+ * Kept identical to `bin/dshline.mjs`'s copy, for the reason the rest of this module
+ * is duplicated: both have to run before anything is built, and a checkout that
+ * launches from the wrapper must behave the same when a `/profiles` mutation reaches
+ * the harness through it.
+ *
+ * Not a shell parser and deliberately not one: no expansion, no escapes, no
+ * redirection. A value needing those is a value this cannot honour, and the
+ * alternative — handing it to a shell — is what this project never does.
+ * @param line - the command line, as a manifest wrote it.
+ * @returns the program and its arguments, in order.
+ */
+export function splitCommandLine(line: string): string[] {
+  const parts: string[] = []
+  let current = ''
+  let quote = ''
+  let quoted = false
+  for (const character of line.trim()) {
+    if (quote !== '') {
+      if (character === quote) quote = ''
+      else current += character
+      continue
+    }
+    if (character === '"' || character === '\'') {
+      quote = character
+      quoted = true
+      continue
+    }
+    if (/\s/u.test(character)) {
+      // A quoted empty argument is still an argument; an unquoted run of spaces is not.
+      if (quoted || current !== '') parts.push(current)
+      current = ''
+      quoted = false
+      continue
+    }
+    current += character
+  }
+  if (quoted || current !== '') parts.push(current)
+  return parts
+}
+
+/**
  * Resolve the launcher named by `DSH_HARNESS`: a source checkout, run through
  * the `dsh` script its own manifest defines.
  * @param checkout - the raw `DSH_HARNESS` value, already known non-empty.
@@ -138,9 +196,9 @@ function fromCheckout(checkout: string): LauncherResolution {
     }
   }
   // The script is a plain command line — `node --import tsx/esm apps/cli/src/bin.ts`
-  // — with paths relative to the checkout. Split on whitespace because that is
-  // what the value is; nothing here quotes arguments.
-  const [program, ...rest] = command.trim().split(/\s+/u)
+  // — with paths relative to the checkout. Split the way a shell would read it, so a
+  // quoted program path survives; see `splitCommandLine`.
+  const [program, ...rest] = splitCommandLine(command)
   return {
     kind: 'found',
     launcher: {
@@ -148,6 +206,7 @@ function fromCheckout(checkout: string): LauncherResolution {
       prefix: rest,
       cwd: expanded,
       describe: `$DSH_HARNESS (${expanded}: ${command})`,
+      origin: 'checkout',
     },
   }
 }
@@ -172,7 +231,7 @@ function fromLauncherPackage(anchor: string): LauncherResolution {
     if (!existsSync(script)) return { kind: 'none' }
     return {
       kind: 'found',
-      launcher: { command: process.execPath, prefix: [script], describe: `${LAUNCHER_PACKAGE} (${script})` },
+      launcher: { command: process.execPath, prefix: [script], describe: `${LAUNCHER_PACKAGE} (${script})`, origin: 'package' },
     }
   } catch {
     // Not resolvable from here, which is not an error: PATH is the ordinary
@@ -210,6 +269,7 @@ export function resolveLauncher(
         command: resolve(expanded),
         prefix: [],
         describe: `$DSH_BIN (${expanded})`,
+        origin: 'package',
       },
     }
   }
@@ -223,7 +283,7 @@ export function resolveLauncher(
     // there, and a lookup that answered only yes would send a command nothing
     // can spawn.
     const command = process.platform === 'win32' ? found : HARNESS_SCRIPT
-    return { kind: 'found', launcher: { command, prefix: [], describe: 'dsh on your PATH' } }
+    return { kind: 'found', launcher: { command, prefix: [], describe: 'dsh on your PATH', origin: 'package' } }
   }
   return fromLauncherPackage(anchor)
 }
