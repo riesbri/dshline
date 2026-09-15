@@ -111,7 +111,9 @@ function isWindowsConsole(): boolean {
  * Exported because `tools/keyprobe.mjs` has to ask for exactly what the frontend
  * asks for. A probe that requests a different set reports encodings the interface
  * never sees, which is worse than no probe at all: it answers the question with the
- * wrong terminal mode.
+ * wrong terminal mode. The tool imports this module's built file directly and the
+ * package root deliberately does not re-export it: it is a seam for that diagnostic,
+ * not something the renderer promises to callers.
  * @returns the bytes that turn the modes on, and the bytes that turn them off.
  */
 export function terminalModes(): { on: string; off: string } {

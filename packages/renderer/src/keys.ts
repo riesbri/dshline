@@ -299,6 +299,24 @@ function win32Character(unit: number, surrogates: { high: number }): string {
 }
 
 /**
+ * How many times a report says the key arrived at once.
+ *
+ * A console coalesces a held key into one record carrying a count, so reading it as
+ * a single press is how a held key starts advancing once per report instead of once
+ * per repeat. The field is a `WORD` in the record underneath, so anything outside
+ * that range did not come from one: a pasted or hostile escape sequence can put any
+ * number here, and repeating it without a bound would allocate without one either. A
+ * missing, unparsable, or non-positive count is read as one press, which is what an
+ * ordinary key carries.
+ * @param field - the report's sixth parameter, if it had one.
+ * @returns a repeat count between 1 and `0xffff`.
+ */
+function win32RepeatCount(field: number | undefined): number {
+  if (field === undefined || Number.isNaN(field) || field < 1) return 1
+  return Math.min(field, 0xffff)
+}
+
+/**
  * Translate one report into the input the decoder below already reads.
  *
  * This is a translation, not a second keyboard. A report becomes the bytes that
@@ -306,19 +324,43 @@ function win32Character(unit: number, surrogates: { high: number }): string {
  * sequence, or the kitty form of a modified enter — so the tables above stay the
  * only place a key's meaning is written down, and a gesture is read the same way
  * whatever encoding carried it.
+ *
+ * The repeat count multiplies that translation, so one report becomes as many of
+ * whatever it already means as the console says the key was pressed. It is applied
+ * here rather than in the decoder so that repetition stays a property of the
+ * encoding and not a second reading of the key.
  * @param params - the `;`-separated fields between `CSI` and `_`.
  * @param surrogates - the high surrogate held from the previous report, if any.
  * @returns the input the report stands for, or `''` when it reports nothing to do.
  */
 function win32ReportToInput(params: string, surrogates: { high: number }): string {
   const fields = params.split(';').map(field => Number.parseInt(field, 10))
-  const vk = fields[0]
-  const char = fields[2]
-  const down = fields[3]
-  const control = fields[4] ?? 0
-  // A key UP is dropped. Every key arrives twice in this mode, and the decoder is
-  // edge-triggered: reading the release too would type every character twice.
-  if (down !== 1) return ''
+  // A key UP is dropped whatever its repeat count claims. Every key arrives twice in
+  // this mode, and the decoder is edge-triggered: reading the release too would type
+  // every character twice, once per repeat.
+  if (fields[3] !== 1) return ''
+  const input = win32KeyInput(fields[0], fields[2], fields[4] ?? 0, surrogates)
+  return input.repeat(win32RepeatCount(fields[5]))
+}
+
+/**
+ * One report's input, before its repeat count is applied.
+ *
+ * A character report repeats as a whole: the halves of a surrogate pair are joined
+ * first, so an astral character held down becomes that many characters rather than
+ * one half of one repeated.
+ * @param vk - the report's virtual-key code, if it had one.
+ * @param char - the report's UTF-16 code unit, or `0` when the key has none.
+ * @param control - the report's control-key state.
+ * @param surrogates - the high surrogate held from the previous report, if any.
+ * @returns the input one press of this key stands for.
+ */
+function win32KeyInput(
+  vk: number | undefined,
+  char: number | undefined,
+  control: number,
+  surrogates: { high: number },
+): string {
   const shift = (control & WIN32_SHIFT) !== 0
   const alt = (control & WIN32_ALT) !== 0
   const ctrl = (control & WIN32_CTRL) !== 0
@@ -331,6 +373,8 @@ function win32ReportToInput(params: string, surrogates: { high: number }): strin
   }
   if (char !== undefined && char !== 0) {
     const text = win32Character(char, surrogates)
+    // A held-down astral character arrives as repeated reports of each half; the
+    // second half carries the joined pair, which is the unit that repeats.
     if (text === '') return ''
     // A ctrl gesture is already the control character here, which is exactly the
     // byte the legacy table names. AltGr is ctrl AND right alt in one report and is

@@ -324,6 +324,51 @@ describe('win32-input-mode reports', () => {
       { kind: 'text', text: 'cd' },
     ])
   })
+
+  it('repeats a report as many times as the console says the key was pressed', () => {
+    // A held key can arrive as one record carrying a count instead of a burst, and a
+    // count read as a single press is how a held key starts advancing once per
+    // report. The multiplication is of the translation, so it is still the one
+    // meaning below that repeats.
+    expect(decodeKeys('\u001b[65;30;97;1;32;3_')).toEqual([{ kind: 'text', text: 'aaa' }])
+    expect(decodeKeys('\u001b[8;14;8;1;32;3_')).toEqual([
+      { kind: 'key', name: 'backspace' },
+      { kind: 'key', name: 'backspace' },
+      { kind: 'key', name: 'backspace' },
+    ])
+    expect(decodeKeys('\u001b[38;72;0;1;288;3_')).toEqual([
+      { kind: 'key', name: 'up' },
+      { kind: 'key', name: 'up' },
+      { kind: 'key', name: 'up' },
+    ])
+  })
+
+  it('repeats a modified enter rather than collapsing it into one', () => {
+    expect(decodeKeys('\u001b[13;28;13;1;48;2_')).toEqual([
+      { kind: 'key', name: 'newline' },
+      { kind: 'key', name: 'newline' },
+    ])
+  })
+
+  it('drops a key-up whatever its repeat count claims', () => {
+    expect(decodeKeys('\u001b[13;28;13;1;48;1_\u001b[13;28;13;0;48;9_'))
+      .toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('reads a missing or impossible repeat count as one press', () => {
+    // The field is a WORD in the record underneath. An absent one belongs to an
+    // ordinary key; one no record could carry must not become unbounded text, since
+    // a pasted or hostile escape sequence can put any number there.
+    expect(decodeKeys('\u001b[65;30;97;1;32_')).toEqual([{ kind: 'text', text: 'a' }])
+    expect(decodeKeys('\u001b[65;30;97;1;32;0_')).toEqual([{ kind: 'text', text: 'a' }])
+    expect(decodeKeys('\u001b[65;30;97;1;32;999999999_'))
+      .toEqual([{ kind: 'text', text: 'a'.repeat(0xffff) }])
+  })
+
+  it('repeats an astral character whole, never one half of it', () => {
+    expect(decodeKeys('\u001b[0;0;55357;1;32;3_\u001b[0;0;56898;1;32;3_'))
+      .toEqual([{ kind: 'text', text: '🙂🙂🙂' }])
+  })
 })
 
 describe('bracketed paste', () => {

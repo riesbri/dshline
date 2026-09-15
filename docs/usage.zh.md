@@ -159,11 +159,11 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 默认情况下，终端为 `shift-enter` 发送的字节与 `enter` 完全相同，因此没有程序能区分它们。为让差异可见，本界面启动时会向你的终端请求一个额外的键盘特性：kitty 键盘协议的最低选项，名为*转义码消歧（disambiguate escape codes）*。支持它的终端（kitty、Ghostty、WezTerm、foot、较新的 iTerm2 与 Alacritty、Konsole）随后把修改过的 `enter` 报告为自己的序列。
 
-在原生 Windows 上，它还会请求第二项特性：*win32-input-mode*，即 Windows 控制台报告按键修饰键的自身方式。Windows 控制台并不实现 kitty 请求，没有这项特性时 `shift-enter` 在那里依然无法区分。不支持该模式的控制台会忽略这个请求，一切照旧。
+在原生 Windows 上，它还会请求 *win32-input-mode*，即 Windows 控制台报告按键修饰键的自身方式。在不支持 kitty 键盘协议的 Windows 控制台路径上——包括 Windows Terminal 1.24 及更早版本——正是它让修改过的按键仍可区分。不支持该模式的控制台会忽略这个请求，一切照旧。
 
 那个请求有一个值得知道的副作用。在支持它的终端上，`esc`、`alt` 与 `ctrl` 组合也不再以旧形式到达：`ctrl-c` 变成序列 `CSI 99 ; 5 u`，而不是单字节 `0x03`。本项目两种形式都读，因此上表中每个快捷键两种方式都有效。细节见 [设计 → 键盘输入以两种格式读取](design.zh.md#keyboard-input-is-read-in-both-formats)。
 
-在同时忽略这两项请求的终端上，`shift-enter` 仍然发送消息。这就是为什么状态行建议 `alt-enter` 代替：`alt-enter` 处处有效。界面退出时额外模式被关闭，因此下一个程序正常读取你的键盘。
+在同时忽略这两项请求的终端上，`shift-enter` 仍然发送消息。这就是为什么状态行建议 `alt-enter` 代替：在没有把它留作自用的终端上，它仍是一个回退选择。界面退出时额外模式被关闭，因此下一个程序正常读取你的键盘。
 
 如果某个按键没有反应，`node tools/keyprobe.mjs` 会显示你的终端发送了什么、本项目如何读取它。那个输出正是缺陷报告需要的。
 
