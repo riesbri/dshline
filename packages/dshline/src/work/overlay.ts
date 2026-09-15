@@ -916,8 +916,12 @@ function compactFallback(
     `${String(subagents)} ${subagents === 1 ? 'subagent' : 'subagents'}`,
     `${String(jobs)} ${jobs === 1 ? 'job' : 'jobs'}`,
   ].join(' · ')
-  const summary = !snapshot.available
-    ? 'Work unavailable · esc close'
+  // `available` reports the two capability SEAMS; a workflow run is proved by
+  // this session's own durable records instead. Seam absence may not deny an
+  // owned workflow this compact frame is too small to list, so this mirrors the
+  // framed guard and names the missing seams only when no workflow exists.
+  const summary = !snapshot.available && workflows === 0
+    ? 'Jobs/subagents unavailable · esc close'
     : jobs === 0 && subagents === 0 && workflows === 0
       ? 'No active work · esc close'
       : `${counts} · esc close`
