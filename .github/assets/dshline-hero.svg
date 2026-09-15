@@ -1,24 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1728" height="540" viewBox="0 0 1728 540" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="1728" height="464" viewBox="0 0 1728 464" role="img">
 <title>dshline — terminal-native frontend for DeepSeek Harness</title>
 <style>
   .mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace}
   .white{fill:#f4f7f8} .muted{fill:#aeb9bf} .cyan{fill:#28d8d2}
   .chip{fill:#0a0e11;stroke:#263238;stroke-width:1.5}
-  .chip1{fill:#0a0e11;stroke:#2f5a5e;stroke-width:1.5}
+  .chiptext{fill:#aeb9bf;font-size:19px}
 </style>
-<rect width="1728" height="540" fill="#000000"/>
+<rect width="1728" height="464" fill="#000000"/>
 
-<rect x="635" y="138" width="67" height="74" rx="10" fill="none" stroke="#2bd5d0" stroke-width="3.6"/>
-<text x="651" y="183" class="mono white" font-size="32" font-weight="700">&gt;_</text>
-<text x="735" y="199" class="mono white" font-size="90" font-weight="700" letter-spacing="-3">dsh</text>
-<text x="888" y="199" class="mono cyan" font-size="90" font-weight="700" letter-spacing="-3">line</text>
+<rect x="600" y="122" width="77" height="85" rx="11" fill="none" stroke="#2bd5d0" stroke-width="4.2"/>
+<text x="618" y="174" class="mono white" font-size="37" font-weight="700">&gt;_</text>
+<text x="715" y="192" class="mono white" font-size="104" font-weight="700" letter-spacing="-3.5">dsh</text>
+<text x="892" y="192" class="mono cyan" font-size="104" font-weight="700" letter-spacing="-3.5">line</text>
 
-<text x="864" y="283" class="mono muted" font-size="28" text-anchor="middle">Terminal-native frontend for DeepSeek Harness</text>
+<text x="864" y="270" class="mono muted" font-size="21" text-anchor="middle">Terminal-native frontend for DeepSeek Harness</text>
 
-<rect x="402" y="349" width="373" height="52" rx="8" class="chip1"/>
-<text x="588" y="383" class="mono white" font-size="22" text-anchor="middle">Real terminal scrollback</text>
-<rect x="797" y="349" width="241" height="52" rx="8" class="chip"/>
-<text x="917" y="383" class="mono muted" font-size="22" text-anchor="middle">Direct Harness</text>
-<rect x="1060" y="349" width="267" height="52" rx="8" class="chip"/>
-<text x="1193" y="383" class="mono muted" font-size="22" text-anchor="middle">Provider-neutral</text>
+<rect x="464" y="310" width="322" height="42" rx="7" class="chip"/>
+<text x="625" y="338" class="mono chiptext" text-anchor="middle">Real terminal scrollback</text>
+<rect x="806" y="310" width="208" height="42" rx="7" class="chip"/>
+<text x="910" y="338" class="mono chiptext" text-anchor="middle">Direct Harness</text>
+<rect x="1034" y="310" width="230" height="42" rx="7" class="chip"/>
+<text x="1149" y="338" class="mono chiptext" text-anchor="middle">Provider-neutral</text>
 </svg>
