@@ -7,6 +7,10 @@
  * real service/runtime dispatch, its entered-agent lookup, and the published
  * `AgentFactory` delegation seam without loading an AgentLoop.
  *
+ * Publication is ordered: `enter()` inserts an unannounced entry and
+ * `announce(agent, source)` awaits the serial `agent/created` listeners that
+ * complete initialization before any queued work proceeds.
+ *
  * The factory below is deliberately local: its returned handles and agents do
  * not prove concrete loop creation, persistence loading, setup, announcement
  * policy, or lifecycle behavior. Those are owned by the installed provider.
@@ -34,12 +38,13 @@ function localAgent(ctx: Context, id: SessionId): Agent {
  * Publish a local handle through the real registry, as an AgentFactory would.
  * @param ctx - context carrying the real registry.
  * @param id - shared agent/session identity.
- * @returns a local handle backed by the registry's real registration path.
+ * @returns a local handle backed by the registry's real registration path,
+ *   after its awaited creation announcement has settled.
  */
-function localHandle(ctx: Context, id: SessionId): AgentHandle {
+async function localHandle(ctx: Context, id: SessionId): Promise<AgentHandle> {
   const agent = localAgent(ctx, id)
   const detach = ctx.agents.enter(agent, undefined)
-  ctx.agents.announce(agent)
+  await ctx.agents.announce(agent, 'startup')
   return {
     agent,
     dispose: async () => { detach() },
@@ -61,7 +66,12 @@ describe('capability: agents', () => {
     const detach = ctx.agents.enter(agent, undefined)
     try {
       expect(ctx.agents.get(id)).toBe(agent)
-      ctx.agents.announce(agent)
+      // Publication is an awaited edge: `announce` runs serial `agent/created`
+      // listeners and resolves only once every one of them has finished, and a
+      // detach requested while that dispatch is in flight is deferred until it
+      // settles. Awaiting is what makes the removal below observable rather
+      // than merely requested.
+      await ctx.agents.announce(agent, 'startup')
       expect(ctx.agents.get(id)).toBe(agent)
       detach()
       expect(ctx.agents.get(id)).toBeUndefined()
@@ -78,11 +88,11 @@ describe('capability: agents', () => {
     const factory: AgentFactory = {
       createAgent: async (_ownerCtx, options) => {
         creates.push(options)
-        return localHandle(ctx, options.sessionId)
+        return await localHandle(ctx, options.sessionId)
       },
       resume: async (_ownerCtx, options) => {
         resumes.push(options)
-        return localHandle(ctx, options.resumeSessionId)
+        return await localHandle(ctx, options.resumeSessionId)
       },
     }
     const disposeFactory = ctx.agents.setFactory(factory)

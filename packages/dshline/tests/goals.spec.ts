@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import GoalService, { GoalId } from '@deepseek-ai/dsh-goal'
 import type { GoalActivation, GoalPhase, GoalProjection, GoalView } from '@deepseek-ai/dsh-goal'
@@ -228,7 +228,9 @@ async function harness(): Promise<{ ctx: Context; agent: Agent; observer: Sessio
   // The goal service needs the registry's exact live agent and nothing else
   // about one: no loop, no provider, no model.
   const agent = { id: session.id, session, ctx } as unknown as Agent
-  ctx.agents.register(agent)
+  // Registration publishes the agent and awaits its serial `agent/created`
+  // listeners — the Goal service's disarm among them — before returning.
+  await ctx.agents.register(agent)
   const observer = new SessionProjectionObserver({
     registry: ctx.sessionProjections, session, invalidate: () => {},
   })
@@ -284,11 +286,18 @@ describe('the real Goal service and session projection', () => {
   })
 
   it('starts a reopened session idle and rearms only on a real resume', async () => {
-    // The `agent/session-start` edge the service installs is what makes every
+    // The `agent/created` edge the service installs is what makes every
     // reopened session start disarmed; `resume()` is the authorized way back.
+    //
+    // Driven through Harness's own agent-scoped dispatcher, which is what makes
+    // this a lifecycle probe rather than a string: `agent/created` is serial,
+    // awaited, and part of publication, so a listener that disarms here is
+    // guaranteed to have run before the resumed agent's first model request.
+    // An unscoped `ctx.emit` would reach the same listener while proving none
+    // of that.
     const { ctx, agent, observer } = await harness()
     const created = ctx.goals.create(agent, { objective: 'ship the release', maxGoalRounds: 8 })
-    ctx.emit('agent/session-start', { agent, session: agent.session })
+    await agentEvents(ctx, agent).serial('agent/created', { source: 'resume' })
     expect(observer.snapshot()?.values.goal?.goal.phase).toBe('active')
     expect(goalReading(observer.snapshot(), () => ctx.goals.get(agent)?.activation))
       .toEqual({ label: 'goal idle', running: false })

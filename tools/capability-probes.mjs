@@ -175,7 +175,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'goals',
     files: ['packages/dshline/tests/goals.spec.ts'],
-    note: 'real GoalService/projection plus dshline `goalReading` adapter path and source rule; no mounted status line is exercised',
+    note: 'real GoalService/projection plus dshline `goalReading` adapter path, source rule, and the awaited agent-scoped `agent/created` lifecycle edge that disarms a reopened session; no mounted status line is exercised',
   },
   {
     name: 'approval',
