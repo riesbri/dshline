@@ -412,6 +412,23 @@ describe('the Work overview with workflows', () => {
     expect(text).not.toContain('not installed in this profile')
   })
 
+  it('keeps an owned run in the compact fallback when neither work seam is mounted', () => {
+    // Compact geometry may omit the row, but it must not contradict the framed
+    // view: the seam absent is jobs/subagents, not this window's workflow.
+    const text = overview({ ...EMPTY, available: false, workflows: [workflowItem()] }, 80, 5)
+    expect(text).toContain('1 workflow · 0 subagents · 0 jobs · esc close')
+    expect(text).not.toContain('Work unavailable')
+    expect(text).toContain('esc')
+  })
+
+  it('names the missing seams in compact mode only when no workflow exists', () => {
+    // The framed surface makes the narrower claim that jobs and subagents are
+    // not installed; compact must carry that claim, not deny all Work.
+    const text = overview({ ...EMPTY, available: false }, 80, 5)
+    expect(text).toContain('Jobs/subagents unavailable · esc close')
+    expect(text).not.toContain('Work unavailable')
+  })
+
   it('never shows a denominator a Harness contract cannot supply', () => {
     const text = overview({
       ...EMPTY,
