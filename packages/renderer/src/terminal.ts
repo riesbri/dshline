@@ -75,6 +75,56 @@ const ENHANCED_KEYS_ON = '\u001b[>1u'
 const ENHANCED_KEYS_OFF = '\u001b[<u'
 
 /**
+ * Ask a Windows console to report every key as an input record.
+ *
+ * The kitty protocol above is the right request everywhere else and is sent
+ * everywhere, but Windows Terminal below version 1.25 does not implement it, and
+ * has never implemented xterm's `modifyOtherKeys`. What those consoles do have is
+ * win32-input-mode, and without asking for it a modified enter does not reach the
+ * process at all: the console translates it to the same bare carriage return as
+ * enter, so shift-enter submits — the bug this mode fixes. A console that does not
+ * implement it ignores the sequence, which leaves exactly the old behaviour.
+ *
+ * Only Windows is asked, unlike the kitty request. This mode belongs to the Windows
+ * console host rather than to terminals in general, and a non-Windows terminal that
+ * does not know the number is better left alone than trusted to ignore it.
+ */
+const WIN32_KEYS_ON = '\u001b[?9001h'
+
+/** Leave the console reporting the encodings it started with. */
+const WIN32_KEYS_OFF = '\u001b[?9001l'
+
+/**
+ * Whether this process is the native Windows console path the mode belongs to.
+ *
+ * Read per acquisition rather than once at import, so the choice is a property of
+ * the run and not of whichever platform happened to load this module.
+ * @returns whether the Windows console mode should be requested.
+ */
+function isWindowsConsole(): boolean {
+  return process.platform === 'win32'
+}
+
+/**
+ * The input modes this renderer asks for, and the sequences that give them back.
+ *
+ * Exported because `tools/keyprobe.mjs` has to ask for exactly what the frontend
+ * asks for. A probe that requests a different set reports encodings the interface
+ * never sees, which is worse than no probe at all: it answers the question with the
+ * wrong terminal mode.
+ * @returns the bytes that turn the modes on, and the bytes that turn them off.
+ */
+export function terminalModes(): { on: string; off: string } {
+  const windowsConsole = isWindowsConsole()
+  return {
+    on: `${PASTE_ON}${ENHANCED_KEYS_ON}${windowsConsole ? WIN32_KEYS_ON : ''}`,
+    // Undone in the reverse order they were asked for, and the console mode first:
+    // every one of these changes how the next program reads its input.
+    off: `${windowsConsole ? WIN32_KEYS_OFF : ''}${ENHANCED_KEYS_OFF}${PASTE_OFF}`,
+  }
+}
+
+/**
  * Idle time after which the decoder's held tail is decided.
  *
  * A lone ESC is the first byte of every sequence the decoder recognises, so it can
@@ -139,7 +189,7 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
 
   input.setRawMode(true)
   input.setEncoding('utf8')
-  output.write(`${PASTE_ON}${ENHANCED_KEYS_ON}`)
+  output.write(terminalModes().on)
   input.resume()
   input.on('data', onData)
   output.on('resize', onResize)
@@ -161,7 +211,7 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
       if (closed) return
       closed = true
       stopIdle()
-      output.write(`${ENHANCED_KEYS_OFF}${PASTE_OFF}`)
+      output.write(terminalModes().off)
       input.off('data', onData)
       output.off('resize', onResize)
       input.setRawMode(wasRaw)

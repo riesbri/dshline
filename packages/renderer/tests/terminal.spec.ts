@@ -96,6 +96,59 @@ describe('acquireTerminal()', () => {
     expect(fake.written.join('')).toContain('\u001b[<u')
   })
 
+  /** Run `body` with `process.platform` reporting `platform`. */
+  function withPlatform(platform: NodeJS.Platform, body: () => void): void {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+    try {
+      body()
+    } finally {
+      if (original !== undefined) Object.defineProperty(process, 'platform', original)
+    }
+  }
+
+  it('asks a Windows console for input records, and takes the request back on close', () => {
+    // The kitty request above is ignored by the Windows Terminal that ships today,
+    // and a console that is not asked for its own input records sends shift-enter as
+    // a bare carriage return. Leaving the mode on would change how the next program
+    // reads the keyboard.
+    withPlatform('win32', () => {
+      const fake = fakeStreams(false)
+      const terminal = acquireTerminal({ input: fake.input, output: fake.output })
+      expect(fake.written.join('')).toContain('\u001b[?9001h')
+      terminal.close()
+      expect(fake.written.join('')).toContain('\u001b[?9001l')
+    })
+  })
+
+  it('does not ask for the Windows console mode anywhere else', () => {
+    // It belongs to the Windows console host, so a terminal on another platform is
+    // left alone rather than trusted to ignore a number it has never heard of.
+    withPlatform('linux', () => {
+      const fake = fakeStreams(false)
+      const terminal = acquireTerminal({ input: fake.input, output: fake.output })
+      terminal.close()
+      expect(fake.written.join('')).not.toContain('9001')
+    })
+  })
+
+  it('gives the modes back in the reverse order they were asked for', () => {
+    // Restoring out of order would turn a mode back on after disabling it — the
+    // console first, then the kitty flags, then paste.
+    withPlatform('win32', () => {
+      const fake = fakeStreams(false)
+      const terminal = acquireTerminal({ input: fake.input, output: fake.output })
+      terminal.close()
+      const written = fake.written.join('')
+      const console = written.indexOf('\u001b[?9001l')
+      const kitty = written.indexOf('\u001b[<u')
+      const paste = written.indexOf('\u001b[?2004l')
+      expect(console).toBeGreaterThan(-1)
+      expect(console).toBeLessThan(kitty)
+      expect(kitty).toBeLessThan(paste)
+    })
+  })
+
   it('restores the previous raw mode and releases the stream on close', () => {
     const log: string[] = []
     let raw = false

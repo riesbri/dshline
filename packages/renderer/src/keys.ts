@@ -213,6 +213,216 @@ export interface KeyDecoder {
 }
 
 /**
+ * Windows console modifier bits, as win32-input-mode reports them.
+ *
+ * These are the `dwControlKeyState` bits of the input record underneath, where left
+ * and right are separate: a right alt pressed together with ctrl is how Windows
+ * spells AltGr, which is why each pair is read as one modifier here.
+ */
+const WIN32_SHIFT = 0x0010
+const WIN32_ALT = 0x0001 | 0x0002
+const WIN32_CTRL = 0x0004 | 0x0008
+
+/** Virtual-key code of Enter, the one key whose modifiers mean something to this decoder. */
+const WIN32_RETURN = 0x0d
+
+/**
+ * Keys win32-input-mode reports with no character of their own, by virtual-key code,
+ * and the xterm sequence that names them.
+ *
+ * Only the keys this interface reads are listed: the arrows, home, end and delete.
+ * `page up`, `page down`, `insert` and the function keys are deliberately absent —
+ * they decoded to nothing before this mode was asked for and still do, and inventing
+ * meanings for keys the composer has none for would be a behaviour change hiding
+ * inside a compatibility translation.
+ */
+const WIN32_FUNCTION_KEYS: Readonly<Record<number, string>> = {
+  0x23: 'F',  // end
+  0x24: 'H',  // home
+  0x25: 'D',  // left
+  0x26: 'A',  // up
+  0x27: 'C',  // right
+  0x28: 'B',  // down
+  0x2e: '3~', // delete
+}
+
+/**
+ * Where a win32-input-mode report begins and ends in `input`.
+ *
+ * What makes a report a report is its shape — `CSI vk ; scan ; char ; down ; control
+ * ; repeat _` — and nothing else. An escape sequence that only looks like one, a
+ * pasted `CSI 0 m`, is left alone; the decoder behind this is the only place that
+ * knows what an escape sequence means.
+ * @param input - the bytes read so far.
+ * @param start - offset of the `ESC` that opens the sequence.
+ * @returns its end and parameters, `'partial'` while it is still being written, or
+ *   undefined when these bytes are not a report at all.
+ */
+function scanWin32Report(input: string, start: number): { end: number; params: string } | 'partial' | undefined {
+  let cursor = start + 2
+  let params = ''
+  while (cursor < input.length) {
+    const char = input.charAt(cursor)
+    if (char === '_') return params === '' ? undefined : { end: cursor + 1, params }
+    if ((char >= '0' && char <= '9') || char === ';') {
+      params += char
+      cursor += 1
+      continue
+    }
+    return undefined
+  }
+  return 'partial'
+}
+
+/**
+ * The character one report carries.
+ *
+ * Windows reports a character above the basic plane as two reports, one per UTF-16
+ * code unit, so the halves are joined here. Text reaching the decoder below is
+ * therefore always whole: a lone half inserted into the composer would be lost to a
+ * replacement character and could never be repaired.
+ * @param unit - the report's UTF-16 code unit.
+ * @param surrogates - the high surrogate held from the previous report, if any.
+ * @returns the text to insert, `''` when the report was only the first half.
+ */
+function win32Character(unit: number, surrogates: { high: number }): string {
+  if (unit >= 0xd800 && unit <= 0xdbff) {
+    surrogates.high = unit
+    return ''
+  }
+  const held = surrogates.high
+  surrogates.high = 0
+  if (held !== 0 && unit >= 0xdc00 && unit <= 0xdfff) return String.fromCharCode(held, unit)
+  // An unpaired half is passed on as it came, which is what the console's own
+  // encoder does with one; dropping it would silently delete the character.
+  return held === 0 ? String.fromCharCode(unit) : String.fromCharCode(held, unit)
+}
+
+/**
+ * Translate one report into the input the decoder below already reads.
+ *
+ * This is a translation, not a second keyboard. A report becomes the bytes that
+ * already mean this key here — a character, a control code, an xterm function-key
+ * sequence, or the kitty form of a modified enter — so the tables above stay the
+ * only place a key's meaning is written down, and a gesture is read the same way
+ * whatever encoding carried it.
+ * @param params - the `;`-separated fields between `CSI` and `_`.
+ * @param surrogates - the high surrogate held from the previous report, if any.
+ * @returns the input the report stands for, or `''` when it reports nothing to do.
+ */
+function win32ReportToInput(params: string, surrogates: { high: number }): string {
+  const fields = params.split(';').map(field => Number.parseInt(field, 10))
+  const vk = fields[0]
+  const char = fields[2]
+  const down = fields[3]
+  const control = fields[4] ?? 0
+  // A key UP is dropped. Every key arrives twice in this mode, and the decoder is
+  // edge-triggered: reading the release too would type every character twice.
+  if (down !== 1) return ''
+  const shift = (control & WIN32_SHIFT) !== 0
+  const alt = (control & WIN32_ALT) !== 0
+  const ctrl = (control & WIN32_CTRL) !== 0
+  if (vk === WIN32_RETURN) {
+    const bits = (shift ? SHIFT : 0) | (alt ? ALT : 0) | (ctrl ? CTRL : 0)
+    // Unmodified enter stays the bare carriage return every terminal sends for it;
+    // a modified one takes the kitty encoding so that shift, alt and ctrl keep the
+    // single meaning they already have on the terminals that report them.
+    return bits === 0 ? '\r' : `\u001b[13;${String(bits + 1)}u`
+  }
+  if (char !== undefined && char !== 0) {
+    const text = win32Character(char, surrogates)
+    if (text === '') return ''
+    // A ctrl gesture is already the control character here, which is exactly the
+    // byte the legacy table names. AltGr is ctrl AND right alt in one report and is
+    // a character, not a chord: prefixing it with ESC would break every layout that
+    // uses it for one.
+    return alt && !ctrl ? `\u001b${text}` : text
+  }
+  const tail = vk === undefined ? undefined : WIN32_FUNCTION_KEYS[vk]
+  if (tail === undefined) return ''
+  const modifier = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0)
+  if (modifier === 1) return `\u001b[${tail}`
+  // The xterm shapes the legacy table above already reads: a letter-terminated
+  // sequence carries its modifier after a leading 1, a `~` sequence after its code.
+  return tail.endsWith('~')
+    ? `\u001b[${tail.slice(0, -1)};${String(modifier)}~`
+    : `\u001b[1;${String(modifier)}${tail}`
+}
+
+/** The translation of win32-input-mode reports in front of the decoder. */
+interface Win32Reports {
+  /**
+   * Translate every complete report in a chunk, holding one still being written.
+   * @param chunk - one raw read.
+   * @returns the chunk with each complete report translated.
+   */
+  push(chunk: string): string
+  /**
+   * Release the held bytes, because no more input is coming.
+   * @returns the held bytes, untranslated.
+   */
+  flush(): string
+}
+
+/**
+ * Create the win32-input-mode translation.
+ *
+ * The work is done BEFORE the decoder rather than inside it for one reason: a
+ * bracketed paste is a stream of literal text with real keys embedded in it. The
+ * newline of a multi-line paste arrives as an enter report, so translating here
+ * fills a paste with newlines, where translating inside the decoder's paste branch
+ * would have to know about pastes at all.
+ * @returns the translation, holding at most one unfinished report between reads.
+ */
+function createWin32Reports(): Win32Reports {
+  /** A report the console is still writing. */
+  let pending = ''
+  /** The high surrogate of a character report whose other half has not arrived. */
+  const surrogates = { high: 0 }
+
+  return {
+    flush() {
+      const held = pending
+      pending = ''
+      return held
+    },
+    push(chunk) {
+      const input = pending + chunk
+      pending = ''
+      let output = ''
+      let cursor = 0
+      for (;;) {
+        const escape = input.indexOf('\u001b[', cursor)
+        if (escape < 0) break
+        output += input.slice(cursor, escape)
+        const report = scanWin32Report(input, escape)
+        if (report === 'partial') {
+          // Held, not dropped: the console can hand a report over in two reads, and
+          // half a report decoded as text would reach the composer as itself.
+          pending = input.slice(escape)
+          return output
+        }
+        if (report === undefined) {
+          output += '\u001b['
+          cursor = escape + 2
+          continue
+        }
+        output += win32ReportToInput(report.params, surrogates)
+        cursor = report.end
+      }
+      output += input.slice(cursor)
+      // A trailing escape may still become a report, exactly as the decoder below
+      // holds one while it waits for the rest of its own sequence.
+      if (input.endsWith('\u001b')) {
+        pending = '\u001b'
+        output = output.slice(0, -1)
+      }
+      return output
+    },
+  }
+}
+
+/**
  * Create a decoder.
  *
  * A lone ESC at the end of a chunk is HELD, not reported. It is the first byte of
@@ -223,9 +433,29 @@ export interface KeyDecoder {
  * after a short idle: by then the terminal has stopped writing, so the byte was the
  * Escape key. That costs the Escape key a few milliseconds and costs a split
  * delimiter nothing.
+ *
+ * Windows console input reports are translated first, because a console asked for
+ * win32-input-mode sends every key that way and none of it is legible to the parser
+ * below.
  * @returns the decoder.
  */
 export function createKeyDecoder(): KeyDecoder {
+  const reports = createWin32Reports()
+  const decoder = createLegacyDecoder()
+  return {
+    push(chunk) { return decoder.push(reports.push(chunk)) },
+    flush() { return [...decoder.push(reports.flush()), ...decoder.flush()] },
+  }
+}
+
+/**
+ * Create the decoder for the encodings terminals speak directly.
+ *
+ * Split from {@link createKeyDecoder} so that the Windows translation can be a layer
+ * in front of this rather than a second set of branches inside it.
+ * @returns the decoder.
+ */
+function createLegacyDecoder(): KeyDecoder {
   /** Undecidable tail of the previous chunk. */
   let rest = ''
   /** Content accumulated since a paste began, or undefined when not pasting. */
