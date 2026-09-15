@@ -49,10 +49,19 @@ interface PatchEntry {
 }
 
 /**
- * Every row id `dsh-base` mounts unconditionally that a shipped Harness
- * preset (`standard`/`code`/`minimal`/`cordis`) also lists — copied
- * verbatim from `packages/bundle/web-app/cordis.patch.yml` in
- * deepseek-harness, the reference implementation of this exact move.
+ * Every row this bundle disables: an agent-plane row the ADOPTED `dsh-base`
+ * mounts unconditionally that a shipped Harness preset
+ * (`standard`/`code`/`minimal`/`cordis`) also composes. Read against
+ * `HARNESS_TARGET`, never copied from upstream master: an id absent from the
+ * adopted base is deleted from this list with the row it named, because a
+ * disable left behind is a Loader "entry not found" warning on every load.
+ *
+ * `tool-str-replace-editor` and `workflow-worker-thread` sat in this list
+ * until the adopted base stopped mounting those rows. The packages still
+ * exist elsewhere in Harness — `dsh-base`'s own README names the first as an
+ * example — but neither is a patchable row in the composition this bundle
+ * overlays, so both disables are gone rather than carried for a line this
+ * bundle no longer installs.
  */
 const EXPECTED_DISABLED = [
   'tool-bash',
@@ -60,7 +69,6 @@ const EXPECTED_DISABLED = [
   'tool-jobs',
   'tool-fs',
   'tool-fs-search',
-  'tool-str-replace-editor',
   'skill-filesystem',
   'tool-skill',
   'tool-goal',
@@ -72,7 +80,6 @@ const EXPECTED_DISABLED = [
   'tool-subagent-list-agents',
   'tool-subagent',
   'tool-subagent-fork',
-  'workflow-worker-thread',
   'tool-workflow',
   'tool-ralph',
   'agent-instructions',
@@ -111,6 +118,17 @@ describe('cordis.patch.yml: the agent plane moves behind agent presets', () => {
     const patch = loadPatch()
     const disabled = new Set(disabledIds(patch))
     for (const id of DELIBERATELY_NOT_DISABLED) expect(disabled.has(id)).toBe(false)
+  })
+
+  it('does not retain a disable for a row the adopted base no longer mounts', () => {
+    // A disable that matches no row is a Loader "entry not found" warning on
+    // every load, so an obsolete one is deleted with the row rather than kept
+    // for historical compatibility. Both ids were patchable in an earlier
+    // Harness generation and are absent from the composition `HARNESS_TARGET`
+    // names; see the note on EXPECTED_DISABLED.
+    const disabled = new Set(disabledIds(loadPatch()))
+    expect(disabled.has('tool-str-replace-editor')).toBe(false)
+    expect(disabled.has('workflow-worker-thread')).toBe(false)
   })
 
   it('inserts the preset roster with a real default', () => {
