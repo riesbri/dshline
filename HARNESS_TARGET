@@ -44,5 +44,5 @@
 # the workaround. A workaround nobody is made to revisit is a workaround that
 # becomes permanent.
 
-revision fb2c4b9e698e30edb738bca4cf0618587db7d203
-version 0.1.5-rc.2
+revision 0a15e36e7f82b6ed45af6fa9759f29b40dcd965d
+version 0.1.6-alpha.1
