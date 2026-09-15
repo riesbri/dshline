@@ -909,7 +909,11 @@ function compactFallback(
     return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), 'error')]
   }
   const workflows = snapshot.workflows.length
-  const subagents = snapshot.subagents.length
+  // The same presentation corpus the framed overview draws, not the raw
+  // authority array: a live workflow member is already counted as its workflow,
+  // and counting the full `snapshot.subagents` here would report one Harness
+  // child as two pieces of work in a frame too small to show either row.
+  const subagents = looseSubagents(snapshot).length
   const jobs = snapshot.jobs.length
   const counts = [
     ...workflows === 0 ? [] : [`${String(workflows)} ${workflows === 1 ? 'workflow' : 'workflows'}`],

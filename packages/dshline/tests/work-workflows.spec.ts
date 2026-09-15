@@ -429,6 +429,34 @@ describe('the Work overview with workflows', () => {
     expect(text).not.toContain('Work unavailable')
   })
 
+  it('never counts a workflow-owned child again as a loose subagent in compact mode', () => {
+    // Compact is the same presentation as the framed overview, just smaller:
+    // it cannot draw the child under its workflow AND flat, so counting both
+    // would report two pieces of work where Harness published one child. The
+    // count must come from the presentation corpus, not the raw authority array.
+    const claimed = subagentItem({ id: 'child-1', runId: 'epoch-1' })
+    const text = overview({
+      ...EMPTY,
+      workflows: [workflowItem({ members: [memberItem({ subagent: claimed })] })],
+      subagents: [claimed],
+    }, 80, 5)
+    expect(text).toContain('1 workflow · 0 subagents · 0 jobs · esc close')
+  })
+
+  it('keeps an unrelated subagent counted in compact mode beside a workflow', () => {
+    // Anti-overcorrection: the fix may remove only the child a live member
+    // claims. Suppressing every subagent whenever a workflow exists would hide
+    // work Harness published, so the unmatched child must survive the count.
+    const claimed = subagentItem({ id: 'child-1', runId: 'epoch-1' })
+    const loose = subagentItem({ id: 'child-9', runId: 'epoch-9' })
+    const text = overview({
+      ...EMPTY,
+      workflows: [workflowItem({ members: [memberItem({ subagent: claimed })] })],
+      subagents: [claimed, loose],
+    }, 80, 5)
+    expect(text).toContain('1 workflow · 1 subagent · 0 jobs · esc close')
+  })
+
   it('never shows a denominator a Harness contract cannot supply', () => {
     const text = overview({
       ...EMPTY,
