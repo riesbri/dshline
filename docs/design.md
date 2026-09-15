@@ -259,6 +259,10 @@ So both formats are decoded, and the table for the new format is *derived* from 
 
 `enter`, `tab`, and `backspace` are the protocol's own exceptions and keep their old values when unmodified. The older xterm format for the same information is read as well, because which format a terminal chooses is not the user's problem. The mode is switched off when the interface exits, so the next program reads its input as it expects to.
 
+Windows needs a third mechanism. Windows Terminal 1.24 and earlier do not implement the kitty protocol, and xterm's alternative was considered and rejected when ConPTY's keyboard handling was designed, so on those paths a modified `enter` is flattened to the same carriage return as `enter` before any process can see it. What those consoles do have is their own mode for this — win32-input-mode, asked for with `CSI ? 9001 h` — which reports every key as a record carrying its virtual key, character, modifier state, and how many times the key was pressed at once.
+
+Those records are *translated* into the encodings the decoder already reads rather than decoded by a second keyboard table, so a gesture keeps one meaning whichever encoding carried it. A report's repeat count multiplies that translation, because a held key can arrive as one record instead of a burst. The translation runs before the decoder for one reason: a multi-line paste is literal text with real keys embedded in it, so the newline of a pasted paragraph arrives as an `enter` record and has to become a newline, not the record itself. The mode is asked for on Windows only, and switched off on exit like the others.
+
 A lone `esc` byte at the end of what was read is held rather than decided immediately, because it is the first byte of every sequence the decoder recognizes, including the paste markers. A brief pause resolves it: once the terminal has stopped sending, that byte was the Escape key.
 
 ## Queue and steer are the reader's choice, not the agent's status

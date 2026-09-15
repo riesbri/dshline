@@ -173,9 +173,11 @@ long as the session runs, and `/enter` says it could not be stored.
 
 By default, a terminal sends exactly the same bytes for `shift-enter` as for `enter`, so no program can tell them apart. To make the difference visible, this interface asks your terminal for one extra keyboard feature on startup: the lowest option of the kitty keyboard protocol, called *disambiguate escape codes*. Terminals that support it (kitty, Ghostty, WezTerm, foot, recent iTerm2 and Alacritty, Konsole) then report a modified `enter` as its own sequence.
 
+On native Windows it also asks for *win32-input-mode*, the Windows console's own way of reporting a key's modifiers. That is what keeps a modified key distinguishable on the Windows console paths that do not support the kitty keyboard protocol, Windows Terminal 1.24 and earlier among them. A console that does not implement the mode ignores the request, and nothing changes.
+
 That request has a side effect worth knowing about. On a terminal that supports it, `esc`, `alt`, and `ctrl` combinations also stop arriving in their old form: `ctrl-c` becomes the sequence `CSI 99 ; 5 u` instead of the single byte `0x03`. This project reads both forms, so every shortcut in the table above works either way. The details are in [Design → Keyboard input is read in both formats](design.md#keyboard-input-is-read-in-both-formats).
 
-On a terminal that ignores the request, `shift-enter` still sends the message. That is why the status line suggests `alt-enter` instead: `alt-enter` works everywhere. The extra mode is switched off when the interface exits, so the next program reads your keyboard normally.
+On a terminal that ignores both requests, `shift-enter` still sends the message. That is why the status line suggests `alt-enter` instead: it remains a fallback on terminals that do not reserve it. The extra modes are switched off when the interface exits, so the next program reads your keyboard normally.
 
 If a key does nothing, `node tools/keyprobe.mjs` shows what your terminal sends and how this project reads it. That output is exactly what a bug report needs.
 

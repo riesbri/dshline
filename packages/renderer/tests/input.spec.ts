@@ -226,6 +226,151 @@ describe('decodeKeys()', () => {
   })
 })
 
+describe('win32-input-mode reports', () => {
+  // What a Windows console sends once it has been asked for input records:
+  // `CSI vk ; scan ; char ; down ; control ; repeat _`. These are captured from
+  // Windows Terminal 1.24; every key arrives twice, down then up, and `control`
+  // carries SHIFT_PRESSED (0x10) and ctrl (0x08) alongside the lock keys — the 0x20
+  // in each of them is NumLock being on, which is why the field is masked rather
+  // than compared.
+  it('reads shift-enter as a newline, which is the whole reason the mode is asked for', () => {
+    // Without this report a Windows console sends the same bare carriage return for
+    // shift-enter as for enter, so the composer can only submit.
+    expect(decodeKeys('\u001b[13;28;13;1;48;1_')).toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('reads enter, alt-enter and ctrl-enter from the same record shape', () => {
+    expect(decodeKeys('\u001b[13;28;13;1;32;1_')).toEqual([{ kind: 'key', name: 'enter' }])
+    expect(decodeKeys('\u001b[13;28;13;1;34;1_')).toEqual([{ kind: 'key', name: 'newline' }])
+    // Uc is 10 for ctrl-enter, and the virtual key is what says it is still enter.
+    expect(decodeKeys('\u001b[13;28;10;1;40;1_')).toEqual([{ kind: 'key', name: 'ctrl-enter' }])
+    // Shift with ctrl stays the newline the enhanced encodings already make it.
+    expect(decodeKeys('\u001b[13;28;10;1;56;1_')).toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('ignores every key-up report, so one keystroke is not delivered twice', () => {
+    expect(decodeKeys('\u001b[13;28;13;1;48;1_\u001b[13;28;13;0;48;1_'))
+      .toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('reads printable input, including the capital shift produces', () => {
+    expect(decodeKeys('\u001b[65;30;97;1;32;1_\u001b[65;30;97;0;32;1_'))
+      .toEqual([{ kind: 'text', text: 'a' }])
+    expect(decodeKeys('\u001b[65;30;65;1;48;1_')).toEqual([{ kind: 'text', text: 'A' }])
+  })
+
+  it('reads the ctrl gestures, which arrive as their control character', () => {
+    expect(decodeKeys('\u001b[67;46;3;1;40;1_')).toEqual([{ kind: 'key', name: 'ctrl-c' }])
+    expect(decodeKeys('\u001b[68;32;4;1;40;1_')).toEqual([{ kind: 'key', name: 'ctrl-d' }])
+  })
+
+  it('reads the navigation keys, whether or not a modifier came with them', () => {
+    expect(decodeKeys('\u001b[38;72;0;1;288;1_')).toEqual([{ kind: 'key', name: 'up' }])
+    // 288 is ENHANCED_KEY, so the arrows carry it even unmodified; shift adds 0x10.
+    expect(decodeKeys('\u001b[38;72;0;1;304;1_')).toEqual([{ kind: 'key', name: 'up' }])
+    expect(decodeKeys('\u001b[36;71;0;1;288;1_')).toEqual([{ kind: 'key', name: 'home' }])
+    expect(decodeKeys('\u001b[35;79;0;1;288;1_')).toEqual([{ kind: 'key', name: 'end' }])
+    expect(decodeKeys('\u001b[46;83;0;1;288;1_')).toEqual([{ kind: 'key', name: 'delete' }])
+    expect(decodeKeys('\u001b[8;14;8;1;32;1_')).toEqual([{ kind: 'key', name: 'backspace' }])
+    expect(decodeKeys('\u001b[9;15;9;1;32;1_')).toEqual([{ kind: 'key', name: 'tab' }])
+    expect(decodeKeys('\u001b[27;1;27;1;32;1_')).toEqual([{ kind: 'key', name: 'escape' }])
+  })
+
+  it('keeps a report split across two reads whole', () => {
+    // The console writes a report in one go, but a read boundary can land inside it,
+    // and half a report decoded as text would reach the composer as itself.
+    const decoder = createKeyDecoder()
+    expect(decoder.push('\u001b[13;')).toEqual([])
+    expect(decoder.push('28;13;1;48;1_')).toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('keeps a report whole when the read boundary lands right after its escape', () => {
+    const decoder = createKeyDecoder()
+    expect(decoder.push('\u001b')).toEqual([])
+    expect(decoder.push('[13;28;13;1;48;1_')).toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('joins the two reports an astral character arrives as', () => {
+    // Windows reports one UTF-16 code unit per record, so an emoji is two of them.
+    // Text reaching the composer is always whole; a lone half could never be mended.
+    expect(decodeKeys('\u001b[0;0;55357;1;32;1_\u001b[0;0;56898;1;32;1_'))
+      .toEqual([{ kind: 'text', text: '🙂' }])
+  })
+
+  it('treats AltGr as a character, not as a chord with an escape in front of it', () => {
+    // Windows spells AltGr as ctrl AND right alt in one report. Prefixing it with ESC
+    // would break every layout that reaches a character through it.
+    expect(decodeKeys('\u001b[81;16;64;1;42;1_')).toEqual([{ kind: 'text', text: '@' }])
+  })
+
+  it('fills a multi-line paste with its newlines', () => {
+    // A paste is literal text with real keys embedded in it, and the newline of a
+    // pasted paragraph arrives as an enter report. Translating after the decoder's
+    // paste handling would insert the report itself into the composer.
+    expect(decodeKeys('\u001b[200~line1\u001b[13;28;13;1;32;1_\u001b[13;28;13;0;32;1_line2\u001b[201~'))
+      .toEqual([{ kind: 'paste', text: 'line1\rline2' }])
+  })
+
+  it('leaves an ordinary escape sequence that only looks like a report alone', () => {
+    // The scan decides shape, not meaning: a legacy sequence with numeric parameters
+    // is still the decoder's to read.
+    expect(decodeKeys('\u001b[1;2A')).toEqual([{ kind: 'key', name: 'up' }])
+  })
+
+  it('reads a report sitting in the middle of ordinary text', () => {
+    expect(decodeKeys('ab\u001b[38;72;0;1;288;1_cd')).toEqual([
+      { kind: 'text', text: 'ab' },
+      { kind: 'key', name: 'up' },
+      { kind: 'text', text: 'cd' },
+    ])
+  })
+
+  it('repeats a report as many times as the console says the key was pressed', () => {
+    // A held key can arrive as one record carrying a count instead of a burst, and a
+    // count read as a single press is how a held key starts advancing once per
+    // report. The multiplication is of the translation, so it is still the one
+    // meaning below that repeats.
+    expect(decodeKeys('\u001b[65;30;97;1;32;3_')).toEqual([{ kind: 'text', text: 'aaa' }])
+    expect(decodeKeys('\u001b[8;14;8;1;32;3_')).toEqual([
+      { kind: 'key', name: 'backspace' },
+      { kind: 'key', name: 'backspace' },
+      { kind: 'key', name: 'backspace' },
+    ])
+    expect(decodeKeys('\u001b[38;72;0;1;288;3_')).toEqual([
+      { kind: 'key', name: 'up' },
+      { kind: 'key', name: 'up' },
+      { kind: 'key', name: 'up' },
+    ])
+  })
+
+  it('repeats a modified enter rather than collapsing it into one', () => {
+    expect(decodeKeys('\u001b[13;28;13;1;48;2_')).toEqual([
+      { kind: 'key', name: 'newline' },
+      { kind: 'key', name: 'newline' },
+    ])
+  })
+
+  it('drops a key-up whatever its repeat count claims', () => {
+    expect(decodeKeys('\u001b[13;28;13;1;48;1_\u001b[13;28;13;0;48;9_'))
+      .toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('reads a missing or impossible repeat count as one press', () => {
+    // The field is a WORD in the record underneath. An absent one belongs to an
+    // ordinary key; one no record could carry must not become unbounded text, since
+    // a pasted or hostile escape sequence can put any number there.
+    expect(decodeKeys('\u001b[65;30;97;1;32_')).toEqual([{ kind: 'text', text: 'a' }])
+    expect(decodeKeys('\u001b[65;30;97;1;32;0_')).toEqual([{ kind: 'text', text: 'a' }])
+    expect(decodeKeys('\u001b[65;30;97;1;32;999999999_'))
+      .toEqual([{ kind: 'text', text: 'a'.repeat(0xffff) }])
+  })
+
+  it('repeats an astral character whole, never one half of it', () => {
+    expect(decodeKeys('\u001b[0;0;55357;1;32;3_\u001b[0;0;56898;1;32;3_'))
+      .toEqual([{ kind: 'text', text: '🙂🙂🙂' }])
+  })
+})
+
 describe('bracketed paste', () => {
   it('reports pasted content as one literal key, newlines included', () => {
     const pasted = 'first\nsecond\nthird'

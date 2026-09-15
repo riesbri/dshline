@@ -17,7 +17,7 @@
  */
 
 import { createKeyDecoder } from '../packages/renderer/lib/keys.js'
-import { isInteractive } from '../packages/renderer/lib/terminal.js'
+import { isInteractive, terminalModes } from '../packages/renderer/lib/terminal.js'
 
 const { stdin, stdout } = process
 
@@ -32,11 +32,26 @@ if (!isInteractive({ input: stdin, output: stdout })) {
   process.exit(1)
 }
 
-/** The two modes the frontend turns on, so this reports what it really receives. */
-const MODES_ON = '\u001b[?2004h\u001b[>1u'
+/**
+ * The modes the frontend turns on, asked for through the same function it uses.
+ *
+ * Imported rather than copied: a probe that asks for a different set of modes
+ * reports encodings the interface never receives, and would answer a bug report
+ * about shift-enter with the wrong terminal mode.
+ */
+const MODES = terminalModes()
 
-/** Turn them back off, so the shell that follows reads its input normally. */
-const MODES_OFF = '\u001b[<u\u001b[?2004l'
+/**
+ * Render one mode sequence readably, so a report can name what was requested.
+ * @param sequence - the bytes written to ask for the modes.
+ * @returns the sequence with control bytes spelled out.
+ */
+function describeModes(sequence) {
+  return [...sequence].map(character => {
+    const code = character.codePointAt(0) ?? 0
+    return code === 0x1b ? 'ESC' : character
+  }).join('')
+}
 
 /**
  * Idle time after which the decoder decides what it is holding, matching the
@@ -80,15 +95,19 @@ function report(bytes, keys) {
   if (!keys.some(key => key.kind === 'text' && key.text === 'q')) return
   quitting = true
   if (idle !== undefined) clearTimeout(idle)
-  stdout.write(MODES_OFF)
+  stdout.write(MODES.off)
   stdin.setRawMode(false)
   process.exit(0)
 }
 
 stdin.setRawMode(true)
 stdin.setEncoding('utf8')
-stdout.write(MODES_ON)
-stdout.write('Extended keyboard mode requested.\r\n')
+stdout.write(MODES.on)
+// Naming the request matters as much as the answer: shift-enter is only
+// distinguishable on a terminal that acted on one of these sequences, and which
+// ones were asked for differs by platform.
+stdout.write(`Requested: ${describeModes(MODES.on)}\r\n`)
+stdout.write(`     hex: ${Buffer.from(MODES.on, 'utf8').toString('hex')}\r\n\r\n`)
 stdout.write('Press any key — try ctrl-c, ctrl-d, shift-enter, esc, the arrows.\r\n')
 stdout.write('Press q to quit.\r\n\r\n')
 
