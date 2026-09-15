@@ -24,10 +24,13 @@ forward rather than shimmed:
 - **`agent/session-start` is gone.** `agent/created` absorbs its role and is
   now agent-scoped, serial, awaited, and part of publication. dshline
   subscribes to no agent lifecycle event in production, so this is a probe
-  migration: the Goal probe drives the real awaited edge through
-  `agentEvents(ctx, agent).serial('agent/created', …)`, and the agents probe
-  awaits `announce(agent, 'startup')` — under the new contract a detach
-  requested while that dispatch is in flight is deferred until it settles.
+  migration, and both probes now go through the registry's own publication
+  seam: the Goal probe enters the agent with `enter()`, arranges the session's
+  goal, then publishes it exactly once with an awaited
+  `announce(agent, 'resume')` and watches that serial edge disarm it; the
+  agents probe awaits `announce(agent, source)` with the source each factory
+  path actually reports — under the new contract a detach requested while that
+  dispatch is in flight is deferred until it settles.
 
 The stderr containment shim in `HARNESS_COMPAT` was reconfirmed against this
 generation rather than advanced blindly: upstream's
