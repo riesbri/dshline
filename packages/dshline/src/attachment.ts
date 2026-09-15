@@ -47,6 +47,10 @@ import type {} from '@deepseek-ai/dsh-tool-todo'
 // and the `ctx.goals` service type (live activation, read below). Optional in
 // the same way — a profile without it reports no goal at all.
 import type { GoalActivation } from '@deepseek-ai/dsh-goal'
+// Carries both of the bare `/permission` picker's authorities: the
+// `permissions` projection key and the `ctx.permissionPresets` service type.
+// Optional, like the goal seam above.
+import type {} from '@deepseek-ai/dsh-permission-presets'
 // `fs` is read optionally for path completion: a profile that mounts no filesystem
 // offers none rather than failing, so this carries the type without a hard need.
 import type {} from '@deepseek-ai/dsh-fs'
@@ -1721,7 +1725,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       parsed.rawInput.trim() === '' &&
       ctx.commands.list(agent).some(command => command.name === 'permission')
     ) {
-      const picker = permissionPicker(projections.snapshot()?.values.permissions)
+      // Two reads, here and not earlier, because the catalog is live process
+      // state: holding one would make this frontend a second authority on what
+      // is selectable. Both seams are optional; missing either, the adapter
+      // returns nothing and the bare command goes to Harness unchanged.
+      const picker = permissionPicker(
+        ctx.get('permissionPresets')?.catalog(),
+        projections.snapshot()?.values.permissions,
+      )
       if (picker !== undefined && picker.choices.length > 0) {
         const picked = await promptSelect(ctx, {
           title: 'Permissions',

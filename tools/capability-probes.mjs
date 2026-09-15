@@ -40,7 +40,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'agents',
     files: ['packages/dshline/tests/capability/agents.probe.spec.ts'],
-    note: 'real AgentRegistry get/create/resume dispatch over entered agents and the published AgentFactory seam; local factory behavior does not prove AgentLoop creation, persistence, setup, or lifecycle policy',
+    note: 'real AgentRegistry get/create/resume dispatch over entered agents, the awaited enter/announce publication seam, and the `agent/created` source each path reports (startup vs resume) through the published AgentFactory; local factory behavior does not prove AgentLoop creation, persistence, setup, or lifecycle policy',
   },
   {
     name: 'jobs',
@@ -67,7 +67,7 @@ export const CAPABILITY_PROBES = [
       'packages/dshline/tests/goals.spec.ts',
       'packages/dshline/tests/permission.spec.ts',
     ],
-    note: 'real projection/service assertions layered with dshline acceptance fixtures for Todo, Goal, and permission',
+    note: 'real projection/service assertions layered with dshline acceptance fixtures for Todo, Goal, and the current-selection-only permission view',
   },
   {
     name: 'sessionStats',
@@ -140,12 +140,17 @@ export const CAPABILITY_PROBES = [
     note: 'real abstract CredentialProvider contract with a local reference/record implementation; backend storage policy is not proved, and AuthorizationService covers record orchestration separately',
   },
   {
+    name: 'permissionPresets',
+    files: ['packages/dshline/tests/permission.spec.ts'],
+    note: 'real PermissionPresetService catalog() over a real preset table plus a live registerAuto contribution, and the current-value-only `permissions` session projection, joined by dshline’s picker adapter for presentation only — no dshline catalog state, no catalog-change subscription, and mutation solely through the registered `/permission` command, whose refusal of a withdrawn option is exercised; deployment preset tables and the sandbox/approval knobs behind them are host-owned',
+  },
+  {
     name: 'commands',
     files: [
       'packages/dshline/tests/permission.spec.ts',
       'packages/dshline/tests/capability/command-attachments.probe.spec.ts',
     ],
-    note: 'real CommandRuntime execute/lifecycle for `/permission review`, plus its own attachment admission over a local AttachmentStore — the `input.attachments` declaration and the discriminated image submission `/image` sends a command; local dispatch/list decoration and other fixtures are not discovery evidence',
+    note: 'real CommandRuntime execute/lifecycle for `/permission review` and its refusal of a withdrawn catalog option, plus its own attachment admission over a local AttachmentStore — the `input.attachments` declaration and the discriminated image submission `/image` sends a command; local dispatch/list decoration and other fixtures are not discovery evidence',
   },
   {
     name: 'tools',
@@ -170,7 +175,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'goals',
     files: ['packages/dshline/tests/goals.spec.ts'],
-    note: 'real GoalService/projection plus dshline `goalReading` adapter path and source rule; no mounted status line is exercised',
+    note: 'real GoalService/projection plus dshline `goalReading` adapter path, source rule, and one real awaited `announce(agent, \'resume\')` publication whose serial `agent/created` dispatch disarms the reopened session; no AgentLoop, provider, or mounted status line is exercised',
   },
   {
     name: 'approval',

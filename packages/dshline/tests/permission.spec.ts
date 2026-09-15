@@ -1,4 +1,4 @@
-/** Harness permission projection presentation and bare-command decoration tests. */
+/** Harness permission catalog/selection presentation and bare-command decoration tests. */
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -6,12 +6,12 @@ import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import type { LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
 import PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
-import type { Config, PermissionSelect } from '@deepseek-ai/dsh-permission-presets'
+import type { Config, PermissionCatalog, PermissionSelection } from '@deepseek-ai/dsh-permission-presets'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import ApprovalService, { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval'
 import { stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { permissionPicker } from '../src/permission.ts'
@@ -37,23 +37,22 @@ vi.mock('../src/setup/index.ts', () => ({
   },
 }))
 
-/** A deployment-defined projection, deliberately unlike dsh-base's preset table. */
-const OPTIONS: PermissionSelect = {
+/** A deployment-defined catalog, deliberately unlike dsh-base's preset table. */
+const CATALOG: PermissionCatalog = {
   options: [
     { value: 'review', name: 'Review only', description: 'Inspect changes before they are applied.' },
     { value: 'normal', name: 'Normal work', description: 'Work in this project.' },
     { value: 'unrestricted', name: 'Unrestricted', description: 'Use the deployment-wide policy.' },
   ],
-  currentValue: 'normal',
 }
 
-/** The conventional Full Access option has a picker-only risk confirmation. */
-const FULL_ACCESS: PermissionSelect = {
+/** The conventional risk-bearing options, which have picker-only confirmations. */
+const RISKY: PermissionCatalog = {
   options: [
     { value: 'workspace-write', name: 'Workspace Write', description: 'Work in this project.' },
     { value: 'danger-full-access', name: 'Full access', description: 'Run without approvals.' },
+    { value: 'auto', name: 'Auto review', description: 'Review every call instead of sandboxing.' },
   ],
-  currentValue: 'workspace-write',
 }
 
 /** Let submission promises and queued redraws settle without waiting wall-clock time. */
@@ -75,7 +74,10 @@ function type(dispatch: () => ((key: Key) => void) | undefined, text: string): v
 
 /** Mount the smallest assembled attachment capable of rendering and dispatching permissions. */
 async function fixture(options: {
-  readonly projection?: PermissionSelect
+  /** The live process catalog `ctx.permissionPresets.catalog()` answers with. */
+  readonly catalog?: PermissionCatalog
+  /** The durable current selection the `permissions` projection carries. */
+  readonly selection?: PermissionSelection
   readonly commandListed?: boolean
   /** Routes an adapter registers, for model discovery. */
   readonly providers?: readonly string[]
@@ -91,6 +93,8 @@ async function fixture(options: {
   readonly dispatch: () => ((key: Key) => void) | undefined
   readonly ctx: Context
   readonly commands: { readonly execute: ReturnType<typeof vi.fn> }
+  /** Every live catalog read the decoration performed, in order. */
+  readonly catalogReads: ReturnType<typeof vi.fn>
   readonly commits: string[][]
   readonly frames: string[][]
   /** Whether the window re-resolved model metadata. */
@@ -98,12 +102,18 @@ async function fixture(options: {
 }> {
   const ctx = new Context()
   await ctx.plugin(TuiSlots)
-  const projection = options.projection
-  if (projection !== undefined) {
+  // The two authorities are mounted independently, exactly as Harness splits
+  // them: a profile may compose either, both, or neither.
+  const selection = options.selection
+  if (selection !== undefined) {
     ctx.provide('sessionProjections', {
-      snapshot: () => ({ asOfSeq: 0, values: { permissions: projection } }),
+      snapshot: () => ({ asOfSeq: 0, values: { permissions: selection } }),
       onChanged: () => () => {},
     } as never)
+  }
+  const catalogReads = vi.fn(() => options.catalog)
+  if (options.catalog !== undefined) {
+    ctx.provide('permissionPresets', { catalog: catalogReads } as never)
   }
   const commands = {
     execute: vi.fn(async () => ({ kind: 'success' })),
@@ -176,7 +186,7 @@ async function fixture(options: {
     attached: { handle: { agent, dispose: async () => {} }, reopened: false },
   } as unknown as AttachOutcome
   void attachSession(window, outcome)
-  return { dispatch: () => dispatch, ctx, commands, commits, frames, refreshModelInfo }
+  return { dispatch: () => dispatch, ctx, commands, commits, frames, refreshModelInfo, catalogReads }
 }
 
 /** Most recently painted terminal frame, as a reader sees it. */
@@ -208,22 +218,36 @@ async function permissionAgent(ctx: Context, session: Session): Promise<Agent> {
   return agent
 }
 
+/** The deployment table every real-Harness case below is configured with. */
+const PRESETS: Config = {
+  presets: {
+    review: { sandbox: 'read-only', approval: 'ask', name: 'Review only', description: 'Inspect safely.' },
+    normal: { sandbox: 'workspace-write', approval: 'ask', name: 'Normal work', description: 'Work normally.' },
+  },
+  defaultPreset: 'normal',
+}
+
+/** The configured table as Harness publishes it through the live catalog. */
+const PRESET_OPTIONS = [
+  { value: 'review', name: 'Review only', description: 'Inspect safely.' },
+  { value: 'normal', name: 'Normal work', description: 'Work normally.' },
+]
+
 describe('real Harness permission capability', () => {
-  it('publishes the configured table and runs the selected command through the lifecycle', async () => {
-    const { ctx, session } = await permissionHarness({
-      presets: {
-        review: { sandbox: 'read-only', approval: 'ask', name: 'Review only', description: 'Inspect safely.' },
-        normal: { sandbox: 'workspace-write', approval: 'ask', name: 'Normal work', description: 'Work normally.' },
-      },
-      defaultPreset: 'normal',
-    })
-    expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({
-      options: [
-        { value: 'review', name: 'Review only', description: 'Inspect safely.' },
-        { value: 'normal', name: 'Normal work', description: 'Work normally.' },
-      ],
-      currentValue: 'normal',
-    })
+  it('splits the live selectable catalog from the durable current selection', async () => {
+    // The acceptance case for the whole migration. Two authorities, two scopes:
+    // the catalog is process-level and answers what may be chosen; the session
+    // projection is durable and answers only what is chosen. Neither can
+    // answer the other's question, and dshline stores neither.
+    const { ctx, session } = await permissionHarness(PRESETS)
+    expect(ctx.permissionPresets.catalog()).toEqual({ options: PRESET_OPTIONS })
+    // The projection carries the selection and nothing else — in particular no
+    // `options` key, which is what the previous generation folded in here.
+    expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'normal' })
+  })
+
+  it('changes the selection through the /permission command lifecycle', async () => {
+    const { ctx, session } = await permissionHarness(PRESETS)
     const agent = await permissionAgent(ctx, session)
     const execution = await ctx.commands.execute(agent, '/permission review', [], new AbortController().signal)
     expect(execution?.result).toEqual({ kind: 'success', text: 'preset review' })
@@ -238,12 +262,125 @@ describe('real Harness permission capability', () => {
     const presets = logged.filter(event => event.type === 'permission/preset')
     expect(presets.at(-1)?.data).toEqual({ preset: 'review' })
     expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('review')
+    // The mutation moved the selection and left the catalog alone: selecting is
+    // not contributing.
+    expect(ctx.permissionPresets.catalog()).toEqual({ options: PRESET_OPTIONS })
+  })
+
+  it('joins the two real authorities for presentation without owning either', async () => {
+    const { ctx, session } = await permissionHarness(PRESETS)
+    // Exactly the two reads the bare-command decoration performs, against real
+    // Harness values rather than fixtures.
+    expect(permissionPicker(
+      ctx.permissionPresets.catalog(),
+      ctx.sessionProjections.snapshot(session).values.permissions,
+    )).toEqual({
+      detail: 'current: Normal work',
+      currentValue: 'normal',
+      choices: [
+        { value: 'review', label: 'Review only', description: 'Inspect safely.' },
+        { value: 'normal', label: 'Normal work', description: 'Work normally.' },
+      ],
+    })
+  })
+
+  it('reports a real custom selection without making it selectable', async () => {
+    // `custom` is derived, not contributed: Harness reserves the name, refuses
+    // it as a table entry, and never lists it in the catalog. Moving one knob
+    // off every configured bundle is what actually produces it.
+    const { ctx, session } = await permissionHarness(PRESETS)
+    setApprovalPolicy(session, 'never')
+    expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'custom' })
+    expect(ctx.permissionPresets.catalog().options.map(option => option.value)).not.toContain('custom')
+    const picker = permissionPicker(
+      ctx.permissionPresets.catalog(),
+      ctx.sessionProjections.snapshot(session).values.permissions,
+    )
+    // Reported as current, highlighted as nothing, offered as nothing.
+    expect(picker?.detail).toBe('current: custom')
+    expect(picker?.currentValue).toBeUndefined()
+    expect(picker?.choices.map(choice => choice.value)).toEqual(['review', 'normal'])
+  })
+
+  it('keeps a live catalog contribution out of durable session state', async () => {
+    // The catalog changes while the session's own history does not. A frontend
+    // that had copied the catalog into session-scoped state would be wrong in
+    // both directions.
+    //
+    // "No durable state moved" is read from two supported live surfaces rather
+    // than from a synchronous history snapshot: `session/event` is what Harness
+    // publishes for every append, so no call means no append, and the
+    // projection cut's `asOfSeq` cannot advance without one.
+    const { ctx, session } = await permissionHarness(PRESETS)
+    const appended = vi.fn()
+    ctx.on('session/event', appended)
+    const cutBefore = ctx.sessionProjections.snapshot(session).asOfSeq
+    const changed = vi.fn()
+    ctx.on('permission-presets/catalog-changed', changed)
+
+    const dispose = ctx.permissionPresets.registerAuto(() => {})
+    expect(changed).toHaveBeenCalledTimes(1)
+    expect(ctx.permissionPresets.catalog().options.map(option => option.value)).toEqual(['review', 'normal', 'auto'])
+    expect(appended).not.toHaveBeenCalled()
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBe(cutBefore)
+    expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'normal' })
+
+    await dispose()
+    expect(changed).toHaveBeenCalledTimes(2)
+    expect(ctx.permissionPresets.catalog().options.map(option => option.value)).toEqual(['review', 'normal'])
+    expect(appended).not.toHaveBeenCalled()
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBe(cutBefore)
+
+    // Positive control, so the two silent assertions above are a real claim
+    // rather than a listener that was never wired: a genuine selection change
+    // on the same session does reach both surfaces.
+    ctx.permissionPresets.set(session, 'review')
+    expect(appended.mock.calls.map(([, event]) => (event as { type: string }).type))
+      .toContain('permission/preset')
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBeGreaterThan(cutBefore)
+  })
+
+  it('leaves a withdrawn option for Harness to refuse rather than applying it', async () => {
+    // A picker held open across `permission-presets/catalog-changed` can only
+    // submit a command line, and the live catalog is what validates it. This is
+    // why dshline needs no second catalog state machine to stay truthful.
+    //
+    // The assertion is the contract, not the copy: Harness refuses, and nothing
+    // durable moves. An upstream rewording of its own error prose must not
+    // break a dshline architecture probe, so the text is only checked for the
+    // id it refused.
+    const { ctx, session } = await permissionHarness(PRESETS)
+    const agent = await permissionAgent(ctx, session)
+    const dispose = ctx.permissionPresets.registerAuto(() => {})
+    const stale = permissionPicker(
+      ctx.permissionPresets.catalog(),
+      ctx.sessionProjections.snapshot(session).values.permissions,
+    )
+    expect(stale?.choices.map(choice => choice.value)).toContain('auto')
+    await dispose()
+
+    const appended = vi.fn()
+    ctx.on('session/event', appended)
+    const cutBefore = ctx.sessionProjections.snapshot(session).asOfSeq
+    const execution = await ctx.commands.execute(agent, '/permission auto', [], new AbortController().signal)
+
+    expect(execution?.result?.kind).toBe('error')
+    expect(execution?.result?.text).toContain('auto')
+    // The withdrawn id was never applied, and dshline mutated nothing locally.
+    expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'normal' })
+    expect(ctx.permissionPresets.current(session)).toBe('normal')
+    // The command's own lifecycle is all that reached the log — the refusal was
+    // recorded, no permission knob moved. Naming the whole list rather than one
+    // absence keeps this from passing on an unwired listener.
+    expect(appended.mock.calls.map(([, event]) => (event as { type: string }).type))
+      .toEqual(['command/run', 'command/done'])
+    expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBeGreaterThan(cutBefore)
   })
 })
 
 describe('permissionPicker()', () => {
-  it('preserves a deployment table’s opaque values, order, labels, and descriptions', () => {
-    expect(permissionPicker(OPTIONS)).toEqual({
+  it('preserves the live catalog’s opaque values, order, labels, and descriptions', () => {
+    expect(permissionPicker(CATALOG, { currentValue: 'normal' })).toEqual({
       detail: 'current: Normal work',
       currentValue: 'normal',
       choices: [
@@ -254,22 +391,20 @@ describe('permissionPicker()', () => {
     })
   })
 
-  it('reports custom honestly while excluding it from switch targets', () => {
-    const custom: PermissionSelect = {
-      options: [...OPTIONS.options, { value: 'custom', name: 'Custom' }],
-      currentValue: 'custom',
-    }
-    expect(permissionPicker(custom)).toEqual({
-      detail: 'current: Custom',
-      currentValue: undefined,
-      choices: OPTIONS.options.map(({ value, name, description }) => ({
-        value, label: name, ...description === undefined ? {} : { description },
-      })),
-    })
+  it('reports an unresolvable current value honestly and highlights nothing', () => {
+    const picker = permissionPicker(CATALOG, { currentValue: 'custom' })
+    expect(picker?.detail).toBe('current: custom')
+    expect(picker?.currentValue).toBeUndefined()
+    // No synthesised row was added so the picker could find its current value.
+    expect(picker?.choices).toHaveLength(CATALOG.options.length)
   })
 
-  it('does not invent a capability when the projection is absent', () => {
-    expect(permissionPicker(undefined)).toBeUndefined()
+  it('does not infer choices when the catalog capability is absent', () => {
+    expect(permissionPicker(undefined, { currentValue: 'normal' })).toBeUndefined()
+  })
+
+  it('does not invent a current state when the session selection is absent', () => {
+    expect(permissionPicker(CATALOG, undefined)).toBeUndefined()
   })
 })
 
@@ -530,8 +665,8 @@ describe('attention after Setup applies a model', () => {
 })
 
 describe('bare /permission decoration', () => {
-  it('opens the shared selector from the authoritative dynamic projection', async () => {
-    const mounted = await fixture({ projection: OPTIONS })
+  it('opens the shared selector by joining the live catalog with the session selection', async () => {
+    const mounted = await fixture({ catalog: CATALOG, selection: { currentValue: 'normal' } })
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
@@ -543,25 +678,36 @@ describe('bare /permission decoration', () => {
     expect(shown).toContain('❯ Normal work')
     expect(shown).toContain('Work in this project.')
     expect(mounted.commands.execute).not.toHaveBeenCalled()
+    // The catalog is read at the interaction boundary, not held: the read
+    // happens when the gesture opens the picker, and only then.
+    expect(mounted.catalogReads).toHaveBeenCalledTimes(1)
   })
 
-  it('shows custom as current without offering it as a target', async () => {
-    const custom: PermissionSelect = {
-      options: [...OPTIONS.options, { value: 'custom', name: 'Custom' }],
-      currentValue: 'custom',
+  it('reads the live catalog again on every open rather than caching the first answer', async () => {
+    const mounted = await fixture({ catalog: CATALOG, selection: { currentValue: 'normal' } })
+    for (const _ of [0, 1]) {
+      type(mounted.dispatch, '/permission')
+      press(mounted.dispatch, { kind: 'key', name: 'enter' })
+      await flush()
+      press(mounted.dispatch, { kind: 'key', name: 'escape' })
+      await flush()
     }
-    const mounted = await fixture({ projection: custom })
+    expect(mounted.catalogReads).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows an unresolvable current value without offering it as a target', async () => {
+    const mounted = await fixture({ catalog: CATALOG, selection: { currentValue: 'custom' } })
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
 
     const shown = frame(mounted.frames)
-    expect(shown).toContain('current: Custom')
+    expect(shown).toContain('current: custom')
     expect(shown).not.toMatch(/❯\s+Custom/u)
   })
 
   it('requires an explicit confirmation before picker-selected Full Access', async () => {
-    const mounted = await fixture({ projection: FULL_ACCESS })
+    const mounted = await fixture({ catalog: RISKY, selection: { currentValue: 'workspace-write' } })
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
@@ -577,8 +723,45 @@ describe('bare /permission decoration', () => {
     expect(mounted.commands.execute.mock.calls[0]?.[1]).toBe('/permission danger-full-access')
   })
 
+  it('requires an explicit confirmation before picker-selected Auto review', async () => {
+    // Harness Web treats the live `auto` option as confirmation-bearing for the
+    // same reason it does Full Access; the terminal picker is the same human
+    // control, so it asks the same question in the same words.
+    const mounted = await fixture({ catalog: RISKY, selection: { currentValue: 'workspace-write' } })
+    type(mounted.dispatch, '/permission')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    press(mounted.dispatch, { kind: 'key', name: 'down' })
+    press(mounted.dispatch, { kind: 'key', name: 'down' })
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+
+    expect(frame(mounted.frames)).toContain('Enable Auto review (experimental)?')
+    expect(mounted.commands.execute).not.toHaveBeenCalled()
+    press(mounted.dispatch, { kind: 'key', name: 'down' })
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    expect(mounted.commands.execute.mock.calls[0]?.[1]).toBe('/permission auto')
+  })
+
+  it('cancels picker-selected Auto review without executing', async () => {
+    const mounted = await fixture({ catalog: RISKY, selection: { currentValue: 'workspace-write' } })
+    type(mounted.dispatch, '/permission')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    press(mounted.dispatch, { kind: 'key', name: 'down' })
+    press(mounted.dispatch, { kind: 'key', name: 'down' })
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    press(mounted.dispatch, { kind: 'key', name: 'escape' })
+    await flush()
+
+    expect(mounted.commands.execute).not.toHaveBeenCalled()
+    expect(mounted.ctx.tuiSlots.activeOverlay).toBeUndefined()
+  })
+
   it('does not ask or execute when Full Access is already current', async () => {
-    const mounted = await fixture({ projection: { ...FULL_ACCESS, currentValue: 'danger-full-access' } })
+    const mounted = await fixture({ catalog: RISKY, selection: { currentValue: 'danger-full-access' } })
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
@@ -594,7 +777,7 @@ describe('bare /permission decoration', () => {
   })
 
   it('cancels picker-selected Full Access without executing while preserving the human history entry', async () => {
-    const mounted = await fixture({ projection: FULL_ACCESS })
+    const mounted = await fixture({ catalog: RISKY, selection: { currentValue: 'workspace-write' } })
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
@@ -613,7 +796,7 @@ describe('bare /permission decoration', () => {
   })
 
   it('runs exactly the selected Harness command through the normal executor and its lifecycle', async () => {
-    const mounted = await fixture({ projection: OPTIONS })
+    const mounted = await fixture({ catalog: CATALOG, selection: { currentValue: 'normal' } })
     mounted.commands.execute.mockImplementationOnce(async (agent, line) => {
       const session = (agent as { session: { append: (type: string, data: unknown) => void } }).session
       session.append('command/run', {
@@ -642,7 +825,7 @@ describe('bare /permission decoration', () => {
   })
 
   it('cancels without executing a command while preserving the human history entry', async () => {
-    const mounted = await fixture({ projection: OPTIONS })
+    const mounted = await fixture({ catalog: CATALOG, selection: { currentValue: 'normal' } })
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
@@ -658,7 +841,7 @@ describe('bare /permission decoration', () => {
   })
 
   it('leaves a typed Full Access command to Harness unchanged', async () => {
-    const mounted = await fixture({ projection: FULL_ACCESS })
+    const mounted = await fixture({ catalog: RISKY, selection: { currentValue: 'workspace-write' } })
     type(mounted.dispatch, '/permission danger-full-access')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
@@ -669,7 +852,7 @@ describe('bare /permission decoration', () => {
     expect(frame(mounted.frames)).not.toContain('Enable Full access?')
   })
 
-  it('falls through unchanged when the optional projection is absent', async () => {
+  it('falls through unchanged when neither optional authority is composed', async () => {
     const mounted = await fixture()
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
@@ -680,8 +863,34 @@ describe('bare /permission decoration', () => {
     expect(frame(mounted.frames)).not.toContain('Permissions')
   })
 
-  it('does not decorate a process-wide projection for an agent without the command', async () => {
-    const mounted = await fixture({ projection: OPTIONS, commandListed: false })
+  it('falls through unchanged when the optional catalog capability is absent', async () => {
+    // A selection alone names no selectable rows, and dshline will not derive
+    // them from anything else it can see.
+    const mounted = await fixture({ selection: { currentValue: 'normal' } })
+    type(mounted.dispatch, '/permission')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+
+    expect(mounted.commands.execute).toHaveBeenCalledTimes(1)
+    expect(mounted.commands.execute.mock.calls[0]?.[1]).toBe('/permission')
+    expect(frame(mounted.frames)).not.toContain('Permissions')
+  })
+
+  it('falls through unchanged when the session selection is absent', async () => {
+    // A catalog alone cannot say what is current, and a picker that showed one
+    // anyway would be inventing the fact it exists to report.
+    const mounted = await fixture({ catalog: CATALOG })
+    type(mounted.dispatch, '/permission')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+
+    expect(mounted.commands.execute).toHaveBeenCalledTimes(1)
+    expect(mounted.commands.execute.mock.calls[0]?.[1]).toBe('/permission')
+    expect(frame(mounted.frames)).not.toContain('Permissions')
+  })
+
+  it('does not decorate for an agent without the registered command', async () => {
+    const mounted = await fixture({ catalog: CATALOG, selection: { currentValue: 'normal' }, commandListed: false })
     type(mounted.dispatch, '/permission')
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()

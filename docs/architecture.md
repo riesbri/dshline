@@ -72,6 +72,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | tools | `ctx.tools` | Render tool-owned presentation intents, not tool-name cases. |
 | human answers | `ctx.userQuestions` | Register a terminal answerer; claim a request this frontend can present, never assuming it was addressed only to this frontend. |
 | approvals | `ctx.approval` | Answer only requests owned by this frontend; let the waterfall fail closed for other agent identities. |
+| permission presets | `ctx.permissionPresets` + `ctx.sessionProjections` (`permissions`) | Two authorities, not one. Read the live process-level catalog with `catalog()` at the moment a picker opens, and the durable current selection from the projection; keep a copy of neither. Mutate only through the registered `/permission <preset>` command, and offer nothing the live catalog does not list. Treat both as optional. |
 | sessions | `ctx.sessionQuery` | Query Harness's live-preferred session corpus; do not build another database. Its full-text methods are abstract, so treat content search as optional. Its `SessionHeader.cwd` values are also the only working-directory authority: group them transiently, never store a directory list, a worktree registry, or a Git state cache. |
 | attachments | `ctx.fs` + `ctx.attachments` | Keep paths as session-local drafts; perform bounded reads through the active filesystem and publish durable image references as one batch. Never persist bytes, base64, or host paths. |
 | log-derived state | `ctx.sessionProjections` | Consume registered domain snapshots and changes. |
@@ -165,12 +166,53 @@ dshline Todo presentation
 
 It must not inspect `todo_write` calls or rendered cards to infer state.
 
-Permission selection follows the same boundary: the optional `permissions`
-projection supplies the deployment-defined selectable values and current state;
-a bare terminal `/permission` only presents that select, while a chosen value
-runs the registered Harness `/permission <preset>` command. dshline never folds
-permission events or calls the preset service directly, and without the
-projection the bare command falls through unchanged.
+Permission selection follows the same boundary, but over two Harness
+authorities rather than one, because Harness owns them at two different scopes.
+`ctx.permissionPresets.catalog()` is the live, process-level list of selectable
+options, and it changes with contributions Harness announces on
+`permission-presets/catalog-changed`; the `permissions` session projection
+carries only the durable current selection. The intended path is:
+
+```
+ctx.permissionPresets.catalog()        ctx.sessionProjections
+        ↓ live selectable options              ↓ permissions: current selection
+                        \                     /
+                         dshline permission picker
+                                    ↓
+                         /permission <option id>
+                                    ↓
+                           Harness-owned mutation
+```
+
+A bare terminal `/permission` reads both at the moment the picker opens, joins
+them for presentation, and dispatches the chosen opaque option id back through
+the registered Harness `/permission <preset>` command. dshline never folds
+permission events, never calls the preset service to mutate, and never keeps a
+copy of the catalog — it is live process state, not session history. Both
+authorities are optional, and without either the bare command falls through
+unchanged. A current value the live catalog does not list is reported as current
+and offered as nothing: `custom` is how Harness derives exactly that state, and
+inventing a catalog row for it would offer a command Harness rejects.
+
+**dshline does not subscribe to `permission-presets/catalog-changed`.** Harness
+publishes it, and what dshline takes from its existence is that the catalog is
+live — which is why the read happens at the interaction boundary rather than
+once at startup. A picker that was open across a change can only submit an
+option id, and Harness's own command handler validates that id against the
+catalog as it stands; a withdrawn option is refused there, not filtered here. A
+subscription would buy nothing but a second copy of state Harness already owns,
+and a second copy is the thing this boundary exists to prevent. The terminal
+picker is ephemeral by construction: its rows live for one interaction.
+
+The one risk this leaves with dshline is presentation. Harness publishes the
+selectable catalog but no per-option risk metadata — `PresetOption` is a value,
+a name and a description — so which options need an explicit human
+acknowledgement before a *picker* dispatches them is a frontend decision. dshline
+makes the same one Harness Web makes, for the same two upstream-known options
+(full access, and the live `auto` review preset), as a small explicit table
+keyed by opaque id. It never infers risk from sandbox or approval internals, nor
+from an option's display name, and a typed `/permission <preset>` is ordinary
+Harness command input that this step never sees.
 
 Context intelligence is the fourth, and it is the one that separates a cheap
 authority from an expensive one. `@deepseek-ai/dsh-token-meter` publishes three
