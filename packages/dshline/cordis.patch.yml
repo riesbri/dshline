@@ -137,9 +137,6 @@
 - id: tool-fs-search
   disabled: true
 
-- id: tool-str-replace-editor
-  disabled: true
-
 # The skill registry stays host-plane (host+per-scope layered); only the
 # per-agent rows move — a preset's own `skill-filesystem` registers into that
 # preset's layer, and `tool-skill` is what a preset mounts to give its agent
@@ -192,9 +189,6 @@
   disabled: true
 
 - id: tool-subagent-fork
-  disabled: true
-
-- id: workflow-worker-thread
   disabled: true
 
 - id: tool-workflow
