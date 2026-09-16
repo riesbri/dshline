@@ -23,7 +23,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
+import type { Config } from '@deepseek-ai/dsh-permission-presets'
+import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
@@ -151,17 +155,45 @@ async function fixture(options: {
   readonly sessionQuery?: { readonly readSession: (id: unknown) => unknown }
   readonly reasoningVisible?: boolean
   readonly busyEnter?: 'queue' | 'steer'
+  /**
+   * Mount the real permission stack and restore this preset onto the Session's
+   * own log, so the footer's value comes from Harness's fold rather than from
+   * any dshline-owned permission state.
+   */
+  readonly resumedPermission?: { readonly config: Config; readonly preset: string }
 } = {}): Promise<Fixture> {
   const ctx = new RealContext()
   await ctx.plugin(TuiSlots)
   ctx.provide('tools', { get: () => undefined })
-  const commands = { execute: vi.fn(async () => undefined), list: () => [] }
+  const commands = { execute: vi.fn(async () => undefined), list: () => [], register: () => () => {} }
   ctx.provide('commands', commands as never)
   ctx.provide('userQuestions', {} as never)
   // Mounted only when a test asks for it: the no-query regression must prove the
   // replay works with the service absent, and the boundary test proves it is
   // never consulted when present.
   if (options.sessionQuery !== undefined) ctx.provide('sessionQuery', options.sessionQuery as never)
+
+  let session = options.session
+  if (options.resumedPermission !== undefined) {
+    const { config, preset } = options.resumedPermission
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    ctx.provide('shell', { sandboxMode: 'workspace-write' } as never)
+    await ctx.plugin(ApprovalService)
+    await ctx.plugin(PermissionPresetService, config)
+    // The real restore shape: the Session's durable log already carries the
+    // permission pin and the reader's later switch, and the projection registry
+    // folds it. Nothing is copied into a dshline variable.
+    const restored = ctx.sessions.create(SessionId('resumed-session'))
+    restored.append(
+      'user/message',
+      createUserMessage({ content: [{ type: 'text', text: PAST_PROMPT }], source: { kind: 'user' } }),
+      { surfaceOp: 'append' },
+    )
+    ctx.permissionPresets.set(restored, preset)
+    session = restored
+  }
+  if (session === undefined) session = sessionWithHistory()
 
   const commits: string[][] = []
   const frames: Array<{ lines: string[] }> = []
@@ -201,7 +233,7 @@ async function fixture(options: {
   } as unknown as Window
 
   const agent = {
-    session: options.session ?? sessionWithHistory(),
+    session,
     status: 'idle',
     inbox: { nextStep: [], nextTurn: [] },
     followup: vi.fn(),
@@ -365,6 +397,26 @@ describe('replaying a resumed transcript from its live Session', () => {
     expect(shown).toContain('ready')
     expect(shown).not.toContain('context compacted')
     expect(shown).not.toContain('permission →')
+  })
+
+  it('shows a resumed Session’s restored permission without dshline-owned state', async () => {
+    // The real restore seam: the Session's durable log carries its own
+    // permission pin and switch, the projection registry folds that log, and
+    // the attachment reads the folded value from its shared snapshot. Nothing
+    // is copied into a dshline variable to survive the reopen.
+    const permission: Config = {
+      presets: {
+        review: { sandbox: 'read-only', approval: 'ask' },
+        normal: { sandbox: 'workspace-write', approval: 'ask' },
+      },
+      defaultPreset: 'normal',
+    }
+    const { commits, frames } = await fixture({
+      resumedPermission: { config: permission, preset: 'review' },
+    })
+
+    expect(stripAnsi(commits.flat().join('\n'))).toContain(PAST_PROMPT)
+    expect(status(frames)).toContain('review')
   })
 
   it('leaves the attachment usable once the synchronous replay returns', async () => {

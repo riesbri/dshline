@@ -561,6 +561,90 @@ describe('the status line', () => {
     expect(noUsage).toContain('14k/1.0M')
   })
 
+  it('reports the effective permission between the model and the session totals', () => {
+    const line = status({
+      permission: 'workspace-write',
+      usage: '\u21918.8k \u21931.6k $0.018',
+      tokens: 14_000,
+      contextWindow: 1_000_000,
+    })
+    expect(line).toContain('workspace-write')
+    expect(line.indexOf('deepseek-v4-flash')).toBeLessThan(line.indexOf('workspace-write'))
+    expect(line.indexOf('workspace-write')).toBeLessThan(line.indexOf('\u21918.8k'))
+    // The raw Harness `currentValue`, not a catalog label: the footer is not a
+    // second selection authority and must not dress an opaque id up as one.
+    expect(line).not.toContain('Workspace Write')
+  })
+
+  it('renders opaque permission ids verbatim', () => {
+    // A deployment-defined id, the derived `custom`, and the known presets all
+    // take the same path: displayed exactly as Harness reports them.
+    for (const id of ['read-only', 'danger-full-access', 'auto', 'custom', 'deployment-specific-preset']) {
+      expect(status({ permission: id })).toContain(id)
+    }
+  })
+
+  it('keeps the permission after the model and totals are given up, and drops it whole before the reading', () => {
+    const state = {
+      permission: 'workspace-write',
+      usage: '\u2191130k \u219312.4k $1.24',
+      tokens: 130_000,
+      contextWindow: 1_000_000,
+    }
+    // The model name is surrendered before the permission.
+    const noModel = status(state, 80)
+    expect(noModel).toContain('workspace-write')
+    expect(noModel).not.toContain('deepseek-v4-flash')
+    expect(noModel).toContain('$1.24')
+    expect(noModel).toContain('130k/1.0M')
+
+    // Then the session totals, leaving the permission beside the reading.
+    const noUsage = status(state, 60)
+    expect(noUsage).toContain('workspace-write')
+    expect(noUsage).not.toContain('deepseek-v4-flash')
+    expect(noUsage).not.toContain('$1.24')
+    expect(noUsage).toContain('130k/1.0M')
+
+    // The permission is itself a body fact: at the irreducible width only the
+    // base status and the context reading remain.
+    const dropped = status(state, 34)
+    expect(dropped).not.toContain('workspace')
+    expect(dropped).toContain('130k/1.0M')
+  })
+
+  it('never leaves part of a permission id on the line', () => {
+    // `workspace` is not a smaller truth than `workspace-write`, it is a
+    // different word — the same whole-segment rule the modes and the reading
+    // follow.
+    for (const columns of [20, 30, 34, 38, 39, 40, 41, 50, 58, 59, 60, 70, 80, 90, 100, 120, 160]) {
+      const line = status({
+        permission: 'workspace-write',
+        usage: '\u2191130k \u219312.4k $1.24',
+        tokens: 130_000,
+        contextWindow: 1_000_000,
+      }, columns)
+      expect(
+        line.includes('workspace') ? line.includes('workspace-write') : true,
+        `${String(columns)} columns: ${JSON.stringify(line)}`,
+      ).toBe(true)
+      expect(line.length, `${String(columns)} columns`).toBeLessThanOrEqual(columns)
+    }
+  })
+
+  it('shows an escape sequence in a permission id instead of obeying it', () => {
+    // The id originates upstream and a deployment chooses it, so it is untrusted
+    // text like a tool name or a model reply.
+    expect(status({ permission: 'evil\u001b[2Jid' })).toContain('evil^[[2Jid')
+  })
+
+  it('omits the permission segment entirely when the capability is absent', () => {
+    const line = status({ tokens: 14_000, contextWindow: 1_000_000 })
+    expect(line).toContain('\u25cf ready')
+    expect(line).not.toContain('permission')
+    // Missing capability is not an unknown state to be named.
+    expect(line).not.toContain('unknown')
+  })
+
   it('reports the cache-read share beside the totals, and gives it up before the bar', () => {
     // Convenience information: how much of the prompt came from cache says
     // nothing about whether the session is working or what it has spent — what a

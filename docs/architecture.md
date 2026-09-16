@@ -192,7 +192,11 @@ copy of the catalog — it is live process state, not session history. Both
 authorities are optional, and without either the bare command falls through
 unchanged. A current value the live catalog does not list is reported as current
 and offered as nothing: `custom` is how Harness derives exactly that state, and
-inventing a catalog row for it would offer a command Harness rejects.
+inventing a catalog row for it would offer a command Harness rejects. The same
+`permissions` projection is the status line's persistent current-state authority:
+the footer reads its `currentValue` from the attachment's shared snapshot, so a
+change folded from any of the three knobs repaints it. The catalog remains
+selection-only.
 
 **dshline does not subscribe to `permission-presets/catalog-changed`.** Harness
 publishes it, and what dshline takes from its existence is that the catalog is

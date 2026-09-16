@@ -1276,6 +1276,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       attention: attention.current(),
       model: selection.current?.model,
       effort: effortLabel(selection.current?.reasoningEffort, w.modelInfo.reasoning),
+      // The SAME snapshot one field over. Harness's `permissions` projection is
+      // the effective current selection, folded from `permission/preset`,
+      // `sandbox/mode`, `approval/policy`, and the composition defaults — not
+      // from the preset event alone. The raw `currentValue` is the authority and
+      // is opaque (a configured id, `auto`, or derived `custom`), so it is
+      // rendered verbatim rather than resolved through the process catalog,
+      // which answers only what is currently selectable. Absent when the
+      // optional capability is not composed, which omits the segment.
+      permission: projected?.values.permissions?.currentValue,
       usage: formatUsage(usage.reading, prefs.usageMode),
       // Read from the SAME snapshot as the context reading below it, through the
       // buckets `/usage` reports: Harness's `tokenUsage` is the authority, and

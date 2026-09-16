@@ -124,7 +124,9 @@ ctx.permissionPresets.catalog()        ctx.sessionProjections
 权限事件，从不调用预设服务来变更，也从不保留目录的副本——它是实时进程状态，不是会话
 历史。两个权威都是可选的；缺少其中任何一个时，裸命令原样回退。实时目录未列出的当前值
 只作为当前状态报告，而不作为可选项提供：`custom` 正是 Harness 推导出这种状态的方式，
-为它编造一个目录条目只会提供一条 Harness 会拒绝的命令。
+为它编造一个目录条目只会提供一条 Harness 会拒绝的命令。同一个 `permissions` 投影也是
+状态行持久的当前状态权威：页脚从附着的共享快照读取其 `currentValue`，因此由三个旋钮
+中任何一个折叠出的变化都会重绘它。目录仍然只回答可选项。
 
 **dshline 不订阅 `permission-presets/catalog-changed`。**Harness 发布这个事件，而
 dshline 从它的存在中获得的信息只有一条：目录是实时的——正因如此，读取发生在交互边界，
