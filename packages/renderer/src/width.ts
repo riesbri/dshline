@@ -7,84 +7,16 @@
  * corrupts every line in the buffer, not just the line holding it. Widths
  * follow Unicode East Asian Width: `W` and `F` occupy two columns, combining
  * marks and format characters occupy none, everything else occupies one.
+ *
+ * The ranges themselves live in `./width-tables.ts`, generated from the Unicode
+ * Character Database by `tools/generate-width-tables.mjs`. They are data, not
+ * policy: a terminal draws what its own Unicode release says, so a table that
+ * trails the release under-measures code points the terminal widens and shifts
+ * every row after them.
  * @module @dshline/renderer/width
  */
 
-/** Inclusive code-point ranges rendered two columns wide. */
-const WIDE_RANGES: readonly (readonly [number, number])[] = [
-  [0x1100, 0x115f], // Hangul Jamo initial consonants
-  [0x2e80, 0x303e], // CJK Radicals Supplement .. CJK Symbols and Punctuation
-  [0x3041, 0x33ff], // Hiragana .. CJK Compatibility
-  [0x3400, 0x4dbf], // CJK Unified Ideographs Extension A
-  [0x4e00, 0x9fff], // CJK Unified Ideographs
-  [0xa000, 0xa4cf], // Yi Syllables and Radicals
-  [0xa960, 0xa97f], // Hangul Jamo Extended-A
-  [0xac00, 0xd7a3], // Hangul Syllables
-  [0xf900, 0xfaff], // CJK Compatibility Ideographs
-  [0xfe10, 0xfe19], // Vertical Forms
-  [0xfe30, 0xfe6f], // CJK Compatibility Forms .. Small Form Variants
-  [0xff00, 0xff60], // Fullwidth ASCII variants
-  [0xffe0, 0xffe6], // Fullwidth currency and bracket signs
-  [0x16fe0, 0x16fe4], // Tangut and Nushu marks
-  [0x17000, 0x18aff], // Tangut .. Khitan Small Script
-  [0x1b000, 0x1b16f], // Kana Supplement .. Small Kana Extension
-  [0x1f004, 0x1f004], // Mahjong tile red dragon
-  [0x1f0cf, 0x1f0cf], // Playing card black joker
-  [0x1f18e, 0x1f18e], // Negative squared AB
-  [0x1f191, 0x1f19a], // Squared CL .. squared VS
-  [0x1f200, 0x1f320], // Enclosed Ideographic Supplement .. shooting star
-  [0x1f32d, 0x1f335], // Hot dog .. cactus
-  [0x1f337, 0x1f37c], // Tulip .. baby bottle
-  [0x1f37e, 0x1f393], // Bottle with popping cork .. graduation cap
-  [0x1f3a0, 0x1f3ca], // Carousel horse .. swimmer
-  [0x1f3cf, 0x1f3d3], // Cricket bat .. table tennis
-  [0x1f3e0, 0x1f3f0], // House .. european castle
-  [0x1f3f4, 0x1f3f4], // Waving black flag
-  [0x1f3f8, 0x1f43e], // Badminton .. paw prints
-  [0x1f440, 0x1f440], // Eyes
-  [0x1f442, 0x1f4fc], // Ear .. videocassette
-  [0x1f4ff, 0x1f53d], // Prayer beads .. down-pointing small red triangle
-  [0x1f54b, 0x1f54e], // Kaaba .. menorah
-  [0x1f550, 0x1f567], // Clock faces
-  [0x1f57a, 0x1f57a], // Man dancing
-  [0x1f595, 0x1f596], // Reversed hand gestures
-  [0x1f5a4, 0x1f5a4], // Black heart
-  [0x1f5fb, 0x1f64f], // Mount fuji .. person with folded hands
-  [0x1f680, 0x1f6c5], // Rocket .. left luggage
-  [0x1f6cc, 0x1f6cc], // Person in bed
-  [0x1f6d0, 0x1f6d2], // Place of worship .. shopping trolley
-  [0x1f6eb, 0x1f6ec], // Airplane departure and arrival
-  [0x1f6f4, 0x1f6fc], // Scooter .. roller skate
-  [0x1f7e0, 0x1f7eb], // Large coloured circles and squares
-  [0x1f90c, 0x1f9ff], // Pinched fingers .. nazar amulet
-  [0x1fa70, 0x1faff], // Ballet shoes .. symbols
-  [0x20000, 0x2fffd], // CJK Unified Ideographs Extension B and beyond
-  [0x30000, 0x3fffd], // CJK Unified Ideographs Extension G and beyond
-]
-
-/** Inclusive code-point ranges that advance the cursor not at all. */
-const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
-  [0x0300, 0x036f], // Combining Diacritical Marks
-  [0x0483, 0x0489], // Cyrillic combining marks
-  [0x0591, 0x05bd], // Hebrew points
-  [0x0610, 0x061a], // Arabic marks
-  [0x064b, 0x065f], // Arabic vowel signs
-  [0x0670, 0x0670], // Arabic superscript alef
-  [0x06d6, 0x06dc], // Arabic small high marks
-  [0x0e31, 0x0e31], // Thai vowel sign mai han akat
-  [0x0e34, 0x0e3a], // Thai above/below vowels
-  [0x0e47, 0x0e4e], // Thai tone marks
-  [0x1ab0, 0x1aff], // Combining Diacritical Marks Extended
-  [0x1dc0, 0x1dff], // Combining Diacritical Marks Supplement
-  [0x200b, 0x200f], // Zero-width space .. right-to-left mark
-  [0x2028, 0x202e], // Line/paragraph separators and bidi overrides
-  [0x2060, 0x2064], // Word joiner .. invisible plus
-  [0x20d0, 0x20f0], // Combining Diacritical Marks for Symbols
-  [0xfe00, 0xfe0f], // Variation selectors
-  [0xfe20, 0xfe2f], // Combining Half Marks
-  [0xfeff, 0xfeff], // Zero-width no-break space
-  [0xe0100, 0xe01ef], // Variation Selectors Supplement
-]
+import { WIDE_RANGES, ZERO_WIDTH_RANGES } from './width-tables.ts'
 
 /**
  * Whether `code` falls inside one of `ranges`, by binary search. The tables are

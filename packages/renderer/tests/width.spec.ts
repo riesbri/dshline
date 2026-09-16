@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { chunkToWidth, codePointWidth, displayWidth, escapeControls, hangingIndent, stripAnsi, style, tailToWidth, truncateToWidth, wrapToWidth } from '../src/index.ts'
+import { WIDE_RANGES, ZERO_WIDTH_RANGES } from '../src/width-tables.ts'
 
 
 describe('displayWidth()', () => {
@@ -206,6 +207,117 @@ describe('codePointWidth()', () => {
   it('treats controls as invisible rather than shifting a line', () => {
     expect(codePointWidth(0x1b)).toBe(0)
     expect(codePointWidth(0x7f)).toBe(0)
+  })
+})
+
+describe('the generated wide table', () => {
+  it('counts code points the previous hand table trailed as two columns', () => {
+    // Emoji that are East Asian Wide, and the non-emoji script blocks the old
+    // table never listed. A terminal draws each two cells, so measuring one
+    // shifted every character after it.
+    for (const wide of [0x231a, 0x2630, 0x4dc0, 0x18b00, 0x1b170, 0x1d300, 0x1f6d5]) {
+      expect(codePointWidth(wide), `U+${wide.toString(16)}`).toBe(2)
+    }
+  })
+
+  it('carries a code point added to Wide in the current final Unicode release', () => {
+    // U+1F6D8 LANDSLIDE is Wide from Unicode 17.0.0. A table that quietly fell
+    // back to an older release would measure it one while a 17.0 terminal draws
+    // it two, which is exactly the stale-table bug this change removes.
+    expect(codePointWidth(0x1f6d8)).toBe(2)
+    expect(displayWidth('\u{1F6D8}')).toBe(2)
+  })
+
+  it('counts CJK and kana as two columns', () => {
+    expect(codePointWidth(0x4e2d)).toBe(2)
+    expect(codePointWidth(0x3042)).toBe(2)
+    expect(displayWidth('标准模式')).toBe(8)
+  })
+
+  it('stops over-measuring assigned code points that are not Wide or Fullwidth', () => {
+    // U+3248..U+324F are East Asian Ambiguous and U+1F93B/U+1F946 are Neutral;
+    // the old blanket CJK range drew all of them two columns wide.
+    for (const narrow of [0x3248, 0x324f, 0x1f93b, 0x1f946]) {
+      expect(codePointWidth(narrow), `U+${narrow.toString(16)}`).toBe(1)
+    }
+  })
+})
+
+describe('the zero-width policy', () => {
+  it('counts nonspacing and enclosing marks from several scripts as zero', () => {
+    // Mn/Me are the marks a terminal advances no cell for. The old table
+    // covered a handful of ranges, so a missing mark measured one and shifted
+    // its row. These are Latin, Hebrew, Arabic, Devanagari, Tamil, and a
+    // combining mark for symbols.
+    for (const zero of [0x0301, 0x05bf, 0x0610, 0x0900, 0x093c, 0x094d, 0x0bcd, 0x20d0]) {
+      expect(codePointWidth(zero), `U+${zero.toString(16)}`).toBe(0)
+    }
+    expect(displayWidth('a\u0301')).toBe(1)
+    expect(displayWidth('\u0928\u092e\u0938\u094d\u0924\u0947')).toBe(4)
+  })
+
+  it('counts an explicit allowlist of format controls as zero', () => {
+    // The zero-width format policy is a positive list, not General_Category Cf.
+    // These are the controls real terminals do not advance for.
+    for (const zero of [0x061c, 0x180e, 0x200b, 0x200d, 0x2060, 0x2066, 0xfeff, 0xfff9, 0xe0020]) {
+      expect(codePointWidth(zero), `U+${zero.toString(16)}`).toBe(0)
+    }
+  })
+
+  it('measures format characters whose advance is disputed or sequence-dependent as one', () => {
+    // A false zero is the dangerous direction: it under-counts a row the
+    // terminal may draw wider. U+00AD is non-zero-width in GLib and
+    // mode-dependent in xterm; the prepended marks attach to following text;
+    // the separators can start a physical row. All are measured one.
+    for (const one of [0x00ad, 0x0600, 0x0605, 0x06dd, 0x070f, 0x0890, 0x0891, 0x08e2, 0x110bd, 0x110cd, 0x2028, 0x2029]) {
+      expect(codePointWidth(one), `U+${one.toString(16)}`).toBe(1)
+    }
+  })
+
+  it('leaves Hangul conjoining Jamo to East Asian Width rather than declaring them zero', () => {
+    // A terminal may draw a decomposed syllable as one wide glyph or as its
+    // Jamo parts; a global Jamo-zero rule would under-measure the latter. The
+    // label composes the syllable with NFC instead. Leading Jamo is Wide;
+    // medial and final Jamo are Neutral and measured one.
+    expect(codePointWidth(0x1112)).toBe(2)
+    expect(codePointWidth(0x1161)).toBe(1)
+    expect(codePointWidth(0x11ab)).toBe(1)
+    expect(displayWidth('\u1112\u1161\u11ab')).toBe(4)
+    expect(displayWidth('\ud55c')).toBe(2)
+  })
+})
+
+describe('the generated width tables', () => {
+  /** A generated table and its name, for the shared integrity checks. */
+  const tables = [
+    ['WIDE_RANGES', WIDE_RANGES],
+    ['ZERO_WIDTH_RANGES', ZERO_WIDTH_RANGES],
+  ] as const
+
+  it('are sorted, non-overlapping, and in bounds', () => {
+    // `inRanges` binary-searches these arrays, so an unsorted or overlapping
+    // table silently returns the wrong width for every code point after the
+    // mistake. A generated file is only as good as the invariant it keeps.
+    for (const [name, ranges] of tables) {
+      expect(ranges.length, name).toBeGreaterThan(0)
+      for (let index = 0; index < ranges.length; index += 1) {
+        const [start, end] = ranges[index] ?? [0, 0]
+        expect(start, `${name} range ${String(index)} start`).toBeLessThanOrEqual(end)
+        expect(start, `${name} range ${String(index)} bounds`).toBeGreaterThanOrEqual(0)
+        expect(end, `${name} range ${String(index)} bounds`).toBeLessThanOrEqual(0x10ffff)
+        const previous = ranges[index - 1]
+        if (previous !== undefined) {
+          expect(start, `${name} range ${String(index)} order`).toBeGreaterThan(previous[1])
+        }
+      }
+    }
+  })
+
+  it('measures a combining mark as zero even where it is also East Asian Wide', () => {
+    // U+3099 is a nonspacing mark with East Asian Width W. The zero table is
+    // consulted first, because a terminal advances no cell for it and widening
+    // the row would shift everything after the base it accents.
+    expect(codePointWidth(0x3099)).toBe(0)
   })
 })
 

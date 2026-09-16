@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Composer, displayWidth, paint, Screen, stripAnsi } from '@dshline/renderer'
+import { Composer, displayWidth, escapeControls, paint, Screen, stripAnsi } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
 import { bannerLines, composerGutter, composerHintRow, composerInner, createComposerView, createStatusView, widthStableLabel } from '../src/views.ts'
@@ -1444,10 +1444,10 @@ describe('the status line respects its granted height', () => {
 
 describe('the committed banner preserves workspace identity', () => {
   it('prints the raw workspace name, not the composer label\'s projection', () => {
-    // `widthStableLabel` deliberately collapses narrow non-ASCII in the
-    // width-critical frame label. The banner is committed scrollback, where a
-    // wrap is harmless, so it carries the full name and the projection loses no
-    // identity overall.
+    // `widthStableLabel` still projects what a terminal may widen, but it keeps
+    // a stable decomposition and every unambiguously narrow script. The banner
+    // is committed scrollback, where a wrap is harmless, so it carries the raw
+    // name byte for byte and identity survives even the projected classes.
     const workspace = '/home/\u05e9\u05dc\u05d5\u05dd/caf\u00e9'
     const text = bannerLines(workspace, 'deepseek-v4-flash', '0.21.0', 200).join('\n')
     expect(text).toContain('\u05e9\u05dc\u05d5\u05dd')
@@ -1456,44 +1456,168 @@ describe('the committed banner preserves workspace identity', () => {
 })
 
 describe('widthStableLabel()', () => {
-  it('replaces width-unstable code points but keeps wide, zero-width, and ASCII', () => {
-    // `é` and `±` are East Asian Ambiguous; `标` is wide and `\u0301` is zero
-    // width, so both are the same width in every terminal.
-    expect(widthStableLabel('caf\u00e9 \u00b1 \u6807\u51c6')).toBe('caf? ? \u6807\u51c6')
-    expect(widthStableLabel(`a${'\u0301'}\u00b1\u6807`)).toBe(`a${'\u0301'}?\u6807`)
+  it('keeps ASCII unchanged', () => {
+    expect(widthStableLabel('src/cafeteria_2')).toBe('src/cafeteria_2')
   })
 
-  it('replaces code points the model itself already mis-measures', () => {
-    // The predicate is a conservative superset rather than the exact East Asian
-    // Ambiguous set: the renderer's wide table trails Unicode, so these are
-    // drawn wide while its codePointWidth calls them one.
-    for (const stale of [0x231a, 0x2630, 0x4dc0]) {
-      expect(widthStableLabel(String.fromCodePoint(stale)), `U+${stale.toString(16)}`).toBe('?')
+  it('keeps an NFC Latin accent by decomposing it to a stable base and mark', () => {
+    // `é` (U+00E9) is East Asian Ambiguous, so a terminal in an ambiguous-width
+    // mode may draw it two columns. Its canonical decomposition is ASCII `e`
+    // plus the zero-width U+0301, which measures and draws as one cell on both
+    // terminal classes, so the accent a reader sees survives.
+    expect(widthStableLabel('caf\u00e9')).toBe('cafe\u0301')
+    expect(displayWidth(widthStableLabel('caf\u00e9'))).toBe(4)
+    // The characters with no canonical decomposition stay projected; that is the
+    // honest remainder of the Ambiguous set.
+    expect(widthStableLabel('\u00f8')).toBe('?')
+    expect(widthStableLabel('\u00e6')).toBe('?')
+  })
+
+  it('keeps a decomposed accent that is already stable', () => {
+    expect(widthStableLabel('cafe\u0301')).toBe('cafe\u0301')
+    expect(widthStableLabel(`a${'\u0301'}\u0308`)).toBe(`a${'\u0301'}\u0308`)
+  })
+
+  it('keeps unambiguously narrow scripts', () => {
+    // The finding behind this change: Hebrew, Arabic, and Indic are East Asian
+    // Neutral, not Ambiguous, so the old conservative superset was replacing
+    // text the renderer measures one column and no standard mode widens.
+    expect(widthStableLabel('\u05e9\u05dc\u05d5\u05dd')).toBe('\u05e9\u05dc\u05d5\u05dd')
+    expect(widthStableLabel('\u0645\u0631\u062d\u0628\u0627')).toBe('\u0645\u0631\u062d\u0628\u0627')
+    expect(widthStableLabel('\u0928\u092e\u0938\u094d\u0924\u0947')).toBe('\u0928\u092e\u0938\u094d\u0924\u0947')
+  })
+
+  it('keeps wide CJK and kana, which are two columns under East Asian Width', () => {
+    expect(widthStableLabel('\u6807\u51c6\u6a21\u5f0f')).toBe('\u6807\u51c6\u6a21\u5f0f')
+    expect(widthStableLabel('\u3072\u3089\u304c\u306a')).toBe('\u3072\u3089\u304c\u306a')
+  })
+
+  it('keeps a code point added to Wide in the current final Unicode release', () => {
+    // U+1F6D8 is Wide from Unicode 17.0.0. A table that fell back to an older
+    // release would project it here, which is the visible form of the same
+    // stale-table bug the renderer test pins.
+    expect(widthStableLabel('\u{1F6D8}')).toBe('\u{1F6D8}')
+  })
+
+  it('composes a decomposed Hangul syllable instead of projecting its Jamo', () => {
+    // A terminal may draw a decomposed syllable as one wide glyph or as its
+    // Jamo parts, and the label cannot know which. NFC composition sends the
+    // single wide syllable, which every stack draws the same; the banner still
+    // prints the raw workspace identity.
+    expect(widthStableLabel('\u1112\u1161\u11ab')).toBe('\ud55c')
+    expect(widthStableLabel('\ud55c')).toBe('\ud55c')
+    expect(displayWidth(widthStableLabel('\u1112\u1161\u11ab'))).toBe(2)
+  })
+
+  it('projects a format character whose advance is disputed or sequence-dependent', () => {
+    // U+00AD is non-zero-width in GLib and mode-dependent in xterm; U+0600 and
+    // U+06DD attach to following text; U+070F spans a word. The renderer measures
+    // each one cell, and the label projects it rather than trust that.
+    for (const uncertain of ['\u00ad', '\u0600', '\u06dd', '\u070f', '\u2028']) {
+      expect(widthStableLabel(`a${uncertain}b`), JSON.stringify(uncertain)).toBe('a?b')
     }
-    // A text-default emoji is not Ambiguous at all, but VS16 makes a terminal
-    // draw it two columns; the base is replaced and the selector is kept.
-    expect(widthStableLabel('\u2764\ufe0f')).toBe('?\ufe0f')
   })
 
-  it('projects stable narrow scripts too, and says so', () => {
-    // The deliberate information loss: Hebrew is neither ambiguous nor stale,
-    // but the conservative predicate replaces it. Identity survives in the
-    // committed banner, asserted beside this.
-    expect(widthStableLabel('\u05e9\u05dc\u05d5\u05dd')).toBe('????')
-    // Consequently the projection is not injective; two distinct names collapse.
-    expect(widthStableLabel('caf\u00e9')).toBe(widthStableLabel('caf\u00e8'))
+  it('keeps a format control the renderer treats as an explicit zero', () => {
+    // The positive allowlist: these really are zero-advance controls, so the
+    // label can carry them and they add no physical cell. The joiners are the
+    // exception — see the ZWJ sequence test — because they weld text together.
+    for (const zero of ['\u200b', '\u200c', '\u061c', '\ufeff']) {
+      expect(widthStableLabel(`a${zero}b`), JSON.stringify(zero)).toBe(`a${zero}b`)
+    }
   })
 
-  it('projects a keycap sequence as the whole unstable sequence it is', () => {
+  it('now keeps code points the old wide table mis-measured, because it measures them two', () => {
+    // These are East Asian Wide; the previous table trailed Unicode and measured
+    // one, which is why the projection had to replace them. The generated table
+    // covers all of W/F, so they stay and are drawn at the same two columns.
+    for (const wide of [0x231a, 0x2630, 0x4dc0, 0x18b00, 0x1f6d5]) {
+      const char = String.fromCodePoint(wide)
+      expect(widthStableLabel(char), `U+${wide.toString(16)}`).toBe(char)
+      expect(displayWidth(char), `U+${wide.toString(16)}`).toBe(2)
+    }
+  })
+
+  it('projects genuinely ambiguous symbols with no stable decomposition', () => {
+    // A terminal in an ambiguous-width mode may widen each of these and no
+    // decomposition removes that freedom, so a width-critical row cannot carry
+    // them. Box drawing is drawn by the frame itself, never through this label.
+    for (const ambiguous of ['\u00b1', '\u2191', '\u2500', '\u25cf', '\u00d7']) {
+      expect(widthStableLabel(`a${ambiguous}b`)).toBe('a?b')
+    }
+  })
+
+  it('projects text-default emoji a terminal may draw as a picture', () => {
+    // `❤` and `☺` are East Asian Neutral, so a per-code-point width rule keeps
+    // them; terminals disagree about whether they are one cell of text or two
+    // cells of emoji, which is why the emoji property, not the width, decides.
+    expect(widthStableLabel('\u2764')).toBe('?')
+    expect(widthStableLabel('\u263a')).toBe('?')
+  })
+
+  it('projects a code point presented as emoji', () => {
+    // VS16 asks for emoji presentation; the base is replaced and the now
+    // orphaned, zero-width selector is dropped.
+    expect(widthStableLabel('\u2764\ufe0f')).toBe('?')
+    expect(widthStableLabel('\u263a\ufe0f')).toBe('?')
+  })
+
+  it('projects a wide pictograph a selector asks to draw as text', () => {
+    // VS15 asks a wide pictograph to draw narrow; a terminal may ignore it, so
+    // the base is projected. ASCII has no pictographic form, so its selector is
+    // inert and simply dropped.
+    expect(widthStableLabel('\u{1F600}\ufe0e')).toBe('?')
+    expect(widthStableLabel('a\ufe0e')).toBe('a')
+  })
+
+  it('projects a keycap sequence as the whole sequence it is', () => {
     // Per-code-point measurement would keep every component — an ASCII base, a
     // variation selector, and a combining keycap are all width one or zero — yet
     // the sequence is entitled to advance two columns, so the border could wrap.
     expect(widthStableLabel('1\ufe0f\u20e3')).toBe('?')
     expect(widthStableLabel('#\ufe0f\u20e3')).toBe('?')
     expect(widthStableLabel('*\ufe0f\u20e3')).toBe('?')
+    // Even without VS16, a base plus U+20E3 is one drawn picture.
+    expect(widthStableLabel('1\u20e3')).toBe('?')
     // The base alone is ordinary ASCII and must survive a sequence it does not
-    // start; only base + VS16 + U+20E3 together are replaced.
-    expect(widthStableLabel('1 \ufe0f \u20e3')).toBe('1 \ufe0f \u20e3')
+    // start; only the joined forms are replaced. The selector is dropped even
+    // here, because once it is not presenting a base there is nothing to keep.
+    expect(widthStableLabel('1 \ufe0f \u20e3')).toBe('1  \u20e3')
     expect(widthStableLabel('10\ufe0f\u20e3')).toBe('1?')
+  })
+
+  it('projects flags and other regional-indicator pairs', () => {
+    // Each regional indicator is East Asian Neutral, but a pair draws as one
+    // flag or as two boxed letters; two placeholders measure the same two cells
+    // either way.
+    expect(widthStableLabel('\u{1F1E8}\u{1F1F3}')).toBe('??')
+  })
+
+  it('projects a ZWJ sequence and a skin-tone modifier sequence', () => {
+    // A family or profession emoji is one drawn picture built from several
+    // two-column pictographs, so the sum of its parts vastly over-counts it.
+    expect(widthStableLabel('\u{1F469}\u200d\u{1F4BB}')).toBe('?')
+    expect(widthStableLabel('\u{1F468}\u200d\u{1F469}\u200d\u{1F467}')).toBe('?')
+    expect(widthStableLabel('\u{1F44B}\u{1F3FD}')).toBe('?')
+  })
+
+  it('neutralizes controls before it projects them', () => {
+    // The caller runs `escapeControls` first; this pins that order, because a
+    // raw escape sequence reaching the border would move the cursor instead.
+    expect(widthStableLabel(escapeControls('\u001b[31m'))).toBe('^[[31m')
+    expect(widthStableLabel(escapeControls('a\rb'))).toBe('a^Mb')
+  })
+
+  it('is idempotent: a projected label holds nothing left to project', () => {
+    const samples = [
+      'caf\u00e9', '\u00f8', '\u05e9\u05dc\u05d5\u05dd', '\u6807\u51c6',
+      '\u2764\ufe0f', '1\ufe0f\u20e3', '\u{1F1E8}\u{1F1F3}',
+      '\u{1F469}\u200d\u{1F4BB}', 'a\u0301\u00b1', '\u231a',
+      '\u00ad', '\u06dd', '\u200b', '\u1112\u1161\u11ab', '\u{1F6D8}',
+    ]
+    for (const sample of samples) {
+      const once = widthStableLabel(sample)
+      expect(widthStableLabel(once), JSON.stringify(sample)).toBe(once)
+    }
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Composer, Screen, stripAnsi, wrapToWidth } from '@dshline/renderer'
+import { Composer, displayWidth, Screen, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { composerGutter, composerInner, createComposerView } from '../src/views.ts'
 
@@ -140,10 +140,12 @@ const AMBIGUOUS_LABEL = [0x00b1] as const
 describe('the composer live region with an ambiguous workspace label', () => {
   it('leaves no stale top border when the untrusted label would widen', async () => {
     // The label is projected to width-stable characters, so the border measures
-    // the same width this terminal draws. Without that projection the `±±` label
-    // pushed the top border one physical row past the modeled region, and every
-    // redraw left another border behind — the #202 failure mode, reached through
-    // the label instead of the direction markers.
+    // the same width this terminal draws. Without that projection the run of
+    // `±` pushed the top border past the modeled region, and every redraw left
+    // another border behind — the #202 failure mode, reached through the label
+    // instead of the direction markers. The run is long enough that the
+    // projection is load-bearing: an unprojected frame would overflow by many
+    // columns, not by the one column the terminal's breathing room absorbs.
     const emulator = createEmulator(COLUMNS, 4, { wideCodePoints: AMBIGUOUS_LABEL })
     // Count the writes so the redraw path is proven to have run: `Screen.setLive`
     // returns without erasing for a byte-identical frame, and a stale-frame test
@@ -154,7 +156,7 @@ describe('the composer live region with an ambiguous workspace label', () => {
       columns: () => emulator.target.columns(),
     })
     const composer = longDraft()
-    const view = createComposerView(composer, '/w/\u00b1\u00b1repo')
+    const view = createComposerView(composer, `/w/${'\u00b1'.repeat(18)}repo`)
     const redraw = (): void => {
       screen.setLive(view.render(COLUMNS, 4), view.cursor?.(COLUMNS, 4))
     }
@@ -251,5 +253,151 @@ describe('the composer live region with a keycap workspace label', () => {
     expect(history.filter(row => row.includes('╭─'))).toHaveLength(1)
     expect(screen.height).toBeLessThanOrEqual(4)
     emulator.dispose()
+  })
+})
+
+/**
+ * Code points the renderer deliberately leaves measured one because their
+ * advance is disputed or sequence-dependent. The all-Cf-zero table this change
+ * replaced measured them zero; a terminal that draws one wider turns that into
+ * an under-measured, wrapping border, which is the failure this pins.
+ */
+const UNCERTAIN_FORMAT = [0x0600, 0x00ad, 0x06dd, 0x070f] as const
+
+describe('the composer live region with a format character the terminal widens', () => {
+  for (const format of UNCERTAIN_FORMAT) {
+    it(`projects U+${format.toString(16).toUpperCase()} instead of trusting a zero it does not honor`, async () => {
+      const emulator = createEmulator(COLUMNS, 4, { wideCodePoints: [format] })
+      let writes = 0
+      const screen = new Screen({
+        write: chunk => { writes += 1; emulator.target.write(chunk) },
+        columns: () => emulator.target.columns(),
+      })
+      const composer = longDraft()
+      // Six of them, so an unprojected run overflows by far more than the one
+      // column of breathing room the frame leaves the terminal.
+      const view = createComposerView(composer, `/w/${String.fromCodePoint(format).repeat(6)}repo`)
+      const redraw = (): void => {
+        screen.setLive(view.render(COLUMNS, 4), view.cursor?.(COLUMNS, 4))
+      }
+
+      redraw()
+      const before = await emulator.scrollback()
+      const firstFrameWrites = writes
+      for (let i = 0; i < 6; i += 1) {
+        expect(step(composer, -1)).toBe(true)
+        redraw()
+      }
+      for (let i = 0; i < 6; i += 1) {
+        expect(step(composer, 1)).toBe(true)
+        redraw()
+      }
+
+      const history = await emulator.scrollback()
+      // Every step changed the frame, so the erase/redraw path ran, and a
+      // wrapped border would have grown the held rows and left an extra `╭─`.
+      expect(writes - firstFrameWrites).toBe(12)
+      expect(history.length).toBe(before.length)
+      expect(history.filter(row => row.includes('╭─'))).toHaveLength(1)
+      expect(screen.height).toBeLessThanOrEqual(4)
+      emulator.dispose()
+    })
+  }
+})
+
+/**
+ * A short ASCII composer, so a test can widen an ASCII code point in the LABEL
+ * without that width change also landing in the body rows and confusing the two.
+ * @returns the composer.
+ */
+function labelComposer(): Composer {
+  const composer = new Composer()
+  composer.handle({ kind: 'paste', text: 'hello there' })
+  return composer
+}
+
+/**
+ * Draw one composer frame and read what the terminal actually shows.
+ * @param workspace - the composer's workspace path, which titles the frame.
+ * @param options - terminal width, height, and code points this terminal widens.
+ * @returns the emulator, its screen rows, the top-border row's index and text.
+ */
+async function drawLabel(
+  workspace: string,
+  { columns = COLUMNS, rows = 24, wideCodePoints }: { columns?: number; rows?: number; wideCodePoints?: readonly number[] } = {},
+): Promise<{ emulator: ReturnType<typeof createEmulator>; topRow: number; top: string }> {
+  const emulator = createEmulator(columns, rows, wideCodePoints === undefined ? {} : { wideCodePoints })
+  const screen = new Screen(emulator.target)
+  const view = createComposerView(labelComposer(), workspace)
+  screen.setLive(view.render(columns, rows), view.cursor?.(columns, rows))
+  const shown = await emulator.screen()
+  const topRow = shown.findIndex(row => row.includes('╭'))
+  return { emulator, topRow, top: shown[topRow] ?? '' }
+}
+
+describe('the composer label across the classes a terminal draws differently', () => {
+  it('draws an exact border for narrow scripts, wide scripts, and a decomposed accent', async () => {
+    // Hebrew, Arabic, Indic, CJK, and a precomposed Latin accent together. Every
+    // one is either unambiguously narrow or wide, or is decomposed to a stable
+    // base plus a mark, so the frame measures exactly what a terminal draws and
+    // the right corner lands in the frame's last column.
+    const workspace = '/w/\u05e9\u05dc\u05d5\u05dd-\u0645\u0631\u062d\u0628\u0627-\u0928\u092e\u0938\u094d\u0924\u0947-caf\u00e9-\u6807\u51c6'
+    const { emulator, topRow, top } = await drawLabel(workspace)
+    expect(topRow).toBeGreaterThanOrEqual(0)
+    // The composer frame is COLUMNS - 1 wide; a label that moved it would make
+    // this a different number, or wrap the terminal row.
+    expect(displayWidth(top)).toBe(COLUMNS - 1)
+    expect((await emulator.cell(COLUMNS - 2, topRow))?.chars).toBe('╮')
+    // The accent survived as its stable canonical decomposition, not as `?`.
+    expect(top).toContain('cafe\u0301')
+    emulator.dispose()
+  })
+
+  it('projects an emoji sequence so a terminal that widens it still draws one exact frame', async () => {
+    // Each case is a sequence whose components measure one or two columns but
+    // which a terminal may draw as one two-column picture. Projecting the whole
+    // sequence keeps the border in one physical row, so the right corner stays
+    // in the frame's last column even though this terminal would widen it.
+    const cases: readonly { workspace: string; wideCodePoints: readonly number[] }[] = [
+      { workspace: '/w/\u2764\ufe0f', wideCodePoints: [0x2764] },
+      { workspace: '/w/1\ufe0f\u20e3', wideCodePoints: [0x31] },
+      { workspace: '/w/1\u20e3', wideCodePoints: [0x31] },
+      { workspace: '/w/\u{1F1E8}\u{1F1F3}', wideCodePoints: [0x1f1e8, 0x1f1f3] },
+      { workspace: '/w/\u{1F469}\u200d\u{1F4BB}', wideCodePoints: [0x1f469, 0x1f4bb] },
+      { workspace: '/w/\u{1F44B}\u{1F3FD}', wideCodePoints: [0x1f44b, 0x1f3fd] },
+    ]
+    for (const { workspace, wideCodePoints } of cases) {
+      const { emulator, topRow, top } = await drawLabel(workspace, { wideCodePoints })
+      expect(topRow, workspace).toBeGreaterThanOrEqual(0)
+      expect(displayWidth(top), workspace).toBe(COLUMNS - 1)
+      expect((await emulator.cell(COLUMNS - 2, topRow))?.chars, workspace).toBe('╮')
+      emulator.dispose()
+    }
+  })
+
+  it('keeps every label row inside the terminal at every width and class', () => {
+    // The model-level guard the emulator cannot cover at every width: whatever a
+    // label is made of, no rendered row may measure wider than the terminal, or
+    // `Screen` would wrap it into a physical row the live-region arithmetic
+    // never counted.
+    const labels = [
+      'plain', 'caf\u00e9', 'cafe\u0301', '\u05e9\u05dc\u05d5\u05dd',
+      '\u0645\u0631\u062d\u0628\u0627', '\u0928\u092e\u0938\u094d\u0924\u0947',
+      '\u6807\u51c6\u6a21\u5f0f', '\u00b1\u00b1\u00b1\u00b1',
+      '\u2764\ufe0f', '1\ufe0f\u20e3', '\u{1F1E8}\u{1F1F3}',
+      '\u{1F469}\u200d\u{1F4BB}', '\u{1F44B}\u{1F3FD}', '\u231a\u4dc0',
+      '\u00ad', '\u0600\u0600', '\u06dd', '\u070f', '\u200b',
+      '\u1112\u1161\u11ab', '\u{1F6D8}',
+    ]
+    const composer = labelComposer()
+    for (const label of labels) {
+      const view = createComposerView(composer, `/w/${label}`)
+      for (const columns of [12, 20, 41, 80]) {
+        const lines = view.render(columns, 24)
+        for (const line of lines) {
+          expect(displayWidth(line), `${JSON.stringify(label)} at ${String(columns)}`).toBeLessThanOrEqual(columns)
+        }
+      }
+    }
   })
 })
