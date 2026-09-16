@@ -131,7 +131,6 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
   const viewport = new RowViewport()
   let query = ''
   let selected = 0
-  let visible: readonly CompositionRow[] = []
   let closed = false
   // The notice owns its own expiry repaint; the surface passes its injected
   // clock so one timeline grades the deadline and arms the timer.
@@ -153,9 +152,25 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
     spec.close()
   }
   const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
+  /**
+   * The composition rows the CURRENT reading and query leave.
+   *
+   * Presentation and control both read through this. Search mode edits the
+   * query without a repaint, and the coalesced invalidation does not arrive
+   * between two keys, so the last frame's array is not an authority for what a
+   * gesture means: deriving here keeps `act`, `move`, and End on the rows the
+   * filter currently leaves.
+   * @param state - the reading to filter.
+   * @returns the rows after the query, in the preset's own order.
+   */
+  const rowsFor = (state: PluginsState): readonly CompositionRow[] =>
+    state.kind === 'ready' && state.browsing.kind === 'rows'
+      ? filterCompositionRows(state.browsing.tree.rows, query)
+      : []
   const move = (amount: number): void => {
-    if (visible.length === 0) return
-    selected = (selected + amount + visible.length) % visible.length
+    const rows = rowsFor(spec.state())
+    if (rows.length === 0) return
+    selected = (selected + amount + rows.length) % rows.length
     spec.invalidate()
   }
   const edit = (next: string): void => {
@@ -170,7 +185,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
   // OUTSIDE search mode: inside it `enter` already means "done typing", and
   // stealing that would leave no way to return to the shortcuts.
   const act = (): void => {
-    const row = visible[selected]
+    const row = rowsFor(spec.state())[selected]
     if (row !== undefined) spec.toggle(row)
   }
 
@@ -187,9 +202,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
     },
     render(columns, terminalRows = 24) {
       const state = spec.state()
-      visible = state.kind === 'ready' && state.browsing.kind === 'rows'
-        ? filterCompositionRows(state.browsing.tree.rows, query)
-        : []
+      const visible = rowsFor(state)
       selected = Math.min(selected, Math.max(0, visible.length - 1))
       const active = currentNotice()
       if (columns < PLUGINS_MIN_COLUMNS) {
@@ -305,7 +318,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
           return
         case 'end':
         case 'ctrl-e':
-          selected = Math.max(0, visible.length - 1)
+          selected = Math.max(0, rowsFor(spec.state()).length - 1)
           viewport.last()
           spec.invalidate()
           return

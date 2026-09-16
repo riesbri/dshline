@@ -15,3 +15,10 @@ and `/cache` escapes the recorded route id before drawing it. The committed
 banner escapes the workspace path and model id; the multiselect compact
 fallback cuts its row to the terminal; and the idle status line drops the whole
 context reading instead of cutting it to a different number.
+
+`/connect`, `/plugins`, and `/profiles` also derive the row a gesture acts on
+from the current reading and query instead of keeping the previous frame's
+filtered array as an authority. Invalidation is coalesced, so a query typed and
+confirmed before the next repaint could previously let Enter act on a row the
+filter had already removed.
+

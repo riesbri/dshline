@@ -126,7 +126,6 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
   const viewport = new RowViewport()
   let query = spec.query ?? ''
   let selected = 0
-  let visible: readonly ConnectRow[] = []
   let closed = false
   // The notice owns its own expiry repaint; the surface passes its injected
   // clock so one timeline grades the deadline and arms the timer.
@@ -138,9 +137,29 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
     spec.close()
   }
   const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
+  /**
+   * The sections the CURRENT reading and query leave.
+   *
+   * Presentation and control both read through this. Key delivery can reach a
+   * gesture before the coalesced invalidation repaints, so the last frame's
+   * array is not an authority for what a key means: deriving here keeps Enter
+   * and movement on the query's current offer rather than the row a removed
+   * filter no longer shows.
+   * @param state - the reading to filter.
+   * @returns the live sections, in reading order.
+   */
+  const sectionsFor = (state: ConnectState): readonly Section[] => resolve(state, query)
+  /**
+   * The selectable rows in those sections, flattened in draw order.
+   * @param sections - the current sections.
+   * @returns every selectable row, in draw order.
+   */
+  const rowsOf = (sections: readonly Section[]): readonly ConnectRow[] =>
+    sections.flatMap(section => section.rows)
   const move = (amount: number): void => {
-    if (visible.length === 0) return
-    selected = (selected + amount + visible.length) % visible.length
+    const rows = rowsOf(sectionsFor(spec.state()))
+    if (rows.length === 0) return
+    selected = (selected + amount + rows.length) % rows.length
     spec.invalidate()
   }
   const edit = (next: string): void => {
@@ -160,8 +179,8 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
     },
     render(columns, terminalRows = 24) {
       const state = spec.state()
-      const sections = resolve(state, query)
-      visible = sections.flatMap(section => section.rows)
+      const sections = sectionsFor(state)
+      const visible = rowsOf(sections)
       selected = Math.min(selected, Math.max(0, visible.length - 1))
       const active = currentNotice()
       if (terminalRows <= CONNECT_FIXED_ROWS || columns < CONNECT_MIN_COLUMNS) {
@@ -225,7 +244,7 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
           return
         case 'end':
         case 'ctrl-e':
-          selected = Math.max(0, visible.length - 1)
+          selected = Math.max(0, rowsOf(sectionsFor(spec.state())).length - 1)
           viewport.last()
           spec.invalidate()
           return
@@ -245,7 +264,7 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
           spec.refresh()
           return
         case 'enter': {
-          const row = visible[selected]
+          const row = rowsOf(sectionsFor(spec.state()))[selected]
           if (row !== undefined) spec.act(row)
           return
         }

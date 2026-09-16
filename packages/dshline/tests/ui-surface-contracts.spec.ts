@@ -13,7 +13,10 @@
  * - failure priority: a refusal the reader just caused survives the geometry
  *   fallback;
  * - untrusted text: a path, id, or Harness message cannot inject a control or
- *   an unbudgeted physical row.
+ *   an unbudgeted physical row;
+ * - control authority: a gesture acts on the rows the CURRENT query and state
+ *   leave, never on a previous frame, because invalidation is coalesced and key
+ *   delivery does not imply a repaint between two keys.
  *
  * Each case here targets a defect the audit found; the deliberate break-it
  * check named in the branch description is the pre-fix behavior these cases
@@ -38,11 +41,16 @@ import { createTurnsOverlay } from '../src/turns/overlay.ts'
 import { createSubagentCatalogOverlay } from '../src/subagents/overlay.ts'
 import { createCacheOverlay } from '../src/cache/overlay.ts'
 import { createPluginsOverlay } from '../src/plugins/overlay.ts'
+import { createConnectOverlay } from '../src/connect/overlay.ts'
+import { createProfilesOverlay } from '../src/profiles/overlay.ts'
 import { catalogReading } from '../src/subagents/model.ts'
 import type { SkillCatalogReading } from '../src/skills/catalog.ts'
 import type { SkillView } from '../src/skills/model.ts'
 import type { CompositionRow } from '../src/plugins/composition.ts'
 import type { PluginsState } from '../src/plugins/catalog.ts'
+import type { ConnectProviderRow, ConnectState } from '../src/connect/model.ts'
+import type { ProfileRow } from '../src/profiles/harness.ts'
+import type { ProfilesState } from '../src/profiles/catalog.ts'
 import type { LineageState } from '../src/sessions/model.ts'
 import type { WorktreeListing, WorktreeSelection } from '../src/worktrees/model.ts'
 import type { NewPlan } from '../src/sessions/plan.ts'
@@ -453,5 +461,227 @@ describe('the idle status line drops the whole context reading', () => {
         expect(line, `at ${String(columns)} columns`).toContain('68k/1.0M')
       }
     }
+  })
+})
+
+describe('control reads the current query, not the last frame', () => {
+  /**
+   * Every case here renders once, then edits the query and delivers the next
+   * gesture WITHOUT a render in between. Invalidation is coalesced, so key
+   * delivery does not imply a repaint; a gesture that read the previous frame's
+   * array would act on a row the query has already removed.
+   */
+
+  /** One configurable Connect provider route. */
+  function provider(id: string, displayName = id): ConnectProviderRow {
+    return {
+      kind: 'provider',
+      provider: id,
+      displayName,
+      settingsNs: 'llm-pi-ai',
+      settingsPath: ['providers', id],
+      declared: false,
+      state: 'active',
+      models: 1,
+      credential: { field: 'apiKeyEnv', ref: 'KEY', info: { configured: true, source: 'file', writable: true } },
+      userOwned: true,
+      revision: 1,
+    }
+  }
+
+  /** A ready Connect reading over the given provider routes. */
+  function connectState(providers: readonly ConnectProviderRow[]): ConnectState {
+    return {
+      kind: 'ready',
+      providers,
+      signIns: [],
+      capabilities: { settings: true, credentials: true, authorization: false },
+      newRouteTargets: [],
+    }
+  }
+
+  /** Mount Connect and record which row each confirmed action targeted. */
+  function mountConnect(state: ConnectState): { overlay: ReturnType<typeof createConnectOverlay>; acted: string[] } {
+    const acted: string[] = []
+    const overlay = createConnectOverlay({
+      state: () => state,
+      refresh: () => {},
+      act: row => { acted.push(row.kind === 'provider' ? row.provider : row.kind === 'sign-in' ? row.key : row.label) },
+      now: () => 0,
+      close: () => {},
+      invalidate: () => {},
+    })
+    return { overlay, acted }
+  }
+
+  it('Connect: a query that removes the selected route is in force at Enter', () => {
+    const { overlay, acted } = mountConnect(connectState([provider('openai'), provider('anthropic', 'Anthropic')]))
+    overlay.render(90, 24) // frame: [openai, anthropic], selected on openai
+    for (const character of 'anth') overlay.handleKey(typed(character))
+    // Deliberately no render between the edit and the gesture.
+    overlay.handleKey(key('enter'))
+    expect(acted).toEqual(['anthropic'])
+  })
+
+  it('Connect: movement and End use the query rows, not the old frame', () => {
+    const { overlay, acted } = mountConnect(connectState([
+      provider('openai'),
+      provider('anthropic', 'Anthropic'),
+      provider('google', 'Google'),
+    ]))
+    overlay.render(90, 24) // frame: [openai, anthropic, google]
+    for (const character of 'goo') overlay.handleKey(typed(character))
+    overlay.handleKey(key('down'))
+    overlay.handleKey(key('enter'))
+    expect(acted).toEqual(['google'])
+
+    // An empty result must make both End and Enter no-ops rather than fall back
+    // to the row the previous frame happened to hold.
+    const empty = mountConnect(connectState([provider('openai')]))
+    empty.overlay.render(90, 24)
+    for (const character of 'zzz') empty.overlay.handleKey(typed(character))
+    empty.overlay.handleKey(key('end'))
+    empty.overlay.handleKey(key('enter'))
+    expect(empty.acted).toEqual([])
+  })
+
+  /** One composition row for the Plugins browser. */
+  function composition(id: string): CompositionRow {
+    return {
+      locator: { steps: [{ index: 0, name: id, id }] },
+      path: [id],
+      id,
+      name: id,
+      depth: 0,
+      group: false,
+      disabled: { kind: 'enabled' },
+      effective: 'enabled',
+    }
+  }
+
+  /** A ready Plugins reading browsing the given composition rows. */
+  function pluginsState(rows: readonly CompositionRow[]): PluginsState {
+    return {
+      kind: 'ready',
+      capabilities: { agentPresets: true, settings: true, canWriteUserPresets: true },
+      presets: [{ id: 'standard', trust: 'system', name: 'Standard', description: undefined, broken: undefined, isCurrent: true, isDefault: true }],
+      defaultId: 'standard',
+      sessionPresetId: 'standard',
+      blank: true,
+      browsing: { kind: 'rows', presetId: 'standard', tree: { kind: 'parsed', rows } },
+      host: { subagentProviders: undefined },
+    } as never
+  }
+
+  /** Mount Plugins and record which row each toggle targeted. */
+  function mountPlugins(state: PluginsState): { overlay: ReturnType<typeof createPluginsOverlay>; toggled: string[] } {
+    const toggled: string[] = []
+    const overlay = createPluginsOverlay({
+      state: () => state,
+      refresh: () => {},
+      toggle: row => { toggled.push(row.id ?? row.name) },
+      pickPreset: () => {},
+      makeDefault: () => {},
+      now: () => 0,
+      close: () => {},
+      invalidate: () => {},
+    })
+    return { overlay, toggled }
+  }
+
+  it('Plugins: leaving search then acting uses the query rows, not the old frame', () => {
+    const { overlay, toggled } = mountPlugins(pluginsState([composition('alpha'), composition('beta')]))
+    overlay.render(90, 24) // frame: [alpha, beta], selected on alpha
+    overlay.handleKey(typed('/'))
+    for (const character of 'beta') overlay.handleKey(typed(character))
+    overlay.handleKey(key('enter')) // leave search mode
+    // Deliberately no render between the edit and the action.
+    overlay.handleKey(key('enter'))
+    expect(toggled).toEqual(['beta'])
+  })
+
+  it('Plugins: movement after an edit searches the new rows', () => {
+    const { overlay, toggled } = mountPlugins(pluginsState([
+      composition('alpha'),
+      composition('beta'),
+      composition('gamma'),
+    ]))
+    overlay.render(90, 24) // frame: [alpha, beta, gamma]
+    overlay.handleKey(typed('/'))
+    for (const character of 'gamma') overlay.handleKey(typed(character))
+    overlay.handleKey(key('enter'))
+    overlay.handleKey(key('down'))
+    overlay.handleKey(typed(' '))
+    expect(toggled).toEqual(['gamma'])
+  })
+
+  /** One profile row for the Profiles browser. */
+  function profile(name: string): ProfileRow {
+    return { name, dir: `/p/${name}`, current: false, bundles: [], plain: [], pendingBuilds: [], broken: undefined }
+  }
+
+  /** A ready Profiles reading over the given profiles. */
+  function profilesState(profiles: readonly ProfileRow[]): ProfilesState {
+    return { kind: 'ready', reading: { root: '/p', profiles } }
+  }
+
+  /** Mount Profiles and record the row each action targeted. */
+  function mountProfiles(state: ProfilesState): {
+    overlay: ReturnType<typeof createProfilesOverlay>
+    added: string[]
+    explained: string[]
+  } {
+    const added: string[] = []
+    const explained: string[] = []
+    const overlay = createProfilesOverlay({
+      state: () => state,
+      activity: () => ({ running: [], restartQueued: [] }),
+      refresh: () => {},
+      addBundle: target => { added.push(target.name) },
+      updateBundle: () => {},
+      removeBundle: () => {},
+      removeDependency: () => {},
+      createProfile: () => {},
+      explainBoot: target => { explained.push(target.name) },
+      now: () => 0,
+      close: () => {},
+      invalidate: () => {},
+    })
+    return { overlay, added, explained }
+  }
+
+  it('Profiles: a row action after an edit targets the query row, not the old frame', () => {
+    const { overlay, added } = mountProfiles(profilesState([profile('dshline'), profile('web')]))
+    overlay.render(90, 28) // selectable: [dshline, web], selected on dshline
+    overlay.handleKey(typed('/'))
+    for (const character of 'web') overlay.handleKey(typed(character))
+    overlay.handleKey(key('enter')) // leave search mode
+    // Deliberately no render between the edit and the action.
+    overlay.handleKey(typed('a'))
+    expect(added).toEqual(['web'])
+  })
+
+  it('Profiles: Enter and movement use the query rows after an edit', () => {
+    const { overlay, explained } = mountProfiles(profilesState([
+      profile('dshline'),
+      profile('web'),
+      profile('infra'),
+    ]))
+    overlay.render(90, 28) // selectable: [dshline, web, infra]
+    overlay.handleKey(typed('/'))
+    for (const character of 'infra') overlay.handleKey(typed(character))
+    overlay.handleKey(key('enter'))
+    overlay.handleKey(key('down'))
+    overlay.handleKey(key('enter'))
+    expect(explained).toEqual(['infra'])
+
+    // A query matching nothing leaves no row to explain.
+    const empty = mountProfiles(profilesState([profile('dshline')]))
+    empty.overlay.render(90, 28)
+    empty.overlay.handleKey(typed('/'))
+    for (const character of 'zzz') empty.overlay.handleKey(typed(character))
+    empty.overlay.handleKey(key('enter'))
+    empty.overlay.handleKey(key('enter'))
+    expect(empty.explained).toEqual([])
   })
 })

@@ -147,7 +147,6 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
   const viewport = new RowViewport()
   let query = ''
   let selected = 0
-  let visible: readonly ProfilesSelection[] = []
   let closed = false
   // The notice owns its own expiry repaint. The running-work heartbeat below
   // invalidates while an install is in flight, but an idle browser has no
@@ -193,9 +192,22 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
     spec.close()
   }
   const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
+  /**
+   * The selectable rows the CURRENT reading and query leave.
+   *
+   * Presentation and control both read through this. Search mode edits the
+   * query without a repaint, and the coalesced invalidation does not arrive
+   * between two keys, so the last frame's array is not an authority for what a
+   * gesture means: `a`/`u`/`U`/`r`/Enter and movement all resolve their row
+   * here, from the filter the query currently applies.
+   * @param state - the reading to filter.
+   * @returns the selectable sequence after the query.
+   */
+  const rowsFor = (state: ProfilesState): readonly ProfilesSelection[] => selectableRows(state, query)
   const move = (amount: number): void => {
-    if (visible.length === 0) return
-    selected = (selected + amount + visible.length) % visible.length
+    const rows = rowsFor(spec.state())
+    if (rows.length === 0) return
+    selected = (selected + amount + rows.length) % rows.length
     spec.invalidate()
   }
   const edit = (next: string): void => {
@@ -204,7 +216,7 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
     viewport.first()
     spec.invalidate()
   }
-  const at = (): ProfilesSelection | undefined => visible[selected]
+  const at = (): ProfilesSelection | undefined => rowsFor(spec.state())[selected]
 
   return {
     report(text, failed) {
@@ -227,7 +239,7 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
       // and an invalidate is what produces a render.
       syncTicker()
       const state = spec.state()
-      visible = selectableRows(state, query)
+      const visible = rowsFor(state)
       selected = Math.min(selected, Math.max(0, visible.length - 1))
       const active = currentNotice()
       if (columns < PROFILES_MIN_COLUMNS) {
@@ -358,7 +370,7 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
           return
         case 'end':
         case 'ctrl-e':
-          selected = Math.max(0, visible.length - 1)
+          selected = Math.max(0, rowsFor(spec.state()).length - 1)
           viewport.last()
           spec.invalidate()
           return
