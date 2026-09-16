@@ -29,7 +29,7 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
-import { SurfaceNotice } from '../surface.ts'
+import { SurfaceNotice, noticeText } from '../surface.ts'
 import type { SurfaceNoticeReading } from '../surface.ts'
 import type { CompositionRow } from './composition.ts'
 import type { PluginsState } from './catalog.ts'
@@ -214,7 +214,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
             queryRow(query, searching, counter(visible.length, rendered, viewport), inner),
             ...active === undefined
               ? []
-              : [paint(truncateToWidth(escapeControls(active.text), inner), active.failed ? 'error' : 'success')],
+              : [paint(truncateToWidth(noticeText(active.text), inner), active.failed ? 'error' : 'success')],
             '',
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
@@ -510,7 +510,11 @@ function queryRow(query: string, searching: boolean, right: string, inner: numbe
   const hint = '/ to search'
   const plain = searching
     ? `${tailToWidth(escapeControls(query), Math.max(1, room - 1))}█`
-    : query === '' ? hint : tailToWidth(escapeControls(query), Math.max(1, room))
+    // The typed path is already bounded by `room`; the empty hint was passed
+    // through raw, so when the counter left less room than the constant the
+    // assembled row overran the frame and the physical backstop collapsed the
+    // whole browser to its one-line fallback.
+    : query === '' ? truncateToWidth(hint, Math.max(1, room)) : tailToWidth(escapeControls(query), Math.max(1, room))
   const typed = !searching && query === '' ? paint(plain, 'muted') : plain
   const gap = Math.max(1, inner - displayWidth(prompt) - displayWidth(plain) - rightWidth)
   return `${paint(prompt, 'prompt-mark')}${typed}${' '.repeat(gap)}${paint(truncateToWidth(right, rightWidth), 'muted')}`
@@ -584,7 +588,7 @@ function compactFallback(
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {
-    return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
+    return [paint(truncateToWidth(noticeText(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
   }
   const summary = state.kind !== 'ready' || shown === 0
     ? 'Plugins · esc close'

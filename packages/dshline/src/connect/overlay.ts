@@ -29,7 +29,7 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
-import { SurfaceNotice } from '../surface.ts'
+import { SurfaceNotice, noticeText } from '../surface.ts'
 import type { SurfaceNoticeReading } from '../surface.ts'
 import type { ConnectCapabilities, ConnectCreateRow, ConnectProviderRow, ConnectRow, ConnectSignInRow, ConnectState } from './model.ts'
 import {
@@ -184,7 +184,7 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
             queryRow(query, counter(state, visible.length, rendered, viewport), inner),
             ...active === undefined
               ? []
-              : [paint(truncateToWidth(escapeControls(active.text), inner), active.failed ? 'error' : 'success')],
+              : [paint(truncateToWidth(noticeText(active.text), inner), active.failed ? 'error' : 'success')],
             '',
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
@@ -595,7 +595,7 @@ function compactFallback(
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {
-    return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
+    return [paint(truncateToWidth(noticeText(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
   }
   const summary = state.kind !== 'ready' || shown === 0
     ? 'Connect · esc close'

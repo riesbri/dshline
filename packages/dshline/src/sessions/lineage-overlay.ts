@@ -16,7 +16,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
-import { SurfaceNotice } from '../surface.ts'
+import { SurfaceNotice, noticeText } from '../surface.ts'
 import type { SurfaceNoticeReading } from '../surface.ts'
 import type { LineageRow, LineageState } from './model.ts'
 import { relativeAge, shortWorkspace, UNTITLED } from './model.ts'
@@ -185,12 +185,15 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
           body: [
             ...active === undefined
               ? []
-              : [paint(truncateToWidth(escapeControls(active.text), inner), 'error')],
+              : [paint(truncateToWidth(noticeText(active.text), inner), 'error')],
             '',
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
+          // `↵ focus` is named only while a session row can take focus. While
+          // the trace is loading, failed, or has no target, Enter is a no-op,
+          // and a footer promising focus would describe a key that does nothing.
           footer: fitFooterHelp(
-            '↑↓ move · ↵ focus · esc back',
+            `↑↓ move${state.kind === 'ready' && selectableRows(state.rows).length > 0 ? ' · ↵ focus' : ''} · esc back`,
             footerBudget(columns),
           ),
         }),
@@ -472,7 +475,7 @@ function compactFallback(
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {
-    return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), 'error')]
+    return [paint(truncateToWidth(noticeText(notice.text), Math.max(1, columns)), 'error')]
   }
   const count = state.kind === 'ready' ? state.rows.length : 0
   const summary = `Lineage · ${String(count)} rows · esc back`

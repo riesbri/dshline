@@ -1135,9 +1135,13 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         }
         // Idle and narrower than every rung. The notice is not carried by any
         // body, so it is already gone, and the modes are surrendered for it:
-        // only the context reading and the base status remain. At an impossible
-        // width the truthful structural reading outranks emphasis.
-        return (bodies[bodies.length - 1] ?? []).join(separator)
+        // only the context reading and the base status remain. The READING is
+        // dropped WHOLE here when even that pair cannot fit, rather than cut to
+        // `68k/1.0` — a different number that reads as a rendering fault. The
+        // busy branch above already gives the reading up before the bare status
+        // and truncates only that; idle has to agree with it instead of
+        // truncating the pair.
+        return status
       }
       let line = compose()
       for (const hint of hints) {
@@ -1167,8 +1171,14 @@ export function bannerLines(
 ): string[] {
   const rows = [
     `${paint('dshline', 'banner')} ${paint(version, 'muted')}`,
-    paint(workspace, 'subdued'),
-    paint(model ?? 'no model configured', 'subdued'),
+    // The workspace is the persisted session header's cwd and the model is a
+    // provider route id, so both are untrusted by the same rule as tool output.
+    // Escaped BEFORE styling: a cwd carrying an escape sequence would otherwise
+    // repaint the frame from inside it, and escaping after `paint` would
+    // destroy the colour. The composer's own workspace label is escaped for the
+    // same reason; this was the one banner path that was not.
+    paint(escapeControls(workspace), 'subdued'),
+    paint(escapeControls(model ?? 'no model configured'), 'subdued'),
   ]
   return [...box(rows, { width: chromeWidth(columns), border: text => paint(text, 'chrome') }), '']
 }

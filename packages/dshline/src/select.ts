@@ -178,8 +178,11 @@ export function createSelectOverlay(spec: SelectSpec): TuiOverlay {
       cursor = Math.min(cursor, Math.max(0, visible.length - 1))
       const heading = headingRows(spec, searchable, query, visible.length, inner)
       const capacity = terminalRows - SELECT_FIXED_ROWS - heading.length
+      // The compact hint names the same way out the framed footer does, so a
+      // query that Escape would clear is never reported as a query it closes.
+      const leave = searchable && query !== '' ? 'esc clear' : 'esc cancel'
       if (capacity <= 0 || columns < SELECT_MIN_COLUMNS) {
-        return compactFallback(visible[cursor], columns, terminalRows)
+        return compactFallback(visible[cursor], columns, terminalRows, leave)
       }
       const rendered = renderChoices(visible, cursor, inner)
       viewport.update(rendered.rows.length, capacity)
@@ -212,7 +215,7 @@ export function createSelectOverlay(spec: SelectSpec): TuiOverlay {
       // exists to prevent, so it is checked rather than assumed.
       return physicalRows(frame, columns).length <= terminalRows
         ? frame
-        : compactFallback(visible[cursor], columns, terminalRows)
+        : compactFallback(visible[cursor], columns, terminalRows, leave)
     },
     handleKey(key: Key) {
       if (key.kind === 'text') {
@@ -431,20 +434,29 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
  * @param choice - the selected choice, when there is one.
  * @param columns - the terminal's width.
  * @param rows - the terminal's height.
+ * @param leave - the whole way-out phrase for the current query, already
+ *   chosen against the framed footer's rule.
  * @returns at most `rows` lines.
  */
 function compactFallback(
   choice: SelectChoice | undefined,
   columns: number,
   rows: number,
+  leave: string,
 ): string[] {
   if (rows <= 0) return []
   const width = Math.max(1, columns)
   const label = choice === undefined ? 'nothing to choose from' : escapeControls(choice.label)
   const lines = [paint(truncateToWidth(`\u276f ${label}`, width), 'selection')]
   if (rows > 1) {
-    const hint = ['\u2191\u2193 \u00b7 enter \u00b7 esc', 'enter \u00b7 esc', 'esc']
-      .find(candidate => displayWidth(candidate) <= width)
+    // Enter is named only while there is something under the cursor to confirm,
+    // exactly as the framed footer drops `enter confirm` for an empty offer.
+    // The old hint advertised `enter` here too, so a query that matched nothing
+    // read as confirmable on a narrow terminal and not on a wide one.
+    const candidates = choice === undefined
+      ? [leave, 'esc']
+      : ['\u2191\u2193 \u00b7 enter \u00b7 esc', 'enter \u00b7 esc', 'esc']
+    const hint = candidates.find(candidate => displayWidth(candidate) <= width)
     if (hint !== undefined) lines.push(paint(hint, 'muted'))
   }
   return lines.slice(0, rows)

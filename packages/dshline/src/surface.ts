@@ -71,11 +71,15 @@ export function compactRows(phrases: string | readonly string[], columns: number
   // Phrases are plain text from a presenter: the kernel escapes them before
   // measuring and before styling, so an embedded control cannot add a row or
   // operate the terminal, and the fit is measured against what is displayed.
+  // Line breaks are collapsed too: {@link escapeControls} preserves a feed for
+  // multi-line layout text, but this backstop is contracted to ONE physical
+  // row, and a phrase carrying `\n` would wrap into rows the caller never
+  // budgeted.
   const visible = [
     ...ordered.map(phrase => `${phrase} · esc close`),
     'esc close',
     'esc',
-  ].map(escapeControls).find(candidate => displayWidth(candidate) <= columns)
+  ].map(noticeText).find(candidate => displayWidth(candidate) <= columns)
   return visible === undefined ? [] : [paint(visible, COMPACT_ROLE)]
 }
 
@@ -85,6 +89,23 @@ export interface SurfaceNoticeReading {
   readonly text: string
   /** Whether the outcome failed, which colours it and lets it win the geometry fallback. */
   readonly failed: boolean
+}
+
+/**
+ * Make one untrusted notice message safe to draw in a single physical row.
+ *
+ * `escapeControls` neutralizes terminal controls but deliberately preserves a
+ * line feed, because multi-line layout text is legitimate. A notice is
+ * contracted to ONE row, so a message carrying a newline would become physical
+ * rows the live region never budgeted: `Screen` wraps them after the budget is
+ * fixed, and a region taller than the screen leaves rows in scrollback that can
+ * never be erased. Collapsing the breaks before styling keeps the one-row
+ * promise without weakening the control-safety the escaping provides.
+ * @param text - untrusted message text.
+ * @returns escaped text with no line breaks.
+ */
+export function noticeText(text: string): string {
+  return escapeControls(text).replaceAll('\n', ' ')
 }
 
 /**
@@ -103,7 +124,7 @@ export function noticeRow(reading: SurfaceNoticeReading | undefined, columns: nu
   // Return nothing rather than a row the terminal cannot show.
   if (reading === undefined || columns <= 0) return undefined
   return paint(
-    truncateToWidth(escapeControls(reading.text), columns),
+    truncateToWidth(noticeText(reading.text), columns),
     reading.failed ? 'error' : 'busy',
   )
 }

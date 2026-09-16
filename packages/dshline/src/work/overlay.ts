@@ -32,6 +32,7 @@ import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.t
 import { FocusRing } from '../focus.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
+import { compactRows, noticeRow, noticeText } from '../surface.ts'
 import type {
   JobWorkItem,
   SubagentWorkItem,
@@ -303,7 +304,7 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
           body: [
             paint(truncateToWidth(counter, inner), 'muted'),
             ...activeNotice === undefined ? [] : [paint(
-              truncateToWidth(escapeControls(activeNotice.text), inner),
+              truncateToWidth(noticeText(activeNotice.text), inner),
               activeNotice.failed ? 'error' : 'busy',
             )],
             '',
@@ -905,8 +906,11 @@ function compactFallback(
   // A failed human action must survive the same geometry fallback that protects
   // scrollback. It takes precedence over the ordinary compact summary; clipping
   // its detail is preferable to making authorization or cancellation invisible.
-  if (notice?.failed === true) {
-    return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), 'error')]
+  // `noticeRow` owns the zero-column boundary, so a terminal with no columns
+  // gets no row rather than one invented for it.
+  if (notice !== undefined && notice.failed) {
+    const failed = noticeRow(notice, columns)
+    if (failed !== undefined) return [failed]
   }
   const workflows = snapshot.workflows.length
   // The same presentation corpus the framed overview draws, not the raw
@@ -924,15 +928,15 @@ function compactFallback(
   // this session's own durable records instead. Seam absence may not deny an
   // owned workflow this compact frame is too small to list, so this mirrors the
   // framed guard and names the missing seams only when no workflow exists.
-  const summary = !snapshot.available && workflows === 0
-    ? 'Jobs/subagents unavailable · esc close'
+  const phrase = !snapshot.available && workflows === 0
+    ? 'Jobs/subagents unavailable'
     : jobs === 0 && subagents === 0 && workflows === 0
-      ? 'No active work · esc close'
-      : `${counts} · esc close`
-  // On a narrow fallback, keeping the way out matters more than naming work
-  // that cannot be inspected in that geometry.
-  const shown = columns < displayWidth(summary) ? 'esc close' : summary
-  const lines = [paint(truncateToWidth(shown, Math.max(1, columns)), 'overlay-headline')]
-  if (rows >= 2) lines.push(paint(truncateToWidth('esc close', Math.max(1, columns)), 'muted'))
-  return lines
+      ? 'No active work'
+      : counts
+  // `compactRows` is the shared whole-phrase ladder: it appends ` · esc close`,
+  // falls back to the bare way out, and returns nothing when not even `esc`
+  // fits. The copy this replaced truncated the summary to the terminal's width,
+  // so an eight-column terminal read `esc clos` and a five-column one `esc c` —
+  // a rendering fault, not a shorter help line.
+  return compactRows(phrase, columns)
 }

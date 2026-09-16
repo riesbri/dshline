@@ -15,6 +15,7 @@ import { BOX_CHROME_COLUMNS, escapeControls, paint, truncateToWidth } from '@dsh
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from './chrome.ts'
 import { RowViewport } from './scroll.ts'
 import type { TuiOverlay } from './slots.ts'
+import { compactRows } from './surface.ts'
 
 /**
  * Rows outside the inspected body: the leading blank, the two frame borders,
@@ -161,10 +162,12 @@ export function createToolOutputOverlay(spec: ToolOutputSpec): TuiOverlay {
       // box that overflows into scrollback.
       if (terminalRows <= TOOL_OUTPUT_FIXED_ROWS || inner < TOOL_OUTPUT_MIN_INNER_COLUMNS) {
         if (terminalRows <= 0) return []
-        const summary = `Tool output · ${title()} · resize to inspect · esc close`
-        const lines = [paint(truncateToWidth(summary, Math.max(1, columns)), 'overlay-headline')]
-        if (terminalRows >= 2) lines.push(paint(truncateToWidth('esc close', Math.max(1, columns)), 'muted'))
-        return lines
+        // One whole phrase or none of it, through the shared ladder. The copy
+        // this replaced cut the summary and `esc close` to the terminal's width,
+        // so a five-column terminal read `esc c`, and at one row the escape
+        // hatch was not drawn at all because the truncated summary was the only
+        // line — a closable surface with no visible way out.
+        return compactRows(`Tool output · ${title()} · resize to inspect`, columns)
       }
       // Render the inspected card at the root frame's inner width, not the whole
       // terminal width. The root frame wraps any content row wider than its inner width

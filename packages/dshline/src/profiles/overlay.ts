@@ -35,7 +35,7 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
-import { SurfaceNotice } from '../surface.ts'
+import { SurfaceNotice, noticeText } from '../surface.ts'
 import type { SurfaceNoticeReading } from '../surface.ts'
 import type { BundleRow, PlainDependencyRow, ProfileRow } from './harness.ts'
 import type { ProfilesState } from './catalog.ts'
@@ -632,7 +632,9 @@ function queryRow(query: string, searching: boolean, right: string, inner: numbe
   const hint = '/ to search'
   const plain = searching
     ? `${tailToWidth(escapeControls(query), Math.max(1, room - 1))}█`
-    : query === '' ? hint : tailToWidth(escapeControls(query), Math.max(1, room))
+    // The empty hint is bounded like the typed path: raw, it could outgrow the
+    // room the counter left and collapse the framed browser to its fallback.
+    : query === '' ? truncateToWidth(hint, Math.max(1, room)) : tailToWidth(escapeControls(query), Math.max(1, room))
   const typed = !searching && query === '' ? paint(plain, 'muted') : plain
   const gap = Math.max(1, inner - displayWidth(prompt) - displayWidth(plain) - rightWidth)
   return `${paint(prompt, 'prompt-mark')}${typed}${' '.repeat(gap)}${paint(truncateToWidth(right, rightWidth), 'muted')}`
@@ -723,7 +725,7 @@ function compactFallback(
     if (fitted !== undefined) return [paint(escapeControls(fitted), 'busy')]
   }
   if (notice !== undefined) {
-    return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
+    return [paint(truncateToWidth(noticeText(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
   }
   const restarts = activity.restartQueued.length
   const summary = restarts > 0
