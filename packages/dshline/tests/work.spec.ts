@@ -547,6 +547,156 @@ describe('the Work live-region overlay', () => {
     expect(detail).toContain('session  child-1')
   })
 
+  it('shows a live output tail in the subagent detail stage only', () => {
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      id: 'child-1', label: 'review', outputTail: 'hello from the child',
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    // The overview list is unchanged: the tail belongs to the inspected subject.
+    expect(overlay.render(80, 24).map(stripAnsi).join('\n')).not.toContain('hello from the child')
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    expect(overlay.render(80, 24).map(stripAnsi).join('\n')).toContain('output  hello from the child')
+  })
+
+  it('renders no output row and no empty row when the tail is absent', () => {
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      id: 'child-1', label: 'review',
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const lines = overlay.render(80, 24).map(stripAnsi)
+    expect(lines.join('\n')).not.toContain('output')
+    // An absent tail must not leave the row's place behind as an empty line.
+    expect(lines.some(line => /^\s*output\s*$/u.test(line))).toBe(false)
+  })
+
+  it('renders no output row for a tail that is only whitespace or controls', () => {
+    // The producer stores whatever a `text-delta` carried, so a stream that has
+    // only emitted line structure would otherwise advertise an answer that is
+    // not visible yet.
+    for (const value of ['   ', '\n', '\r\n', '\t']) {
+      const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+        label: 'review', outputTail: value,
+      })], jobs: [] }
+      const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+      overlay.handleKey({ kind: 'key', name: 'enter' })
+      const lines = overlay.render(80, 24).map(stripAnsi)
+      expect(lines.join('\n'), JSON.stringify(value)).not.toContain('output')
+      expect(lines.some(line => /^\s*output\s*$/u.test(line)), JSON.stringify(value)).toBe(false)
+    }
+  })
+
+  it('collapses CR and LF runs into one physical row before escaping', () => {
+    for (const text of ['a\nb', 'a\r\nb', 'a\rb']) {
+      const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+        label: 'review', outputTail: text,
+      })], jobs: [] }
+      const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+      overlay.handleKey({ kind: 'key', name: 'enter' })
+      const lines = overlay.render(60, 24)
+      // Both fragments survive on the ONE row, separated rather than wrapped.
+      expect(lines.map(stripAnsi).join('\n')).toContain('a b')
+      expect(lines.every(line => !line.includes('\n'))).toBe(true)
+      expect(lines.flatMap(line => wrapToWidth(line, 60)).length).toBeLessThanOrEqual(24)
+    }
+  })
+
+  it('renders an ANSI escape sequence in the tail as inert caret text', () => {
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      label: 'review', outputTail: '\u001b[31mred\u001b[0m',
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const raw = overlay.render(60, 24).join('\n')
+    const visible = stripAnsi(raw)
+    expect(visible).toContain('^[[31mred^[[0m')
+    // The model's escape is neutralized, so the visible text carries no ESC byte.
+    expect(visible).not.toContain('\u001b')
+    expect(raw).toContain('^[[31mred^[[0m')
+    expect(raw).not.toContain('\u001b[31mred')
+  })
+
+  it('cuts a wide-character tail to display columns rather than code units', () => {
+    const columns = 30
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      label: '审查', outputTail: '你好世界'.repeat(30),
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const lines = overlay.render(columns, 24)
+    expect(lines.every(line => displayWidth(line) <= columns)).toBe(true)
+    const physical = lines.flatMap(line => wrapToWidth(line, columns))
+    expect(physical.length).toBeLessThanOrEqual(24)
+    expect(physical.every(row => displayWidth(row) <= columns)).toBe(true)
+  })
+
+  it('keeps the newest tail text when the row must cut from the front', () => {
+    const outputTail = `OLDEST-${'x'.repeat(400)}-NEWEST`
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      label: 'review', outputTail,
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const detail = overlay.render(40, 24).map(stripAnsi).join('\n')
+    expect(detail).toContain('NEWEST')
+    expect(detail).not.toContain('OLDEST')
+  })
+
+  it('keeps the bounded live tail inside the physical height across a size matrix', () => {
+    const snapshot: WorkSnapshot = {
+      ...EMPTY,
+      available: true,
+      subagents: [subagentItem({
+        label: '审查 renderer', mode: 'continuable', residency: 'resident', hasChildren: true,
+        outputTail: '新到的输出\u001b[31m tail\r\n' + 'x'.repeat(200),
+      })],
+      jobs: [jobItem()],
+    }
+    for (const columns of [14, 18, 24, 30, 40, 60, 80]) {
+      for (const rows of [7, 8, 10, 12, 24]) {
+        const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+        overlay.handleKey({ kind: 'key', name: 'enter' })
+        const frame = overlay.render(columns, rows)
+        expect(frame.flatMap(line => wrapToWidth(line, columns)).length, `${String(columns)}x${String(rows)}`)
+          .toBeLessThanOrEqual(rows)
+      }
+    }
+  })
+
+  it('still renders the state headline and facts for an item that also has a live tail', () => {
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      id: 'child-1', label: 'review', activityWord: 'reading', activityTitle: 'overlay.ts',
+      outputTail: 'streaming the newest text',
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const detail = overlay.render(80, 24).map(stripAnsi).join('\n')
+    expect(detail).toContain('reading · overlay.ts')
+    expect(detail).toContain('backend  codex')
+    expect(detail).toContain('output  streaming the newest text')
+  })
+
+  it('draws a live tail through a real terminal without leaking committed scrollback', async () => {
+    const emulator = createEmulator(60, 12)
+    const screen = new Screen(emulator.target)
+    screen.commit(['committed transcript row'])
+    const before = await emulator.scrollback()
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      label: '审查 renderer', outputTail: '新输出\u001b[31mred\r\n继续',
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    screen.setLive(overlay.render(60, 12))
+    const visible = await emulator.screen()
+    expect(visible.join('\n')).toContain('^[[31mred')
+    expect(visible.join('\n')).not.toContain('\u001b')
+    expect(screen.height).toBeLessThanOrEqual(12)
+    const after = await emulator.scrollback()
+    expect(after.filter(row => row.includes('committed transcript row')))
+      .toEqual(before.filter(row => row.includes('committed transcript row')))
+    emulator.dispose()
+  })
+
   it('shows job facts without consuming output or inventing controls', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, jobs: [jobItem({ detail: 'exit code: 3' })], subagents: [] }
     const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })

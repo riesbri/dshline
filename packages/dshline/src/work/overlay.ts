@@ -25,6 +25,7 @@ import {
   paint,
   SPINNER_INTERVAL_MS,
   spinnerFrame,
+  tailToWidth,
   truncateToWidth,
   wrapToWidth,
 } from '@dshline/renderer'
@@ -66,6 +67,14 @@ const NOTICE_MS = 3_000
 
 /** Columns a row spends on its gutter mark and the space after it. */
 const GUTTER_COLUMNS = 2
+
+/**
+ * The detail row key for the live assistant-text tail.
+ *
+ * Named once so the row's construction and its identity cannot drift; the key
+ * is also the row's stable selection identity, exactly like every other fact.
+ */
+const OUTPUT_KEY = 'output'
 
 /**
  * The glyph each non-animated mark draws.
@@ -746,6 +755,8 @@ function subagentRows(
     text: truncateToWidth(escapeControls(headline), textBudget(width)),
     role: 'subdued',
   })
+  const live = item.outputTail === undefined ? undefined : outputTailRow(item.outputTail, width)
+  if (live !== undefined) rows.push(live)
   rows.push(blank())
   if (item.route !== undefined) {
     rows.push(fact('model', routeLabel(item.route), width))
@@ -843,6 +854,34 @@ function fact(key: string, value: string, width: number): StageRow {
     text: truncateToWidth(`${key}  ${escapeControls(value)}`, textBudget(width)),
     role: 'subdued',
   }
+}
+
+/**
+ * Render the live assistant-text tail as ONE bounded Work row.
+ *
+ * The stream is model text, so it may carry CR/LF, controls, and wide glyphs,
+ * and a Work fact is exactly one physical row. The order below is load-bearing:
+ * collapse line structure first (a preserved newline would wrap the frame into
+ * rows the live region never budgeted), then neutralize controls, then cut from
+ * the FRONT to the display budget so the newest text survives, and style last.
+ * Cutting by code unit would slice a wide glyph in half.
+ * @param text - the newest streamed assistant text.
+ * @param width - the inner frame width available to the row.
+ * @returns the row, or undefined when nothing displayable survives.
+ */
+function outputTailRow(text: string, width: number): StageRow | undefined {
+  const prefix = `${OUTPUT_KEY}  `
+  const budget = textBudget(width) - displayWidth(prefix)
+  if (budget < 1) return undefined
+  const normalized = text.replace(/[\r\n]+/gu, ' ')
+  const escaped = escapeControls(normalized)
+  // A stream that has only produced whitespace or controls has nothing a reader
+  // can see. Rendering `output` with trailing blanks would advertise an answer
+  // that is not there, so the row is omitted until real text arrives.
+  if (escaped.trim() === '') return undefined
+  const content = tailToWidth(escaped, budget)
+  if (content === '') return undefined
+  return { kind: 'row', key: `fact:${OUTPUT_KEY}`, text: `${prefix}${content}`, role: 'assistant' }
 }
 
 /** A non-focusable section heading. */

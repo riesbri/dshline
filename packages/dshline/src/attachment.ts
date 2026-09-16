@@ -16,7 +16,6 @@ import { homedir } from 'node:os'
 import { createUserMessage, type ImageBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-agent/types'
-import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the Context merges this module reads but does not
 // otherwise import from: the questions seam and the launcher's exit request. The
@@ -63,6 +62,7 @@ import { BUSY_ENTER_CHOICES, runEnterCommand } from './enter.ts'
 import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from './activity.ts'
 import type { ModelPhase } from './activity.ts'
 import { installApprovalAnswerer } from './approval.ts'
+import { AssistantStreamAttempt } from './assistant-attempt.ts'
 import {
   createAttentionController,
   liveSessionAttention,
@@ -411,28 +411,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     ...imageDrafts.size === 0 ? {} : { images: imageDrafts.size },
   }))
   const stream = new StreamBuffer(prefs.reasoningVisible)
-  /**
-   * The attempt the live buffer currently belongs to.
-   *
-   * The frame contract orders `start`/`chunk`/`end` WITHIN one attempt and
-   * promises settlement before that attempt's `end`, but it does not promise
-   * that attempt N's frames all arrive before attempt N+1 starts — that holds
-   * only because the loop is a single sequential iteration. A late `end` from a
-   * settled attempt would otherwise reset the next attempt's buffer and make the
-   * durable `assistant/message` re-emit a reply the reader already saw.
-   */
-  let streamAttempt: AssistantStreamFrame['attemptId'] | undefined
-  /**
-   * Whether this listener has ever ADOPTED an attempt.
-   *
-   * It separates "no attempt yet", where the first frame may establish the
-   * current attempt even without a `start` (the listener attached mid-stream),
-   * from "an adopted attempt has ended", where only a new `start` may establish
-   * another. Tracking adoption rather than "has a start been seen" matters:
-   * a listener that attaches mid-stream adopts on a `chunk`, and after that
-   * attempt ends a late frame must not look like another initial adoption.
-   */
-  let streamAdopted = false
+  // Attempt identity is a pure gate shared with the Work child observer, so
+  // both folds classify a stale frame the same way. Its TSDoc carries the two
+  // distinct "no attempt" states; this listener only resets its own buffer when
+  // a new attempt begins.
+  const attempt = new AssistantStreamAttempt()
   // Scoped to the agent: a scoped tool shadows a global one, and a restricted-away
   // tool reads as absent, so the card must come from the definition that ran.
   const cards = new ToolCards(name => ctx.tools.get(name, agent), workspace)
@@ -1543,29 +1526,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // window projects one Agent.
   scope.own(ctx.on('agent/assistant-stream', ({ agent: source, frame }) => {
     if (source !== agent) return
-    // A frame is meaningful only for the attempt it names. `start` adopts a new
-    // attempt and discards whatever an earlier one left; any other frame from a
-    // different attempt is stale and ignored, so it cannot reset or prefix the
-    // current buffer.
-    //
-    // An undefined attempt means one of two different things, and confusing
-    // them is how a settled attempt gets resurrected. If NO attempt has ever
-    // been adopted, the listener attached mid-stream and the first frame it
-    // sees is current. If an attempt HAS been adopted and then ended, only the
-    // next `start` may establish another; any other frame is late.
-    if (frame.type === 'start') {
-      if (streamAttempt !== frame.attemptId) {
-        stream.reset()
-        streamAttempt = frame.attemptId
-      }
-      streamAdopted = true
-    } else if (streamAttempt === undefined) {
-      if (streamAdopted) return
-      streamAttempt = frame.attemptId
-      streamAdopted = true
-    } else if (streamAttempt !== frame.attemptId) {
-      return
-    }
+    // The gate decides what is current; this listener owns only its own buffer.
+    const decision = attempt.accept(frame)
+    if (!decision.current) return
+    if (decision.reset) stream.reset()
     const columns = terminal.columns()
     timer.observeFrame(frame)
     phase = modelPhaseAfterFrame(phase, frame)
@@ -1585,7 +1549,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // also what stops the next attempt from inheriting it and settling against
       // a prefix the model never sent.
       stream.reset()
-      streamAttempt = undefined
+      attempt.end()
     }
     draw()
   }))

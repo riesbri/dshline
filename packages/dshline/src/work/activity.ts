@@ -8,6 +8,12 @@
  * calls' presentations. A remote run without a local Agent exposes none of
  * those, and the observer simply never attaches — the row then shows no
  * invented activity.
+ *
+ * From those same frames the observer also keeps a strictly bounded,
+ * transient tail of the newest assistant TEXT, for the detail stage to show
+ * that the child is answering rather than merely running. It is never a
+ * transcript, is cleared on every attempt and turn boundary, and is dropped
+ * with the observer.
  * @module dshline/work/activity
  */
 
@@ -18,7 +24,21 @@ import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from '../activity.ts'
 import type { ActivityWord, ModelPhase } from '../activity.ts'
+import { AssistantStreamAttempt } from '../assistant-attempt.ts'
 import { PendingToolCalls } from '../tool-pending.ts'
+
+/**
+ * How many UTF-16 code units of the newest assistant text a Work row keeps.
+ *
+ * A Work detail fact is one physical row and the widest Work frame is 100
+ * columns, so its content budget is under ~98 display columns. A CJK code
+ * point is one UTF-16 code unit and two columns, and an astral code point is
+ * two code units and two columns, so 256 code units is safely more than any one
+ * row can display while never retaining a whole answer. That trade is the
+ * point: enough to show the newest words, too little to become a second
+ * transcript.
+ */
+export const OUTPUT_TAIL_LIMIT = 256
 
 /** The live activity facts a Work row may truthfully present. */
 export interface ChildActivityReading {
@@ -29,6 +49,12 @@ export interface ChildActivityReading {
   readonly word?: ActivityWord
   /** The newest pending call's presentation title, when its tool declared one. */
   readonly title?: string
+  /**
+   * The newest streamed assistant text of the current attempt; absent when
+   * there is none. Never a durable transcript, and cleared at every attempt,
+   * turn, and observer boundary.
+   */
+  readonly outputTail?: string
   /** Whether the live Agent is running, which drives the row's spinner. */
   readonly busy: boolean
   /** The live Agent's published status, for the detail stage. */
@@ -90,6 +116,13 @@ function openTurnSuffix(session: Session): readonly SessionEvent[] {
  */
 export class ChildActivityObserver {
   private phase: ModelPhase = 'waiting'
+  /**
+   * The newest assistant text of the current attempt, bounded to
+   * {@link OUTPUT_TAIL_LIMIT} code units. Transient presentation only.
+   */
+  private output = ''
+  /** The shared attempt-identity gate, so a stale frame is never folded. */
+  private readonly attempt = new AssistantStreamAttempt()
   private readonly pending: PendingToolCalls
   private readonly disposers: (() => void)[] = []
   private disposed = false
@@ -154,6 +187,20 @@ export class ChildActivityObserver {
       this.disposers.push(child.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
         if (agent !== child) return
         if (this.disposed) return
+        // A stale or foreign frame is dropped before it can fold phase, clear
+        // the tail, or repaint — the same gate the main attachment uses.
+        const decision = this.attempt.accept(frame)
+        if (!decision.current) return
+        if (decision.reset) this.output = ''
+        if (frame.type === 'end') {
+          // A settled or abandoned attempt leaves no live text. Only its own
+          // `start` may establish another attempt's tail.
+          this.output = ''
+          this.attempt.end()
+        } else if (frame.type === 'chunk' && frame.chunk.type === 'text-delta') {
+          // Newest kept, oldest discarded; the concatenation is never unbounded.
+          this.output = (this.output + frame.chunk.text).slice(-OUTPUT_TAIL_LIMIT)
+        }
         this.phase = modelPhaseAfterFrame(this.phase, frame)
         onChange()
       }))
@@ -168,6 +215,9 @@ export class ChildActivityObserver {
     }))
     this.disposers.push(ctx.on('agent/disposed', (payload: { agent: Agent }) => {
       if (payload.agent !== child) return
+      // The tail is about a live Agent; a disposed one has no current attempt.
+      this.output = ''
+      this.attempt.end()
       this.disposed = true
       onChange()
     }))
@@ -199,6 +249,10 @@ export class ChildActivityObserver {
       // a `reading`/`editing`/`running` claim for calls a dead turn will never
       // answer.
       this.pending.reset()
+      // The turn boundary also ends the live attempt: its tail is not part of
+      // the next turn's answer.
+      this.output = ''
+      this.attempt.end()
     }
     this.phase = modelPhaseAfter(this.phase, event)
   }
@@ -217,12 +271,16 @@ export class ChildActivityObserver {
       busy: this.status === 'running',
       ...this.status === undefined ? {} : { status: this.status },
       ...title === undefined ? {} : { title },
+      // Absence stays distinct from an empty answer: an attempt that streamed
+      // nothing yet is not an attempt that streamed "".
+      ...this.output === '' ? {} : { outputTail: this.output },
     }
   }
 
   /** Stop observing; late events are contained and never repaint this epoch. */
   dispose(): void {
     this.disposed = true
+    this.output = ''
     for (const dispose of this.disposers.splice(0)) dispose()
   }
 }

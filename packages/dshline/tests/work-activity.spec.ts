@@ -18,6 +18,7 @@ import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { stripAnsi } from '@dshline/renderer'
 import { HarnessWork } from '../src/work/index.ts'
+import { ChildActivityObserver, OUTPUT_TAIL_LIMIT } from '../src/work/activity.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { WorkInterruptResult, WorkSnapshot, SubagentWorkItem } from '../src/work/model.ts'
 import { activeElapsedMs, subagentDuration } from '../src/work/model.ts'
@@ -43,19 +44,31 @@ function result(id: string): SessionEvent {
   })
 }
 
-/** One live chunk frame for the child's current attempt. */
-function frame(chunk: unknown): AssistantStreamFrame {
-  return { type: 'chunk', attemptId: 's:1', revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
+/** One live chunk frame for one attempt of the child's stream. */
+function frame(chunk: unknown, attemptId = 's:1'): AssistantStreamFrame {
+  return { type: 'chunk', attemptId, revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
 }
 
 /** A reasoning delta frame. */
-function reasoning(text = 'thinking…'): AssistantStreamFrame {
-  return frame({ type: 'reasoning-delta', index: 0, text })
+function reasoning(value = 'thinking…', attemptId = 's:1'): AssistantStreamFrame {
+  return frame({ type: 'reasoning-delta', index: 0, text: value }, attemptId)
 }
 
 /** A text delta frame. */
-function text(): AssistantStreamFrame {
-  return frame({ type: 'text-delta', index: 0, text: 'answer' })
+function text(value = 'answer', attemptId = 's:1'): AssistantStreamFrame {
+  return frame({ type: 'text-delta', index: 0, text: value }, attemptId)
+}
+
+/** The opening marker of one attempt. */
+function startFrame(attemptId = 's:1'): AssistantStreamFrame {
+  return { type: 'start', attemptId, revision: 1, turn: 1, step: 1 } as AssistantStreamFrame
+}
+
+/** The terminal marker of one attempt. */
+function endFrame(attemptId = 's:1'): AssistantStreamFrame {
+  return {
+    type: 'end', attemptId, revision: 2, index: 1, outcome: { kind: 'abandoned' },
+  } as AssistantStreamFrame
 }
 
 /** A per-name resolved call presentation, proving classification rides the definition. */
@@ -884,6 +897,214 @@ describe('per-child semantic activity for Work', () => {
     expect(row?.timing).toBeUndefined()
     expect(row?.tokens).toBeUndefined()
     expect(row?.activityWord).toBeUndefined()
+    work.dispose()
+  })
+})
+
+describe('bounded transient assistant output for Work rows', () => {
+  it('exposes the newest streamed assistant text, in order', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('Hello ', 'a1'))
+    publishFrame(child, text('world', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('Hello world')
+    work.dispose()
+  })
+
+  it('keeps only assistant text, never reasoning, tool arguments, or markers', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('visible', 'a1'))
+    publishFrame(child, reasoning('hidden thought', 'a1'))
+    publishFrame(child, frame({
+      type: 'tool-call-delta', index: 0, id: 't1', argumentsDelta: '{"secret":1}',
+    }, 'a1'))
+    publishFrame(child, frame({ type: 'block-start', index: 0, blockType: 'text' }, 'a1'))
+    publishFrame(child, frame({ type: 'usage', usage: {} }, 'a1'))
+    publishFrame(child, frame({ type: 'finish', reason: 'stop' }, 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('visible')
+    // Interleaved text still accumulates in order, around the ignored chunks.
+    publishFrame(child, text(' more', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('visible more')
+    work.dispose()
+  })
+
+  it('clears the prior attempt text when a new attempt starts', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('first', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('first')
+    publishFrame(child, startFrame('a2'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    publishFrame(child, text('second', 'a2'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('second')
+    work.dispose()
+  })
+
+  it('ignores a frame from a foreign or stale attempt', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('mine', 'a1'))
+    publishFrame(child, text('STALE', 'a2'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('mine')
+    work.dispose()
+  })
+
+  it('establishes the tail from a text delta when attaching mid-attempt', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    // No `start` was ever observed: the first frame adopts the attempt.
+    publishFrame(child, text('mid-stream', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('mid-stream')
+    work.dispose()
+  })
+
+  it('clears the transient tail when the attempt ends', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('gone', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('gone')
+    publishFrame(child, endFrame('a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('does not resurrect output from a late delta after end', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('first', 'a1'))
+    publishFrame(child, endFrame('a1'))
+    publishFrame(child, text('STALE', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('clears the tail when the child turn ends', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    rootCtx.emit('session/event', child.session, ev('turn/start', { turn: 1 }))
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('before end', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('before end')
+    rootCtx.emit('session/event', child.session, ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('clears and stops the tail when the observed Agent is disposed', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('live', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('live')
+    rootCtx.emit('agent/disposed', { agent: child })
+    const row = work.snapshot().subagents[0]
+    expect(row?.id).toBe('child')
+    expect(row?.outputTail).toBeUndefined()
+    expect(row?.busy).toBe(false)
+    // A late frame after disposal must not repaint or restore the tail.
+    publishFrame(child, text('after', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('clears the tail in the observer’s own disposal path', () => {
+    const child = makeChild('child')
+    const observer = new ChildActivityObserver(new Context(), child, () => undefined, () => {})
+    publishFrame(child, text('live', 'a1'))
+    expect(observer.reading().outputTail).toBe('live')
+    observer.dispose()
+    // Disposed readings carry no tail at all, and late frames change nothing.
+    expect(observer.reading().outputTail).toBeUndefined()
+    publishFrame(child, text('after', 'a1'))
+    expect(observer.reading().outputTail).toBeUndefined()
+  })
+
+  it('drops the tail with the lifecycle epoch', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start, end } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, text('live', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('live')
+    end({ runId: 'r1', provider: 'spawn', id: 'child', local: true, stopReason: 'completed' })
+    expect(work.snapshot().subagents).toEqual([])
+  })
+
+  it('bounds the tail to the newest characters after a very long stream', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    for (let i = 0; i < 5; i += 1) publishFrame(child, text('x'.repeat(5_000), 'a1'))
+    publishFrame(child, text('NEWEST', 'a1'))
+    const tail = work.snapshot().subagents[0]?.outputTail
+    expect(tail).toBeDefined()
+    expect(tail!.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(tail!.endsWith('NEWEST')).toBe(true)
+    work.dispose()
+  })
+
+  it('omits live output for a provider-managed child', () => {
+    const rootCtx = new Context()
+    const { work, start } = harness(rootCtx, {}, new Map())
+    start({ runId: 'r1', provider: 'codex', id: 'remote', local: false })
+    expect(work.snapshot().subagents[0]?.local).toBe(false)
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('invalidates once per accepted frame and not at all for a stale one', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start, invalidations } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    const before = invalidations()
+    // Each accepted frame folds activity and text before asking for ONE redraw.
+    publishFrame(child, startFrame('a1'))
+    expect(invalidations()).toBe(before + 1)
+    publishFrame(child, text('one', 'a1'))
+    expect(invalidations()).toBe(before + 2)
+    // A foreign attempt changes nothing, so it must not spend a redraw.
+    publishFrame(child, text('stale', 'a2'))
+    expect(invalidations()).toBe(before + 2)
     work.dispose()
   })
 })
