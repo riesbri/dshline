@@ -180,7 +180,12 @@ async function run(
   // thing to open is the flow that fixes that rather than a composer that
   // will fail on submission. It returns immediately when a route is
   // registered, which is every ordinary launch.
-  await offerSetup(w)
+  //
+  // A confirmed Harness generation mismatch stops the launch here. The window
+  // is open and the report is in scrollback, but `runSetup` has refused to
+  // continue, so no Agent is attached and none of the generation-specific
+  // calls in `attachment.ts` is ever reached. `ctrl-d` remains the way out.
+  if (await offerSetup(w) === 'blocked') return
   // The launch flag decides the FIRST target only. Everything after it is the
   // reader's own choice, made through the session browser or `/new`.
   let target: AttachTarget = w.startup.resume === undefined

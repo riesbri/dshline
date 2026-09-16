@@ -178,6 +178,20 @@ export function compareGenerations(
 }
 
 /**
+ * Compare the installed Harness generation with the adopted one.
+ *
+ * The one comparison the report and the startup gate both use. A second
+ * reading written for the gate would be a second authority that could tell a
+ * reader their pair is coherent while the report beside it said otherwise —
+ * exactly the disagreement the report's single-pass design exists to prevent.
+ * @param ctx - the plugin context carrying `dshHomePath` and `baseUrl`.
+ * @returns the comparison, with `unknown` whenever either side is missing.
+ */
+export async function readHarnessGeneration(ctx: Context): Promise<HarnessGeneration> {
+  return compareGenerations(adoptedGeneration(), await installedGeneration(ctx))
+}
+
+/**
  * Read every surface setup reports on, once.
  * @param ctx - the plugin context carrying the Harness seams.
  * @param version - this frontend's version, from the runner's own constant.
@@ -211,7 +225,7 @@ export async function gatherSetupFacts(
   return {
     node: process.versions.node,
     dshline: version,
-    harness: compareGenerations(adoptedGeneration(), await installedGeneration(ctx)),
+    harness: await readHarnessGeneration(ctx),
     profile: await currentProfile(ctx),
     connect,
     selected,
