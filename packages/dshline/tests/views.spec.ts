@@ -800,6 +800,27 @@ describe('the status line', () => {
     expect(status()).not.toContain('(')
   })
 
+  it('keeps a route-qualified identity whole, and drops route and effort together', () => {
+    // Two provider routes can advertise the same model id, so the segment names
+    // the route. It is one fact: a width that cannot hold it must not leave a
+    // provider prefix without its model, or an effort without its route.
+    const route = 'opencode/deepseek-v4-pro'
+    expect(status({ model: route })).toContain(route)
+    const wide = status({ model: route, effort: 'max', tokens: 130_000, contextWindow: 1_000_000 }, 120)
+    expect(wide).toContain('opencode/deepseek-v4-pro (max)')
+    const narrow = status({ model: route, effort: 'max', tokens: 130_000, contextWindow: 1_000_000 }, 30)
+    expect(narrow).not.toContain('opencode')
+    expect(narrow).not.toContain('deepseek-v4-pro')
+    expect(narrow).not.toContain('(max)')
+    expect(narrow).toContain('130k/1.0M')
+  })
+
+  it('shows an escape sequence in a provider or model id instead of obeying it', () => {
+    // Both halves originate upstream; escaping only the model would let a
+    // provider id operate the terminal.
+    expect(status({ model: 'evil\u001b[2Jroute/model' })).toContain('evil^[[2Jroute/model')
+  })
+
   it('says when plan mode is in force, and stays quiet otherwise', () => {
     // A session quietly refusing to edit files looks exactly like one that will,
     // and the command that set it has long scrolled away.

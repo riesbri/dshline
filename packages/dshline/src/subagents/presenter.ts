@@ -230,7 +230,7 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
       abort: new AbortController(),
       readGeneration: 0,
       eventGeneration: 0,
-      notice: new SurfaceNotice(CONVERSATION_NOTICE_MS),
+      notice: new SurfaceNotice(CONVERSATION_NOTICE_MS, { invalidate: deps.invalidate }),
     }
     conversation = state
     conversationAbort = state.abort
@@ -249,6 +249,7 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
         // Cancel this inspector's in-flight reads now, rather than waiting for
         // the next open or teardown, so a late page never reaches a dead surface.
         state.abort.abort()
+        state.notice.dispose()
         close()
       },
       invalidate: deps.invalidate,
@@ -307,6 +308,7 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
       catalogGeneration += 1
       catalogAbort?.abort()
       conversationAbort?.abort()
+      conversation?.notice.dispose()
       conversation = undefined
       for (const dispose of disposers.splice(0)) dispose()
     },

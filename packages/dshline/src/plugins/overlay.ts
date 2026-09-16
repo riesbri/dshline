@@ -29,6 +29,8 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
+import { SurfaceNotice } from '../surface.ts'
+import type { SurfaceNoticeReading } from '../surface.ts'
 import type { CompositionRow } from './composition.ts'
 import type { PluginsState } from './catalog.ts'
 import { compositionRowFacts, filterCompositionRows, rowMark } from './model.ts'
@@ -87,13 +89,6 @@ export interface PluginsOverlaySpec {
   readonly invalidate: () => void
 }
 
-/** A transient message shown over the list without committing a transcript row. */
-interface Notice {
-  readonly text: string
-  readonly failed: boolean
-  readonly expiresAt: number
-}
-
 /**
  * The drawn document, and where its choices landed among the physical rows.
  *
@@ -138,7 +133,9 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
   let selected = 0
   let visible: readonly CompositionRow[] = []
   let closed = false
-  let notice: Notice | undefined
+  // The notice owns its own expiry repaint; the surface passes its injected
+  // clock so one timeline grades the deadline and arms the timer.
+  const notice = new SurfaceNotice(NOTICE_MS, { now: spec.now, invalidate: spec.invalidate })
   // Search is entered explicitly with `/`, unlike every other dshline picker's
   // always-on type-to-filter: `space`, `p`, and `d` are single-key actions
   // here, and a composition row's own id or package name routinely contains
@@ -155,10 +152,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
     closed = true
     spec.close()
   }
-  const currentNotice = (): Notice | undefined => {
-    if (notice !== undefined && spec.now() >= notice.expiresAt) notice = undefined
-    return notice
-  }
+  const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
   const move = (amount: number): void => {
     if (visible.length === 0) return
     selected = (selected + amount + visible.length) % visible.length
@@ -182,11 +176,14 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
 
   return {
     report(text, failed) {
-      notice = { text, failed, expiresAt: spec.now() + NOTICE_MS }
+      notice.show(text, failed)
       spec.invalidate()
     },
     closed(): boolean {
       return closed
+    },
+    dispose(): void {
+      notice.dispose()
     },
     render(columns, terminalRows = 24) {
       const state = spec.state()
@@ -583,7 +580,7 @@ function compactFallback(
   shown: number,
   columns: number,
   rows: number,
-  notice: Notice | undefined,
+  notice: SurfaceNoticeReading | undefined,
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {

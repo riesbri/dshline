@@ -86,6 +86,135 @@ describe('SurfaceNotice', () => {
     expect(stripAnsi(row)).toContain('a^[[2Jb')
     expect(noticeRow(undefined, 40)).toBeUndefined()
   })
+
+  it('asks for one repaint when the lifetime ends, with no user input', () => {
+    vi.useFakeTimers()
+    try {
+      const invalidate = vi.fn()
+      const notice = new SurfaceNotice(1_000, { invalidate })
+      notice.show('failed to compact')
+      expect(notice.read()).toEqual({ text: 'failed to compact', failed: false })
+      expect(vi.getTimerCount()).toBe(1)
+
+      vi.advanceTimersByTime(999)
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(notice.read()).toBeDefined()
+
+      vi.advanceTimersByTime(1)
+      // The timer only asked for the repaint; the render retires the notice.
+      expect(invalidate).toHaveBeenCalledTimes(1)
+      expect(notice.read()).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps one deadline on replacement, so an old one cannot retire the newer notice', () => {
+    vi.useFakeTimers()
+    try {
+      const invalidate = vi.fn()
+      const notice = new SurfaceNotice(1_000, { invalidate })
+      notice.show('first')
+      vi.advanceTimersByTime(500)
+      notice.show('second')
+      // Latest wins: the first deadline was cancelled, not merely superseded.
+      expect(vi.getTimerCount()).toBe(1)
+
+      // Past the FIRST deadline. If the old timer survived, it would either
+      // repaint here or (if it cleared state) drop the replacement.
+      vi.advanceTimersByTime(500)
+      expect(notice.read()).toEqual({ text: 'second', failed: false })
+      expect(invalidate).not.toHaveBeenCalled()
+
+      // A full lifetime from the replacement, not a millisecond less.
+      vi.advanceTimersByTime(499)
+      expect(notice.read()).toEqual({ text: 'second', failed: false })
+      vi.advanceTimersByTime(1)
+      expect(invalidate).toHaveBeenCalledTimes(1)
+      expect(notice.read()).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('schedules nothing at all while no notice is active', () => {
+    vi.useFakeTimers()
+    try {
+      const invalidate = vi.fn()
+      const notice = new SurfaceNotice(1_000, { invalidate })
+      expect(vi.getTimerCount()).toBe(0)
+      expect(notice.read()).toBeUndefined()
+      vi.advanceTimersByTime(10_000)
+      expect(invalidate).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels the deadline on dispose and refuses a later show', () => {
+    vi.useFakeTimers()
+    try {
+      const invalidate = vi.fn()
+      const notice = new SurfaceNotice(1_000, { invalidate })
+      notice.show('a refusal')
+      notice.dispose()
+      expect(notice.read()).toBeUndefined()
+      expect(vi.getTimerCount()).toBe(0)
+
+      vi.advanceTimersByTime(10_000)
+      // A late result from an in-flight action must not resurrect the surface.
+      notice.show('too late')
+      expect(notice.read()).toBeUndefined()
+      expect(invalidate).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels the pending repaint when a read retires the notice first', () => {
+    vi.useFakeTimers()
+    try {
+      let clock = 0
+      const invalidate = vi.fn()
+      const notice = new SurfaceNotice(1_000, { now: () => clock, invalidate })
+      notice.show('a refusal')
+      clock = 1_000
+      expect(notice.read()).toBeUndefined()
+      // The deadline is not a second authority: a lazy retirement cancels the
+      // repaint the timer would otherwise request.
+      expect(vi.getTimerCount()).toBe(0)
+      vi.advanceTimersByTime(10_000)
+      expect(invalidate).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits out the last of the lifetime when the timer fires early', () => {
+    vi.useFakeTimers()
+    try {
+      let clock = 0
+      const invalidate = vi.fn()
+      const notice = new SurfaceNotice(1_000, { now: () => clock, invalidate })
+      notice.show('a refusal')
+      // The real timer reaches its 1000ms mark while the injected clock is still
+      // at 999ms. Repainting now would render a notice `read` still calls
+      // current and leave no timer behind, so the callback waits the last
+      // millisecond instead.
+      clock = 999
+      vi.advanceTimersByTime(1_000)
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(vi.getTimerCount()).toBe(1)
+
+      clock = 1_000
+      vi.advanceTimersByTime(1)
+      expect(invalidate).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(notice.read()).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('frameBounded', () => {

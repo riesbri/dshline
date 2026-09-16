@@ -137,7 +137,7 @@ export interface ContextOverlaySpec {
 export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
   const viewport = new RowViewport()
   const focus = new FocusRing()
-  const notice = new SurfaceNotice(NOTICE_MS)
+  const notice = new SurfaceNotice(NOTICE_MS, { invalidate: spec.invalidate })
   let stage: Stage = { kind: 'overview' }
   let closed = false
   let compacting = false
@@ -182,17 +182,18 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
     ticker = undefined
   }
   /**
-   * Run the animation heartbeat only while something is actually animating.
+   * Run the animation heartbeat only while a compaction is actually running.
    *
    * An inspector that is merely open has nothing moving on it, so an idle
-   * interval would be a timer that exists to do nothing. This one starts when a
-   * compaction does and retires itself once neither it nor a notice is left.
+   * interval would be a timer that exists to do nothing. The notice no longer
+   * relies on this ticker to repaint: it owns its own unref'd expiry, so this
+   * one stops as soon as the compaction itself has nothing left to animate.
    */
   const startTicker = (): void => {
     // Unref'd, so a running spinner never keeps the process alive on its own.
     ticker ??= setInterval(() => {
       tick += 1
-      if (!compacting && notice.read() === undefined) {
+      if (!compacting) {
         stopTicker()
         return
       }
@@ -223,7 +224,10 @@ export function createContextOverlay(spec: ContextOverlaySpec): TuiOverlay {
   }
 
   return {
-    dispose: stopTicker,
+    dispose: () => {
+      stopTicker()
+      notice.dispose()
+    },
     render(columns, terminalRows = 24) {
       const activeNotice = notice.read()
       const width = chromeWidth(columns)

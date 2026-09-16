@@ -1,6 +1,6 @@
 /** Tests for the lineage browser's ordering, keyboard, safety, and bounds. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Key, KeyName } from '@dshline/renderer'
 import { displayWidth, Screen, stripAnsi } from '@dshline/renderer'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -327,6 +327,38 @@ describe('focusing and closing', () => {
     expect(plain(view)).toContain('That session is not in the current list.')
     clock += 4_000
     expect(plain(view)).not.toContain('That session is not in the current list.')
+  })
+
+  it('asks for a repaint at expiry, and none after close', () => {
+    // An idle tree has no heartbeat, so the notice's own timer retires the
+    // refusal without a keypress.
+    vi.useFakeTimers()
+    try {
+      let invalidates = 0
+      const overlay = createLineageOverlay({
+        lineage: () => ready([row('target', 'target', 0)], 0),
+        requestLineage: () => {},
+        target: TARGET,
+        home: '/home/dev',
+        now: () => Date.now(),
+        focus: () => false,
+        close: () => {},
+        invalidate: () => { invalidates += 1 },
+      })
+      overlay.render(COLUMNS, ROWS)
+      overlay.handleKey({ kind: 'key', name: 'enter' })
+      const afterShow = invalidates
+      vi.advanceTimersByTime(4_000)
+      expect(invalidates).toBe(afterShow + 1)
+
+      overlay.handleKey({ kind: 'key', name: 'enter' })
+      const beforeDispose = invalidates
+      overlay.dispose?.()
+      vi.advanceTimersByTime(4_000)
+      expect(invalidates).toBe(beforeDispose)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('ignores text and closes on escape or ctrl-c', () => {

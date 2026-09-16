@@ -30,8 +30,8 @@ import { escapeControls } from '@dshline/renderer'
  *
  * The distinction is about the live selection alone. A `done` whose message
  * notes that the default could not be saved is still `done`: the write to the
- * ref already happened, so the next turn uses the new selection, and the note
- * is about a later session. Persistence is deliberately not part of this
+ * ref already happened, so the next model step uses the new selection, and the
+ * note is about a later session. Persistence is deliberately not part of this
  * verdict.
  */
 export interface SelectionOutcome {
@@ -47,7 +47,7 @@ export interface SelectionOutcome {
  * Never throws, and deliberately never undoes the in-memory switch on failure.
  * The two are independent: the model HAS changed for this session by the time
  * this runs, and a settings document that could not be written is a reason to
- * say so, not a reason to pretend the turn will use the old model.
+ * say so, not a reason to pretend the next model step will use the old model.
  *
  * The note is claimed only when a settings provider is mounted to receive the
  * write. Without one the service keeps its composition entry and resolves

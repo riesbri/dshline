@@ -729,7 +729,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     {
       name: 'model',
-      description: 'Choose the provider and model for the next turn',
+      description: 'Choose the provider and model for subsequent model steps',
       // The vocabulary is model-owned: each value is the `provider/model` route
       // the row names, with the bare id an alias for search. Building it here
       // from a bare model list is what once let two rows insert the same
@@ -814,7 +814,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     {
       name: 'reasoning',
-      description: 'Set how hard the model thinks, for the next turn',
+      description: 'Set reasoning effort for subsequent model steps',
       complete: () => reasoningValues(w.modelInfo.reasoning),
       execute: async rawInput => {
         // The levels are a short fixed set a person learns by heart, so
@@ -1282,6 +1282,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // The registry validates each unit's view on the way out, so reading it
     // twice would pay for that twice on a line redrawn by every spinner beat.
     const projected = projections.snapshot()
+    const selected = selection.current
     return {
       busy: agent.status === 'running',
       tick,
@@ -1289,8 +1290,17 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       activityWord: primaryActivity(phase, cards.semanticActivity()),
       activity: cards.inFlight(),
       attention: attention.current(),
-      model: selection.current?.model,
-      effort: effortLabel(selection.current?.reasoningEffort, w.modelInfo.reasoning),
+      // The live selected route, route-qualified. This is the selected model
+      // configuration, not a claim about the route a step already in assembly is
+      // privately using: Harness captures `current` at `system-prompt/assemble`
+      // start and publishes the captured value only after the downstream
+      // assembly returns, and the ABA case (current moving away and back while
+      // an assembly is paused) makes that private capture unobservable here. So
+      // the footer reports only what `current` proves. Two provider routes can
+      // advertise the same model id, so the route is named; there is no
+      // discovery, no cache, and no parsing a provider from a string.
+      model: selected === undefined ? undefined : `${selected.provider}/${selected.model}`,
+      effort: effortLabel(selected?.reasoningEffort, w.modelInfo.reasoning),
       // The SAME snapshot one field over. Harness's `permissions` projection is
       // the effective current selection, folded from `permission/preset`,
       // `sandbox/mode`, `approval/policy`, and the composition defaults — not

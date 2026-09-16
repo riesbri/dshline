@@ -16,6 +16,8 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
+import { SurfaceNotice } from '../surface.ts'
+import type { SurfaceNoticeReading } from '../surface.ts'
 import type { LineageRow, LineageState } from './model.ts'
 import { relativeAge, shortWorkspace, UNTITLED } from './model.ts'
 
@@ -65,12 +67,6 @@ export interface LineageOverlaySpec {
   readonly invalidate: () => void
 }
 
-/** A transient focus refusal that never enters terminal scrollback. */
-interface Notice {
-  readonly text: string
-  readonly expiresAt: number
-}
-
 /** Rendered document rows and the physical span occupied by its selection. */
 interface Rendered {
   readonly rows: readonly string[]
@@ -87,7 +83,9 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
   const viewport = new RowViewport()
   let selected = 0
   let selectionFor: SessionId | undefined
-  let notice: Notice | undefined
+  // The notice owns its own expiry repaint; the surface passes its injected
+  // clock so one timeline grades the deadline and arms the timer.
+  const notice = new SurfaceNotice(NOTICE_MS, { now: spec.now, invalidate: spec.invalidate })
   let closed = false
   let mounted = false
 
@@ -97,10 +95,7 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
     closed = true
     spec.close()
   }
-  const currentNotice = (): Notice | undefined => {
-    if (notice !== undefined && spec.now() >= notice.expiresAt) notice = undefined
-    return notice
-  }
+  const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
   const ready = (): Extract<LineageState, { kind: 'ready' }> | undefined => {
     if (target === undefined) return undefined
     const state = spec.lineage(target)
@@ -145,10 +140,7 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
       close()
       return
     }
-    notice = {
-      text: 'That session is not in the current list.',
-      expiresAt: spec.now() + NOTICE_MS,
-    }
+    notice.show('That session is not in the current list.')
     spec.invalidate()
   }
 
@@ -234,6 +226,9 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
         default:
           return
       }
+    },
+    dispose(): void {
+      notice.dispose()
     },
   }
 }
@@ -473,7 +468,7 @@ function compactFallback(
   state: LineageState,
   columns: number,
   rows: number,
-  notice: Notice | undefined,
+  notice: SurfaceNoticeReading | undefined,
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {

@@ -329,6 +329,42 @@ describe('keys', () => {
     view.press(key('ctrl-c'))
     expect(view.overlay.closed()).toBe(true)
   })
+
+  it('asks for a repaint at expiry, and none after close', () => {
+    // With nothing running there is no heartbeat, so the notice's own timer is
+    // what retires the result on an idle browser.
+    vi.useFakeTimers()
+    try {
+      let invalidates = 0
+      const overlay = createProfilesOverlay({
+        state: () => roster,
+        activity: () => QUIET,
+        refresh: () => {},
+        addBundle: () => {},
+        updateBundle: () => {},
+        removeBundle: () => {},
+        removeDependency: () => {},
+        createProfile: () => {},
+        explainBoot: () => {},
+        now: () => Date.now(),
+        close: () => {},
+        invalidate: () => { invalidates += 1 },
+      })
+      overlay.render(COLUMNS, ROWS)
+      overlay.report('restart required', false)
+      const afterShow = invalidates
+      vi.advanceTimersByTime(8_000)
+      expect(invalidates).toBe(afterShow + 1)
+
+      overlay.report('again', false)
+      const beforeDispose = invalidates
+      overlay.dispose?.()
+      vi.advanceTimersByTime(8_000)
+      expect(invalidates).toBe(beforeDispose)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('what is happening right now stays on screen', () => {

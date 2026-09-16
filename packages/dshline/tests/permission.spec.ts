@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import type { LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
@@ -87,6 +88,13 @@ async function fixture(options: {
   readonly reasoning?: LlmModelReasoningInfo
   /** The selection the window opens with. */
   readonly selected?: ModelSelectionRef['current']
+  /**
+   * A complete ref to open with, when a test needs `assembled` as well as
+   * `current` (the running step's captured selection).
+   */
+  readonly modelSelection?: ModelSelectionRef
+  /** The attached Agent's running state, which gates the `next` reading. */
+  readonly agentStatus?: 'idle' | 'running'
   /** Mount a default-model service whose save rejects, for applied-but-unsaved. */
   readonly saveFailure?: boolean
 } = {}): Promise<{
@@ -149,7 +157,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: options.selected },
+    selection: options.modelSelection ?? { current: options.selected },
     modelInfo: { contextWindow: undefined, reasoning: options.reasoning },
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },
     colorDepth: 0,
@@ -175,7 +183,7 @@ async function fixture(options: {
   }
   const agent = {
     session,
-    status: 'idle',
+    status: options.agentStatus ?? 'idle',
     inbox: { nextStep: [], nextTurn: [] },
     followup: vi.fn(),
     steer: vi.fn(),
@@ -906,6 +914,215 @@ describe('attention on applied selection changes', () => {
     press(mounted.dispatch, { kind: 'key', name: 'enter' })
     await flush()
     expect(frame(mounted.frames)).toContain('reasoning → max')
+  })
+})
+
+describe('the live model identity in the persistent status', () => {
+  /** Two routes advertising the same model id: the ambiguity this reading fixes. */
+  const ROUTES: Record<string, readonly { id: string; name: string }[]> = {
+    'deepseek-official': [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }],
+    opencode: [{ id: 'deepseek-v4-pro', name: 'OpenCode DeepSeek' }],
+  }
+
+  /**
+   * The status row of the latest composed frame, which is the persistent fact.
+   * @param frames - every composed live-region frame.
+   * @returns the last row, unstyled.
+   */
+  function statusRow(frames: readonly string[][]): string {
+    return stripAnsi((frames.at(-1) ?? []).at(-1) ?? '')
+  }
+
+  it('reports the initial selection route-qualified', async () => {
+    const mounted = await fixture({
+      providers: ['deepseek-official', 'opencode'],
+      models: ROUTES,
+      selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+    })
+    await flush()
+    expect(statusRow(mounted.frames)).toContain('deepseek-official/deepseek-v4-pro')
+  })
+
+  it('distinguishes two routes serving the same model id after /model switches', async () => {
+    const mounted = await fixture({
+      providers: ['deepseek-official', 'opencode'],
+      models: ROUTES,
+      selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+    })
+    await flush()
+    expect(statusRow(mounted.frames)).toContain('deepseek-official/deepseek-v4-pro')
+    type(mounted.dispatch, '/model opencode/deepseek-v4-pro')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    // The same bare id on another route is a different reading, not a reselect.
+    expect(statusRow(mounted.frames)).toContain('opencode/deepseek-v4-pro')
+    expect(statusRow(mounted.frames)).not.toContain('deepseek-official/deepseek-v4-pro')
+  })
+
+  it('keeps the route-qualified status after the model-change notice expires', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const mounted = await fixture({
+        providers: ['deepseek-official', 'opencode'],
+        models: ROUTES,
+        selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      })
+      await flush()
+      type(mounted.dispatch, '/model opencode/deepseek-v4-pro')
+      press(mounted.dispatch, { kind: 'key', name: 'enter' })
+      await flush()
+      expect(frame(mounted.frames)).toContain('model → opencode/deepseek-v4-pro')
+      vi.advanceTimersByTime(4_000)
+      // The transient emphasis is gone; the identity it announced is the live
+      // selection and outlives it.
+      expect(frame(mounted.frames)).not.toContain('model →')
+      expect(statusRow(mounted.frames)).toContain('opencode/deepseek-v4-pro')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the reasoning effort attached to the route-qualified identity', async () => {
+    const mounted = await fixture({
+      providers: ['openai'],
+      models: { openai: [{ id: 'gpt-x', name: 'GPT X' }] },
+      selected: { provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' },
+      reasoning: REASONING,
+    })
+    await flush()
+    expect(statusRow(mounted.frames)).toContain('openai/gpt-x (max)')
+  })
+})
+
+describe('the selected-model boundary during assembly', () => {
+  /**
+   * A real `installModelSelection` chain whose downstream `system-prompt/assemble`
+   * leg can be paused.
+   *
+   * Harness captures `selection.current` when the waterfall starts and publishes
+   * it into `selection.assembled` only after the downstream leg returns. A paused
+   * leg is therefore the adopted interval in which the Agent is running while
+   * `assembled` is absent (first assembly) or stale (a later one).
+   * @param initial - the selection the ref starts on.
+   * @returns the ref, pause/release controls, the starter, and the disposer.
+   */
+  function pausable(initial: ModelSelectionRef['current']): {
+    readonly selection: ModelSelectionRef
+    readonly pause: () => void
+    readonly release: () => void
+    readonly start: () => Promise<void>
+    readonly dispose: () => void
+  } {
+    const selection: ModelSelectionRef = { current: initial, assembled: undefined }
+    const ctx = new Context()
+    const dispose = installModelSelection(ctx, selection)
+    let release: () => void = () => {}
+    let gate: Promise<void> = Promise.resolve()
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      await gate
+      return next()
+    })
+    return {
+      selection,
+      pause: () => { gate = new Promise<void>(resolve => { release = resolve }) },
+      release: () => { release() },
+      start: async () => {
+        await ctx.waterfall(
+          'system-prompt/assemble',
+          {} as never,
+          {} as never,
+          () => Promise.resolve({ variables: {} } as never),
+        )
+      },
+      dispose,
+    }
+  }
+
+  /** The status row of the latest composed frame, unstyled. */
+  function statusRow(frames: readonly string[][]): string {
+    return stripAnsi((frames.at(-1) ?? []).at(-1) ?? '')
+  }
+
+  it('shows the live selection while a paused assembly has privately captured another route', async () => {
+    const paused = pausable({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      paused.pause()
+      const running = paused.start()
+      // Harness has privately captured A; `assembled` is not published yet.
+      expect(paused.selection.assembled).toBeUndefined()
+      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+
+      // The footer reports the live selected configuration. It makes no claim
+      // about the privately captured A, and offers no execution-route qualifier.
+      const mounted = await fixture({ modelSelection: paused.selection, agentStatus: 'running' })
+      await flush()
+      const line = statusRow(mounted.frames)
+      expect(line).toContain('provider-b/shared-model')
+      expect(line).not.toContain('provider-a/shared-model')
+      expect(line).not.toContain('next')
+      expect(line).not.toContain('selected')
+
+      paused.release()
+      await running
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+    } finally {
+      paused.dispose()
+    }
+  })
+
+  it('does not infer an in-progress assembly route through the ABA window', async () => {
+    // published assembled = A; current = B; an assembly starts and privately
+    // captures B; current moves back to A. Publicly current === assembled === A,
+    // yet the paused assembly will publish and use B. Neither public field proves
+    // the private capture, so the footer must not annotate either way.
+    const paused = pausable({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      await paused.start()
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+
+      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+      paused.pause()
+      const running = paused.start()
+      paused.selection.current = { provider: 'provider-a', model: 'shared-model' }
+
+      // The public state is indistinguishable from a settled A, which is exactly
+      // why `current === assembled` cannot drive an execution-confidence label.
+      expect(paused.selection.current).toEqual({ provider: 'provider-a', model: 'shared-model' })
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+
+      const mounted = await fixture({ modelSelection: paused.selection, agentStatus: 'running' })
+      await flush()
+      const line = statusRow(mounted.frames)
+      expect(line).toContain('provider-a/shared-model')
+      expect(line).not.toContain('provider-b/shared-model')
+      expect(line).not.toContain('next')
+      expect(line).not.toContain('selected')
+
+      paused.release()
+      await running
+      // The paused assembly published the B it privately captured, which no
+      // public ref value before this point could have told the footer.
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-b', model: 'shared-model' })
+    } finally {
+      paused.dispose()
+    }
+  })
+
+  it('keeps reasoning effort attached to the selected route while running', async () => {
+    const paused = pausable({ provider: 'openai', model: 'gpt-x', reasoningEffort: 'low' })
+    try {
+      paused.selection.current = { provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' }
+      const mounted = await fixture({
+        modelSelection: paused.selection,
+        agentStatus: 'running',
+        reasoning: REASONING,
+      })
+      await flush()
+      expect(statusRow(mounted.frames)).toContain('openai/gpt-x (max)')
+      expect(statusRow(mounted.frames)).not.toContain('selected')
+    } finally {
+      paused.dispose()
+    }
   })
 })
 

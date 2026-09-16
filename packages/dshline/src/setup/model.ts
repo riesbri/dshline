@@ -67,7 +67,7 @@ export interface SetupCheck {
 export type SetupReason =
   /** No adapter registered any route, so nothing can be selected at all. */
   | 'no-route'
-  /** Routes exist, but nothing resolved a selection for the next turn. */
+  /** Routes exist, but nothing resolved a selection for the next model step. */
   | 'no-selection'
   /** A selection exists, but no adapter has registered the route it names. */
   | 'unregistered-selection'
@@ -111,7 +111,7 @@ export interface SetupStep {
  * validity remains with the Harness adapter that executes the request; the
  * selector catalog is not an execution whitelist.
  * @param registered - route keys an adapter has registered, from `listProviders`.
- * @param selected - the selection the next turn would use, if any.
+ * @param selected - the selection the next model step would use, if any.
  * @param credential - readiness of the selected route, from Connect's own
  *   {@link readinessOf}; omitted where the topology already decided.
  * @returns why setup should open, or undefined when this launch can send a turn.
@@ -284,7 +284,7 @@ function connectingCheck(capabilities: ConnectCapabilities, signIns: number): Se
  * no active route the next step is `/connect`, and with an active route but a
  * missing or stale selection it is `/model`.
  * @param connect - the reading.
- * @param selected - the selection the next turn would use, if any.
+ * @param selected - the selection the next model step would use, if any.
  * @param reason - why this launch cannot send a turn, when it cannot.
  * @returns the row.
  */
