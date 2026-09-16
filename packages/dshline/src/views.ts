@@ -33,6 +33,7 @@ import type { TuiSlotView } from './slots.ts'
 import { cursorWindow } from './scroll.ts'
 import type { GoalReading } from './goals/model.ts'
 import type { PendingUserInput } from './steering.ts'
+import { LABEL_UNSAFE_RANGES } from './width-stable-tables.ts'
 
 /** What the status line reports; the runner owns the values. */
 export interface StatusState {
@@ -192,6 +193,107 @@ function isKeycapBase(code: number): boolean {
   return (code >= 0x30 && code <= 0x39) || code === 0x23 || code === 0x2a
 }
 
+/** Variation selector-15, which asks a terminal for text presentation. */
+const VS15 = 0xfe0e
+
+/** Variation selector-16, which asks a terminal for emoji presentation. */
+const VS16 = 0xfe0f
+
+/** Combining enclosing keycap, the last code point of a keycap sequence. */
+const KEYCAP = 0x20e3
+
+/** Zero-width joiner, which welds several pictographs into one drawn picture. */
+const ZWJ = 0x200d
+
+/** First emoji skin-tone modifier. */
+const MODIFIER_START = 0x1f3fb
+
+/** Last emoji skin-tone modifier. */
+const MODIFIER_END = 0x1f3ff
+
+/**
+ * Whether `code` falls inside one of `ranges`, by binary search.
+ * @param ranges - sorted inclusive ranges.
+ * @param code - the code point to locate.
+ * @returns whether a range contains `code`.
+ */
+function inRanges(ranges: readonly (readonly [number, number])[], code: number): boolean {
+  let low = 0
+  let high = ranges.length - 1
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    const range = ranges[mid]
+    if (range === undefined) return false
+    if (code < range[0]) high = mid - 1
+    else if (code > range[1]) low = mid + 1
+    else return true
+  }
+  return false
+}
+
+/**
+ * Whether every terminal advances exactly the cells `displayWidth` counts.
+ *
+ * ASCII and a zero- or two-column measurement are safe: terminals agree on
+ * those. A one-column measurement is safe only when the code point is
+ * unambiguously narrow. `LABEL_UNSAFE_RANGES` marks everything else — East Asian
+ * Ambiguous code points a terminal in an ambiguous-width mode widens, wide code
+ * points a renderer table may still measure one, and the emoji and
+ * pictographic code points a terminal may draw as a two-column picture. That
+ * set is a Unicode property, never a list of scripts: Hebrew, Arabic, and Indic
+ * letters are one column in every terminal and are kept, while a Latin-1
+ * accented letter, which is genuinely Ambiguous, is not — unless its canonical
+ * decomposition is stable, which {@link stableDecomposition} checks.
+ *
+ * The two-column branch is deliberately reached before the table: a terminal
+ * draws a wide code point two columns and the renderer agrees, whereas a stale
+ * renderer measures the same code point one and then the table catches it. That
+ * makes the predicate safe against the published renderer as well as this one.
+ * @param code - the code point.
+ * @returns whether the code point may stay in the label unchanged.
+ */
+function stableWidth(code: number): boolean {
+  if (code < 0x80) return true
+  if (codePointWidth(code) !== 1) return true
+  return !inRanges(LABEL_UNSAFE_RANGES, code)
+}
+
+/**
+ * The canonical decomposition of `code`, when every part is width-stable.
+ *
+ * A precomposed Latin accent such as `é` is East Asian Ambiguous and so is not
+ * directly safe. Its canonical decomposition, `e` + U+0301, is: the base is
+ * ASCII and the mark is zero-width in every terminal, so the pair measures and
+ * draws as one cell on both an ambiguous-wide and a narrow terminal. Returning
+ * the decomposition keeps the accent a reader sees while removing the
+ * ambiguity the terminal would otherwise be free to widen. A decomposition is
+ * only used when it does not change the measured width and introduces no
+ * sequence-forming code point, so a Hangul syllable (whose Jamo parts measure
+ * more than the syllable) and an accented Greek letter (whose base is itself
+ * Ambiguous) both fall through and are projected instead.
+ * @param code - the code point to try to keep.
+ * @returns the stable decomposition, or undefined when there is none.
+ */
+function stableDecomposition(code: number): string | undefined {
+  const char = String.fromCodePoint(code)
+  const decomposed = char.normalize('NFD')
+  if (decomposed === char) return undefined
+  if (displayWidth(decomposed) !== codePointWidth(code)) return undefined
+  for (const component of decomposed) {
+    const componentCode = component.codePointAt(0) ?? 0
+    if (
+      componentCode === VS15
+      || componentCode === VS16
+      || componentCode === ZWJ
+      || componentCode === KEYCAP
+    ) {
+      return undefined
+    }
+    if (!stableWidth(componentCode)) return undefined
+  }
+  return decomposed
+}
+
 /**
  * Project untrusted text to characters whose width every terminal agrees on.
  *
@@ -204,25 +306,19 @@ function isKeycapBase(code: number): boolean {
  *
  * The alternative, treating every East Asian Ambiguous code point as two columns
  * globally, would move geometry for every terminal that keeps them narrow and for
- * the box drawing and punctuation the chrome cannot give up. Narrowing the
- * replacement to the genuine Ambiguous set is not sufficient either: the
- * renderer's wide table trails the current Unicode release, so code points a
- * terminal is entitled to draw wide (U+231A, U+2630, U+4DC0, …) are measured one,
- * and a text-default emoji widened by VS16 is not Ambiguous at all. So the
- * predicate is deliberately the conservative one: a visible non-ASCII code point
- * that is neither already wide nor zero-width is replaced, whether or not it is
- * genuinely Ambiguous. That is self-healing at the cost of replacing stable narrow
- * scripts (Hebrew, Arabic, Indic, …) too.
- *
- * One class is NOT covered by per-code-point measurement: a keycap sequence like
- * `1️⃣` (base + VS16 + U+20E3) can advance two columns even though its base is
- * ASCII and its other two code points are zero-width here. It is handled as the
- * whole sequence it is, because no per-code-point rule can see it.
+ * the box drawing and punctuation the chrome cannot give up. So the projection
+ * is per code point and only where the width is genuinely in doubt: an
+ * Ambiguous letter is kept when its canonical decomposition is stable (`café`
+ * renders as `cafe` + U+0301), and a narrow script no terminal widens is kept
+ * whole. A code point that is Ambiguous with no stable decomposition, a
+ * text-default pictograph a terminal may draw as a picture, and the
+ * multi-code-point sequences no per-code-point rule can see — a keycap, a
+ * VS15/VS16 presentation, a ZWJ sequence, a skin-tone modifier — are projected
+ * to `placeholder`.
  *
  * The projection is LOSSY and not injective; identity survives because the
  * committed banner prints the full, unprojected workspace name, and this frame's
- * right title is the only consumer. Wide CJK and kana are kept because terminals
- * agree on their width; ASCII is kept because it is never ambiguous.
+ * right title is the only consumer.
  * @param text - plain text; the caller has already neutralized controls.
  * @param placeholder - the width-stable character substituted one for one.
  * @returns text whose measured width is the width every terminal draws.
@@ -232,16 +328,53 @@ export function widthStableLabel(text: string, placeholder = '?'): string {
   let out = ''
   for (let index = 0; index < chars.length; index += 1) {
     const code = chars[index]?.codePointAt(0) ?? 0
-    if (
-      isKeycapBase(code)
-      && chars[index + 1]?.codePointAt(0) === 0xfe0f
-      && chars[index + 2]?.codePointAt(0) === 0x20e3
-    ) {
+    const next = chars[index + 1]?.codePointAt(0)
+    const afterNext = chars[index + 2]?.codePointAt(0)
+    // A keycap is one drawn two-column picture built from an ASCII base, an
+    // optional VS16, and U+20E3; per-code-point measurement sees width one and
+    // would let the terminal draw two, so the whole sequence is one placeholder.
+    if (isKeycapBase(code) && (next === KEYCAP || (next === VS16 && afterNext === KEYCAP))) {
       out += placeholder
-      index += 2
+      index += next === KEYCAP ? 1 : 2
       continue
     }
-    out += codePointWidth(code) === 1 && code >= 0x80 ? placeholder : (chars[index] ?? '')
+    // A presentation selector changes how the terminal draws the base before it.
+    // VS16 can present a text-default pictograph — or a keycap base like
+    // `1`/`#`/`*`, whose emoji form needs no U+20E3 — as a two-column emoji, and
+    // VS15 asks even a wide pictograph to draw as text. ASCII with no
+    // pictographic form has an inert selector, so it is kept rather than
+    // rewritten. The selector ITSELF is dropped: it is zero-width, and once the
+    // base is a placeholder it has nothing left to present.
+    if (next === VS15 || next === VS16) {
+      out += code >= 0x80 || isKeycapBase(code) ? placeholder : (chars[index] ?? '')
+      index += 1
+      continue
+    }
+    // A skin-tone modifier joins the pictograph before it into one drawn
+    // picture; the pair measures four columns but may draw as two.
+    if (next !== undefined && next >= MODIFIER_START && next <= MODIFIER_END) {
+      out += placeholder
+      index += 1
+      continue
+    }
+    // A ZWJ sequence is one grapheme the terminal draws as one picture, whose
+    // width is unrelated to the sum of its parts. Project the whole run.
+    if (next === ZWJ) {
+      while (chars[index + 1]?.codePointAt(0) === ZWJ && chars[index + 2] !== undefined) index += 2
+      out += placeholder
+      continue
+    }
+    // An orphaned joiner or modifier has no base to join. It is projected rather
+    // than kept as a zero-width code point that would attach to whatever follows.
+    if (code === ZWJ || (code >= MODIFIER_START && code <= MODIFIER_END)) {
+      out += placeholder
+      continue
+    }
+    if (stableWidth(code)) {
+      out += chars[index] ?? ''
+      continue
+    }
+    out += stableDecomposition(code) ?? placeholder
   }
   return out
 }

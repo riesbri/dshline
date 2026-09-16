@@ -10,6 +10,7 @@
     "audit": "pnpm audit --audit-level moderate",
     "build": "tsc -b",
     "clean": "tsc -b --clean",
+    "generate-width-tables": "node tools/generate-width-tables.mjs",
     "harness-target": "node tools/harness-target.mjs",
     "link-harness": "node tools/link-harness.mjs",
     "lint:workflows": "node tools/lint-workflows.mjs",

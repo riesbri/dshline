@@ -201,6 +201,8 @@ thinking. Each attempt's own span is real, and the panel adds them up.
 
 The harness is used in more than one language, and its bundled agent presets are named in Chinese. A character that is two columns wide but measured as one shifts every following row, not only its own — so widths follow the Unicode East Asian Width property, and the redraw arithmetic counts *drawn* rows so that a wrapped or East Asian line is still counted correctly.
 
+The ranges are generated from the Unicode Character Database 16.0.0 by `tools/generate-width-tables.mjs`, not hand-maintained, because a table that trails the release measures a code point the terminal draws two columns as one and shifts every row after it. The one disagreement left is East Asian Ambiguous width, which a terminal in an ambiguous-width mode widens. A label drawn inside the live region's frame border therefore projects the code points whose width is genuinely in doubt — an Ambiguous character with no stable canonical decomposition, an emoji or pictograph, and the multi-code-point sequences no per-code-point rule can see — while keeping ASCII, wide and zero-width code points, and every unambiguously narrow script. A precomposed Latin accent survives as its canonical decomposition, so `café` is drawn as a base plus a combining mark rather than replaced by a placeholder.
+
 ## Measuring and cutting agree about escape sequences
 
 `displayWidth` ignores escape sequences, so wrapping and truncating must ignore them too. Both split text into zero-width escape sequences and visible characters, never cut in the middle of a sequence, and re-open any active color on a continuation row. A colored line that measures wider than it draws would wrap too early, and would take every framed row with it.
