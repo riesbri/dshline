@@ -189,7 +189,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 
 | | |
 | --- | --- |
-| `/model` | Change the model. Takes a name (`/model deepseek-v4-pro`) or opens a picker you can type in |
+| `/model` | Change the model. Takes a name (`/model deepseek-v4-pro`) or opens a picker you can type in; `ctrl-k` there authorizes models for subagents |
 | `/reasoning` | Change how hard the model thinks. Takes a level (`/reasoning max`) or opens a picker |
 | `/setup` | Check this installation and walk from a provider to a working model. Runs by itself on a launch that would otherwise open a composer with no usable model |
 | `/connect` | Configure and authenticate the providers Harness can talk to. Takes a route name (`/connect openai`) to open filtered on it |
@@ -1575,6 +1575,47 @@ confirmation, and no automatic routing.
 The two are independent, in that order: the running session switches first and is never rolled back, so if the settings file cannot be written you are told, and the turn you are about to run still uses the model you asked for.
 
 The whole selection is stored together — route and reasoning level — because the section holds one selection. Saving a level without its model would leave a level applying to whichever model the next session happened to open on.
+
+### Authorizing models for subagents
+
+A delegated subagent normally inherits the route the driving model is already
+using. Harness can instead let the driving model choose a different route for a
+child, and it will only let it choose a route you have authorized. That
+authorization is a Harness setting, not a per-session decision:
+
+```
+/model
+  ↓
+current-Agent model picker
+  ├─ enter  select this model for the current Agent
+  └─ ctrl-k open Subagent models
+```
+
+`ctrl-k` opens the **Subagent models** editor. Nothing is written until you
+press `s`; `esc` discards the draft. The editor shows:
+
+- `Selection on/off` — whether newly composed top-level sessions receive
+  model-selectable delegation at all.
+- `Allowed N models` — the exact `provider/model` routes the driving model may
+  request for a child. `space` (or `enter`) toggles the highlighted route, and
+  `/` starts a search that filters the list as you type.
+- `unavailable` beside a saved route the live catalog does not currently
+  advertise. It stays authorized and removable: catalog membership is advisory,
+  and the setting is the authorization.
+
+`e` flips selection on or off, and turning it off keeps the routes for later.
+`ctrl-r` re-reads the live catalog without disturbing the draft. Saving writes
+both fields in one revision-fenced change; if the setting moved elsewhere
+first, the editor reports the conflict, keeps your draft, and does not retry on
+its own — press `s` again to write it, or `esc` to discard.
+
+It is an allowlist for explicit delegated choices, and it does not force
+subagents onto those models: a delegation that names no route still inherits
+the parent's, whether or not that route is listed. It is not a cost router, and
+it never selects DeepSeek for you. The change applies to new sessions; the
+current session keeps the policy it recorded when it was composed, a session
+that was already running or resumed does not change because of this editor, and
+a child session inherits exactly its parent's recorded policy.
 
 ### While a turn is running
 

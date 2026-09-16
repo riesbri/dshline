@@ -13,8 +13,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LocalCommandChoice } from './local-commands.ts'
-import { promptSelect } from './select.ts'
-import type { SelectChoice } from './select.ts'
+import { readModelCatalog } from './model-catalog.ts'
+import { createSelectOverlay } from './select.ts'
+import type { SelectChoice, SelectSpec } from './select.ts'
 import { rememberSelection } from './selection.ts'
 import type { SelectionOutcome } from './selection.ts'
 
@@ -57,51 +58,38 @@ async function discover(ctx: Context): Promise<Discovery> {
   const options: ModelOption[] = []
   const choices: SelectChoice[] = []
   const completions: LocalCommandChoice[] = []
-  const failed: string[] = []
-  const catalogs = await Promise.all(ctx.llm.listProviders().map(async provider => {
-    try {
-      return { provider, models: await ctx.llm.listModels(provider.id) }
-    } catch {
-      return { provider, models: undefined }
-    }
-  }))
-  for (const { provider, models } of catalogs) {
-    if (models === undefined) {
-      failed.push(provider.id)
-      continue
-    }
-    for (const model of models) {
-      // The index is the choice value, so no id has to survive a round trip
-      // through a delimiter that a provider or model name might contain.
-      //
-      // The LABEL is the qualified route and model id — exactly the argument
-      // `/model` accepts — rather than the two display names it used to join.
-      // A gateway route advertises hundreds of models, so the list is filtered
-      // by typing, and a picker whose rows show a name while the command takes
-      // an id makes the reader translate between them. The display name goes
-      // under the selection, where it disambiguates without being the thing
-      // that has to be matched.
-      const label = `${provider.id}/${model.id}`
-      const named = model.name !== '' && model.name.toLowerCase() !== model.id.toLowerCase()
-      choices.push({
-        value: String(options.length),
-        label,
-        ...named ? { description: model.name } : {},
-      })
-      // Completion inserts the QUALIFIED route. `/model` resolves a bare id to
-      // the first route that serves it, so two rows inserting the same bare id
-      // could show different providers and submit the same one. The bare id is
-      // kept as a search alias so typing it still finds every route, and the
-      // display name becomes the note once the provider no longer needs to be.
-      completions.push({
-        value: label,
-        aliases: [model.id],
-        ...named ? { note: model.name } : {},
-      })
-      options.push({ provider: provider.id, model: model.id })
-    }
+  const { routes, failedProviders } = await readModelCatalog(ctx)
+  for (const route of routes) {
+    // The index is the choice value, so no id has to survive a round trip
+    // through a delimiter that a provider or model name might contain.
+    //
+    // The LABEL is the qualified route and model id — exactly the argument
+    // `/model` accepts — rather than the two display names it used to join.
+    // A gateway route advertises hundreds of models, so the list is filtered
+    // by typing, and a picker whose rows show a name while the command takes
+    // an id makes the reader translate between them. The display name goes
+    // under the selection, where it disambiguates without being the thing
+    // that has to be matched.
+    const label = `${route.provider}/${route.model}`
+    const named = route.modelName !== '' && route.modelName.toLowerCase() !== route.model.toLowerCase()
+    choices.push({
+      value: String(options.length),
+      label,
+      ...named ? { description: route.modelName } : {},
+    })
+    // Completion inserts the QUALIFIED route. `/model` resolves a bare id to
+    // the first route that serves it, so two rows inserting the same bare id
+    // could show different providers and submit the same one. The bare id is
+    // kept as a search alias so typing it still finds every route, and the
+    // display name becomes the note once the provider no longer needs to be.
+    completions.push({
+      value: label,
+      aliases: [route.model],
+      ...named ? { note: route.modelName } : {},
+    })
+    options.push({ provider: route.provider, model: route.model })
   }
-  return { options, choices, completions, failed }
+  return { options, choices, completions, failed: failedProviders }
 }
 
 /**
@@ -173,10 +161,84 @@ function currentModelChoiceValue(
 }
 
 /**
+ * What the `/model` command may attach to the picker it opens.
+ *
+ * The picker itself stays generic: this is the only seam it exposes, and the
+ * one key it reserves.
+ */
+export interface PickModelOptions {
+  /**
+   * Open the subagent-model authorization editor.
+   *
+   * This is the bare `/model` picker's `ctrl-k`. `/setup` passes no callback,
+   * so `ctrl-k` is inert there and the setup flow can never reach the Host
+   * setting. The editor is a separate overlay stacked on top of the picker,
+   * so dismissing it returns to the picker rather than to this command.
+   */
+  readonly onSubagentModels?: () => void
+}
+
+/**
+ * Show the model picker, reserving `ctrl-k` for one auxiliary surface.
+ *
+ * A thin owner around {@link createSelectOverlay}, not a change to it. The
+ * generic picker stays a single-choice interaction with no knowledge of the
+ * subagent setting, and every ordinary key is forwarded to it unchanged.
+ * `ctrl-k` is a `key`, never `text`, so intercepting it cannot swallow a
+ * character the search query was about to use — a bare `k` still filters.
+ *
+ * The push-await-dismiss dance is the same one `promptSelect` owns; it is
+ * repeated rather than widened because the wrapper has to sit between the
+ * overlay and its keystrokes, which is exactly what `promptSelect` hides.
+ * @param ctx - context carrying the slot registry.
+ * @param spec - the prompt and its choices; settlement is this function's.
+ * @param onSubagentModels - the auxiliary editor opener, when the caller owns
+ *   one.
+ * @returns the confirmed value, or undefined when the user cancelled.
+ */
+async function promptModelPicker(
+  ctx: Context,
+  spec: Omit<SelectSpec, 'settle' | 'invalidate'>,
+  onSubagentModels: (() => void) | undefined,
+): Promise<string | undefined> {
+  return new Promise<string | undefined>(resolve => {
+    let dismiss = (): void => {}
+    let settled = false
+    // Shared with the overlay only: either side can finish first, and the
+    // loser must not dismiss an overlay someone else already replaced.
+    const finish = (value: string | undefined): void => {
+      if (settled) return
+      settled = true
+      dismiss()
+      resolve(value)
+    }
+    const base = createSelectOverlay({
+      ...spec,
+      invalidate: () => { ctx.tuiSlots.invalidate() },
+      settle: finish,
+    })
+    dismiss = ctx.tuiSlots.pushOverlay({
+      render: (columns, rows) => base.render(columns, rows),
+      handleKey: key => {
+        if (onSubagentModels !== undefined && key.kind === 'key' && key.name === 'ctrl-k') {
+          onSubagentModels()
+          return
+        }
+        base.handleKey(key)
+      },
+      mounted: () => { base.mounted?.() },
+      dispose: () => { base.dispose?.() },
+    })
+  })
+}
+
+/**
  * Prompt for a model and apply the choice to `selection`.
  * @param ctx - context carrying the llm registry and the slot registry.
  * @param selection - the agent's mutable selection ref.
  * @param argument - the text after `/model`; empty opens the picker.
+ * @param options - the picker's one reserved key, when the caller owns an
+ *   auxiliary surface.
  * @returns a typed line to report in the transcript, or undefined when the user
  *   dismissed the picker without choosing.
  */
@@ -184,8 +246,9 @@ export async function pickModel(
   ctx: Context,
   selection: ModelSelectionRef,
   argument = '',
+  options: PickModelOptions = {},
 ): Promise<SelectionOutcome | undefined> {
-  const { options, choices, failed } = await discover(ctx)
+  const { options: models, choices, failed } = await discover(ctx)
   if (choices.length === 0) {
     return {
       kind: 'failed',
@@ -197,27 +260,27 @@ export async function pickModel(
   const current = selection.current
   const named = argument.trim()
   if (named !== '') {
-    const wanted = resolveModel(named, options)
+    const wanted = resolveModel(named, models)
     // Naming what IS on offer would mean listing every model every provider
     // advertises, which is what the picker is for; the count says how far it is.
     if (wanted === undefined) {
       return {
         kind: 'failed',
-        message: `no model named ${named}; type /model to choose from ${String(options.length)}`,
+        message: `no model named ${named}; type /model to choose from ${String(models.length)}`,
       }
     }
     return apply(ctx, selection, wanted, current)
   }
-  const initialValue = currentModelChoiceValue(current, options)
-  const picked = await promptSelect(ctx, {
+  const initialValue = currentModelChoiceValue(current, models)
+  const picked = await promptModelPicker(ctx, {
     title: 'Select a model',
     view: 'Model',
     ...current === undefined ? {} : { detail: `current: ${current.provider}/${current.model}` },
     ...initialValue === undefined ? {} : { initialValue },
     choices,
-  })
+  }, options.onSubagentModels)
   if (picked === undefined) return undefined
-  const chosen = options[Number(picked)]
+  const chosen = models[Number(picked)]
   if (chosen === undefined) return undefined
   return apply(ctx, selection, chosen, current)
 }
