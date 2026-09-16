@@ -374,13 +374,15 @@ Only the first of those is deterministic, and the wording says so. The version
 this build targets is a fact the report already holds; whether any *released*
 dshline targets the version you have installed is not, and establishing it
 would mean resolving releases against their peer pins. So the second direction
-is offered as a condition rather than as a fix. **It never refuses to
-continue.** By the time
-this can be printed, both halves have already booted together far enough to
-draw it; a genuinely incompatible pair fails earlier and much more loudly, in
-Harness's own loader, which is the authority for that diagnosis. Harness
-publishes no runtime version service, so a version either side could not be
-read is marked `·` and nothing is claimed in either direction.
+is offered as a condition rather than as a fix. **A confirmed mismatch stops
+startup.** dshline prints this report and then refuses to open a session — it
+supports only its adopted generation, so a Host built for a different one is
+not guaranteed to provide the APIs this build targets, and reaching the
+composer would only move a failure somewhere less legible. The report stays on
+screen until you install the targeted generation and start again; `ctrl-d`
+exits. Harness publishes no runtime version service, so a version either side
+could not be read is marked `·` and nothing is claimed in either direction — an
+unreadable version is a diagnostic, not an incompatibility.
 
 **`Connecting` is about what you can do, not which services are mounted.** It
 names `API key`, `account sign-in`, or both, and warns only when this profile

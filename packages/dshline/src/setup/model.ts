@@ -200,6 +200,20 @@ function mismatchNotes(generation: { adopted: string; installed: string }): stri
 }
 
 /**
+ * Whether a generation comparison forbids normal operation.
+ *
+ * Only a CONFIRMED mismatch blocks. `unknown` is an unanswered question — one
+ * side was unreadable — and turning that into a refusal would convert
+ * uncertainty into incompatibility, which is the opposite of what the report's
+ * `·` mark states. `match` is the ordinary case.
+ * @param generation - the comparison.
+ * @returns whether dshline must not enter a normal session.
+ */
+export function harnessBlocksStartup(generation: HarnessGeneration): boolean {
+  return generation.kind === 'mismatch'
+}
+
+/**
  * How the Harness generation reads as one row.
  * @param generation - the comparison.
  * @returns the row.

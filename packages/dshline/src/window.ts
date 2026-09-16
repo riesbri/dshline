@@ -39,6 +39,7 @@ import type { DshlineSettings, PreferenceSetting } from './settings.ts'
 import type { CardDetail } from './cards.ts'
 import { pluginsSeams, sessionFacts } from './plugins/harness.ts'
 import type { AgentPresetsSeam } from './plugins/harness.ts'
+import type { SetupOutcome } from './setup/index.ts'
 import { RedrawScheduler } from './redraw.ts'
 import { holdStderrOffTerminal } from './stderr.ts'
 import type { AttachTarget } from './sessions/reopen.ts'
@@ -650,27 +651,40 @@ async function legacyPreset(
  * terminal and no session owns input, and it is a fact about the WINDOW's
  * environment — which provider routes exist — not about any session.
  *
- * The condition is Harness's own registry, the selection this window already
- * holds, and — only when those look complete — whether Connect can positively
- * say the selected route's credential is missing. A launch that can send a
- * turn never sees this; one that cannot opens on the flow that fixes it rather
- * than a composer that will fail. There is no first-run marker anywhere: the
+ * The generation gate runs on EVERY launch, not only when setup would open.
+ * A launch that could send a turn is still unsafe on a Host built for a
+ * different Harness generation: dshline supports only its adopted generation,
+ * and a Host of another one is not guaranteed to provide the APIs dshline
+ * calls after startup, which is not a fact the launch decision can see. The
+ * comparison is the one {@link "./setup/harness.ts"}'s report already trusts,
+ * so the gate and the report cannot disagree; only a confirmed `mismatch`
+ * blocks, and an `unknown` version stays the diagnostic it has always been.
+ *
+ * The condition for the rest is Harness's own registry, the selection this
+ * window already holds, and — only when those look complete — whether Connect
+ * can positively say the selected route's credential is missing. A launch that
+ * can send a turn never sees the flow; one that cannot opens on it rather than
+ * a composer that will fail. There is no first-run marker anywhere: the
  * question is re-asked from live state every launch, so configuring a working
  * provider and model is the only thing that stops it appearing, and losing any
  * part of that is enough to bring it back.
  * @param w - the window whose input routing the flow borrows.
- * @returns when the reader has left setup, whether or not anything changed.
+ * @returns `continued` when the reader may go on to a session, or `blocked`
+ *   when a confirmed generation mismatch forbids one from starting.
  */
-export async function offerSetup(w: Window): Promise<void> {
+export async function offerSetup(w: Window): Promise<SetupOutcome> {
   const { ctx } = w
   // Resolved BEFORE dispatch changes, exactly as `chooseTarget` resolves the
   // session browser first: routing keys at an overlay stack that nothing has
   // pushed onto yet is a window in which keystrokes are silently dropped.
-  const { runSetup, setupNeeded } = await import('./setup/index.ts')
-  if (!await setupNeeded(ctx, w.selection)) return
+  const { harnessBlocksStartup, readHarnessGeneration, runSetup, setupNeeded } = await import('./setup/index.ts')
+  // Read once here, on every launch. `unknown` is not a mismatch, so a version
+  // that could not be read falls through to the same setup trigger as before.
+  const generation = await readHarnessGeneration(ctx)
+  if (!harnessBlocksStartup(generation) && !await setupNeeded(ctx, w.selection)) return 'continued'
   w.setDispatch(key => { ctx.tuiSlots.activeOverlay?.handleKey(key) })
   try {
-    await runSetup({
+    return await runSetup({
       ctx,
       commit: w.commit,
       version: w.version,

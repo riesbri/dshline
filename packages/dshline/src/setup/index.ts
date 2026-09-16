@@ -51,14 +51,15 @@ import { pickModel } from '../model.ts'
 import { promptSelect } from '../select.ts'
 import { gatherSetupFacts } from './harness.ts'
 import type { SetupFacts } from './harness.ts'
-import { hasActiveRoute, hasRemediation, hasWarning, needsModelChoice, setupChecks, setupReason, setupSteps } from './model.ts'
+import { harnessBlocksStartup, hasActiveRoute, hasRemediation, hasWarning, needsModelChoice, setupChecks, setupReason, setupSteps } from './model.ts'
 import type { SetupCheck } from './model.ts'
 
 export type { HarnessGeneration, SetupFacts, SetupSelection } from './harness.ts'
-export { adoptedGeneration, compareGenerations, gatherSetupFacts } from './harness.ts'
+export { adoptedGeneration, compareGenerations, gatherSetupFacts, readHarnessGeneration } from './harness.ts'
 export type { SetupCheck, SetupMark, SetupReason, SetupStep, SetupStepId } from './model.ts'
 export {
   awaitingActivation,
+  harnessBlocksStartup,
   hasActiveRoute,
   hasRemediation,
   hasWarning,
@@ -70,6 +71,17 @@ export {
 
 /** Columns the left column of the report is padded to, so the values line up. */
 const NAME_COLUMN = 11
+
+/**
+ * Whether one setup run left the caller able to continue into a session.
+ *
+ * `blocked` is not a UI state the reader can dismiss into: it is the startup
+ * gate's verdict that a confirmed Harness generation mismatch forbids normal
+ * operation, and the caller must not attach a session when it sees it. The
+ * only way on is the recovery command the report already printed, followed by
+ * a restart.
+ */
+export type SetupOutcome = 'continued' | 'blocked'
 
 /** What the flow needs from the window running it. */
 export interface SetupSpec {
@@ -149,15 +161,35 @@ export function reportLines(facts: SetupFacts): string[] {
 }
 
 /**
+ * The closing lines when a confirmed generation mismatch stops startup.
+ *
+ * The report above already carries both exact versions and the deterministic
+ * recovery wording, so nothing here repeats them; a second copy of the command
+ * is a second thing to drift. This states only the verdict the report's `⚠`
+ * could not: that dshline will not continue, and how to leave. `ctrl-d` is the
+ * window's own global quit, which is why no interactive step is offered.
+ * @returns the lines to commit after the report.
+ */
+export function blockedLines(): string[] {
+  return [
+    paint('✗ This Harness generation combination is unsupported, so dshline will not continue.', 'error'),
+    paint('  Install the generation this dshline targets above, then start dshline again.', 'muted'),
+    paint('  Press ctrl-d to exit.', 'muted'),
+    '',
+  ]
+}
+
+/**
  * Run the guided flow until the reader leaves it.
  *
  * The caller owns key routing for the duration — the pickers this opens are
  * overlays, and something has to be delegating keystrokes to them — exactly as
  * the session browser's caller does.
  * @param spec - the context, the transcript, and the model selection.
- * @returns when the reader has chosen to go on to the composer.
+ * @returns `continued` when the reader may go on to the composer, or `blocked`
+ *   when a confirmed generation mismatch forbids a session from starting.
  */
-export async function runSetup(spec: SetupSpec): Promise<void> {
+export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
   const { ctx, commit } = spec
   for (;;) {
     // Re-read every pass. The reader has just been inside `/connect`, so the
@@ -166,17 +198,26 @@ export async function runSetup(spec: SetupSpec): Promise<void> {
     const facts = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
     const checks = setupChecks(facts)
     commit(reportLines(facts))
+    // The one finding that forbids reaching a session. The report is already on
+    // screen, so both exact versions and the recovery command are in front of
+    // the reader; this stops before any interaction and before the caller can
+    // attach an agent, which is what keeps generation-specific APIs from being
+    // called on a Host built for a different one. `unknown` deliberately never
+    // reaches here.
+    if (harnessBlocksStartup(facts.harness)) {
+      commit(blockedLines())
+      return 'blocked'
+    }
     // Interaction follows remediation, not the mere presence of a warning. The
-    // report decides what deserves a warning — a Harness generation mismatch
-    // and a profile that mounts nothing to configure a provider are both real —
-    // but when no step can improve the state, the report is the whole answer:
-    // a clean one ends at `✓ Ready.`, a warned one closes with its own
-    // sentence. A picker whose only row is the way out is friction, not
-    // remediation. `/model` and `/connect` remain the commands for optional
-    // changes and are always available.
+    // report decides what deserves a warning — a profile that mounts nothing to
+    // configure a provider is a real one — but when no step can improve the
+    // state, the report is the whole answer: a clean one ends at `✓ Ready.`, a
+    // warned one closes with its own sentence. A picker whose only row is the
+    // way out is friction, not remediation. `/model` and `/connect` remain the
+    // commands for optional changes and are always available.
     if (!hasRemediation(facts)) {
       commit(hasWarning(checks) ? leavingLines(facts) : ['', paint('✓ Ready.', 'success'), ''])
-      return
+      return 'continued'
     }
     const steps = setupSteps(facts)
     const picked = await promptSelect(ctx, {
@@ -193,7 +234,7 @@ export async function runSetup(spec: SetupSpec): Promise<void> {
     // that was not changed by an action the reader took inside a browser.
     if (picked === undefined || picked === 'skip') {
       commit(leavingLines(facts))
-      return
+      return 'continued'
     }
     if (picked === 'connect') {
       await openConnect({ ctx, commit })
@@ -208,10 +249,10 @@ export async function runSetup(spec: SetupSpec): Promise<void> {
       // adding a second provider is not a request to change models.
       const after = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
       if (!needsModelChoice(after)) continue
-      if (await chooseModel(spec)) return
+      if (await chooseModel(spec)) return 'continued'
       continue
     }
-    if (picked === 'model' && await chooseModel(spec)) return
+    if (picked === 'model' && await chooseModel(spec)) return 'continued'
   }
 }
 
