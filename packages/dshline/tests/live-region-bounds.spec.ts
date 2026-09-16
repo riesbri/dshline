@@ -129,6 +129,7 @@ function busyStatus(): ReturnType<typeof createStatusView> {
     activity: { title: 'delegated_subagent', others: 2 },
     model: 'deepseek-v4-flash',
     effort: 'high',
+    modelPending: false,
     usage: '$1.23',
     cacheRead: '42% cached',
     tokens: 120_000,

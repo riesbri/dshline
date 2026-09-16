@@ -130,7 +130,11 @@ export interface Window {
   readonly peakHours: readonly PeakWindow[]
   /** Version reported in each attachment's banner. */
   readonly version: string
-  /** The route the next turn will use; the agent reads it per step. */
+  /**
+   * The live model selection. `current` is the route the next model step will
+   * use; Harness's `installModelSelection` captures it into `assembled` when a
+   * step's prompt assembly starts, and routes that step from `assembled`.
+   */
   readonly selection: ModelSelectionRef
   /** Metadata for that route, refreshed when it changes. */
   readonly modelInfo: ModelInfo

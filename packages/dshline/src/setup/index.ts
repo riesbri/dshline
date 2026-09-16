@@ -91,7 +91,7 @@ export interface SetupSpec {
   readonly commit: (lines: readonly string[]) => void
   /** This frontend's version, for the report's own row. */
   readonly version: string
-  /** The route the next turn will use, which `/model` writes through. */
+  /** The route the next model step will use, which `/model` writes through. */
   readonly selection: ModelSelectionRef
   /** Re-resolve model metadata after the route changes; the window owns it. */
   readonly onModelChanged: () => void
@@ -116,8 +116,8 @@ export async function setupNeeded(ctx: Context, selection: ModelSelectionRef): P
   // most launches without touching a seam.
   if (setupReason(registered, selected) !== undefined) return true
   if (selected === undefined) return false
-  // Only then the credential, and only for the ONE route the next turn would
-  // use. `unknown` is not a fault and never opens setup.
+  // Only then the credential, and only for the ONE route the next model step
+  // would use. `unknown` is not a fault and never opens setup.
   const { readiness } = await readRouteReadiness(connectSeams(ctx), selected.provider)
   return setupReason(registered, selected, readiness) !== undefined
 }
@@ -303,10 +303,10 @@ function setupDetail(facts: SetupFacts): string {
   }
   if (facts.reason === 'no-selection') return 'A provider route is active, but no model is selected yet.'
   if (facts.reason === 'unregistered-selection') {
-    return 'The selected model names a route no adapter has registered, so the next turn would fail.'
+    return 'The selected model names a route no adapter has registered, so the next model step would fail.'
   }
   if (facts.reason === 'credential-missing') {
-    return 'A model is selected, but its route has no credential, so the next turn would fail.'
+    return 'A model is selected, but its route has no credential, so the next model step would fail.'
   }
   return 'A model is selected and ready. /connect and /model are always available.'
 }

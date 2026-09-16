@@ -111,8 +111,9 @@ export interface SetupFacts {
    */
   readonly connect: ConnectState
   /**
-   * The selection the next turn would use, read from the window's own ref —
-   * the same one `/model` writes — rather than resolved a second time here.
+   * The selection the next model step would use, read from the window's own
+   * ref — the same one `/model` writes — rather than resolved a second time
+   * here.
    */
   readonly selected: SetupSelection | undefined
   /**
@@ -254,7 +255,7 @@ export async function gatherSetupFacts(
  * gives for a route the configurable directory does not declare: neither is
  * evidence about a credential.
  * @param connect - the reading this report was built from.
- * @param selected - the selection the next turn would use, if any.
+ * @param selected - the selection the next model step would use, if any.
  * @returns the readiness and the reference behind it.
  */
 function selectedRouteReadiness(

@@ -65,6 +65,7 @@ function statusFrames(inbox: Inbox): () => string {
     activity: undefined,
     model: undefined,
     effort: undefined,
+    modelPending: false,
     usage: undefined,
     tokens: undefined,
     contextWindow: undefined,

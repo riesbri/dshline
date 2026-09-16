@@ -2,6 +2,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import type { LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
@@ -87,6 +88,13 @@ async function fixture(options: {
   readonly reasoning?: LlmModelReasoningInfo
   /** The selection the window opens with. */
   readonly selected?: ModelSelectionRef['current']
+  /**
+   * A complete ref to open with, when a test needs `assembled` as well as
+   * `current` (the running step's captured selection).
+   */
+  readonly modelSelection?: ModelSelectionRef
+  /** The attached Agent's running state, which gates the `next` reading. */
+  readonly agentStatus?: 'idle' | 'running'
   /** Mount a default-model service whose save rejects, for applied-but-unsaved. */
   readonly saveFailure?: boolean
 } = {}): Promise<{
@@ -149,7 +157,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: options.selected },
+    selection: options.modelSelection ?? { current: options.selected },
     modelInfo: { contextWindow: undefined, reasoning: options.reasoning },
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },
     colorDepth: 0,
@@ -175,7 +183,7 @@ async function fixture(options: {
   }
   const agent = {
     session,
-    status: 'idle',
+    status: options.agentStatus ?? 'idle',
     inbox: { nextStep: [], nextTurn: [] },
     followup: vi.fn(),
     steer: vi.fn(),
@@ -983,6 +991,126 @@ describe('the live model identity in the persistent status', () => {
     })
     await flush()
     expect(statusRow(mounted.frames)).toContain('openai/gpt-x (max)')
+  })
+})
+
+describe('the next-model-step reading while a step runs', () => {
+  /**
+   * A selection ref driven by Harness's own `installModelSelection`.
+   *
+   * The point is to exercise the adopted contract rather than assigning both
+   * fields by hand: `assemble` runs one real `system-prompt/assemble`, which
+   * captures `selection.current` into `selection.assembled`.
+   * @param initial - the selection the ref starts on.
+   * @returns the ref, a function that runs one assembly, and the disposer.
+   */
+  function installed(initial: ModelSelectionRef['current']): {
+    readonly selection: ModelSelectionRef
+    readonly assemble: () => Promise<void>
+    readonly dispose: () => void
+  } {
+    const selection: ModelSelectionRef = { current: initial, assembled: undefined }
+    const ctx = new Context()
+    const dispose = installModelSelection(ctx, selection)
+    return {
+      selection,
+      assemble: async () => {
+        await ctx.waterfall(
+          'system-prompt/assemble',
+          {} as never,
+          {} as never,
+          () => Promise.resolve({ variables: {} } as never),
+        )
+      },
+      dispose,
+    }
+  }
+
+  /** The status row of the latest composed frame, unstyled. */
+  function statusRow(frames: readonly string[][]): string {
+    return stripAnsi((frames.at(-1) ?? []).at(-1) ?? '')
+  }
+
+  it('shows the selected route without `next` while idle, even after an assembled route', async () => {
+    // The idle boundary: the last step assembled provider-a, then the selection
+    // moved to provider-b with nothing running. `assembled` is history here, not
+    // persistent authority, so the line must not mark the change pending.
+    const { selection, assemble, dispose } = installed({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      await assemble()
+      expect(selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+      selection.current = { provider: 'provider-b', model: 'shared-model' }
+
+      const mounted = await fixture({ modelSelection: selection, agentStatus: 'idle' })
+      await flush()
+      expect(statusRow(mounted.frames)).toContain('provider-b/shared-model')
+      expect(statusRow(mounted.frames)).not.toContain('next')
+    } finally {
+      dispose()
+    }
+  })
+
+  it('marks the live selection `next` while a running step assembled another route', async () => {
+    const { selection, assemble, dispose } = installed({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      await assemble()
+      selection.current = { provider: 'provider-b', model: 'shared-model' }
+
+      const mounted = await fixture({ modelSelection: selection, agentStatus: 'running' })
+      await flush()
+      const line = statusRow(mounted.frames)
+      expect(line).toContain('next provider-b/shared-model')
+      // The running step still uses provider-a; the line must not claim
+      // provider-b is already the route producing it.
+      expect(line).not.toContain('provider-a/shared-model')
+    } finally {
+      dispose()
+    }
+  })
+
+  it('drops `next` once Harness assembles the new selection, with no dshline transition', async () => {
+    const { selection, assemble, dispose } = installed({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      await assemble()
+      selection.current = { provider: 'provider-b', model: 'shared-model' }
+      const mounted = await fixture({ modelSelection: selection, agentStatus: 'running' })
+      await flush()
+      expect(statusRow(mounted.frames)).toContain('next provider-b/shared-model')
+
+      // Harness enters the next model step and captures the same selection.
+      await assemble()
+      expect(selection.assembled).toEqual({ provider: 'provider-b', model: 'shared-model' })
+      // Nothing in dshline changed; the next frame follows Harness alone.
+      mounted.ctx.tuiSlots.invalidate()
+      expect(statusRow(mounted.frames)).toContain('provider-b/shared-model')
+      expect(statusRow(mounted.frames)).not.toContain('next')
+    } finally {
+      dispose()
+    }
+  })
+
+  it('marks a reasoning-only change `next` while the step runs', async () => {
+    // Provider and model are unchanged, so equality that ignored effort would
+    // miss this change entirely.
+    const { selection, assemble, dispose } = installed({
+      provider: 'openai',
+      model: 'gpt-x',
+      reasoningEffort: 'low',
+    })
+    try {
+      await assemble()
+      selection.current = { provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' }
+
+      const mounted = await fixture({
+        modelSelection: selection,
+        agentStatus: 'running',
+        reasoning: REASONING,
+      })
+      await flush()
+      expect(statusRow(mounted.frames)).toContain('next openai/gpt-x (max)')
+    } finally {
+      dispose()
+    }
   })
 })
 

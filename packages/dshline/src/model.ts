@@ -269,7 +269,7 @@ async function apply(
 ): Promise<SelectionOutcome> {
   // Preserve the reasoning effort across the switch, but only when the target
   // route still advertises it \u2014 carrying forward one it does not would send
-  // the very next turn straight into UNSUPPORTED_REASONING_EFFORT.
+  // the very next model step straight into UNSUPPORTED_REASONING_EFFORT.
   const wanted = current?.reasoningEffort
   const reasoningEffort = wanted === undefined ? undefined : await stillSupported(ctx, chosen, wanted)
   const next = {

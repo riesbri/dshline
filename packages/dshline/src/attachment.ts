@@ -16,7 +16,7 @@ import { homedir } from 'node:os'
 import { createUserMessage, type ImageBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-agent/types'
-import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
+import type { AssistantStreamFrame, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the Context merges this module reads but does not
 // otherwise import from: the questions seam and the launcher's exit request. The
@@ -179,6 +179,29 @@ function selectionOutcomeLine(outcome: SelectionOutcome): string {
     escapeControls(`${mark} ${outcome.message}`),
     outcome.kind === 'failed' ? 'error' : 'muted',
   )
+}
+
+/**
+ * Whether two selections name the same route and reasoning level.
+ *
+ * The comparison is COMPLETE — provider, model, and reasoning effort — because
+ * `/reasoning` moves the selection too, and a change to it while a step is
+ * already running is just as much a change the running step has not assembled.
+ * Both sides must be present: an absent `assembled` is the first assembly not
+ * having happened yet, which is not a pending change.
+ * @param left - one selection, or undefined.
+ * @param right - the other selection, or undefined.
+ * @returns whether both are present and identical in all three fields.
+ */
+function sameSelection(
+  left: ModelSelectionRef['current'],
+  right: ModelSelectionRef['current'],
+): boolean {
+  return left !== undefined
+    && right !== undefined
+    && left.provider === right.provider
+    && left.model === right.model
+    && left.reasoningEffort === right.reasoningEffort
 }
 
 /** Fixed status row every ordinary live-region composition ends with. */
@@ -729,7 +752,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     {
       name: 'model',
-      description: 'Choose the provider and model for the next turn',
+      description: 'Choose the provider and model for the next model step',
       // The vocabulary is model-owned: each value is the `provider/model` route
       // the row names, with the bare id an alias for search. Building it here
       // from a bare model list is what once let two rows insert the same
@@ -814,7 +837,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     {
       name: 'reasoning',
-      description: 'Set how hard the model thinks, for the next turn',
+      description: 'Set how hard the model thinks, for the next model step',
       complete: () => reasoningValues(w.modelInfo.reasoning),
       execute: async rawInput => {
         // The levels are a short fixed set a person learns by heart, so
@@ -1282,6 +1305,8 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // The registry validates each unit's view on the way out, so reading it
     // twice would pay for that twice on a line redrawn by every spinner beat.
     const projected = projections.snapshot()
+    const selected = selection.current
+    const assembled = selection.assembled
     return {
       busy: agent.status === 'running',
       tick,
@@ -1289,15 +1314,24 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       activityWord: primaryActivity(phase, cards.semanticActivity()),
       activity: cards.inFlight(),
       attention: attention.current(),
-      // The live effective selection, route-qualified. Two provider routes can
-      // advertise the same model id, so a bare id would report them as one
-      // reading; `/model` already treats `provider/model` as canonical. Read on
-      // every frame from the mutable ref `/model` writes — no discovery, no
-      // cache, and no parsing a provider back out of a display string.
-      model: selection.current === undefined
-        ? undefined
-        : `${selection.current.provider}/${selection.current.model}`,
-      effort: effortLabel(selection.current?.reasoningEffort, w.modelInfo.reasoning),
+      // The route the NEXT model step will use, route-qualified. `current` is
+      // dshline's live selection; Harness's `installModelSelection` captures it
+      // into `assembled` when a step's prompt assembly starts and routes that
+      // step from `assembled`. So a `/model` pressed mid-step moves `current`
+      // without moving the running route — `modelPending` carries that
+      // distinction rather than baking it into this raw identity. Two provider
+      // routes can advertise the same model id, so the route is named; there is
+      // no discovery, no cache, and no parsing a provider back out of a string.
+      model: selected === undefined ? undefined : `${selected.provider}/${selected.model}`,
+      effort: effortLabel(selected?.reasoningEffort, w.modelInfo.reasoning),
+      // The running step is still using a route the live selection has moved
+      // away from, and Harness has not assembled the new one yet. Before the
+      // first assembly `assembled` is undefined, which is not pending; idle is
+      // never pending even when the last assembled route differs.
+      modelPending: agent.status === 'running'
+        && selected !== undefined
+        && assembled !== undefined
+        && !sameSelection(selected, assembled),
       // The SAME snapshot one field over. Harness's `permissions` projection is
       // the effective current selection, folded from `permission/preset`,
       // `sandbox/mode`, `approval/policy`, and the composition defaults — not

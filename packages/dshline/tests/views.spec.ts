@@ -426,6 +426,7 @@ describe('the status line', () => {
       attention: undefined,
       model: 'deepseek-v4-flash',
       effort: undefined,
+      modelPending: false,
       usage: undefined,
       cacheRead: undefined,
       tokens: undefined,
@@ -819,6 +820,42 @@ describe('the status line', () => {
     expect(status({ model: 'evil\u001b[2Jroute/model' })).toContain('evil^[[2Jroute/model')
   })
 
+  it('marks the identity `next` while the running step has not assembled it', () => {
+    // The live selection moved while a step runs: the route is the NEXT one,
+    // not the one producing the step already in flight.
+    expect(status({ model: 'opencode/deepseek-v4-pro', modelPending: true }))
+      .toContain('next opencode/deepseek-v4-pro')
+    // The qualifier rides inside the same segment as the reasoning level.
+    expect(status({ model: 'opencode/deepseek-v4-pro', effort: 'max', modelPending: true }))
+      .toContain('next opencode/deepseek-v4-pro (max)')
+    // Whether it is `next` is the flag's business, not the identity string's.
+    expect(status({ model: 'opencode/deepseek-v4-pro', modelPending: false }))
+      .not.toContain('next')
+  })
+
+  it('drops `next`, the identity, and the effort as ONE segment under width pressure', () => {
+    const state = {
+      model: 'opencode/deepseek-v4-pro',
+      effort: 'max',
+      modelPending: true,
+      tokens: 130_000,
+      contextWindow: 1_000_000,
+    }
+    expect(status(state, 120)).toContain('next opencode/deepseek-v4-pro (max)')
+    const narrow = status(state, 30)
+    // No `next`, no provider prefix, no orphan effort: the fact is whole or gone.
+    expect(narrow).not.toContain('next')
+    expect(narrow).not.toContain('opencode')
+    expect(narrow).not.toContain('deepseek-v4-pro')
+    expect(narrow).not.toContain('(max)')
+    expect(narrow).toContain('130k/1.0M')
+  })
+
+  it('shows a control sequence in a pending identity instead of obeying it', () => {
+    expect(status({ model: 'evil\u001b[2Jroute/model', modelPending: true }))
+      .toContain('next evil^[[2Jroute/model')
+  })
+
   it('says when plan mode is in force, and stays quiet otherwise', () => {
     // A session quietly refusing to edit files looks exactly like one that will,
     // and the command that set it has long scrolled away.
@@ -1166,6 +1203,7 @@ describe('the status line’s attention notice', () => {
       attention: undefined,
       model: undefined,
       effort: undefined,
+      modelPending: false,
       usage: undefined,
       cacheRead: undefined,
       tokens: undefined,
@@ -1419,6 +1457,7 @@ describe('the status line respects its granted height', () => {
     activity: undefined,
     model: 'deepseek-v4-flash',
     effort: undefined,
+    modelPending: false,
     usage: undefined,
     cacheRead: undefined,
     tokens: undefined,
