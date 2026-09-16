@@ -940,8 +940,10 @@ also counted as a loose subagent there.
 
 Durable subagent conversations are a separate view from active work. `/work`
 lists only open lifecycle epochs, and a continuable child's epoch ends when it
-settles — so `/subagents`, or `c` from `/work`, opens Harness's durable
-direct-child discovery instead. Each row is a fact Harness published: the child
+settles — so `/subagents` opens Harness's durable direct-child discovery
+instead, and `c` from a `/work` subagent detail opens that child directly when
+Work already holds its durable discovery facts, falling back to the catalog
+otherwise. Each row is a fact Harness published: the child
 id, its label, `one-shot` or `continuable`, session-store residency, and whether
 it has children. Opening one reads that child's own session log through
 `ctx.sessionQuery` without resuming the child, and a continuable child can

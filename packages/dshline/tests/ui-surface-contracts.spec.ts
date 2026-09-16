@@ -149,6 +149,7 @@ describe('Enter truthfulness', () => {
     const mount = (entries: Parameters<typeof catalogReading>[0]): string => {
       const overlay = createSubagentCatalogOverlay({
         reading: () => catalogReading(entries),
+        origin: 'root',
         inspect: () => {},
         refresh: () => {},
         close: () => {},
