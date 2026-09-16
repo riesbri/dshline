@@ -16,7 +16,7 @@ import { homedir } from 'node:os'
 import { createUserMessage, type ImageBlock } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-agent/types'
-import type { AssistantStreamFrame, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Empty type imports carry the Context merges this module reads but does not
 // otherwise import from: the questions seam and the launcher's exit request. The
@@ -179,29 +179,6 @@ function selectionOutcomeLine(outcome: SelectionOutcome): string {
     escapeControls(`${mark} ${outcome.message}`),
     outcome.kind === 'failed' ? 'error' : 'muted',
   )
-}
-
-/**
- * Whether two selections name the same route and reasoning level.
- *
- * The comparison is COMPLETE — provider, model, and reasoning effort — because
- * `/reasoning` moves the selection too, and a change to it while a step is
- * already running is just as much a divergence from what that step captured.
- * Both sides must be present: the caller treats an absent `assembled` as its own
- * unconfirmed case, because an assembly may still be in flight.
- * @param left - one selection, or undefined.
- * @param right - the other selection, or undefined.
- * @returns whether both are present and identical in all three fields.
- */
-function sameSelection(
-  left: ModelSelectionRef['current'],
-  right: ModelSelectionRef['current'],
-): boolean {
-  return left !== undefined
-    && right !== undefined
-    && left.provider === right.provider
-    && left.model === right.model
-    && left.reasoningEffort === right.reasoningEffort
 }
 
 /** Fixed status row every ordinary live-region composition ends with. */
@@ -1306,7 +1283,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // twice would pay for that twice on a line redrawn by every spinner beat.
     const projected = projections.snapshot()
     const selected = selection.current
-    const assembled = selection.assembled
     return {
       busy: agent.status === 'running',
       tick,
@@ -1314,25 +1290,17 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       activityWord: primaryActivity(phase, cards.semanticActivity()),
       activity: cards.inFlight(),
       attention: attention.current(),
-      // The live selected route, route-qualified. `current` is dshline's
-      // selection; Harness's `installModelSelection` captures it when a step's
-      // `system-prompt/assemble` starts but publishes it into `assembled` only
-      // after the downstream assembly returns, and the request then routes from
-      // `assembled`. So mid-step the published value can be absent or stale
-      // while `current` has moved — `modelSelectionUnconfirmed` carries that
-      // distinction rather than baking a qualifier into this raw identity. Two
-      // provider routes can advertise the same model id, so the route is named;
-      // there is no discovery, no cache, and no parsing a provider from a string.
+      // The live selected route, route-qualified. This is the selected model
+      // configuration, not a claim about the route a step already in assembly is
+      // privately using: Harness captures `current` at `system-prompt/assemble`
+      // start and publishes the captured value only after the downstream
+      // assembly returns, and the ABA case (current moving away and back while
+      // an assembly is paused) makes that private capture unobservable here. So
+      // the footer reports only what `current` proves. Two provider routes can
+      // advertise the same model id, so the route is named; there is no
+      // discovery, no cache, and no parsing a provider from a string.
       model: selected === undefined ? undefined : `${selected.provider}/${selected.model}`,
       effort: effortLabel(selected?.reasoningEffort, w.modelInfo.reasoning),
-      // The running Agent cannot prove the live selection is the one already
-      // captured for the active assembly or request: `assembled` is either
-      // absent (the first assembly is still in flight) or a different complete
-      // selection. Idle is never unconfirmed, even when the last assembled
-      // route differs.
-      modelSelectionUnconfirmed: agent.status === 'running'
-        && selected !== undefined
-        && (assembled === undefined || !sameSelection(selected, assembled)),
       // The SAME snapshot one field over. Harness's `permissions` projection is
       // the effective current selection, folded from `permission/preset`,
       // `sandbox/mode`, `approval/policy`, and the composition defaults — not
