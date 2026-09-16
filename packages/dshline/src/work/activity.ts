@@ -41,22 +41,24 @@ import { PendingToolCalls } from '../tool-pending.ts'
 export const OUTPUT_TAIL_LIMIT = 256
 
 /**
- * Reduce `text` to its newest `limit` UTF-16 code units, surrogate-clean at the front.
+ * Reduce `text` to its newest `limit` UTF-16 code units, repairing the front boundary.
  *
  * A plain `slice(-limit)` can cut between the high and low surrogate of one
  * astral code point, leaving the retained string beginning with an orphaned low
- * surrogate. When the first kept unit is a low surrogate, its high half sits
- * just before the cut, so advancing one unit drops that whole code point rather
- * than keeping half of it. The result is at most `limit` units.
+ * surrogate. A delta at the exact cap can begin that way too, when the high half
+ * arrived in text already discarded. So the front boundary is checked even when
+ * no length cut is otherwise required, and a leading low surrogate is dropped.
+ * Only that boundary is repaired: the rest is copied verbatim, so this is not a
+ * guarantee that arbitrary provider input is well-formed UTF-16 throughout.
  * @param text - the text to reduce to its newest suffix.
  * @param limit - the retention cap in UTF-16 code units.
- * @returns the newest suffix, at most `limit` units and clean at its front boundary.
+ * @returns the newest suffix, at most `limit` units and never beginning with a low surrogate.
  */
 function newestWithin(text: string, limit: number): string {
-  if (text.length <= limit) return text
-  let start = text.length - limit
+  if (limit <= 0) return ''
+  let start = Math.max(0, text.length - limit)
   const first = text.charCodeAt(start)
-  // Drop the orphaned low half of a code point split by the retention cut.
+  // Drop the orphaned low half of a code point split by retention or by discard.
   if (first >= 0xdc00 && first <= 0xdfff) start += 1
   return text.slice(start)
 }

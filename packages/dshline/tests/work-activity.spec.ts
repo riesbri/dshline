@@ -1166,6 +1166,22 @@ describe('bounded assistant output retention', () => {
     expect(first >= 0xdc00 && first <= 0xdfff).toBe(false)
   })
 
+  it('never starts with a low surrogate when an exact-cap delta splits a pair', () => {
+    // The high half arrived in the previous delta, so this delta alone begins
+    // with the low half. The large-delta path discards `current` because the
+    // delta is already the cap, so the front boundary must still drop the
+    // orphan instead of returning the delta unchanged.
+    const current = '\uD83D'
+    const delta = `\uDE00${'x'.repeat(OUTPUT_TAIL_LIMIT - 1)}`
+    expect(delta.length).toBe(OUTPUT_TAIL_LIMIT)
+    const result = appendOutputTail(current, delta)
+    expect(result.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(hasLoneSurrogate(result)).toBe(false)
+    const first = result.charCodeAt(0)
+    expect(first >= 0xdc00 && first <= 0xdfff).toBe(false)
+    expect(result).toBe('x'.repeat(OUTPUT_TAIL_LIMIT - 1))
+  })
+
   it('retains the newest text across an astral boundary cut through the observer', () => {
     const rootCtx = new Context()
     const child = makeChild('child')
