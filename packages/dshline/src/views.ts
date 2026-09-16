@@ -910,8 +910,9 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         { attention: false, modes: [...goalled] },
         { attention: false, modes: [] },
       ]
-      // The body ladder is the convenience facts only; the notice is not one of
-      // them, so it is surrendered by the rung above instead.
+      // The body ladder carries the droppable facts, and the permission is one
+      // of them; the notice is not, so it is surrendered by the rung above
+      // instead.
       const bodies = [
         [status, ...doing, ...named, ...permitted, ...spent, ...cacheShare, ...bar],
         [status, ...doing, ...named, ...permitted, ...spent, ...bar],

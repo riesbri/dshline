@@ -549,6 +549,46 @@ describe('the status line’s current permission', () => {
     expect(types.filter(type => type === 'permission/preset')).toHaveLength(presetEventsBefore)
   })
 
+  it('repaints a withdrawn live auto contribution with no Session event', async () => {
+    // `auto` is a contribution rather than a table preset, and whether it is
+    // live is a derivation INPUT, not Session history. Withdrawing it changes
+    // what the next `permissions` snapshot derives from the same durable knobs,
+    // but it publishes no projection frame and appends no Session event — so the
+    // footer can only move when the catalog change is itself an invalidation
+    // signal. `danger-full-access` is the bundle Auto writes, which makes the
+    // post-withdrawal value deterministic without inventing a post-Auto preset.
+    const auto: Config = {
+      presets: {
+        review: { sandbox: 'read-only', approval: 'ask' },
+        normal: { sandbox: 'workspace-write', approval: 'ask' },
+        'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+      },
+      defaultPreset: 'normal',
+    }
+    const { ctx, session, window } = await attachedPermissionSession(auto)
+    const disposeAuto = ctx.permissionPresets.registerAuto(() => {})
+    ctx.permissionPresets.set(session, 'auto')
+    await window.settle()
+    expect(segments(window)).toContain('auto')
+    expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('auto')
+
+    // The durable log the permission was derived from does not move.
+    const seqBefore = session.seq
+    const eventsBefore = session.snapshotEvents().length
+
+    await disposeAuto()
+    await window.settle()
+
+    // No Session event and no sequence advance was responsible for the change.
+    expect(session.seq).toBe(seqBefore)
+    expect(session.snapshotEvents()).toHaveLength(eventsBefore)
+    // The next snapshot re-derives the same knobs against current availability,
+    // and the footer repaints to exactly that value.
+    expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('danger-full-access')
+    expect(segments(window)).toContain('danger-full-access')
+    expect(segments(window)).not.toContain('auto')
+  })
+
   it('shows danger-full-access exactly and reinterprets nothing', async () => {
     // A deployment may name a preset after a sandbox mode. The footer must show
     // the opaque currentValue verbatim, not a catalog label or a risk glyph.

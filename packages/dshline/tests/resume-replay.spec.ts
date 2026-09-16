@@ -138,6 +138,13 @@ interface Fixture {
   dispatch: () => ((key: Key) => void) | undefined
   /** The fake Agent the attachment drives. */
   agent: { followup: ReturnType<typeof vi.fn>; steer: ReturnType<typeof vi.fn> }
+  /** The exact Session object the attachment was handed. */
+  session: SessionSource
+  /**
+   * The source Session whose durable log seeded {@link Fixture.session}, when
+   * the fixture reconstructed one. Undefined for the ordinary session cases.
+   */
+  source: SessionSource | undefined
   /** Rows committed to scrollback, one entry per commit. */
   commits: string[][]
   /** Live-region frames composed by draw/paintNow. */
@@ -174,6 +181,7 @@ async function fixture(options: {
   if (options.sessionQuery !== undefined) ctx.provide('sessionQuery', options.sessionQuery as never)
 
   let session = options.session
+  let source: Session | undefined
   if (options.resumedPermission !== undefined) {
     const { config, preset } = options.resumedPermission
     await ctx.plugin(SessionStore)
@@ -181,17 +189,19 @@ async function fixture(options: {
     ctx.provide('shell', { sandboxMode: 'workspace-write' } as never)
     await ctx.plugin(ApprovalService)
     await ctx.plugin(PermissionPresetService, config)
-    // The real restore shape: the Session's durable log already carries the
-    // permission pin and the reader's later switch, and the projection registry
-    // folds it. Nothing is copied into a dshline variable.
-    const restored = ctx.sessions.create(SessionId('resumed-session'))
-    restored.append(
+    // Reconstruction, not reuse. The source Session's durable log is captured
+    // and a NEW Session is seeded from it through the store's own replay path,
+    // so the object that is attached has never been mutated by this process and
+    // the permission it shows can only have come from Harness folding that log.
+    source = ctx.sessions.create(SessionId('resumed-source'))
+    source.append(
       'user/message',
       createUserMessage({ content: [{ type: 'text', text: PAST_PROMPT }], source: { kind: 'user' } }),
       { surfaceOp: 'append' },
     )
-    ctx.permissionPresets.set(restored, preset)
-    session = restored
+    ctx.permissionPresets.set(source, preset)
+    const seed = source.snapshotEvents()
+    session = ctx.sessions.create(SessionId('resumed-session'), { seed })
   }
   if (session === undefined) session = sessionWithHistory()
 
@@ -252,6 +262,8 @@ async function fixture(options: {
   return {
     dispatch: () => dispatch,
     agent: agent as unknown as Fixture['agent'],
+    session,
+    source,
     commits,
     frames,
   }
@@ -400,10 +412,12 @@ describe('replaying a resumed transcript from its live Session', () => {
   })
 
   it('shows a resumed Session’s restored permission without dshline-owned state', async () => {
-    // The real restore seam: the Session's durable log carries its own
-    // permission pin and switch, the projection registry folds that log, and
-    // the attachment reads the folded value from its shared snapshot. Nothing
-    // is copied into a dshline variable to survive the reopen.
+    // Reconstruction, not reuse: the source Session is mutated, its durable log
+    // is captured, and a NEW Session is seeded from that log through the store.
+    // The attached object has never been mutated by this process, so the value
+    // in the footer can only be Harness folding the restored history. The
+    // deployment default is `normal`, so a session that silently adopted today's
+    // default instead of its own restored state would be caught.
     const permission: Config = {
       presets: {
         review: { sandbox: 'read-only', approval: 'ask' },
@@ -411,12 +425,21 @@ describe('replaying a resumed transcript from its live Session', () => {
       },
       defaultPreset: 'normal',
     }
-    const { commits, frames } = await fixture({
+    const { commits, frames, session, source } = await fixture({
       resumedPermission: { config: permission, preset: 'review' },
     })
 
+    // The attached Session is a distinct reconstruction of the source's log.
+    expect(source).toBeDefined()
+    expect(session).not.toBe(source)
+    expect(session.id).toBe(SessionId('resumed-session'))
+    expect(source?.snapshotEvents().some(event => event.type === 'permission/preset')).toBe(true)
+
+    // The history replays, and the restored permission is the source's switch,
+    // not today's `normal` default.
     expect(stripAnsi(commits.flat().join('\n'))).toContain(PAST_PROMPT)
     expect(status(frames)).toContain('review')
+    expect(status(frames)).not.toContain('normal')
   })
 
   it('leaves the attachment usable once the synchronous replay returns', async () => {

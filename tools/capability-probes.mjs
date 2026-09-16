@@ -142,7 +142,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'permissionPresets',
     files: ['packages/dshline/tests/permission.spec.ts'],
-    note: 'real PermissionPresetService catalog() over a real preset table plus a live registerAuto contribution, and the current-value-only `permissions` session projection, joined by dshline’s picker adapter for presentation only — no dshline catalog state, no catalog-change subscription, and mutation solely through the registered `/permission` command, whose refusal of a withdrawn option is exercised; deployment preset tables and the sandbox/approval knobs behind them are host-owned',
+    note: 'real PermissionPresetService catalog() over a real preset table plus a live registerAuto contribution, and the current-value-only `permissions` session projection, joined by dshline’s picker adapter for presentation only — no dshline catalog state, and mutation solely through the registered `/permission` command, whose refusal of a withdrawn option is exercised; the footer consumes `permission-presets/catalog-changed` only as an invalidation signal for the next authoritative snapshot, proved by a live registerAuto withdrawal that repaints with no Session event; deployment preset tables and the sandbox/approval knobs behind them are host-owned',
   },
   {
     name: 'commands',

@@ -198,15 +198,24 @@ the footer reads its `currentValue` from the attachment's shared snapshot, so a
 change folded from any of the three knobs repaints it. The catalog remains
 selection-only.
 
-**dshline does not subscribe to `permission-presets/catalog-changed`.** Harness
-publishes it, and what dshline takes from its existence is that the catalog is
-live — which is why the read happens at the interaction boundary rather than
-once at startup. A picker that was open across a change can only submit an
-option id, and Harness's own command handler validates that id against the
-catalog as it stands; a withdrawn option is refused there, not filtered here. A
-subscription would buy nothing but a second copy of state Harness already owns,
-and a second copy is the thing this boundary exists to prevent. The terminal
-picker is ephemeral by construction: its rows live for one interaction.
+**dshline does not subscribe to `permission-presets/catalog-changed` in order to
+cache or mirror the catalog.** Harness publishes it, and what the picker takes
+from its existence is that the catalog is live — which is why the read happens at
+the interaction boundary rather than once at startup. A picker that was open
+across a change can only submit an option id, and Harness's own command handler
+validates that id against the catalog as it stands; a withdrawn option is refused
+there, not filtered here. A cached copy would be a second authority on state
+Harness already owns, and that is the thing this boundary exists to prevent. The
+terminal picker is ephemeral by construction: its rows live for one interaction.
+
+The persistent footer is the one consumer that does subscribe, and only as an
+invalidation signal. Whether `auto` is currently contributed is a derivation
+input, not Session history: withdrawing it can change what the next
+`permissions.currentValue` derives from the same durable knobs while appending no
+Session event and publishing no projection frame. The listener does nothing but
+request a redraw, so the next paint re-reads the authoritative projection
+snapshot; the catalog is still not the footer authority, and no catalog copy
+exists.
 
 The one risk this leaves with dshline is presentation. Harness publishes the
 selectable catalog but no per-option risk metadata — `PresetOption` is a value,

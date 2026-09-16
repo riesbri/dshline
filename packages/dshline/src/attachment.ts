@@ -366,6 +366,21 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     invalidate: () => { ctx.tuiSlots.invalidate() },
   })
   scope.own(() => { projections.dispose() })
+  // The observer above repaints only when a unit's VALUE changes on a committed
+  // event. Live preset availability is a derivation INPUT, so losing it can
+  // change what the very next `permissions` snapshot derives while publishing no
+  // projection frame and appending no Session event: a withdrawn `auto`
+  // contribution leaves the same durable sandbox/approval knobs matching a
+  // different id or none. This listener is therefore an invalidation signal
+  // only — it never reads the catalog, derives a value, or retains either. The
+  // next paint re-reads the authoritative projection snapshot, which recomputes
+  // the view from the current availability, so dshline still owns no permission
+  // state and the catalog is still only what is selectable.
+  if (ctx.get('permissionPresets') !== undefined) {
+    scope.own(ctx.on('permission-presets/catalog-changed', () => {
+      ctx.tuiSlots.invalidate()
+    }))
+  }
   // The expensive half of context intelligence, and the reason it is a separate
   // object from the projection observer: `tokenMeter.measure()` prices and
   // clones every node of the current surface, which its own contract calls
