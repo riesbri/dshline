@@ -62,7 +62,7 @@ import { BUSY_ENTER_CHOICES, runEnterCommand } from './enter.ts'
 import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from './activity.ts'
 import type { ModelPhase } from './activity.ts'
 import { installApprovalAnswerer } from './approval.ts'
-import { AssistantStreamAttempt } from './assistant-attempt.ts'
+import { AssistantStreamAttemptGate } from './assistant-attempt-gate.ts'
 import {
   createAttentionController,
   liveSessionAttention,
@@ -415,7 +415,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // both folds classify a stale frame the same way. Its TSDoc carries the two
   // distinct "no attempt" states; this listener only resets its own buffer when
   // a new attempt begins.
-  const attempt = new AssistantStreamAttempt()
+  const attempt = new AssistantStreamAttemptGate()
   // Scoped to the agent: a scoped tool shadows a global one, and a restricted-away
   // tool reads as absent, so the card must come from the definition that ran.
   const cards = new ToolCards(name => ctx.tools.get(name, agent), workspace)

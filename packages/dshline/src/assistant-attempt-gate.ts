@@ -1,5 +1,12 @@
 /**
- * Attempt-identity gate for one Agent's live `agent/assistant-stream` frames.
+ * Observation-side attempt-identity gate for one Agent's live
+ * `agent/assistant-stream` frames.
+ *
+ * Deliberately NOT Harness's `AssistantStreamAttempt`: that upstream class owns
+ * and produces an actual model attempt and emits the transient stream. This one
+ * only CONSUMES frames a producer already emitted and answers one question —
+ * does this received frame belong to the accepted attempt? It owns no attempt,
+ * no buffer, and no presentation.
  *
  * The frames are process-local and transient. The contract orders
  * `start`/`chunk`/`end` WITHIN one attempt and promises settlement before that
@@ -27,9 +34,9 @@
  *   already committed.
  *
  * This class therefore tracks the adoption fact separately from the tracked
- * attempt id, and {@link AssistantStreamAttempt.end} clears only the latter.
+ * attempt id, and {@link AssistantStreamAttemptGate.end} clears only the latter.
  * It owns nothing else: no buffer, no reset, no presentation.
- * @module dshline/assistant-attempt
+ * @module dshline/assistant-attempt-gate
  */
 
 import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
@@ -49,7 +56,7 @@ export interface AssistantStreamDecision {
  * what its own surface owns, while the decision about which frames are current
  * is made once here.
  */
-export class AssistantStreamAttempt {
+export class AssistantStreamAttemptGate {
   /** The adopted attempt's id, or undefined before one exists and after {@link end}. */
   private attempt: AssistantStreamFrame['attemptId'] | undefined
   /** Whether this gate has EVER adopted an attempt; never cleared by {@link end}. */

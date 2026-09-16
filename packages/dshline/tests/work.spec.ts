@@ -570,10 +570,10 @@ describe('the Work live-region overlay', () => {
     expect(lines.some(line => /^\s*output\s*$/u.test(line))).toBe(false)
   })
 
-  it('renders no output row for a tail that is only whitespace or controls', () => {
+  it('renders no output row for a layout-only tail', () => {
     // The producer stores whatever a `text-delta` carried, so a stream that has
-    // only emitted line structure would otherwise advertise an answer that is
-    // not visible yet.
+    // only emitted line structure or spacing would otherwise advertise an answer
+    // that is not visible yet.
     for (const value of ['   ', '\n', '\r\n', '\t']) {
       const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
         label: 'review', outputTail: value,
@@ -584,6 +584,18 @@ describe('the Work live-region overlay', () => {
       expect(lines.join('\n'), JSON.stringify(value)).not.toContain('output')
       expect(lines.some(line => /^\s*output\s*$/u.test(line)), JSON.stringify(value)).toBe(false)
     }
+  })
+
+  it('keeps an escaped control visible rather than treating it as layout', () => {
+    // A control character is not suppressed: `escapeControls` makes it visible,
+    // so a tail carrying one is real content and keeps its row.
+    const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
+      label: 'review', outputTail: '\u0001',
+    })], jobs: [] }
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const detail = overlay.render(80, 24).map(stripAnsi).join('\n')
+    expect(detail).toContain('output  ^A')
   })
 
   it('collapses CR and LF runs into one physical row before escaping', () => {

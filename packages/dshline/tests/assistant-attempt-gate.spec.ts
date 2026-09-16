@@ -6,12 +6,12 @@
  * explicitly: start-new resets, start-same does not, a first mid-stream frame
  * adopts, a foreign attempt is ignored, and after `end` only a new `start` may
  * adopt another.
- * @module dshline/tests/assistant-attempt
+ * @module dshline/tests/assistant-attempt-gate
  */
 
 import { describe, expect, it } from 'vitest'
 import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
-import { AssistantStreamAttempt } from '../src/assistant-attempt.ts'
+import { AssistantStreamAttemptGate } from '../src/assistant-attempt-gate.ts'
 
 /** The opening marker of one attempt. */
 function start(attemptId: string): AssistantStreamFrame {
@@ -41,9 +41,9 @@ function end(attemptId: string): AssistantStreamFrame {
   } as AssistantStreamFrame
 }
 
-describe('AssistantStreamAttempt', () => {
+describe('AssistantStreamAttemptGate', () => {
   it('adopts a first start and resets only when the attempt id changes', () => {
-    const attempt = new AssistantStreamAttempt()
+    const attempt = new AssistantStreamAttemptGate()
     expect(attempt.accept(start('a1'))).toEqual({ current: true, reset: true })
     // The same attempt re-announced is not a new one.
     expect(attempt.accept(start('a1'))).toEqual({ current: true, reset: false })
@@ -54,17 +54,17 @@ describe('AssistantStreamAttempt', () => {
   it('adopts the tracked attempt on a first frame that is not a start', () => {
     // The listener attached mid-stream: no `start` was ever seen, so the first
     // chunk establishes the current attempt instead of resetting it.
-    const attempt = new AssistantStreamAttempt()
+    const attempt = new AssistantStreamAttemptGate()
     expect(attempt.accept(text('a1', 'hello'))).toEqual({ current: true, reset: false })
     expect(attempt.accept(reasoning('a1'))).toEqual({ current: true, reset: false })
     // Even a first terminal frame is current: it belongs to the attempt this
     // gate just adopted, and the caller must process the end.
-    const fresh = new AssistantStreamAttempt()
+    const fresh = new AssistantStreamAttemptGate()
     expect(fresh.accept(end('a9'))).toEqual({ current: true, reset: false })
   })
 
   it('ignores a frame from a different attempt while one is tracked', () => {
-    const attempt = new AssistantStreamAttempt()
+    const attempt = new AssistantStreamAttemptGate()
     attempt.accept(start('a1'))
     expect(attempt.accept(text('a2', 'STALE'))).toEqual({ current: false, reset: false })
     expect(attempt.accept(end('a2'))).toEqual({ current: false, reset: false })
@@ -73,7 +73,7 @@ describe('AssistantStreamAttempt', () => {
   })
 
   it('after end accepts only a new start, never the ended attempt or a stray frame', () => {
-    const attempt = new AssistantStreamAttempt()
+    const attempt = new AssistantStreamAttemptGate()
     attempt.accept(start('a1'))
     attempt.end()
     // The ended attempt is gone; a late chunk is not a mid-stream adoption.
@@ -86,7 +86,7 @@ describe('AssistantStreamAttempt', () => {
   })
 
   it('clears the tracked attempt on end so a same-id start is a new attempt', () => {
-    const attempt = new AssistantStreamAttempt()
+    const attempt = new AssistantStreamAttemptGate()
     attempt.accept(start('a1'))
     attempt.end()
     // The id was cleared, so the identical id is re-adopted as a new attempt

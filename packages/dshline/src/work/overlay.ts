@@ -875,9 +875,11 @@ function outputTailRow(text: string, width: number): StageRow | undefined {
   if (budget < 1) return undefined
   const normalized = text.replace(/[\r\n]+/gu, ' ')
   const escaped = escapeControls(normalized)
-  // A stream that has only produced whitespace or controls has nothing a reader
-  // can see. Rendering `output` with trailing blanks would advertise an answer
-  // that is not there, so the row is omitted until real text arrives.
+  // Whole-control text is deliberately NOT suppressed: `escapeControls` turns
+  // an ESC into the visible `^[`, so it stays and is shown. What has no visible
+  // content is LAYOUT alone — spaces, CR/LF collapsed to spaces, and tabs
+  // expanded to spaces — and an `output` row of blanks would advertise an
+  // answer that is not there.
   if (escaped.trim() === '') return undefined
   const content = tailToWidth(escaped, budget)
   if (content === '') return undefined

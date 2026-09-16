@@ -24,7 +24,7 @@ import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from '../activity.ts'
 import type { ActivityWord, ModelPhase } from '../activity.ts'
-import { AssistantStreamAttempt } from '../assistant-attempt.ts'
+import { AssistantStreamAttemptGate } from '../assistant-attempt-gate.ts'
 import { PendingToolCalls } from '../tool-pending.ts'
 
 /**
@@ -34,11 +34,57 @@ import { PendingToolCalls } from '../tool-pending.ts'
  * columns, so its content budget is under ~98 display columns. A CJK code
  * point is one UTF-16 code unit and two columns, and an astral code point is
  * two code units and two columns, so 256 code units is safely more than any one
- * row can display while never retaining a whole answer. That trade is the
- * point: enough to show the newest words, too little to become a second
- * transcript.
+ * row can display. Retention is capped at that many code units regardless of
+ * total answer length: enough recent text for the row, bounded independently of
+ * the response, and deliberately not a durable transcript.
  */
 export const OUTPUT_TAIL_LIMIT = 256
+
+/**
+ * Reduce `text` to its newest `limit` UTF-16 code units, surrogate-clean at the front.
+ *
+ * A plain `slice(-limit)` can cut between the high and low surrogate of one
+ * astral code point, leaving the retained string beginning with an orphaned low
+ * surrogate. When the first kept unit is a low surrogate, its high half sits
+ * just before the cut, so advancing one unit drops that whole code point rather
+ * than keeping half of it. The result is at most `limit` units.
+ * @param text - the text to reduce to its newest suffix.
+ * @param limit - the retention cap in UTF-16 code units.
+ * @returns the newest suffix, at most `limit` units and clean at its front boundary.
+ */
+function newestWithin(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  let start = text.length - limit
+  const first = text.charCodeAt(start)
+  // Drop the orphaned low half of a code point split by the retention cut.
+  if (first >= 0xdc00 && first <= 0xdfff) start += 1
+  return text.slice(start)
+}
+
+/**
+ * Append one streamed text delta to a bounded Work output tail.
+ *
+ * Retention stays capped at `limit` UTF-16 code units regardless of answer
+ * length, and the newest text always wins. A delta at least as long as the cap
+ * is reduced to its OWN newest suffix before the prior tail is considered, so a
+ * single huge provider delta never has the old tail concatenated onto it. A
+ * smaller delta is joined to the prior tail, and that intermediate is under
+ * twice the cap because the prior tail is already bounded. The retained front
+ * boundary is surrogate-safe, so retention cannot leave half an astral code
+ * point. This stores recent text only; display-width truncation stays in the
+ * renderer.
+ * @param current - the currently retained tail.
+ * @param delta - the newest streamed text fragment.
+ * @param limit - the retention cap in UTF-16 code units.
+ * @returns the new retained tail, at most `limit` units.
+ */
+export function appendOutputTail(current: string, delta: string, limit = OUTPUT_TAIL_LIMIT): string {
+  if (limit <= 0) return ''
+  // Only the delta's own suffix can survive a delta this long, so the prior
+  // tail is discarded WITHOUT being concatenated to the whole incoming delta.
+  if (delta.length >= limit) return newestWithin(delta, limit)
+  return newestWithin(current + delta, limit)
+}
 
 /** The live activity facts a Work row may truthfully present. */
 export interface ChildActivityReading {
@@ -122,7 +168,7 @@ export class ChildActivityObserver {
    */
   private output = ''
   /** The shared attempt-identity gate, so a stale frame is never folded. */
-  private readonly attempt = new AssistantStreamAttempt()
+  private readonly attempt = new AssistantStreamAttemptGate()
   private readonly pending: PendingToolCalls
   private readonly disposers: (() => void)[] = []
   private disposed = false
@@ -198,8 +244,9 @@ export class ChildActivityObserver {
           this.output = ''
           this.attempt.end()
         } else if (frame.type === 'chunk' && frame.chunk.type === 'text-delta') {
-          // Newest kept, oldest discarded; the concatenation is never unbounded.
-          this.output = (this.output + frame.chunk.text).slice(-OUTPUT_TAIL_LIMIT)
+          // Newest text wins. Retention is capped and the front boundary stays
+          // surrogate-clean even for one very large provider delta.
+          this.output = appendOutputTail(this.output, frame.chunk.text)
         }
         this.phase = modelPhaseAfterFrame(this.phase, frame)
         onChange()

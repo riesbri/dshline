@@ -18,7 +18,7 @@ import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { stripAnsi } from '@dshline/renderer'
 import { HarnessWork } from '../src/work/index.ts'
-import { ChildActivityObserver, OUTPUT_TAIL_LIMIT } from '../src/work/activity.ts'
+import { ChildActivityObserver, appendOutputTail, OUTPUT_TAIL_LIMIT } from '../src/work/activity.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { WorkInterruptResult, WorkSnapshot, SubagentWorkItem } from '../src/work/model.ts'
 import { activeElapsedMs, subagentDuration } from '../src/work/model.ts'
@@ -1105,6 +1105,92 @@ describe('bounded transient assistant output for Work rows', () => {
     // A foreign attempt changes nothing, so it must not spend a redraw.
     publishFrame(child, text('stale', 'a2'))
     expect(invalidations()).toBe(before + 2)
+    work.dispose()
+  })
+})
+
+/** Whether a string contains an unpaired UTF-16 surrogate. */
+function hasLoneSurrogate(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index)
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true
+      index += 1
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return true
+    }
+  }
+  return false
+}
+
+describe('bounded assistant output retention', () => {
+  it('keeps only the newest bounded suffix of a very large delta', () => {
+    const result = appendOutputTail('PRIOR-TAIL', 'x'.repeat(5_000))
+    expect(result).toBe('x'.repeat(OUTPUT_TAIL_LIMIT))
+    expect(result).not.toContain('PRIOR')
+  })
+
+  it('discards the prior tail rather than concatenating it to a large delta', () => {
+    // The delta is already at least the cap, so nothing before it can survive.
+    // The helper reduces the delta alone — a `prior + delta` intermediate is
+    // never built — and the result is exactly that delta's own suffix.
+    const result = appendOutputTail('PRIOR-TAIL', `${'y'.repeat(OUTPUT_TAIL_LIMIT)}NEWEST`)
+    expect(result.length).toBe(OUTPUT_TAIL_LIMIT)
+    expect(result.endsWith('NEWEST')).toBe(true)
+    expect(result).not.toContain('PRIOR')
+  })
+
+  it('joins a smaller delta to the bounded prior tail and stays capped', () => {
+    expect(appendOutputTail('abc', 'def')).toBe('abcdef')
+    const result = appendOutputTail('a'.repeat(OUTPUT_TAIL_LIMIT), 'b'.repeat(10))
+    expect(result.length).toBe(OUTPUT_TAIL_LIMIT)
+    expect(result.endsWith('b'.repeat(10))).toBe(true)
+  })
+
+  it('keeps a delta exactly the cap and drops the prior tail', () => {
+    expect(appendOutputTail('OLD', 'n'.repeat(OUTPUT_TAIL_LIMIT))).toBe('n'.repeat(OUTPUT_TAIL_LIMIT))
+  })
+
+  it('never leaves an orphaned low surrogate at the retained front boundary', () => {
+    // The 256-unit cut over this text lands between the emoji's two halves
+    // (indices 4 and 5), so a plain `slice(-256)` would begin with the low
+    // surrogate. `hasLoneSurrogate` proves the retained string is well formed.
+    const chunk = `${'a'.repeat(4)}😀${'b'.repeat(249)}NEWEST`
+    expect(chunk.length).toBe(261)
+    const result = appendOutputTail('', chunk)
+    expect(result.endsWith('NEWEST')).toBe(true)
+    expect(result.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(hasLoneSurrogate(result)).toBe(false)
+    const first = result.charCodeAt(0)
+    expect(first >= 0xdc00 && first <= 0xdfff).toBe(false)
+  })
+
+  it('retains the newest text across an astral boundary cut through the observer', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text(`${'a'.repeat(4)}😀${'b'.repeat(249)}NEWEST`, 'a1'))
+    const tail = work.snapshot().subagents[0]?.outputTail
+    expect(tail).toBeDefined()
+    expect(tail!.endsWith('NEWEST')).toBe(true)
+    expect(tail!.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(hasLoneSurrogate(tail!)).toBe(false)
+    work.dispose()
+  })
+
+  it('bounds the tail after one very large single delta through the observer', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('x'.repeat(10_000), 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('x'.repeat(OUTPUT_TAIL_LIMIT))
     work.dispose()
   })
 })
