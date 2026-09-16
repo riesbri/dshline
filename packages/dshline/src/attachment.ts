@@ -366,6 +366,21 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     invalidate: () => { ctx.tuiSlots.invalidate() },
   })
   scope.own(() => { projections.dispose() })
+  // The observer above repaints only when a unit's VALUE changes on a committed
+  // event. Live preset availability is a derivation INPUT, so losing it can
+  // change what the very next `permissions` snapshot derives while publishing no
+  // projection frame and appending no Session event: a withdrawn `auto`
+  // contribution leaves the same durable sandbox/approval knobs matching a
+  // different id or none. This listener is therefore an invalidation signal
+  // only — it never reads the catalog, derives a value, or retains either. The
+  // next paint re-reads the authoritative projection snapshot, which recomputes
+  // the view from the current availability, so dshline still owns no permission
+  // state and the catalog is still only what is selectable.
+  if (ctx.get('permissionPresets') !== undefined) {
+    scope.own(ctx.on('permission-presets/catalog-changed', () => {
+      ctx.tuiSlots.invalidate()
+    }))
+  }
   // The expensive half of context intelligence, and the reason it is a separate
   // object from the projection observer: `tokenMeter.measure()` prices and
   // clones every node of the current surface, which its own contract calls
@@ -1276,6 +1291,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       attention: attention.current(),
       model: selection.current?.model,
       effort: effortLabel(selection.current?.reasoningEffort, w.modelInfo.reasoning),
+      // The SAME snapshot one field over. Harness's `permissions` projection is
+      // the effective current selection, folded from `permission/preset`,
+      // `sandbox/mode`, `approval/policy`, and the composition defaults — not
+      // from the preset event alone. The raw `currentValue` is the authority and
+      // is opaque (a configured id, `auto`, or derived `custom`), so it is
+      // rendered verbatim rather than resolved through the process catalog,
+      // which answers only what is currently selectable. Absent when the
+      // optional capability is not composed, which omits the segment.
+      permission: projected?.values.permissions?.currentValue,
       usage: formatUsage(usage.reading, prefs.usageMode),
       // Read from the SAME snapshot as the context reading below it, through the
       // buckets `/usage` reports: Harness's `tokenUsage` is the authority, and

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Screen } from '@dshline/renderer'
+import { displayWidth, Screen } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { StatusState } from '../src/views.ts'
 import { createStatusView } from '../src/views.ts'
@@ -53,6 +53,27 @@ describe('the status line on a real terminal', () => {
       new Screen(emulator.target).setLive(createStatusView(() => CROWDED).render(columns))
       const drawn = (await emulator.screen()).map(line => line.trimEnd()).filter(line => line !== '')
       expect(drawn.length, `${String(columns)} columns: ${JSON.stringify(drawn)}`).toBe(1)
+    }
+  })
+
+  it('keeps the permission on one row, inside the terminal, and never in half', async () => {
+    // The permission is a body segment like any other, so the real terminal is
+    // the only honest measure of whether it wrapped or was cut.
+    const state: StatusState = { ...CROWDED, permission: 'danger-full-access' }
+    for (const columns of [20, 26, 30, 40, 50, 60, 72, 80, 100, 120]) {
+      const emulator = createEmulator(columns, 24)
+      new Screen(emulator.target).setLive(createStatusView(() => state).render(columns))
+      const drawn = (await emulator.screen()).map(line => line.trimEnd()).filter(line => line !== '')
+      expect(drawn.length, `${String(columns)} columns: ${JSON.stringify(drawn)}`).toBe(1)
+      const line = drawn[0] ?? ''
+      for (const row of drawn) {
+        expect(displayWidth(row), `${String(columns)} columns: ${JSON.stringify(row)}`).toBeLessThanOrEqual(columns)
+      }
+      // A leading fragment means a cut; the whole id or nothing is the rule.
+      expect(
+        line.includes('danger') ? line.includes('danger-full-access') : true,
+        `${String(columns)} columns: ${JSON.stringify(line)}`,
+      ).toBe(true)
     }
   })
 

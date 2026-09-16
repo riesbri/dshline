@@ -196,6 +196,18 @@ function frame(frames: readonly string[][]): string {
 
 /** Mount the actual permission service, command runtime, and projection registry. */
 async function permissionHarness(config: Config): Promise<{ ctx: Context; session: Session }> {
+  const ctx = await permissionContext(config)
+  return { ctx, session: ctx.sessions.create(SessionId('permission-probe')) }
+}
+
+/**
+ * Mount the real adopted-Harness services without creating a Session yet, so a
+ * case can create more than one or restore an existing log.
+ * @param config - the deployment preset table, or undefined to omit the whole
+ *   optional permission capability and prove the footer's absence path.
+ * @returns the mounted context.
+ */
+async function permissionContext(config?: Config): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
@@ -207,8 +219,10 @@ async function permissionHarness(config: Config): Promise<{ ctx: Context; sessio
     start() { throw new Error('permission probe does not run bash') },
   } as never)
   await ctx.plugin(ApprovalService)
-  await ctx.plugin(PermissionPresetService, config)
-  return { ctx, session: ctx.sessions.create(SessionId('permission-probe')) }
+  // The capability is optional, exactly as in a profile: omitting it must leave
+  // the projection key absent rather than a `unknown` placeholder.
+  if (config !== undefined) await ctx.plugin(PermissionPresetService, config)
+  return ctx
 }
 
 /** Mint an agent scope in the addressing shape the real command runtime expects. */
@@ -216,6 +230,109 @@ async function permissionAgent(ctx: Context, session: Session): Promise<Agent> {
   const agent = { id: session.id, session, inject: vi.fn() } as unknown as Agent
   await ctx.plugin(Object.assign((inner: Context) => { createScope(inner, agent) }, { inject: ['commands'] }))
   return agent
+}
+
+/** A real scoped Agent carrying the live fields the attachment reads each frame. */
+async function attachedAgent(ctx: Context, session: Session): Promise<Agent> {
+  const agent = await permissionAgent(ctx, session)
+  Object.assign(agent as object, {
+    status: 'idle',
+    inbox: { nextStep: [], nextTurn: [] },
+    followup: vi.fn(),
+    steer: vi.fn(),
+    cancel: vi.fn(),
+  })
+  return agent
+}
+
+/**
+ * A window over a real context that captures every live-region frame it is
+ * asked to compose, and can be handed one attachment after another exactly as
+ * the session loop does.
+ * @param ctx - the real context whose TuiSlots registry composes the frame.
+ * @returns the captured frames and the attachment controls.
+ */
+function permissionWindow(ctx: Context): {
+  readonly frames: string[][]
+  readonly attach: (session: Session, agent: Agent, resumed?: boolean) => void
+  readonly status: () => string
+  readonly submit: (line: string) => void
+  readonly settle: () => Promise<void>
+} {
+  const frames: string[][] = []
+  let dispatch: ((key: Key) => void) | undefined
+  const capture = (): void => { frames.push([...ctx.tuiSlots.compose(80, 24).lines]) }
+  ctx.on('tui/render', capture)
+  const window = {
+    ctx,
+    terminal: { columns: () => 80, rows: () => 24 },
+    exit: undefined,
+    startup: { cwd: '/ws', task: undefined, resume: undefined },
+    pricing: pricingFrom(undefined),
+    peakHours: [],
+    version: 'test',
+    selection: { current: undefined },
+    modelInfo: { contextWindow: undefined, reasoning: undefined },
+    prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true, busyEnter: 'queue' },
+    colorDepth: 0,
+    palette: () => ({}),
+    setPalette: () => {},
+    themeSettings: {},
+    pendingTask: undefined,
+    draw: capture,
+    paintNow: capture,
+    commit: () => {},
+    clear: () => {},
+    refreshModelInfo: () => {},
+    setDispatch: (handler: ((key: Key) => void) | undefined) => { dispatch = handler },
+    setExit: () => {},
+  } as unknown as Window
+  return {
+    frames,
+    attach: (session, agent, resumed = false) => {
+      const outcome = {
+        target: resumed ? { kind: 'resume', id: session.id } : { kind: 'new', cwd: '/ws' },
+        attached: { handle: { agent, dispose: async () => {} }, reopened: resumed },
+      } as unknown as AttachOutcome
+      // Not awaited: the attachment intentionally parks on the next-target
+      // promise, and every registration this case reads is made synchronously
+      // before it does.
+      void attachSession(window, outcome)
+    },
+    status: () => {
+      const lines = frames.at(-1) ?? []
+      return stripAnsi(lines[lines.length - 1] ?? '')
+    },
+    submit: line => {
+      for (const character of [...line]) dispatch?.({ kind: 'text', text: character })
+      dispatch?.({ kind: 'key', name: 'enter' })
+    },
+    settle: () => new Promise<void>(resolve => { setImmediate(resolve) }),
+  }
+}
+
+/**
+ * Mount the real permission stack plus TuiSlots and attach one fresh Session.
+ * @param config - the deployment preset table, or undefined for the
+ *   no-capability case.
+ * @returns the context, the attached Session, and the window.
+ */
+async function attachedPermissionSession(config?: Config): Promise<{
+  readonly ctx: Context
+  readonly session: Session
+  readonly agent: Agent
+  readonly window: ReturnType<typeof permissionWindow>
+}> {
+  const ctx = await permissionContext(config)
+  await ctx.plugin(TuiSlots)
+  ctx.provide('tools', { get: () => undefined })
+  ctx.provide('userQuestions', {} as never)
+  ctx.provide('llm', {} as never)
+  const session = ctx.sessions.create(SessionId('permission-attachment'))
+  const agent = await attachedAgent(ctx, session)
+  const window = permissionWindow(ctx)
+  window.attach(session, agent)
+  return { ctx, session, agent, window }
 }
 
 /** The deployment table every real-Harness case below is configured with. */
@@ -375,6 +492,166 @@ describe('real Harness permission capability', () => {
     expect(appended.mock.calls.map(([, event]) => (event as { type: string }).type))
       .toEqual(['command/run', 'command/done'])
     expect(ctx.sessionProjections.snapshot(session).asOfSeq).toBeGreaterThan(cutBefore)
+  })
+})
+
+describe('the status line’s current permission', () => {
+  /**
+   * The status row split into whole segments, as the shedding ladder joins
+   * them. A permission id must be one segment, never part of the transient
+   * `permission → …` attention notice beside it.
+   * @param window - the attached window.
+   * @returns the segments a person reads on the newest status row.
+   */
+  function segments(window: { status: () => string }): string[] {
+    return window.status().split(' · ')
+  }
+
+  it('shows a freshly attached real Session’s initial Harness currentValue', async () => {
+    // The attachment reads the adapter's own shared projection snapshot, so the
+    // Session Harness just pinned reports its effective permission with no
+    // dshline-owned state constructed anywhere.
+    const { session, window } = await attachedPermissionSession(PRESETS)
+    expect(segments(window)).toContain('normal')
+    expect(session.snapshotEvents().some(event => event.type === 'permission/preset')).toBe(true)
+  })
+
+  it('updates live when the real /permission command changes Harness state', async () => {
+    const { ctx, session, agent, window } = await attachedPermissionSession(PRESETS)
+    expect(segments(window)).toContain('normal')
+
+    const execution = await ctx.commands.execute(agent, '/permission review', [], new AbortController().signal)
+    expect(execution?.result).toEqual({ kind: 'success', text: 'preset review' })
+    await window.settle()
+
+    // The authoritative projection and the footer moved together; no restart,
+    // reattachment, or local listener was needed.
+    expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('review')
+    expect(segments(window)).toContain('review')
+    expect(segments(window)).not.toContain('normal')
+  })
+
+  it('updates when an independent approval change derives custom, not only a preset event', async () => {
+    // The regression the picker-era code would have failed: the footer listens
+    // to the `permissions` projection, which folds all three knobs. Moving
+    // approval alone produces the derived `custom` and must repaint.
+    const { session, window } = await attachedPermissionSession(PRESETS)
+    expect(segments(window)).toContain('normal')
+    const presetEventsBefore = session.snapshotEvents().filter(event => event.type === 'permission/preset').length
+
+    setApprovalPolicy(session, 'never')
+    await window.settle()
+
+    expect(segments(window)).toContain('custom')
+    // The move really was approval-only: it appended no new preset event.
+    const types = session.snapshotEvents().map(event => event.type)
+    expect(types).toContain('approval/policy')
+    expect(types.filter(type => type === 'permission/preset')).toHaveLength(presetEventsBefore)
+  })
+
+  it('repaints both edges of live auto availability with no Session event', async () => {
+    // `auto` is a contribution rather than a table preset, and whether it is
+    // live is a derivation INPUT, not Session history. Adding or withdrawing it
+    // changes what the next `permissions` snapshot derives from the same durable
+    // knobs, but it publishes no projection frame and appends no Session event —
+    // so the footer can only move when the catalog change is itself an
+    // invalidation signal. `danger-full-access` is the bundle Auto writes, which
+    // makes the post-withdrawal value deterministic without inventing a
+    // post-Auto preset.
+    const auto: Config = {
+      presets: {
+        review: { sandbox: 'read-only', approval: 'ask' },
+        normal: { sandbox: 'workspace-write', approval: 'ask' },
+        'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+      },
+      defaultPreset: 'normal',
+    }
+    const { ctx, session, window } = await attachedPermissionSession(auto)
+    const disposeAuto = ctx.permissionPresets.registerAuto(() => {})
+    ctx.permissionPresets.set(session, 'auto')
+    await window.settle()
+    expect(segments(window)).toContain('auto')
+    expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('auto')
+
+    // The durable log the permission was derived from does not move.
+    const seqBefore = session.seq
+    const eventsBefore = session.snapshotEvents().length
+
+    await disposeAuto()
+    await window.settle()
+
+    // No Session event and no sequence advance was responsible for the change.
+    expect(session.seq).toBe(seqBefore)
+    expect(session.snapshotEvents()).toHaveLength(eventsBefore)
+    // The next snapshot re-derives the same knobs against current availability,
+    // and the footer repaints to exactly that value.
+    expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('danger-full-access')
+    expect(segments(window)).toContain('danger-full-access')
+    expect(segments(window)).not.toContain('auto')
+
+    // The inverse edge, on the same Session and the same durable log: the
+    // recorded selection is still `auto`, so re-contributing the preset must
+    // repaint back to it, again with no Session event. Segment-aware assertions
+    // keep the transient `permission → …` notice from satisfying either side.
+    const seqAtWithdrawal = session.seq
+    const eventsAtWithdrawal = session.snapshotEvents().length
+    const disposeSecondAuto = ctx.permissionPresets.registerAuto(() => {})
+    await window.settle()
+
+    expect(session.seq).toBe(seqAtWithdrawal)
+    expect(session.snapshotEvents()).toHaveLength(eventsAtWithdrawal)
+    expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('auto')
+    expect(segments(window)).toContain('auto')
+    expect(segments(window)).not.toContain('danger-full-access')
+
+    await disposeSecondAuto()
+  })
+
+  it('shows danger-full-access exactly and reinterprets nothing', async () => {
+    // A deployment may name a preset after a sandbox mode. The footer must show
+    // the opaque currentValue verbatim, not a catalog label or a risk glyph.
+    const full: Config = {
+      presets: { 'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' } },
+      defaultPreset: 'danger-full-access',
+    }
+    const { window } = await attachedPermissionSession(full)
+    expect(segments(window)).toContain('danger-full-access')
+  })
+
+  it('renders normally and omits permission when the capability is not composed', async () => {
+    // No permissionPresets service means no `permissions` projection key at
+    // all. That is capability absence, not a state to name `unknown`.
+    const { window } = await attachedPermissionSession(undefined)
+    expect(window.status()).toContain('ready')
+    expect(window.status()).not.toContain('permission')
+    expect(window.status()).not.toContain('unknown')
+  })
+
+  it('shows the newly attached Session’s permission and never the previous one', async () => {
+    // Two real Sessions with different effective permissions in one context,
+    // then the attachment changes exactly as the session loop changes it.
+    const ctx = await permissionContext(PRESETS)
+    await ctx.plugin(TuiSlots)
+    ctx.provide('tools', { get: () => undefined })
+    ctx.provide('userQuestions', {} as never)
+    ctx.provide('llm', {} as never)
+    const first = ctx.sessions.create(SessionId('permission-first'))
+    const second = ctx.sessions.create(SessionId('permission-second'))
+    ctx.permissionPresets.set(second, 'review')
+    const window = permissionWindow(ctx)
+
+    window.attach(first, await attachedAgent(ctx, first))
+    expect(segments(window)).toContain('normal')
+    expect(segments(window)).not.toContain('review')
+
+    // `/new` retires the first attachment, as the loop's own switch does.
+    window.submit('/new')
+    await window.settle()
+    window.attach(second, await attachedAgent(ctx, second), true)
+    await window.settle()
+
+    expect(segments(window)).toContain('review')
+    expect(segments(window)).not.toContain('normal')
   })
 })
 

@@ -1897,6 +1897,14 @@ different table, labels, descriptions, and order. If its effective sandbox and
 approval policy do not match a named preset, the picker shows `custom` as the
 current state but does not offer it as a target.
 
+The status line carries that effective permission persistently, beside the model
+and ahead of the session totals. It is the raw Harness `currentValue` — a
+deployment-defined preset id, `auto`, or the derived `custom` — folded from the
+sandbox and approval knobs as well as the preset, so a change made by any of them
+repaints it without reopening anything. The segment is shown as an opaque id with
+no inferred risk colouring, and it is omitted entirely when the deployment
+composes no permission capability.
+
 Selecting `danger-full-access` from the picker asks for an explicit confirmation
 before it runs the Harness command. This safety step applies only to the picker:
 the direct `/permission danger-full-access` command retains Harness's existing

@@ -79,6 +79,15 @@ export interface StatusState {
   /** Reasoning level, only when it differs from the route's default. */
   effort: string | undefined
   /**
+   * The attached Session's effective Harness permission: the raw
+   * `permissions.currentValue`, already one whole segment. A configured preset
+   * id, `auto`, or derived `custom` — opaque, so it is painted as-is and never
+   * resolved through the process catalog, which answers what is selectable
+   * rather than what is in force. Undefined when the optional capability or its
+   * projection is absent, which omits the segment entirely.
+   */
+  permission?: string | undefined
+  /**
    * Cumulative session usage, already formatted, or undefined when the reader
    * has switched it off. Pre-formatted because pricing is not a layout concern:
    * this module decides where the segment goes and when to give it up, and knows
@@ -744,6 +753,15 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const model = current.model === undefined
         ? undefined
         : paint(current.effort === undefined ? current.model : `${current.model} (${current.effort})`, 'subdued')
+      // The effective permission is a state fact, not a convenience reading: it
+      // gates what a turn may DO. It is still one opaque id, escaped because it
+      // originates upstream and painted in the subdued role because dshline
+      // infers no risk from an arbitrary deployment-defined id. Mapping it
+      // through the catalog would make the footer a second selection authority
+      // and would have to invent a label for `custom`.
+      const permission = current.permission === undefined
+        ? undefined
+        : paint(escapeControls(current.permission), 'subdued')
       const usage = current.usage === undefined ? undefined : paint(current.usage, 'subdued')
       // A convenience reading, and the first segment the body gives up: how much
       // of the prompt came from cache is not something anyone needs at a width
@@ -816,7 +834,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const hints = current.busy
         ? ['ctrl-c stop', 'ctrl-d quit']
         : ['alt-enter newline', 'ctrl-d quit']
-      // Four lines, richest first, and the first that fits wins. Each step gives up
+      // Seven lines, richest first, and the first that fits wins. Each step gives up
       // something the one above it keeps, in order of how little it costs:
       //
       // The CACHE-READ SHARE goes first. It is the only segment here that says
@@ -832,10 +850,16 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       // longest fact and the least urgent: it does not change during a session,
       // where the pressure reading does.
       //
-      // The SESSION TOTAL goes last of the three, by the same argument. It accounts
+      // The SESSION TOTAL goes after that, by the same argument. It accounts
       // for what has already been spent, while the reading governs whether the
       // session still works — so of the two, the reading is the one you cannot be
       // without.
+      //
+      // The PERMISSION is the last body fact surrendered, after the totals. It
+      // gates what a turn may DO, so it outlives the model name and the session
+      // total, but it is still a body fact: at a width where even it cannot fit,
+      // the context-pressure reading and the base status are the irreducible
+      // line.
       //
       // The reading itself is never given up, and neither is whether a turn is
       // running. Dropping whole parts rather than truncating the joined line is the
@@ -845,6 +869,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const noticed = attention === undefined ? [] : [attention]
       const doing = attention !== undefined || activity === undefined ? [] : [activity]
       const named = model === undefined ? [] : [model]
+      const permitted = permission === undefined ? [] : [permission]
       const spent = usage === undefined ? [] : [usage]
       const cacheShare = cached === undefined ? [] : [cached]
       const bar = readingWithBar === undefined ? [] : [readingWithBar]
@@ -885,14 +910,16 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         { attention: false, modes: [...goalled] },
         { attention: false, modes: [] },
       ]
-      // The body ladder is the convenience facts only; the notice is not one of
-      // them, so it is surrendered by the rung above instead.
+      // The body ladder carries the droppable facts, and the permission is one
+      // of them; the notice is not, so it is surrendered by the rung above
+      // instead.
       const bodies = [
-        [status, ...doing, ...named, ...spent, ...cacheShare, ...bar],
-        [status, ...doing, ...named, ...spent, ...bar],
-        [status, ...named, ...spent, ...bar],
-        [status, ...named, ...spent, ...plain],
-        [status, ...spent, ...plain],
+        [status, ...doing, ...named, ...permitted, ...spent, ...cacheShare, ...bar],
+        [status, ...doing, ...named, ...permitted, ...spent, ...bar],
+        [status, ...named, ...permitted, ...spent, ...bar],
+        [status, ...named, ...permitted, ...spent, ...plain],
+        [status, ...permitted, ...spent, ...plain],
+        [status, ...permitted, ...plain],
         [status, ...plain],
       ]
 
