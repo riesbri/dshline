@@ -7,10 +7,10 @@ Stop startup on a confirmed Harness generation mismatch.
 dshline supports one adopted Harness generation at a time, but a Host built for
 a different one was only warned about and then allowed to open a session. The
 report's `⚠` already named both exact versions and the deterministic recovery
-command, and the session that followed could still reach generation-specific
-APIs that the installed Host does not have — `/permission` failed with
-`ctx.get(...)?.catalog is not a function` on `0.1.5-rc.2`, because that release
-registers `permissionPresets` without the `catalog()` the adopted
+command, and the session that followed could still reach APIs this build
+targets that the installed generation may not provide — `/permission` failed
+with `ctx.get(...)?.catalog is not a function` on `0.1.5-rc.2`, because that
+release registers `permissionPresets` without the `catalog()` the adopted
 `0.1.6-alpha.1` API provides.
 
 A confirmed mismatch now prints that same report and refuses to open a session,

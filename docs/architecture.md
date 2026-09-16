@@ -1210,13 +1210,13 @@ Three rules follow, and each is a refusal:
   whether any released dshline targets the installed generation. That
   direction is therefore offered as a condition, not an instruction —
   establishing it would mean resolving releases against their peer pins.
-- **A confirmed mismatch stops startup.** A Host built for a different
-  generation lacks the APIs this build calls, so dshline prints the report and
-  refuses to open a session rather than move the failure to a later, less
-  legible one. The report is the last thing on screen until the targeted
-  generation is installed and dshline is started again; `ctrl-d` exits. This is
-  still not a compatibility verdict about a version that could not be read:
-  `unknown` stays `·`.
+- **A confirmed mismatch stops startup.** dshline supports only its adopted
+  generation, and a Host built for a different one is not guaranteed to provide
+  the APIs this build targets, so dshline prints the report and refuses to open
+  a session rather than move a failure to a later, less legible one. The report
+  is the last thing on screen until the targeted generation is installed and
+  dshline is started again; `ctrl-d` exits. This is still not a compatibility
+  verdict about a version that could not be read: `unknown` stays `·`.
 
 Node is reported without a verdict for the same reason in miniature: this
 process is running on it, so a tick is circular, and turning `engines` into a

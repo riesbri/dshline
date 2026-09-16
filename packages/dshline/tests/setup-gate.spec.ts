@@ -25,14 +25,28 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { stripAnsi } from '@dshline/renderer'
 import { permissionPicker } from '../src/permission.ts'
-import { readHarnessGeneration, runSetup } from '../src/setup/index.ts'
+import { adoptedGeneration, readHarnessGeneration, runSetup } from '../src/setup/index.ts'
 import type { SetupSpec } from '../src/setup/index.ts'
 import { harnessBlocksStartup } from '../src/setup/model.ts'
 import { offerSetup } from '../src/window.ts'
 import type { Window } from '../src/window.ts'
 
-/** The generation this package's peer pin adopts; read from the real manifest in tests. */
-const ADOPTED = '0.1.6-alpha.1'
+/**
+ * The generation this package's peer pin adopts, from the same authority
+ * production reads.
+ *
+ * A literal here would make an otherwise generic gate test need editing at
+ * every Harness adoption. A pin that cannot be read is a real failure of this
+ * package's own coherence, so the module fails loudly rather than silently
+ * testing against some substituted version.
+ */
+const ADOPTED = ((): string => {
+  const adopted = adoptedGeneration()
+  if (adopted === undefined) {
+    throw new Error('setup-gate.spec: this package pins no @deepseek-ai/dsh-llm peer, so the adopted generation cannot be established')
+  }
+  return adopted
+})()
 /** A previous generation, the skewed side of the reproduced environment. */
 const OLD = '0.1.5-rc.2'
 

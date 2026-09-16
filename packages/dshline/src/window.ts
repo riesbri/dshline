@@ -653,11 +653,12 @@ async function legacyPreset(
  *
  * The generation gate runs on EVERY launch, not only when setup would open.
  * A launch that could send a turn is still unsafe on a Host built for a
- * different Harness generation, because the failure is inside the APIs dshline
- * calls after startup, not inside the launch decision. The comparison is the
- * one {@link "./setup/harness.ts"}'s report already trusts, so the gate and the
- * report cannot disagree; only a confirmed `mismatch` blocks, and an `unknown`
- * version stays the diagnostic it has always been.
+ * different Harness generation: dshline supports only its adopted generation,
+ * and a Host of another one is not guaranteed to provide the APIs dshline
+ * calls after startup, which is not a fact the launch decision can see. The
+ * comparison is the one {@link "./setup/harness.ts"}'s report already trusts,
+ * so the gate and the report cannot disagree; only a confirmed `mismatch`
+ * blocks, and an `unknown` version stays the diagnostic it has always been.
  *
  * The condition for the rest is Harness's own registry, the selection this
  * window already holds, and — only when those look complete — whether Connect
