@@ -29,7 +29,7 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
-import { SurfaceNotice } from '../surface.ts'
+import { SurfaceNotice, noticeText } from '../surface.ts'
 import type { SurfaceNoticeReading } from '../surface.ts'
 import type { CompositionRow } from './composition.ts'
 import type { PluginsState } from './catalog.ts'
@@ -131,7 +131,6 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
   const viewport = new RowViewport()
   let query = ''
   let selected = 0
-  let visible: readonly CompositionRow[] = []
   let closed = false
   // The notice owns its own expiry repaint; the surface passes its injected
   // clock so one timeline grades the deadline and arms the timer.
@@ -153,9 +152,25 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
     spec.close()
   }
   const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
+  /**
+   * The composition rows the CURRENT reading and query leave.
+   *
+   * Presentation and control both read through this. Search mode edits the
+   * query without a repaint, and the coalesced invalidation does not arrive
+   * between two keys, so the last frame's array is not an authority for what a
+   * gesture means: deriving here keeps `act`, `move`, and End on the rows the
+   * filter currently leaves.
+   * @param state - the reading to filter.
+   * @returns the rows after the query, in the preset's own order.
+   */
+  const rowsFor = (state: PluginsState): readonly CompositionRow[] =>
+    state.kind === 'ready' && state.browsing.kind === 'rows'
+      ? filterCompositionRows(state.browsing.tree.rows, query)
+      : []
   const move = (amount: number): void => {
-    if (visible.length === 0) return
-    selected = (selected + amount + visible.length) % visible.length
+    const rows = rowsFor(spec.state())
+    if (rows.length === 0) return
+    selected = (selected + amount + rows.length) % rows.length
     spec.invalidate()
   }
   const edit = (next: string): void => {
@@ -170,7 +185,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
   // OUTSIDE search mode: inside it `enter` already means "done typing", and
   // stealing that would leave no way to return to the shortcuts.
   const act = (): void => {
-    const row = visible[selected]
+    const row = rowsFor(spec.state())[selected]
     if (row !== undefined) spec.toggle(row)
   }
 
@@ -187,9 +202,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
     },
     render(columns, terminalRows = 24) {
       const state = spec.state()
-      visible = state.kind === 'ready' && state.browsing.kind === 'rows'
-        ? filterCompositionRows(state.browsing.tree.rows, query)
-        : []
+      const visible = rowsFor(state)
       selected = Math.min(selected, Math.max(0, visible.length - 1))
       const active = currentNotice()
       if (columns < PLUGINS_MIN_COLUMNS) {
@@ -214,7 +227,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
             queryRow(query, searching, counter(visible.length, rendered, viewport), inner),
             ...active === undefined
               ? []
-              : [paint(truncateToWidth(escapeControls(active.text), inner), active.failed ? 'error' : 'success')],
+              : [paint(truncateToWidth(noticeText(active.text), inner), active.failed ? 'error' : 'success')],
             '',
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
@@ -305,7 +318,7 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
           return
         case 'end':
         case 'ctrl-e':
-          selected = Math.max(0, visible.length - 1)
+          selected = Math.max(0, rowsFor(spec.state()).length - 1)
           viewport.last()
           spec.invalidate()
           return
@@ -510,7 +523,11 @@ function queryRow(query: string, searching: boolean, right: string, inner: numbe
   const hint = '/ to search'
   const plain = searching
     ? `${tailToWidth(escapeControls(query), Math.max(1, room - 1))}█`
-    : query === '' ? hint : tailToWidth(escapeControls(query), Math.max(1, room))
+    // The typed path is already bounded by `room`; the empty hint was passed
+    // through raw, so when the counter left less room than the constant the
+    // assembled row overran the frame and the physical backstop collapsed the
+    // whole browser to its one-line fallback.
+    : query === '' ? truncateToWidth(hint, Math.max(1, room)) : tailToWidth(escapeControls(query), Math.max(1, room))
   const typed = !searching && query === '' ? paint(plain, 'muted') : plain
   const gap = Math.max(1, inner - displayWidth(prompt) - displayWidth(plain) - rightWidth)
   return `${paint(prompt, 'prompt-mark')}${typed}${' '.repeat(gap)}${paint(truncateToWidth(right, rightWidth), 'muted')}`
@@ -584,7 +601,7 @@ function compactFallback(
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {
-    return [paint(truncateToWidth(escapeControls(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
+    return [paint(truncateToWidth(noticeText(notice.text), Math.max(1, columns)), notice.failed ? 'error' : 'success')]
   }
   const summary = state.kind !== 'ready' || shown === 0
     ? 'Plugins · esc close'

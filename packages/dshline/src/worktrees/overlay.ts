@@ -27,6 +27,7 @@ import {
   wrapToWidth,
 } from '@dshline/renderer'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
+import { noticeText } from '../surface.ts'
 import type { SessionEntry } from '../sessions/model.ts'
 import { relativeAge, sessionLabel } from '../sessions/model.ts'
 import type { NewPlan, ResumePlan } from '../sessions/plan.ts'
@@ -194,7 +195,7 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
       if (selection === undefined) listCursor = bounded
       else sessionCursor = bounded
       if (terminalRows <= FIXED_ROWS || columns < MIN_COLUMNS) {
-        return compactFallback(spec, selection, columns, terminalRows)
+        return compactFallback(spec, selection, columns, terminalRows, notice, rows.length)
       }
       const width = chromeWidth(columns)
       const inner = width - BOX_CHROME_COLUMNS
@@ -202,7 +203,7 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
       const body = selection === undefined
         ? worktreesBody(spec, listRows(), bounded, query, notice, inner, capacity)
         : sessionsBody(spec, selection, sessionRows(), bounded, notice, inner, capacity)
-      if (body.length === 0) return compactFallback(spec, selection, columns, terminalRows)
+      if (body.length === 0) return compactFallback(spec, selection, columns, terminalRows, notice, rows.length)
       const frame = [
         '',
         ...rootFrame({
@@ -220,7 +221,7 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
       // committed scrollback.
       return physicalRows(frame, columns).length <= terminalRows
         ? frame
-        : compactFallback(spec, selection, columns, terminalRows)
+        : compactFallback(spec, selection, columns, terminalRows, notice, rows.length)
     },
     handleKey(key: Key) {
       const inSessions = spec.selection() !== undefined
@@ -342,7 +343,7 @@ function worktreesBody(
   }
   const noticeRows = notice === undefined
     ? []
-    : ['', paint(truncateToWidth(`· ${escapeControls(notice)}`, inner), 'warning')]
+    : ['', paint(truncateToWidth(`· ${noticeText(notice)}`, inner), 'warning')]
   const listCapacity = capacity - 1 - noticeRows.length
   if (listCapacity < 1) return [heading]
   return [
@@ -383,14 +384,17 @@ function sessionsBody(
   }
   const noticeRows = notice === undefined
     ? []
-    : ['', paint(truncateToWidth(`· ${escapeControls(notice)}`, inner), 'warning')]
+    : ['', paint(truncateToWidth(`· ${noticeText(notice)}`, inner), 'warning')]
   // Said whenever there is no session row to show, whatever the reason: an
   // unmounted corpus, a read still in flight, a refusal, and a directory whose
   // first conversation has not happened yet are four different sentences, and
   // `+ New session` above is still usable under all of them.
   const quiet = selection.sessions.kind !== 'ready' || selection.sessions.entries.length === 0
   const emptyRows = quiet
-    ? [paint(truncateToWidth(sessionsMessage(selection.sessions), inner), 'muted')]
+    // `wrapped` escapes the sentence before measuring it: this is Harness's own
+    // failure text, and drawing it raw let a control sequence in a session
+    // listing error reach the terminal from inside the frame.
+    ? wrapped(sessionsMessage(selection.sessions), inner, 1)
     : []
   // The shared catalog bounds its listing, and the first view counted the
   // whole group — so without this the two disagree on screen for a reason
@@ -579,6 +583,10 @@ function wrapped(message: string, inner: number, capacity: number): string[] {
 
 /**
  * The footer help, least essential first.
+ *
+ * `enter open` is named only while the current view has a row under the cursor:
+ * an empty corpus or a filter that matched nothing leaves Enter a no-op, and a
+ * footer promising an open would describe a key that does nothing.
  * @param inSessions - whether the second view is in front.
  * @param cursor - the highlighted row.
  * @param total - rows the current view has.
@@ -586,10 +594,24 @@ function wrapped(message: string, inner: number, capacity: number): string[] {
  * @returns the help text, before it is fitted to the border.
  */
 function help(inSessions: boolean, cursor: number, total: number, query: string): string {
-  const position = total === 0 ? '' : `${String(cursor + 1)}/${String(total)} · `
-  if (inSessions) return `${position}enter open · n new session · ↑↓ select · ← back · ctrl-c close`
-  const filter = query === '' ? 'type filter · ' : 'esc clear filter · '
-  return `${position}enter open · ↑↓ select · ${filter}esc close`
+  const selectable = total > 0
+  const position = selectable ? `${String(cursor + 1)}/${String(total)}` : undefined
+  if (inSessions) {
+    return [
+      ...position === undefined ? [] : [position],
+      'enter open',
+      'n new session',
+      ...selectable ? ['↑↓ select'] : [],
+      '← back',
+      'ctrl-c close',
+    ].join(' · ')
+  }
+  return [
+    ...position === undefined ? [] : [position],
+    ...selectable ? ['enter open', '↑↓ select'] : [],
+    query === '' ? 'type filter' : 'esc clear filter',
+    'esc close',
+  ].join(' · ')
 }
 
 /** Count the physical rows Screen will draw for a candidate live region. */
@@ -603,11 +625,17 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
  * The help word tracks the view, because `esc` does two different things: in
  * the second view it goes back to the directory list, and only an empty first
  * view closes. A fallback that always said "close" would be the one row a
- * reader on a tiny terminal has, telling them the wrong key outcome.
+ * reader on a tiny terminal has, telling them the wrong key outcome. A refusal
+ * from the gesture they just made outranks the summary entirely: the framed
+ * body shows it, so the compact form must not make a blocked action look like a
+ * dead key.
  * @param spec - the picker's spec, for the listing state.
  * @param selection - the open directory, when the second view is in front.
  * @param columns - the terminal's width.
  * @param rows - rows available.
+ * @param notice - a refusal from the last gesture, when one is standing.
+ * @param count - the FIRST view's rows after the filter, so compact never
+ *   claims a total the framed `N matches` heading contradicts.
  * @returns at most one row.
  */
 function compactFallback(
@@ -615,13 +643,15 @@ function compactFallback(
   selection: WorktreeSelection | undefined,
   columns: number,
   rows: number,
+  notice: string | undefined,
+  count: number,
 ): string[] {
   if (rows <= 0) return []
-  const listing = spec.listing()
+  if (notice !== undefined) {
+    return [paint(truncateToWidth(noticeText(notice), Math.max(1, columns)), 'warning')]
+  }
   const identity = selection === undefined
-    ? listing.kind === 'ready' && listing.rows.length > 0
-      ? `Worktrees · ${String(listing.rows.length)}`
-      : 'Worktrees'
+    ? count > 0 ? `Worktrees · ${String(count)}` : 'Worktrees'
     : `Worktrees · ${escapeControls(worktreeLabel(selection.row.cwd))}`
   const help = selection === undefined ? 'esc close' : 'esc back'
   const visible = [`${identity} · ${help}`, identity, help, 'esc']

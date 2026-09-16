@@ -111,7 +111,16 @@ export function createSubagentCatalogOverlay(spec: SubagentCatalogOverlaySpec): 
     // and a border label containing them makes the bottom border one physical
     // row taller than `displayWidth` models, which leaves a stray corner in
     // scrollback on every redraw (the #202 failure, on the footer this time).
-    footer: () => '^v select · enter inspect · r refresh · esc back',
+    // `enter inspect` is named only when the focused row can actually be opened:
+    // a diagnostic row is a listed record with no conversation behind it, and
+    // advertising an action Enter refuses is the footer lying about the cursor.
+    // `body` runs before `footer` in the kernel, so `focus` already holds this
+    // frame's aim when the footer reads it.
+    footer: reading => {
+      const aimed = readyRows(reading).find(row => subagentRowKey(row) === focus.current)
+      const inspect = aimed !== undefined && subagentRowOpenable(aimed) ? ' · enter inspect' : ''
+      return `^v select${inspect} · r refresh · esc back`
+    },
     body: (reading, width, capacity) => {
       const lines = catalogLines(reading, width)
       focus.update(lines.flatMap(line => line.key === undefined ? [] : [line.key]), true)

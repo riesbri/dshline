@@ -136,7 +136,7 @@ export function createSkillsOverlay(spec: SkillsOverlaySpec): TuiOverlay {
           columns,
           context: paint('Skills', 'overlay-title'),
           body,
-          footer: fitFooterHelp(help(cursor, visible.length), footerBudget(columns)),
+          footer: fitFooterHelp(help(cursor, visible, query), footerBudget(columns)),
         }),
       ]
       // Every content row above is already truncated to `inner`; this is the
@@ -407,13 +407,25 @@ function stateMessage(reading: SkillCatalogReading): string {
 
 /**
  * The footer help, least essential first.
+ *
+ * A skill's own row drops its slash when the gesture would not work, and the
+ * footer follows the same rule: `enter insert` is named only for a launchable
+ * row, because Enter on a model-only or shadowed row reports why it cannot be
+ * invoked rather than inserting anything. `↑↓ select` goes with it when the
+ * filter left nothing to select, and the way out names what Escape will
+ * actually do — clear the filter while one is typed, otherwise close.
  * @param cursor - the highlighted row.
- * @param total - rows the filter left.
+ * @param visible - rows the filter left.
+ * @param query - the typed filter.
  * @returns the help text, before it is fitted to the border.
  */
-function help(cursor: number, total: number): string {
-  const position = total === 0 ? '' : `${String(cursor + 1)}/${String(total)} · `
-  return `${position}enter insert · ↑↓ select · type filter · esc close`
+function help(cursor: number, visible: readonly SkillRow[], query: string): string {
+  const row = visible[cursor]
+  const position = row === undefined ? '' : `${String(cursor + 1)}/${String(visible.length)} · `
+  const insert = row?.launchable === true ? 'enter insert · ' : ''
+  const select = row === undefined ? '' : '↑↓ select · '
+  const leave = query === '' ? 'esc close' : 'esc clear'
+  return `${position}${insert}${select}type filter · ${leave}`
 }
 
 /** Count the physical rows Screen will draw for a candidate live region. */

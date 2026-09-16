@@ -222,15 +222,18 @@ function promptUpdateLabel(route: RouteContextReading): string {
  * One two-column fact row.
  *
  * Every value here is a number this frontend formatted or an identifier from
- * Harness's own registration vocabulary, so nothing on these rows is model
- * text; the row is still truncated to the frame's width.
+ * Harness's own registration vocabulary — but an identifier is still untrusted
+ * text: the route is folded from the session log as `${provider}/${model}`, and
+ * a provider id carrying an escape sequence would repaint the frame from inside
+ * it. Escaped here, before measuring and styling, exactly as
+ * `context/overlay.ts` escapes every fact value.
  * @param label - the fact's name.
  * @param value - its already-formatted value.
  * @param width - display columns available inside the frame.
  * @returns the painted row.
  */
 function fact(label: string, value: string, width: number): string {
-  return paint(truncateToWidth(`${label.padEnd(LABEL_COLUMN)}${value}`, Math.max(1, width)), 'muted')
+  return paint(truncateToWidth(`${label.padEnd(LABEL_COLUMN)}${escapeControls(value)}`, Math.max(1, width)), 'muted')
 }
 
 /**

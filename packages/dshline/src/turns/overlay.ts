@@ -112,9 +112,13 @@ export function createTurnsOverlay(spec: TurnsOverlaySpec): TuiOverlay {
       return rows.slice(0, Math.max(0, capacity))
     },
     compact: current => outlineCompact(current),
-    footer: () => editing
+    // `↵ inspect` belongs to the footer only while there is a turn under the
+    // cursor. On an empty outline — an empty session or a filter that matched
+    // nothing — Enter opens nothing, so naming it would describe a key that
+    // does the opposite of what the row says.
+    footer: current => editing
       ? 'type to filter · ↵ done · esc close'
-      : '↑↓ move · ↵ inspect · / filter · esc close',
+      : `↑↓ move${current.visible.length === 0 ? '' : ' · ↵ inspect'} · / filter · esc close`,
     onKey: (key: Key) => {
       // Printable text is the filter's, and only the filter's. `/` is the one
       // printable that STARTS filtering rather than being typed into it, so the

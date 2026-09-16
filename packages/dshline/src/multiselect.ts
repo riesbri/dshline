@@ -420,7 +420,13 @@ function compactFallback(
   if (rows <= 0) return []
   const width = Math.max(1, columns)
   const rendered = renderRows(spec, checked, cursor, custom, routeLabel, Math.max(1, width - ROW_PREFIX_COLUMNS))
-  const lines = [rendered.rows[rendered.cursorRow] ?? '']
+  // The row is cut to the terminal, exactly as the single-choice compact
+  // fallback cuts its labelled row. The prefix — pointer, checkbox, and the
+  // space between them — is six columns that the label budget does not know
+  // about, so an assembled row is two columns wider than the width it was
+  // budgeted against; returning it whole made `Screen` wrap it into a second
+  // physical row the caller never counted.
+  const lines = [truncateToWidth(rendered.rows[rendered.cursorRow] ?? '', width)]
   if (rows > 1) {
     // The same row-truth as the framed footer: space toggles nothing on the
     // route row, so the compact hint drops it there.
