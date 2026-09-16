@@ -36,6 +36,7 @@ import { compactRows, noticeRow, noticeText } from '../surface.ts'
 import type {
   JobWorkItem,
   SubagentWorkItem,
+  WorkConversationTarget,
   WorkItem,
   WorkMark,
   WorkflowMemberItem,
@@ -44,6 +45,7 @@ import type {
   WorkInterruptResult,
 } from './model.ts'
 import {
+  directConversationTarget,
   looseSubagents,
   memberMark,
   routeLabel,
@@ -119,6 +121,15 @@ export interface WorkOverlaySpec {
    * when that authority is.
    */
   readonly conversations?: () => void
+  /**
+   * Open the subagent detail stage's selected child conversation directly, when
+   * Work holds the complete durable descriptor for it. Offered only on that
+   * stage: the overview keeps `c` as the catalog, because a focused list row is
+   * not yet an inspected subject. Mounted with the same seam as
+   * {@link conversations}, and the catalog remains the fallback whenever the
+   * selection is not addressable.
+   */
+  readonly conversation?: (target: WorkConversationTarget) => void
   /** Remove this overlay from the live region. */
   readonly close: () => void
   /** Redraw after selection, a result, or a timer tick. */
@@ -296,6 +307,11 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
         ? 'no active work'
         : `rows ${String(viewport.start + 1)}–${String(viewport.end)} of ${String(built.length)}`
       const aimed = focusedRow()
+      const selected = subject()
+      // The footer and `c` share this ONE decision, so the wording cannot
+      // diverge from the key: `c conversation` labels the direct open exactly
+      // when the key would take it, and `c conversations` the fallback.
+      const conversation = conversationAction(frame().stage, selected, spec.conversation, spec.conversations)
       const candidate = [
         '',
         ...rootFrame({
@@ -310,7 +326,7 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
             '',
             ...built.slice(viewport.start, viewport.end).map(row => paintRow(row, frame().focus.current)),
           ],
-          footer: fitFooterHelp(stageHelp(frame().stage, aimed, subject(), spec.conversations !== undefined), footerBudget(columns)),
+          footer: fitFooterHelp(stageHelp(frame().stage, aimed, selected, conversation), footerBudget(columns)),
         }),
       ]
       // The root frame wraps its content, including short-state text a caller may not
@@ -346,11 +362,23 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
         spec.invalidate()
         return
       }
-      // The durable conversation catalog lives in its own presenter. Work only
+      // The durable conversation drawer lives in its own presenter. Work only
       // hands the keyboard over: it keeps no child list, no transcript, and no
-      // message buffer of its own. The key exists exactly while the drawer does.
-      if (key.kind === 'text' && key.text === 'c' && spec.conversations !== undefined) {
-        spec.conversations()
+      // message buffer of its own.
+      if (key.kind === 'text' && key.text === 'c') {
+        // Read the projection WITHOUT retargeting the cursor, exactly as `k`
+        // does: a keystroke is a human ACTION, so if the aimed identity vanished
+        // the press must not transfer to whichever row inherited the cursor.
+        // Reusing `k`'s freshness discipline keeps the two actions honest
+        // together instead of inventing a second rule for this key.
+        build(spec.snapshot(), LOGICAL_KEY_WIDTH, false)
+        const action = conversationAction(frame().stage, subject(), spec.conversation, spec.conversations)
+        if (action === undefined) return
+        if (action.kind === 'direct') {
+          spec.conversation?.(action.target)
+          return
+        }
+        spec.conversations?.()
         return
       }
       if (key.kind !== 'key') return
@@ -876,18 +904,62 @@ function fitSegments(name: string, segments: readonly RowSegment[], width: numbe
   return truncateToWidth(render(), width)
 }
 
+/**
+ * What `c` will do for the current selection, or undefined when no capability is mounted.
+ *
+ * The footer and the key both read this one result, so the wording cannot
+ * promise an action the key would refuse or hide one it would take. Preferring
+ * the direct open when Work holds the descriptor keeps the catalog as the
+ * fallback rather than making two capabilities compete for the same key.
+ */
+type ConversationAction =
+  | { readonly kind: 'direct'; readonly target: WorkConversationTarget }
+  | { readonly kind: 'catalog' }
+
+/**
+ * Decide what `c` does for one stage and selection, from the mounted capabilities alone.
+ *
+ * The direct open belongs to the SUBAGENT DETAIL STAGE only. There, the selected
+ * child is the subject of the whole view, so Work is addressing exactly the child
+ * the reader is looking at. On the overview the same item is a list ENTRY — the
+ * reader has not asked to inspect it yet — and `c` keeps its established meaning
+ * of opening the catalog, so the singular action is never offered there. The
+ * stage gate also makes a vanished detail subject fall back truthfully: the
+ * rebuild pops the dead stage, and the action becomes the catalog rather than a
+ * direct open aimed at whichever row inherited the cursor.
+ * @param stage - the stage currently on screen.
+ * @param item - the selected Work item, or undefined when nothing is selected.
+ * @param direct - the direct-open callback, present exactly with the subagent seam.
+ * @param catalog - the catalog callback, present exactly with the subagent seam.
+ * @returns the action, or undefined when neither capability is available.
+ */
+function conversationAction(
+  stage: Stage,
+  item: WorkItem | undefined,
+  direct: ((target: WorkConversationTarget) => void) | undefined,
+  catalog: (() => void) | undefined,
+): ConversationAction | undefined {
+  if (stage.kind === 'subagent' && direct !== undefined) {
+    const target = directConversationTarget(item)
+    if (target !== undefined) return { kind: 'direct', target }
+  }
+  return catalog === undefined ? undefined : { kind: 'catalog' }
+}
+
 /** The help truthful for this stage, the focused row, and the current authority. */
 function stageHelp(
   stage: Stage,
   focused: StageRow | undefined,
   item: WorkItem | undefined,
-  conversations: boolean,
+  conversation: ConversationAction | undefined,
 ): string {
   const interrupt = item?.source === 'subagent' && item.interruptible ? ' · k interrupt' : ''
   const enter = focused?.open === undefined ? '' : ' · ↵ inspect'
-  const catalog = conversations ? ' · c conversations' : ''
+  const conversationSegment = conversation === undefined
+    ? ''
+    : conversation.kind === 'direct' ? ' · c conversation' : ' · c conversations'
   const exit = stage.kind === 'list' ? ' · esc close' : ' · esc back'
-  return `↑↓ select${enter}${interrupt}${catalog}${exit}`
+  return `↑↓ select${enter}${interrupt}${conversationSegment}${exit}`
 }
 
 /** Count the physical terminal rows the Screen will use for candidate lines. */

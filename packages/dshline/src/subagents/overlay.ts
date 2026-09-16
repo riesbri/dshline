@@ -71,6 +71,8 @@ const COMPOSER_GUTTER = '❯ '
 export interface SubagentCatalogOverlaySpec {
   /** The current discovery reading, fresh on every paint. */
   readonly reading: () => SubagentCatalogReading
+  /** How this catalog was opened; decides ONLY the truthful Escape wording. */
+  readonly origin: 'root' | 'work'
   /** Open the conversation inspector for one durable child id. */
   readonly inspect: (childId: string) => void
   /** Re-run discovery. */
@@ -119,7 +121,7 @@ export function createSubagentCatalogOverlay(spec: SubagentCatalogOverlaySpec): 
     footer: reading => {
       const aimed = readyRows(reading).find(row => subagentRowKey(row) === focus.current)
       const inspect = aimed !== undefined && subagentRowOpenable(aimed) ? ' · enter inspect' : ''
-      return `^v select${inspect} · r refresh · esc back`
+      return `^v select${inspect} · r refresh · esc ${spec.origin === 'work' ? 'back' : 'close'}`
     },
     body: (reading, width, capacity) => {
       const lines = catalogLines(reading, width)

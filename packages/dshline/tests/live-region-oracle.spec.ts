@@ -131,6 +131,7 @@ describe('the live region against a terminal oracle', () => {
     // differential check as the composer.
     let resident = true
     const overlay = createSubagentCatalogOverlay({
+      origin: 'root',
       reading: () => ({
         kind: 'ready',
         rows: [

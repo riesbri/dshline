@@ -455,3 +455,58 @@ export function workItemKey(item: WorkItem): string {
 export function workflowMemberKey(workflow: WorkflowWorkItem, member: WorkflowMemberItem): string {
   return `member:${workflow.id}:${String(member.seq)}`
 }
+
+/**
+ * The complete durable discovery descriptor Work holds for one selected subagent.
+ *
+ * Work's selection identity is the lifecycle epoch `runId`, but a durable
+ * conversation is addressed by the child session `id`. The two are DIFFERENT
+ * identities: one `id` outlives any number of epochs, and a `runId` names
+ * exactly one of them, so a direct open must carry the session id and nothing
+ * may substitute the epoch for it.
+ */
+export interface WorkConversationTarget {
+  /** Durable child session id (the child/session id), NEVER the lifecycle runId. */
+  readonly id: string
+  /** Harness's descriptor mode. */
+  readonly mode: 'one-shot' | 'continuable'
+  /** Durable session-store residency, never a model-turn claim. */
+  readonly residency: 'resident' | 'stored'
+  /** Whether a direct descendant has durable `origin: 'subagent'`. */
+  readonly hasChildren: boolean
+  /** Durable creation label, when discovery carried one. */
+  readonly label?: string
+}
+
+/**
+ * Narrow one selected Work item to the complete durable discovery facts needed
+ * to address its conversation directly, or undefined when Work cannot.
+ *
+ * `mode`, `residency`, and `hasChildren` are required TOGETHER because they are
+ * one descriptor: discovery publishes them as a unit, and the presenter's child
+ * row is built from all three. Testing `mode !== undefined` alone would admit a
+ * row the presenter cannot render, so the missing facts are refused here rather
+ * than defaulted — a fabricated residency or lineage is a false statement about
+ * a durable session. The durable `id` is carried through and the lifecycle
+ * `runId` is deliberately never read.
+ *
+ * Neither `local: false` nor `mode: 'one-shot'` disqualifies a child: local
+ * describes which process published the epoch, not whether a durable session
+ * exists, and a finished one-shot is still an inspectable conversation. Gating
+ * on either would hide children Harness can address perfectly well.
+ * @param item - the selected Work item, or undefined when nothing is selected.
+ * @returns the durable target, or undefined when the selection cannot be opened directly.
+ */
+export function directConversationTarget(item: WorkItem | undefined): WorkConversationTarget | undefined {
+  if (item === undefined || item.source !== 'subagent') return undefined
+  if (item.mode === undefined || item.residency === undefined || item.hasChildren === undefined) {
+    return undefined
+  }
+  return {
+    id: item.id,
+    mode: item.mode,
+    residency: item.residency,
+    hasChildren: item.hasChildren,
+    ...(item.label === undefined ? {} : { label: item.label }),
+  }
+}

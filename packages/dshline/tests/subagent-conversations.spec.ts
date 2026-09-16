@@ -25,6 +25,7 @@ import {
   subagentRowKey,
   subagentRowOpenable,
 } from '../src/subagents/model.ts'
+import type { SubagentCatalogReading } from '../src/subagents/model.ts'
 import {
   createSubagentCatalogOverlay,
   createSubagentConversationOverlay,
@@ -265,6 +266,7 @@ describe('subagent conversation catalog overlay', () => {
         child('c', 'continuable', 'inactive', 'review task', true),
         diagnostic('broken', 'corrupt'),
       ]),
+      origin: 'root',
       inspect: id => { inspected.push(id) },
       refresh: () => { refreshes += 1 },
       close: () => {},
@@ -287,6 +289,7 @@ describe('subagent conversation catalog overlay', () => {
     let rows: SubagentListEntry[] = [diagnostic('broken', 'corrupt'), child('ok', 'continuable', 'running')]
     const overlay = createSubagentCatalogOverlay({
       reading: () => catalogReading(rows),
+      origin: 'root',
       inspect: id => { inspected.push(id) },
       refresh: () => {},
       close: () => {},
@@ -307,6 +310,7 @@ describe('subagent conversation catalog overlay', () => {
     const inspected: string[] = []
     const overlay = createSubagentCatalogOverlay({
       reading: () => catalogReading([diagnostic('broken', 'unavailable'), child('ok', 'continuable', 'running')]),
+      origin: 'root',
       inspect: id => { inspected.push(id) },
       refresh: () => {},
       close: () => {},
@@ -321,6 +325,7 @@ describe('subagent conversation catalog overlay', () => {
   it('escapes a discovery failure message before drawing it', () => {
     const overlay = createSubagentCatalogOverlay({
       reading: () => ({ kind: 'failed', message: 'boom\u001b[2Jinjected' }),
+      origin: 'root',
       inspect: () => {},
       refresh: () => {},
       close: () => {},
@@ -334,6 +339,7 @@ describe('subagent conversation catalog overlay', () => {
   it('bounds every row at narrow and short geometries', () => {
     const overlay = createSubagentCatalogOverlay({
       reading: () => catalogReading([child('c', 'continuable', 'running', 'a deliberately long 标签 label')]),
+      origin: 'root',
       inspect: () => {},
       refresh: () => {},
       close: () => {},
@@ -349,6 +355,7 @@ describe('subagent conversation catalog overlay', () => {
   it('escapes control sequences in a child label', () => {
     const overlay = createSubagentCatalogOverlay({
       reading: () => catalogReading([child('c', 'continuable', 'running', 'bad\u001b[2Jlabel')]),
+      origin: 'root',
       inspect: () => {},
       refresh: () => {},
       close: () => {},
@@ -942,12 +949,206 @@ describe('subagent conversation presenter', () => {
     expect(older).toContain('event 001')
     expect(older).not.toContain('event 025')
   })
+
+  it('opens a durable child directly with no catalog surface underneath', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'running')])
+    session.setLog('c', [message(1, 'hello')])
+    p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
+    await flush()
+    // Exactly the inspector: no catalog was mounted to get here, so none may
+    // appear beneath it.
+    expect(slots.overlays).toHaveLength(1)
+    const plain = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
+    expect(plain).toContain('Subagent · c')
+    expect(plain).not.toContain('Subagent conversations')
+    expect(session.listEventsCalls.map(String)).toEqual(['c'])
+    expect(session.readEventCalls.map(call => String(call.request.sessionId))).toEqual(['c'])
+    slots.top()?.handleKey(key('escape'))
+    expect(slots.overlays).toHaveLength(0)
+  })
+
+  it('opens a direct inspector read-only when sessionQuery is absent', async () => {
+    const { slots, subagents, p } = mount({ query: undefined })
+    subagents.setChildren([child('c', 'continuable', 'running')])
+    // No bounded read surface: the direct path must still show the inspector and
+    // say so, exactly as the catalog path does, rather than refusing to open.
+    p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
+    await flush()
+    expect(slots.overlays).toHaveLength(1)
+    const plain = stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')
+    expect(plain).toContain('Session query is not installed')
+    expect(plain).not.toContain('Subagent conversations')
+    slots.top()?.handleKey(key('escape'))
+    expect(slots.overlays).toHaveLength(0)
+  })
+
+  it('takes follow-up authority from the directly supplied row, not the catalog', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'running', 'review')])
+    session.setLog('c', [message(1, 'hello')])
+    p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
+    expect(plain).toContain('m message')
+    expect(plain).toContain('s steer')
+    slots.top()?.handleKey(text('m'))
+    expect(slots.overlays).toHaveLength(2)
+    slots.top()?.handleKey(text('h'))
+    slots.top()?.handleKey(key('enter'))
+    expect(subagents.promptCalls[0]?.request).toMatchObject({
+      childSessionId: 'c',
+      mode: 'continuable',
+      delivery: 'queue',
+      content: [{ type: 'text', text: 'h' }],
+    })
+    // Steer is the same authority with the other scheduling, addressed to the
+    // same durable child supplied to openChild.
+    slots.top()?.handleKey(key('escape'))
+    slots.top()?.handleKey(text('s'))
+    expect(slots.overlays).toHaveLength(2)
+    slots.top()?.handleKey(text('g'))
+    slots.top()?.handleKey(key('enter'))
+    expect(subagents.promptCalls[1]?.request).toMatchObject({
+      childSessionId: 'c',
+      delivery: 'steer',
+    })
+  })
+
+  it('keeps a directly opened one-shot child read-only', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('one', 'one-shot', 'inactive')])
+    session.setLog('one', [message(1, 'hello')])
+    p.openChild({ kind: 'child', id: 'one', mode: 'one-shot', residency: 'stored', hasChildren: false })
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
+    expect(plain).not.toContain('m message')
+    expect(plain).not.toContain('s steer')
+    slots.top()?.handleKey(text('m'))
+    // No composer surface: the one-shot mode has no continuation authority.
+    expect(slots.overlays).toHaveLength(1)
+  })
+
+  it('opens the same inspector through the catalog and pops back one level', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'running')])
+    session.setLog('c', [message(1, 'hello')])
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    expect(slots.overlays).toHaveLength(2)
+    // The catalog path resolves the row and converges on the same inspector.
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('Subagent · c')
+    slots.top()?.handleKey(key('escape'))
+    expect(slots.overlays).toHaveLength(1)
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('Subagent conversations')
+    slots.top()?.handleKey(key('escape'))
+    expect(slots.overlays).toHaveLength(0)
+  })
+
+  it('writes the truthful escape for the catalog origin, not the stack depth', async () => {
+    const root = mount()
+    root.subagents.setChildren([child('c', 'continuable', 'running')])
+    root.p.open()
+    await flush()
+    expect(stripAnsi(root.slots.top()?.render(80, 20).join('\n') ?? '')).toContain('esc close')
+    const work = mount()
+    work.subagents.setChildren([child('c', 'continuable', 'running')])
+    work.p.openFromWork()
+    await flush()
+    expect(stripAnsi(work.slots.top()?.render(80, 20).join('\n') ?? '')).toContain('esc back')
+  })
+
+  it('returns from a Work-nested catalog child to the catalog, then to Work', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'running', 'review')])
+    session.setLog('c', [message(1, 'hello')])
+    // Work is the surface below in the assembled app; here the stack proves the
+    // nested catalog is what Esc reveals rather than the child skipping it.
+    p.openFromWork()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    expect(slots.overlays).toHaveLength(2)
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('Subagent · review')
+    slots.top()?.handleKey(key('escape'))
+    expect(slots.overlays).toHaveLength(1)
+    expect(stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')).toContain('Subagent conversations')
+    slots.top()?.handleKey(key('escape'))
+    expect(slots.overlays).toHaveLength(0)
+  })
+
+  it('refreshes a direct inspector’s residency without pushing a catalog', async () => {
+    const { slots, subagents, session, p, fireLifecycle } = mount()
+    subagents.setChildren([child('c', 'continuable', 'running')])
+    session.setLog('c', [message(1, 'hello')])
+    p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
+    await flush()
+    expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('resident')
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    fireLifecycle()
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
+    expect(plain).toContain('stored')
+    expect(plain).not.toContain('Subagent conversations')
+    expect(slots.overlays).toHaveLength(1)
+  })
+
+  it('never closes a direct inspector or opens a catalog when discovery fails', async () => {
+    const { slots, subagents, session, p, fireLifecycle } = mount()
+    subagents.setChildren([child('c', 'continuable', 'running')])
+    session.setLog('c', [message(1, 'hello')])
+    p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
+    await flush()
+    subagents.failList(new Error('projection registry unavailable'))
+    fireLifecycle()
+    await flush()
+    expect(slots.overlays).toHaveLength(1)
+    const plain = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
+    expect(plain).toContain('Subagent · c')
+    expect(plain).not.toContain('Subagent conversations')
+  })
+})
+
+describe('subagent catalog footer truthfulness', () => {
+  it('advertises enter inspect only for a focused openable child, per origin', () => {
+    for (const origin of ['root', 'work'] as const) {
+      let reading: SubagentCatalogReading = catalogReading([child('c', 'continuable', 'running')])
+      const overlay = createSubagentCatalogOverlay({
+        reading: () => reading,
+        origin,
+        inspect: () => {},
+        refresh: () => {},
+        close: () => {},
+        invalidate: () => {},
+      })
+      const footer = (): string => stripAnsi(overlay.render(80, 20).join('\n'))
+      const escape = origin === 'work' ? 'esc back' : 'esc close'
+      expect(footer()).toContain('enter inspect')
+      const absent: SubagentCatalogReading[] = [
+        { kind: 'loading' },
+        { kind: 'unavailable' },
+        { kind: 'failed', message: 'boom' },
+        catalogReading([]),
+        catalogReading([diagnostic('broken', 'corrupt')]),
+      ]
+      for (const state of absent) {
+        reading = state
+        const plain = footer()
+        expect(plain).not.toContain('enter inspect')
+        expect(plain).toContain('r refresh')
+        expect(plain).toContain(escape)
+      }
+    }
+  })
 })
 
 describe('subagent navigation chrome', () => {
   it('uses width-stable ASCII rather than the ambiguous arrow glyphs', () => {
     const catalog = createSubagentCatalogOverlay({
       reading: () => catalogReading([child('c', 'continuable', 'running')]),
+      origin: 'root',
       inspect: () => {},
       refresh: () => {},
       close: () => {},

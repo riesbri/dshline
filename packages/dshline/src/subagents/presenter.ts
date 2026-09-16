@@ -74,8 +74,15 @@ export interface SubagentsPresenterDeps {
 export interface SubagentsPresenter {
   /** `/subagents` — browse durable direct children and inspect one. */
   readonly command: LocalCommand
-  /** Open the catalog; Work's `c` key calls this. */
+  /** Open the catalog as the root `/subagents` surface, where Escape closes it. */
   open(): void
+  /** Open the catalog nested over Work, where Escape returns to Work. */
+  openFromWork(): void
+  /**
+   * Open one known durable child's conversation directly, with NO catalog
+   * surface underneath. `child` is keyed by the durable child session id.
+   */
+  openChild(child: SubagentChildRow): void
   /** Abort in-flight reads and release lifecycle subscriptions. */
   dispose(): void
 }
@@ -217,12 +224,14 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
     }))
   }
 
-  /** Push the read-only conversation inspector over the catalog. */
-  const openConversation = (childId: string): void => {
-    const row = catalog.kind === 'ready'
-      ? catalog.rows.find(candidate => candidate.kind === 'child' && candidate.id === childId)
-      : undefined
-    if (row === undefined || row.kind !== 'child') return
+  /**
+   * Push the read-only conversation inspector for one fully-formed row.
+   *
+   * Both entry points converge here: the catalog resolves a durable id to a row
+   * and Work supplies the row it already selected, so there is exactly one
+   * inspector implementation and no second read or address to keep in step.
+   */
+  const openConversationRow = (row: SubagentChildRow): void => {
     conversationAbort?.abort()
     const state: OpenConversation = {
       child: row,
@@ -256,14 +265,33 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
     }))
   }
 
-  /** Open the durable-child catalog, replacing any catalog already open. */
-  const open = (): void => {
+  /**
+   * Resolve one catalog row to its inspector, staying a silent no-op when the
+   * id is not a currently-listed child (a diagnostic, or a row already gone).
+   */
+  const openConversationFromCatalog = (childId: string): void => {
+    const row = catalog.kind === 'ready'
+      ? catalog.rows.find(candidate => candidate.kind === 'child' && candidate.id === childId)
+      : undefined
+    if (row === undefined || row.kind !== 'child') return
+    openConversationRow(row)
+  }
+
+  /**
+   * Open the durable-child catalog, replacing any catalog already open.
+   *
+   * `origin` is recorded explicitly rather than inferred from the overlay stack:
+   * it decides only the truthful Escape wording, and a catalog opened over Work
+   * must say `esc back` even if an unrelated surface sat beneath it.
+   */
+  const openCatalog = (origin: 'root' | 'work'): void => {
     closeCatalog?.()
     catalogOpen = true
     refreshCatalog()
     closeCatalog = openSurface(deps.slots, close => createSubagentCatalogOverlay({
       reading: () => catalog,
-      inspect: childId => { openConversation(childId) },
+      origin,
+      inspect: childId => { openConversationFromCatalog(childId) },
       refresh: refreshCatalog,
       close: () => {
         catalogOpen = false
@@ -274,9 +302,31 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
     }))
   }
 
+  /** Open the catalog as the root `/subagents` surface. */
+  const open = (): void => { openCatalog('root') }
+
+  /** Open the catalog nested over Work. */
+  const openFromWork = (): void => { openCatalog('work') }
+
+  /**
+   * Open a durable child directly, then re-list discovery once.
+   *
+   * Work supplies the row it selected from its own lifecycle view, so the
+   * inspector can draw before any catalog exists. The follow-up discovery read
+   * only reconciles residency; a failure there is reported in the catalog
+   * reading and must never close the inspector or open a catalog, because the
+   * catalog fallback is Work's decision at its own entry point.
+   */
+  const openChild = (child: SubagentChildRow): void => {
+    openConversationRow(child)
+    refreshCatalog()
+  }
+
   if (deps.onLifecycle !== undefined) {
     disposers.push(deps.onLifecycle(() => {
-      if (catalogOpen) refreshCatalog()
+      // A direct inspector has no catalog below it, but discovery is still the
+      // authority for its residency, so a lifecycle edge must refresh there too.
+      if (catalogOpen || conversation !== undefined) refreshCatalog()
     }))
   }
   if (deps.onSessionEvent !== undefined) {
@@ -304,6 +354,8 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
       execute: () => { open() },
     },
     open,
+    openFromWork,
+    openChild,
     dispose(): void {
       catalogGeneration += 1
       catalogAbort?.abort()

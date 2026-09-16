@@ -116,6 +116,7 @@ import type { Window } from './window.ts'
 import { createHarnessWork } from './work/index.ts'
 import { createWorkOverlay } from './work/overlay.ts'
 import { activeWorkCount, workSummary } from './work/model.ts'
+import type { WorkConversationTarget } from './work/model.ts'
 import { createSubagentsPresenter } from './subagents/presenter.ts'
 import { SessionProjectionObserver } from './projections/observer.ts'
 import { openSurface } from './surface.ts'
@@ -920,7 +921,21 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           interrupt: item => work.interrupt(item),
           // Offered exactly while the generic subagent seam is mounted, so a
           // profile without it never advertises a drawer it cannot open.
-          ...subagents === undefined ? {} : { conversations: () => { subagentsPresenter.open() } },
+          ...subagents === undefined ? {} : {
+            conversations: () => { subagentsPresenter.openFromWork() },
+            // Contextual typing is lost inside the conditional spread, so the
+            // target is annotated rather than inferred from `openChild`.
+            conversation: (target: WorkConversationTarget) => {
+              subagentsPresenter.openChild({
+                kind: 'child',
+                id: target.id,
+                mode: target.mode,
+                residency: target.residency,
+                hasChildren: target.hasChildren,
+                ...(target.label === undefined ? {} : { label: target.label }),
+              })
+            },
+          },
           close,
           invalidate: () => { ctx.tuiSlots.invalidate() },
         }))
