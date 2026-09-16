@@ -118,6 +118,13 @@ export interface SubagentWorkItem extends WorkItemBase {
    * declaring tool supplied one in its `presentCall` view.
    */
   readonly activityTitle?: string
+  /**
+   * The newest streamed assistant text of the child's current model attempt,
+   * transient presentation only. Absent for a provider-managed child with no
+   * locally observable Agent, for a child not currently answering, and when no
+   * attempt has streamed text. Never a durable transcript.
+   */
+  readonly outputTail?: string
   /** Whether the live child Agent is running, driving the row's spinner. */
   readonly busy?: boolean
   /** The live child Agent's published status, for the detail stage. */

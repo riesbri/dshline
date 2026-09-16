@@ -1031,6 +1031,10 @@ token total when that figure is attributable to it, and its mode
 when that relationship is authoritative, and finally the identities a report
 needs: durable session id, live Agent status, session residency, child
 sessions, lifecycle run id, and whether the run published an in-process child.
+While a locally observable child is answering, the view also shows one bounded
+row with a live tail of its newest streamed assistant text; reasoning and
+tool-call fragments are not shown, a provider-managed child with no locally
+observable Agent shows no tail, and the tail disappears when the attempt ends.
 
 `tokens` is Harness's `tokenUsage` projection, which folds provider-reported
 usage over the child's complete log. It appears only for a child whose Session

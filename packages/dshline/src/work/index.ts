@@ -404,6 +404,7 @@ export class HarnessWork {
       // no in-process child Agent was observable, never guessed.
       ...reading?.word === undefined ? {} : { activityWord: reading.word },
       ...reading?.title === undefined ? {} : { activityTitle: reading.title },
+      ...reading?.outputTail === undefined ? {} : { outputTail: reading.outputTail },
       ...reading === undefined ? {} : { busy: reading.busy },
       ...reading?.status === undefined ? {} : { agentStatus: reading.status },
       ...route === undefined ? {} : { route },

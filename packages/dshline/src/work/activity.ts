@@ -8,6 +8,12 @@
  * calls' presentations. A remote run without a local Agent exposes none of
  * those, and the observer simply never attaches — the row then shows no
  * invented activity.
+ *
+ * From those same frames the observer also keeps a strictly bounded,
+ * transient tail of the newest assistant TEXT, for the detail stage to show
+ * that the child is answering rather than merely running. It is never a
+ * transcript, is cleared on every attempt and turn boundary, and is dropped
+ * with the observer.
  * @module dshline/work/activity
  */
 
@@ -18,7 +24,69 @@ import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { modelPhaseAfter, modelPhaseAfterFrame, primaryActivity } from '../activity.ts'
 import type { ActivityWord, ModelPhase } from '../activity.ts'
+import { AssistantStreamAttemptGate } from '../assistant-attempt-gate.ts'
 import { PendingToolCalls } from '../tool-pending.ts'
+
+/**
+ * How many UTF-16 code units of the newest assistant text a Work row keeps.
+ *
+ * A Work detail fact is one physical row and the widest Work frame is 100
+ * columns, so its content budget is under ~98 display columns. A CJK code
+ * point is one UTF-16 code unit and two columns, and an astral code point is
+ * two code units and two columns, so 256 code units is safely more than any one
+ * row can display. Retention is capped at that many code units regardless of
+ * total answer length: enough recent text for the row, bounded independently of
+ * the response, and deliberately not a durable transcript.
+ */
+export const OUTPUT_TAIL_LIMIT = 256
+
+/**
+ * Reduce `text` to its newest `limit` UTF-16 code units, repairing the front boundary.
+ *
+ * A plain `slice(-limit)` can cut between the high and low surrogate of one
+ * astral code point, leaving the retained string beginning with an orphaned low
+ * surrogate. A delta at the exact cap can begin that way too, when the high half
+ * arrived in text already discarded. So the front boundary is checked even when
+ * no length cut is otherwise required, and a leading low surrogate is dropped.
+ * Only that boundary is repaired: the rest is copied verbatim, so this is not a
+ * guarantee that arbitrary provider input is well-formed UTF-16 throughout.
+ * @param text - the text to reduce to its newest suffix.
+ * @param limit - the retention cap in UTF-16 code units.
+ * @returns the newest suffix, at most `limit` units and never beginning with a low surrogate.
+ */
+function newestWithin(text: string, limit: number): string {
+  if (limit <= 0) return ''
+  let start = Math.max(0, text.length - limit)
+  const first = text.charCodeAt(start)
+  // Drop the orphaned low half of a code point split by retention or by discard.
+  if (first >= 0xdc00 && first <= 0xdfff) start += 1
+  return text.slice(start)
+}
+
+/**
+ * Append one streamed text delta to a bounded Work output tail.
+ *
+ * Retention stays capped at `limit` UTF-16 code units regardless of answer
+ * length, and the newest text always wins. A delta at least as long as the cap
+ * is reduced to its OWN newest suffix before the prior tail is considered, so a
+ * single huge provider delta never has the old tail concatenated onto it. A
+ * smaller delta is joined to the prior tail, and that intermediate is under
+ * twice the cap because the prior tail is already bounded. The retained front
+ * boundary is surrogate-safe, so retention cannot leave half an astral code
+ * point. This stores recent text only; display-width truncation stays in the
+ * renderer.
+ * @param current - the currently retained tail.
+ * @param delta - the newest streamed text fragment.
+ * @param limit - the retention cap in UTF-16 code units.
+ * @returns the new retained tail, at most `limit` units.
+ */
+export function appendOutputTail(current: string, delta: string, limit = OUTPUT_TAIL_LIMIT): string {
+  if (limit <= 0) return ''
+  // Only the delta's own suffix can survive a delta this long, so the prior
+  // tail is discarded WITHOUT being concatenated to the whole incoming delta.
+  if (delta.length >= limit) return newestWithin(delta, limit)
+  return newestWithin(current + delta, limit)
+}
 
 /** The live activity facts a Work row may truthfully present. */
 export interface ChildActivityReading {
@@ -29,6 +97,12 @@ export interface ChildActivityReading {
   readonly word?: ActivityWord
   /** The newest pending call's presentation title, when its tool declared one. */
   readonly title?: string
+  /**
+   * The newest streamed assistant text of the current attempt; absent when
+   * there is none. Never a durable transcript, and cleared at every attempt,
+   * turn, and observer boundary.
+   */
+  readonly outputTail?: string
   /** Whether the live Agent is running, which drives the row's spinner. */
   readonly busy: boolean
   /** The live Agent's published status, for the detail stage. */
@@ -90,6 +164,13 @@ function openTurnSuffix(session: Session): readonly SessionEvent[] {
  */
 export class ChildActivityObserver {
   private phase: ModelPhase = 'waiting'
+  /**
+   * The newest assistant text of the current attempt, bounded to
+   * {@link OUTPUT_TAIL_LIMIT} code units. Transient presentation only.
+   */
+  private output = ''
+  /** The shared attempt-identity gate, so a stale frame is never folded. */
+  private readonly attempt = new AssistantStreamAttemptGate()
   private readonly pending: PendingToolCalls
   private readonly disposers: (() => void)[] = []
   private disposed = false
@@ -154,6 +235,21 @@ export class ChildActivityObserver {
       this.disposers.push(child.ctx.on('agent/assistant-stream', ({ agent, frame }) => {
         if (agent !== child) return
         if (this.disposed) return
+        // A stale or foreign frame is dropped before it can fold phase, clear
+        // the tail, or repaint — the same gate the main attachment uses.
+        const decision = this.attempt.accept(frame)
+        if (!decision.current) return
+        if (decision.reset) this.output = ''
+        if (frame.type === 'end') {
+          // A settled or abandoned attempt leaves no live text. Only its own
+          // `start` may establish another attempt's tail.
+          this.output = ''
+          this.attempt.end()
+        } else if (frame.type === 'chunk' && frame.chunk.type === 'text-delta') {
+          // Newest text wins. Retention is capped and the front boundary stays
+          // surrogate-clean even for one very large provider delta.
+          this.output = appendOutputTail(this.output, frame.chunk.text)
+        }
         this.phase = modelPhaseAfterFrame(this.phase, frame)
         onChange()
       }))
@@ -168,6 +264,9 @@ export class ChildActivityObserver {
     }))
     this.disposers.push(ctx.on('agent/disposed', (payload: { agent: Agent }) => {
       if (payload.agent !== child) return
+      // The tail is about a live Agent; a disposed one has no current attempt.
+      this.output = ''
+      this.attempt.end()
       this.disposed = true
       onChange()
     }))
@@ -199,6 +298,10 @@ export class ChildActivityObserver {
       // a `reading`/`editing`/`running` claim for calls a dead turn will never
       // answer.
       this.pending.reset()
+      // The turn boundary also ends the live attempt: its tail is not part of
+      // the next turn's answer.
+      this.output = ''
+      this.attempt.end()
     }
     this.phase = modelPhaseAfter(this.phase, event)
   }
@@ -217,12 +320,16 @@ export class ChildActivityObserver {
       busy: this.status === 'running',
       ...this.status === undefined ? {} : { status: this.status },
       ...title === undefined ? {} : { title },
+      // Absence stays distinct from an empty answer: an attempt that streamed
+      // nothing yet is not an attempt that streamed "".
+      ...this.output === '' ? {} : { outputTail: this.output },
     }
   }
 
   /** Stop observing; late events are contained and never repaint this epoch. */
   dispose(): void {
     this.disposed = true
+    this.output = ''
     for (const dispose of this.disposers.splice(0)) dispose()
   }
 }

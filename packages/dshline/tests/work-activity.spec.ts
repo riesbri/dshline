@@ -18,6 +18,7 @@ import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { stripAnsi } from '@dshline/renderer'
 import { HarnessWork } from '../src/work/index.ts'
+import { ChildActivityObserver, appendOutputTail, OUTPUT_TAIL_LIMIT } from '../src/work/activity.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { WorkInterruptResult, WorkSnapshot, SubagentWorkItem } from '../src/work/model.ts'
 import { activeElapsedMs, subagentDuration } from '../src/work/model.ts'
@@ -43,19 +44,31 @@ function result(id: string): SessionEvent {
   })
 }
 
-/** One live chunk frame for the child's current attempt. */
-function frame(chunk: unknown): AssistantStreamFrame {
-  return { type: 'chunk', attemptId: 's:1', revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
+/** One live chunk frame for one attempt of the child's stream. */
+function frame(chunk: unknown, attemptId = 's:1'): AssistantStreamFrame {
+  return { type: 'chunk', attemptId, revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
 }
 
 /** A reasoning delta frame. */
-function reasoning(text = 'thinking…'): AssistantStreamFrame {
-  return frame({ type: 'reasoning-delta', index: 0, text })
+function reasoning(value = 'thinking…', attemptId = 's:1'): AssistantStreamFrame {
+  return frame({ type: 'reasoning-delta', index: 0, text: value }, attemptId)
 }
 
 /** A text delta frame. */
-function text(): AssistantStreamFrame {
-  return frame({ type: 'text-delta', index: 0, text: 'answer' })
+function text(value = 'answer', attemptId = 's:1'): AssistantStreamFrame {
+  return frame({ type: 'text-delta', index: 0, text: value }, attemptId)
+}
+
+/** The opening marker of one attempt. */
+function startFrame(attemptId = 's:1'): AssistantStreamFrame {
+  return { type: 'start', attemptId, revision: 1, turn: 1, step: 1 } as AssistantStreamFrame
+}
+
+/** The terminal marker of one attempt. */
+function endFrame(attemptId = 's:1'): AssistantStreamFrame {
+  return {
+    type: 'end', attemptId, revision: 2, index: 1, outcome: { kind: 'abandoned' },
+  } as AssistantStreamFrame
 }
 
 /** A per-name resolved call presentation, proving classification rides the definition. */
@@ -884,6 +897,316 @@ describe('per-child semantic activity for Work', () => {
     expect(row?.timing).toBeUndefined()
     expect(row?.tokens).toBeUndefined()
     expect(row?.activityWord).toBeUndefined()
+    work.dispose()
+  })
+})
+
+describe('bounded transient assistant output for Work rows', () => {
+  it('exposes the newest streamed assistant text, in order', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('Hello ', 'a1'))
+    publishFrame(child, text('world', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('Hello world')
+    work.dispose()
+  })
+
+  it('keeps only assistant text, never reasoning, tool arguments, or markers', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('visible', 'a1'))
+    publishFrame(child, reasoning('hidden thought', 'a1'))
+    publishFrame(child, frame({
+      type: 'tool-call-delta', index: 0, id: 't1', argumentsDelta: '{"secret":1}',
+    }, 'a1'))
+    publishFrame(child, frame({ type: 'block-start', index: 0, blockType: 'text' }, 'a1'))
+    publishFrame(child, frame({ type: 'usage', usage: {} }, 'a1'))
+    publishFrame(child, frame({ type: 'finish', reason: 'stop' }, 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('visible')
+    // Interleaved text still accumulates in order, around the ignored chunks.
+    publishFrame(child, text(' more', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('visible more')
+    work.dispose()
+  })
+
+  it('clears the prior attempt text when a new attempt starts', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('first', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('first')
+    publishFrame(child, startFrame('a2'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    publishFrame(child, text('second', 'a2'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('second')
+    work.dispose()
+  })
+
+  it('ignores a frame from a foreign or stale attempt', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('mine', 'a1'))
+    publishFrame(child, text('STALE', 'a2'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('mine')
+    work.dispose()
+  })
+
+  it('establishes the tail from a text delta when attaching mid-attempt', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    // No `start` was ever observed: the first frame adopts the attempt.
+    publishFrame(child, text('mid-stream', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('mid-stream')
+    work.dispose()
+  })
+
+  it('clears the transient tail when the attempt ends', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('gone', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('gone')
+    publishFrame(child, endFrame('a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('does not resurrect output from a late delta after end', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('first', 'a1'))
+    publishFrame(child, endFrame('a1'))
+    publishFrame(child, text('STALE', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('clears the tail when the child turn ends', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    rootCtx.emit('session/event', child.session, ev('turn/start', { turn: 1 }))
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('before end', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('before end')
+    rootCtx.emit('session/event', child.session, ev('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('clears and stops the tail when the observed Agent is disposed', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('live', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('live')
+    rootCtx.emit('agent/disposed', { agent: child })
+    const row = work.snapshot().subagents[0]
+    expect(row?.id).toBe('child')
+    expect(row?.outputTail).toBeUndefined()
+    expect(row?.busy).toBe(false)
+    // A late frame after disposal must not repaint or restore the tail.
+    publishFrame(child, text('after', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('clears the tail in the observer’s own disposal path', () => {
+    const child = makeChild('child')
+    const observer = new ChildActivityObserver(new Context(), child, () => undefined, () => {})
+    publishFrame(child, text('live', 'a1'))
+    expect(observer.reading().outputTail).toBe('live')
+    observer.dispose()
+    // Disposed readings carry no tail at all, and late frames change nothing.
+    expect(observer.reading().outputTail).toBeUndefined()
+    publishFrame(child, text('after', 'a1'))
+    expect(observer.reading().outputTail).toBeUndefined()
+  })
+
+  it('drops the tail with the lifecycle epoch', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start, end } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, text('live', 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('live')
+    end({ runId: 'r1', provider: 'spawn', id: 'child', local: true, stopReason: 'completed' })
+    expect(work.snapshot().subagents).toEqual([])
+  })
+
+  it('bounds the tail to the newest characters after a very long stream', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    for (let i = 0; i < 5; i += 1) publishFrame(child, text('x'.repeat(5_000), 'a1'))
+    publishFrame(child, text('NEWEST', 'a1'))
+    const tail = work.snapshot().subagents[0]?.outputTail
+    expect(tail).toBeDefined()
+    expect(tail!.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(tail!.endsWith('NEWEST')).toBe(true)
+    work.dispose()
+  })
+
+  it('omits live output for a provider-managed child', () => {
+    const rootCtx = new Context()
+    const { work, start } = harness(rootCtx, {}, new Map())
+    start({ runId: 'r1', provider: 'codex', id: 'remote', local: false })
+    expect(work.snapshot().subagents[0]?.local).toBe(false)
+    expect(work.snapshot().subagents[0]?.outputTail).toBeUndefined()
+    work.dispose()
+  })
+
+  it('invalidates once per accepted frame and not at all for a stale one', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start, invalidations } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    const before = invalidations()
+    // Each accepted frame folds activity and text before asking for ONE redraw.
+    publishFrame(child, startFrame('a1'))
+    expect(invalidations()).toBe(before + 1)
+    publishFrame(child, text('one', 'a1'))
+    expect(invalidations()).toBe(before + 2)
+    // A foreign attempt changes nothing, so it must not spend a redraw.
+    publishFrame(child, text('stale', 'a2'))
+    expect(invalidations()).toBe(before + 2)
+    work.dispose()
+  })
+})
+
+/** Whether a string contains an unpaired UTF-16 surrogate. */
+function hasLoneSurrogate(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index)
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true
+      index += 1
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return true
+    }
+  }
+  return false
+}
+
+describe('bounded assistant output retention', () => {
+  it('keeps only the newest bounded suffix of a very large delta', () => {
+    const result = appendOutputTail('PRIOR-TAIL', 'x'.repeat(5_000))
+    expect(result).toBe('x'.repeat(OUTPUT_TAIL_LIMIT))
+    expect(result).not.toContain('PRIOR')
+  })
+
+  it('discards the prior tail rather than concatenating it to a large delta', () => {
+    // The delta is already at least the cap, so nothing before it can survive.
+    // The helper reduces the delta alone — a `prior + delta` intermediate is
+    // never built — and the result is exactly that delta's own suffix.
+    const result = appendOutputTail('PRIOR-TAIL', `${'y'.repeat(OUTPUT_TAIL_LIMIT)}NEWEST`)
+    expect(result.length).toBe(OUTPUT_TAIL_LIMIT)
+    expect(result.endsWith('NEWEST')).toBe(true)
+    expect(result).not.toContain('PRIOR')
+  })
+
+  it('joins a smaller delta to the bounded prior tail and stays capped', () => {
+    expect(appendOutputTail('abc', 'def')).toBe('abcdef')
+    const result = appendOutputTail('a'.repeat(OUTPUT_TAIL_LIMIT), 'b'.repeat(10))
+    expect(result.length).toBe(OUTPUT_TAIL_LIMIT)
+    expect(result.endsWith('b'.repeat(10))).toBe(true)
+  })
+
+  it('keeps a delta exactly the cap and drops the prior tail', () => {
+    expect(appendOutputTail('OLD', 'n'.repeat(OUTPUT_TAIL_LIMIT))).toBe('n'.repeat(OUTPUT_TAIL_LIMIT))
+  })
+
+  it('never leaves an orphaned low surrogate at the retained front boundary', () => {
+    // The 256-unit cut over this text lands between the emoji's two halves
+    // (indices 4 and 5), so a plain `slice(-256)` would begin with the low
+    // surrogate. `hasLoneSurrogate` proves the retained string is well formed.
+    const chunk = `${'a'.repeat(4)}😀${'b'.repeat(249)}NEWEST`
+    expect(chunk.length).toBe(261)
+    const result = appendOutputTail('', chunk)
+    expect(result.endsWith('NEWEST')).toBe(true)
+    expect(result.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(hasLoneSurrogate(result)).toBe(false)
+    const first = result.charCodeAt(0)
+    expect(first >= 0xdc00 && first <= 0xdfff).toBe(false)
+  })
+
+  it('never starts with a low surrogate when an exact-cap delta splits a pair', () => {
+    // The high half arrived in the previous delta, so this delta alone begins
+    // with the low half. The large-delta path discards `current` because the
+    // delta is already the cap, so the front boundary must still drop the
+    // orphan instead of returning the delta unchanged.
+    const current = '\uD83D'
+    const delta = `\uDE00${'x'.repeat(OUTPUT_TAIL_LIMIT - 1)}`
+    expect(delta.length).toBe(OUTPUT_TAIL_LIMIT)
+    const result = appendOutputTail(current, delta)
+    expect(result.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(hasLoneSurrogate(result)).toBe(false)
+    const first = result.charCodeAt(0)
+    expect(first >= 0xdc00 && first <= 0xdfff).toBe(false)
+    expect(result).toBe('x'.repeat(OUTPUT_TAIL_LIMIT - 1))
+  })
+
+  it('retains the newest text across an astral boundary cut through the observer', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text(`${'a'.repeat(4)}😀${'b'.repeat(249)}NEWEST`, 'a1'))
+    const tail = work.snapshot().subagents[0]?.outputTail
+    expect(tail).toBeDefined()
+    expect(tail!.endsWith('NEWEST')).toBe(true)
+    expect(tail!.length).toBeLessThanOrEqual(OUTPUT_TAIL_LIMIT)
+    expect(hasLoneSurrogate(tail!)).toBe(false)
+    work.dispose()
+  })
+
+  it('bounds the tail after one very large single delta through the observer', () => {
+    const rootCtx = new Context()
+    const child = makeChild('child')
+    const registry = new Map([['child', child]])
+    const { work, start } = harness(rootCtx, {}, registry)
+    start({ runId: 'r1', provider: 'spawn', id: 'child', local: true })
+    publishFrame(child, startFrame('a1'))
+    publishFrame(child, text('x'.repeat(10_000), 'a1'))
+    expect(work.snapshot().subagents[0]?.outputTail).toBe('x'.repeat(OUTPUT_TAIL_LIMIT))
     work.dispose()
   })
 })
