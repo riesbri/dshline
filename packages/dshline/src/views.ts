@@ -74,7 +74,13 @@ export interface StatusState {
    * base and to plan or goal modes.
    */
   attention: AttentionNotice | undefined
-  /** Model id alone; the provider route is in the banner. */
+  /**
+   * The live effective selection as `provider/model`, from the same mutable
+   * ref `/model` writes. Route-qualified because two provider routes can
+   * advertise the same model id, and a bare id would make them one reading
+   * here; one indivisible segment, so the body ladder drops or keeps it whole.
+   * The banner's attachment-time identity is deliberately a different fact.
+   */
   model: string | undefined
   /** Reasoning level, only when it differs from the route's default. */
   effort: string | undefined
@@ -750,9 +756,14 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const attention = current.attention === undefined
         ? undefined
         : paint(escapeControls(current.attention.text), 'warning')
-      const model = current.model === undefined
+      // Provider and model ids originate upstream, so they are neutralized
+      // before they are styled: escaping after `paint` would destroy the colour,
+      // and escaping only one half would let a control through in the other.
+      // Model and effort are one segment, so a dropped model drops its effort.
+      const identity = current.model === undefined
         ? undefined
-        : paint(current.effort === undefined ? current.model : `${current.model} (${current.effort})`, 'subdued')
+        : current.effort === undefined ? current.model : `${current.model} (${current.effort})`
+      const model = identity === undefined ? undefined : paint(escapeControls(identity), 'subdued')
       // The effective permission is a state fact, not a convenience reading: it
       // gates what a turn may DO. It is still one opaque id, escaped because it
       // originates upstream and painted in the subdued role because dshline

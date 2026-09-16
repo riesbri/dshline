@@ -909,6 +909,83 @@ describe('attention on applied selection changes', () => {
   })
 })
 
+describe('the live model identity in the persistent status', () => {
+  /** Two routes advertising the same model id: the ambiguity this reading fixes. */
+  const ROUTES: Record<string, readonly { id: string; name: string }[]> = {
+    'deepseek-official': [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }],
+    opencode: [{ id: 'deepseek-v4-pro', name: 'OpenCode DeepSeek' }],
+  }
+
+  /**
+   * The status row of the latest composed frame, which is the persistent fact.
+   * @param frames - every composed live-region frame.
+   * @returns the last row, unstyled.
+   */
+  function statusRow(frames: readonly string[][]): string {
+    return stripAnsi((frames.at(-1) ?? []).at(-1) ?? '')
+  }
+
+  it('reports the initial selection route-qualified', async () => {
+    const mounted = await fixture({
+      providers: ['deepseek-official', 'opencode'],
+      models: ROUTES,
+      selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+    })
+    await flush()
+    expect(statusRow(mounted.frames)).toContain('deepseek-official/deepseek-v4-pro')
+  })
+
+  it('distinguishes two routes serving the same model id after /model switches', async () => {
+    const mounted = await fixture({
+      providers: ['deepseek-official', 'opencode'],
+      models: ROUTES,
+      selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+    })
+    await flush()
+    expect(statusRow(mounted.frames)).toContain('deepseek-official/deepseek-v4-pro')
+    type(mounted.dispatch, '/model opencode/deepseek-v4-pro')
+    press(mounted.dispatch, { kind: 'key', name: 'enter' })
+    await flush()
+    // The same bare id on another route is a different reading, not a reselect.
+    expect(statusRow(mounted.frames)).toContain('opencode/deepseek-v4-pro')
+    expect(statusRow(mounted.frames)).not.toContain('deepseek-official/deepseek-v4-pro')
+  })
+
+  it('keeps the route-qualified status after the model-change notice expires', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const mounted = await fixture({
+        providers: ['deepseek-official', 'opencode'],
+        models: ROUTES,
+        selected: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
+      })
+      await flush()
+      type(mounted.dispatch, '/model opencode/deepseek-v4-pro')
+      press(mounted.dispatch, { kind: 'key', name: 'enter' })
+      await flush()
+      expect(frame(mounted.frames)).toContain('model → opencode/deepseek-v4-pro')
+      vi.advanceTimersByTime(4_000)
+      // The transient emphasis is gone; the identity it announced is the live
+      // selection and outlives it.
+      expect(frame(mounted.frames)).not.toContain('model →')
+      expect(statusRow(mounted.frames)).toContain('opencode/deepseek-v4-pro')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the reasoning effort attached to the route-qualified identity', async () => {
+    const mounted = await fixture({
+      providers: ['openai'],
+      models: { openai: [{ id: 'gpt-x', name: 'GPT X' }] },
+      selected: { provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' },
+      reasoning: REASONING,
+    })
+    await flush()
+    expect(statusRow(mounted.frames)).toContain('openai/gpt-x (max)')
+  })
+})
+
 describe('attention after Setup applies a model', () => {
   it('shows the route notice when Setup actually changes the model', async () => {
     // The conductor only acknowledges the change through `onModelChanged`; the

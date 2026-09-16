@@ -115,22 +115,39 @@ export function noticeRow(reading: SurfaceNoticeReading | undefined, columns: nu
  * refused compaction and a discovery failure are not the same event, and the
  * copies of `NOTICE_MS` this replaced had already drifted to four values.
  *
- * Expiration is LAZY: an expired notice is retired by the next
- * {@link SurfaceNotice.read}, so clearing one costs no timer. This type
- * therefore does not schedule a redraw, and a surface that shows a notice owns
- * invalidation: it redraws when {@link SurfaceNotice.show} is called and keeps
- * redrawing until {@link SurfaceNotice.read} returns undefined, or the notice
- * simply stays on screen until the next unrelated paint. Context does both
- * through the ticker it already had; no second consumer needs timing today, so
- * no scheduler lives here.
+ * {@link SurfaceNotice.read} retires an expired notice, but that is now backed
+ * by one unref'd timer per notice: a notice with a declared lifetime asks its
+ * owner for a repaint the moment the lifetime ends. Before this, an idle
+ * terminal kept an expired notice on screen until some unrelated paint — a tool
+ * result, a spinner beat — happened to arrive, which is exactly when a notice
+ * is least useful.
+ *
+ * The timer is an INVALIDATION mechanism only. It never touches the notice:
+ * {@link SurfaceNotice.read} is still the sole state authority, so the deadline
+ * stays the only truth and the next render derives it. Showing again cancels
+ * the prior deadline, so two timers are never live, and an older callback that
+ * somehow fires after a replacement cannot clear the newer notice because it
+ * asks for a repaint and nothing more — `read` grades whatever deadline is
+ * current when that repaint runs.
  */
 export class SurfaceNotice {
   private state: { reading: SurfaceNoticeReading; expiresAt: number } | undefined
+  private timer: NodeJS.Timeout | undefined
+  private disposed = false
 
   /**
    * @param lifetimeMs - how long a shown notice stays readable.
+   * @param options - the clock that grades the deadline, and the repaint request
+   *   the expiry makes. A surface with an injected clock passes it so the timer
+   *   and the deadline share one timeline; tests may construct with neither.
    */
-  constructor(private readonly lifetimeMs: number) {}
+  constructor(
+    private readonly lifetimeMs: number,
+    private readonly options: {
+      readonly now?: () => number
+      readonly invalidate?: () => void
+    } = {},
+  ) {}
 
   /**
    * Replace any current notice with a new one, restarting its lifetime.
@@ -138,16 +155,24 @@ export class SurfaceNotice {
    * @param failed - whether the outcome failed.
    */
   show(text: string, failed = false): void {
-    this.state = { reading: { text, failed }, expiresAt: Date.now() + this.lifetimeMs }
+    // A late `show` from an in-flight action must not resurrect a surface the
+    // reader already closed.
+    if (this.disposed) return
+    this.cancel()
+    this.state = { reading: { text, failed }, expiresAt: this.now() + this.lifetimeMs }
+    this.arm()
   }
 
   /**
    * Read the active notice, retiring it once its lifetime has passed.
-   * @param now - current wall-clock instant; injectable for tests.
+   * @param now - current wall-clock instant; defaults to the injected clock.
    * @returns the active reading, or undefined once retired.
    */
-  read(now = Date.now()): SurfaceNoticeReading | undefined {
-    if (this.state !== undefined && now >= this.state.expiresAt) this.state = undefined
+  read(now = this.now()): SurfaceNoticeReading | undefined {
+    if (this.state !== undefined && now >= this.state.expiresAt) {
+      this.state = undefined
+      this.cancel()
+    }
     return this.state?.reading
   }
 
@@ -158,6 +183,64 @@ export class SurfaceNotice {
    */
   row(columns: number): string | undefined {
     return noticeRow(this.read(), columns)
+  }
+
+  /**
+   * Cancel the pending expiry and forget the notice. Idempotent, and a later
+   * {@link SurfaceNotice.show} is refused.
+   */
+  dispose(): void {
+    this.cancel()
+    this.state = undefined
+    this.disposed = true
+  }
+
+  /** The clock this notice's deadline is graded on. */
+  private now(): number {
+    // A lambda, not a captured `Date.now`: fake timers replace the global after
+    // construction, and a captured function would keep the real clock.
+    return this.options.now?.() ?? Date.now()
+  }
+
+  /**
+   * Arm the one expiry timer for the current notice.
+   *
+   * Called after every `show`, so a replacement never leaves two deadlines
+   * live. The callback only invalidates — it never retires the notice and never
+   * touches its state. A Node timer can fire a hair before the deadline it was
+   * measured against, and a caller-injected clock can lag Node's; repainting
+   * then would render a notice `read` still calls current, and with no timer
+   * left there would be no second chance — the stale row this mechanism exists
+   * to clear. So the callback waits out the true remainder instead. That is a
+   * one-shot retry at the deadline, not a poll: each wait is the exact
+   * remaining time, which shrinks to zero as the clock advances.
+   */
+  private arm(): void {
+    if (this.disposed || this.state === undefined) return
+    const invalidate = this.options.invalidate
+    // No repaint request, no timer: a notice constructed for a test or for a
+    // renderer that reads it directly schedules nothing.
+    if (invalidate === undefined) return
+    const remaining = Math.max(0, this.state.expiresAt - this.now())
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      if (this.disposed || this.state === undefined) return
+      if (this.now() < this.state.expiresAt) {
+        this.arm()
+        return
+      }
+      invalidate()
+    }, remaining)
+    // A countdown must not keep the process alive on its own; the optional call
+    // covers timer implementations without Node's `unref`.
+    this.timer.unref?.()
+  }
+
+  /** Cancel the pending expiry, if any. */
+  private cancel(): void {
+    if (this.timer === undefined) return
+    clearTimeout(this.timer)
+    this.timer = undefined
   }
 }
 
@@ -182,8 +265,8 @@ export interface BoundedSurfaceSpec<S> {
   /**
    * Optional temporary outcome, given its own reserved row while active.
    *
-   * The surface redraws only when its owner asks; see {@link SurfaceNotice} for
-   * who owns invalidation around expiry.
+   * The presenter constructs it with the repaint request {@link SurfaceNotice}
+   * makes when the lifetime ends, and disposes it when the surface comes down.
    */
   readonly notice?: SurfaceNotice
   /**

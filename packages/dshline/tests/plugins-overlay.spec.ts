@@ -1,6 +1,6 @@
 /** The Plugins browser's rendering, search mode, and single-key actions. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Key } from '@dshline/renderer'
 import { stripAnsi } from '@dshline/renderer'
 import type { CompositionRow } from '../src/plugins/composition.ts'
@@ -358,6 +358,38 @@ describe('notices', () => {
     const failure = mount(ready([row()]))
     failure.overlay.report('could not write', true)
     expect(failure.render().join('\n')).toContain('[31m')
+  })
+  it('asks for a repaint at expiry, and none after close', () => {
+    // The shared notice owns one unref'd timer; an idle browser otherwise kept
+    // an expired result on screen until some unrelated paint.
+    vi.useFakeTimers()
+    try {
+      let invalidates = 0
+      const overlay = createPluginsOverlay({
+        state: () => ready([row()]),
+        refresh: () => {},
+        toggle: () => {},
+        pickPreset: () => {},
+        makeDefault: () => {},
+        now: () => Date.now(),
+        close: () => {},
+        invalidate: () => { invalidates += 1 },
+      })
+      overlay.render(COLUMNS, ROWS)
+      overlay.report('tool-fs: enabled', false)
+      const afterShow = invalidates
+      vi.advanceTimersByTime(5_000)
+      expect(invalidates).toBe(afterShow + 1)
+
+      // A result closed before its lifetime must not repaint after teardown.
+      overlay.report('again', false)
+      const beforeDispose = invalidates
+      overlay.dispose?.()
+      vi.advanceTimersByTime(5_000)
+      expect(invalidates).toBe(beforeDispose)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

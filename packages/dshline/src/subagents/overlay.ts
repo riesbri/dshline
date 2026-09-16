@@ -295,7 +295,7 @@ export interface SubagentMessageOverlaySpec {
 export function createSubagentMessageOverlay(spec: SubagentMessageOverlaySpec): TuiOverlay {
   const composer = new Composer()
   const controller = new AbortController()
-  const notice = new SurfaceNotice(MESSAGE_NOTICE_MS)
+  const notice = new SurfaceNotice(MESSAGE_NOTICE_MS, { invalidate: spec.invalidate })
   let pending = false
   let closed = false
   /**
@@ -364,6 +364,7 @@ export function createSubagentMessageOverlay(spec: SubagentMessageOverlaySpec): 
     dispose: () => {
       closed = true
       controller.abort()
+      notice.dispose()
     },
   })
 }

@@ -29,6 +29,8 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
+import { SurfaceNotice } from '../surface.ts'
+import type { SurfaceNoticeReading } from '../surface.ts'
 import type { ConnectCapabilities, ConnectCreateRow, ConnectProviderRow, ConnectRow, ConnectSignInRow, ConnectState } from './model.ts'
 import {
   connectSelectableCount,
@@ -89,13 +91,6 @@ export interface ConnectOverlaySpec {
   readonly invalidate: () => void
 }
 
-/** A transient message shown over the list without committing a transcript row. */
-interface Notice {
-  readonly text: string
-  readonly failed: boolean
-  readonly expiresAt: number
-}
-
 /**
  * The drawn document, and where its selectable rows landed among the physical ones.
  *
@@ -133,17 +128,16 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
   let selected = 0
   let visible: readonly ConnectRow[] = []
   let closed = false
-  let notice: Notice | undefined
+  // The notice owns its own expiry repaint; the surface passes its injected
+  // clock so one timeline grades the deadline and arms the timer.
+  const notice = new SurfaceNotice(NOTICE_MS, { now: spec.now, invalidate: spec.invalidate })
 
   const close = (): void => {
     if (closed) return
     closed = true
     spec.close()
   }
-  const currentNotice = (): Notice | undefined => {
-    if (notice !== undefined && spec.now() >= notice.expiresAt) notice = undefined
-    return notice
-  }
+  const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
   const move = (amount: number): void => {
     if (visible.length === 0) return
     selected = (selected + amount + visible.length) % visible.length
@@ -158,8 +152,11 @@ export function createConnectOverlay(spec: ConnectOverlaySpec): ConnectOverlay {
 
   return {
     report(text, failed) {
-      notice = { text, failed, expiresAt: spec.now() + NOTICE_MS }
+      notice.show(text, failed)
       spec.invalidate()
+    },
+    dispose(): void {
+      notice.dispose()
     },
     render(columns, terminalRows = 24) {
       const state = spec.state()
@@ -594,7 +591,7 @@ function compactFallback(
   shown: number,
   columns: number,
   rows: number,
-  notice: Notice | undefined,
+  notice: SurfaceNoticeReading | undefined,
 ): string[] {
   if (rows <= 0) return []
   if (notice !== undefined) {

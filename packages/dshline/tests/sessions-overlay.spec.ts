@@ -1,6 +1,6 @@
 /** Tests for the Sessions browser's information hierarchy, keyboard, and states. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Key, KeyName } from '@dshline/renderer'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -82,6 +82,7 @@ interface Harness {
 
 /** An overlay under test, plus what it asked its owner for. */
 interface Mounted {
+  readonly overlay: TuiOverlay
   render(columns?: number, rows?: number): string[]
   press(...keys: Key[]): void
   readonly searched: string[]
@@ -93,6 +94,7 @@ interface Mounted {
   readonly renamePrefills: () => Array<string | undefined>
   readonly loadMoreCalls: () => number
   readonly restartCalls: () => number
+  readonly invalidates: () => number
 }
 
 /**
@@ -158,6 +160,7 @@ function mount(harness: Harness = {}): Mounted {
   }
   const overlay = createSessionsOverlay(spec)
   return {
+    overlay,
     render: (columns = COLUMNS, rows = ROWS) => [...overlay.render(columns, rows)],
     press: (...keys) => { for (const one of keys) overlay.handleKey(one) },
     searched,
@@ -1093,6 +1096,31 @@ describe('choosing a session', () => {
     expect(screen(view)).toContain('Already open.')
     clock += 5_000
     expect(screen(view)).not.toContain('Already open.')
+  })
+
+  it('asks for a repaint at expiry, and none after close', () => {
+    // An idle browser has no heartbeat, so the notice's own timer is what
+    // retires the refusal without a keypress.
+    vi.useFakeTimers()
+    try {
+      const view = mount({
+        now: () => Date.now(),
+        resume: () => ({ kind: 'refused', message: 'Already open.' }),
+      })
+      view.render()
+      view.press(key('enter'))
+      const afterShow = view.invalidates()
+      vi.advanceTimersByTime(4_000)
+      expect(view.invalidates()).toBe(afterShow + 1)
+
+      view.press(key('enter'))
+      const beforeDispose = view.invalidates()
+      view.overlay.dispose?.()
+      vi.advanceTimersByTime(4_000)
+      expect(view.invalidates()).toBe(beforeDispose)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('does nothing when there is nothing to choose', () => {

@@ -27,6 +27,8 @@ import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
+import { SurfaceNotice } from '../surface.ts'
+import type { SurfaceNoticeReading } from '../surface.ts'
 import { equalFilters, NO_FILTERS, type SessionFiltersValue } from './filters.ts'
 import { createLineageOverlay } from './lineage-overlay.ts'
 import type {
@@ -142,12 +144,6 @@ export interface SessionsOverlaySpec {
   readonly invalidate: () => void
 }
 
-/** A transient message shown over the list without entering scrollback. */
-interface Notice {
-  readonly text: string
-  readonly expiresAt: number
-}
-
 /** One continuation row after a landed, pageable content result. */
 type Trailing = { readonly kind: 'more' | 'refresh' | 'loading' }
 
@@ -208,17 +204,16 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
   let loadingFrom: number | undefined
   let loadingRevision: number | undefined
   let closed = false
-  let notice: Notice | undefined
+  // The notice owns its own expiry repaint; the surface passes its injected
+  // clock so one timeline grades the deadline and arms the timer.
+  const notice = new SurfaceNotice(NOTICE_MS, { now: spec.now, invalidate: spec.invalidate })
 
   const close = (): void => {
     if (closed) return
     closed = true
     spec.close()
   }
-  const currentNotice = (): Notice | undefined => {
-    if (notice !== undefined && spec.now() >= notice.expiresAt) notice = undefined
-    return notice
-  }
+  const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
   const focusedEntry = (): SessionEntry | undefined => visible[selected]
   const selectableLength = (): number => visible.length + (trailing?.kind === 'more' || trailing?.kind === 'refresh' ? 1 : 0)
   const move = (amount: number): void => {
@@ -255,7 +250,7 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       close()
       return
     }
-    notice = { text: answer.message, expiresAt: spec.now() + NOTICE_MS }
+    notice.show(answer.message)
     spec.invalidate()
   }
   const activateList = (): void => {
@@ -327,15 +322,15 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
     // must not repaint a live region that has moved on.
     if (closed) return
     const reason = error instanceof Error ? error.message : String(error)
-    notice = { text: `Rename failed: ${reason}`, expiresAt: spec.now() + NOTICE_MS }
+    notice.show(`Rename failed: ${reason}`)
     spec.invalidate()
   }
   const renamed = (outcome: RenameDraftOutcome): void => {
     if (closed) return
     if (outcome.kind === 'renamed') {
-      notice = { text: `Renamed to “${outcome.title}”`, expiresAt: spec.now() + NOTICE_MS }
+      notice.show(`Renamed to “${outcome.title}”`)
     } else if (outcome.kind === 'failed') {
-      notice = { text: `Rename failed: ${outcome.message}`, expiresAt: spec.now() + NOTICE_MS }
+      notice.show(`Rename failed: ${outcome.message}`)
     }
     spec.invalidate()
   }
@@ -600,6 +595,9 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
         default:
           return
       }
+    },
+    dispose(): void {
+      notice.dispose()
     },
   }
 }
@@ -1008,7 +1006,7 @@ function physicalRows(lines: readonly string[], columns: number): string[] {
 }
 
 /**
- * One Notice as a single physical row.
+ * One notice as a single physical row.
  *
  * A notice's text is untrusted, and it can contain newlines (a Harness error
  * message). A newline would let `Screen` expand one logical row into several,
@@ -1040,7 +1038,7 @@ function compactFallback(
   resolved: Resolved,
   columns: number,
   rows: number,
-  notice: Notice | undefined,
+  notice: SurfaceNoticeReading | undefined,
   enterAction: string | undefined,
 ): string[] {
   if (rows <= 0) return []

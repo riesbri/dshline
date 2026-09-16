@@ -1099,7 +1099,7 @@ dshline:
 ### 一轮进行中
 
 ```
-◜ working 14m 26s · run_shell_command +2 calls · x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
+◜ working 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
 ```
 
 在已用时间旁边是这一轮等待的工具。长轮旁边没有名字时，无论命令在运行还是会话已停止响应，读起来都一样，因此名字是等待与担心之间的区别。它是终端变窄时第一个被放弃的东西。
@@ -1125,7 +1125,7 @@ agent 取用之后计数就会离开。`enter` 给你的是哪一个，见[排�
 状态行携带会话的运行总计：
 
 ```
-● ready · deepseek-v4-flash · ↑8.8k ↓1.6k $0.018 · CR 99.8% · ▏░░░░░░░ 14k/1.0M
+● ready · deepseek-official/deepseek-v4-flash · ↑8.8k ↓1.6k $0.018 · CR 99.8% · ▏░░░░░░░ 14k/1.0M
 ```
 
 `↑` 是发送的每一个提示 token，无论是否缓存；`↓` 是生成的每一个 token，含思考。两者都来自提供方自己的核算，因此是你被计费的量而不是估算，重新打开会话会带回它的总计。

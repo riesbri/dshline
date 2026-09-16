@@ -1289,7 +1289,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       activityWord: primaryActivity(phase, cards.semanticActivity()),
       activity: cards.inFlight(),
       attention: attention.current(),
-      model: selection.current?.model,
+      // The live effective selection, route-qualified. Two provider routes can
+      // advertise the same model id, so a bare id would report them as one
+      // reading; `/model` already treats `provider/model` as canonical. Read on
+      // every frame from the mutable ref `/model` writes — no discovery, no
+      // cache, and no parsing a provider back out of a display string.
+      model: selection.current === undefined
+        ? undefined
+        : `${selection.current.provider}/${selection.current.model}`,
       effort: effortLabel(selection.current?.reasoningEffort, w.modelInfo.reasoning),
       // The SAME snapshot one field over. Harness's `permissions` projection is
       // the effective current selection, folded from `permission/preset`,

@@ -35,6 +35,8 @@ import {
 import { chromeWidth, fitFooterHelp, footerBudget, rootFrame } from '../chrome.ts'
 import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
+import { SurfaceNotice } from '../surface.ts'
+import type { SurfaceNoticeReading } from '../surface.ts'
 import type { BundleRow, PlainDependencyRow, ProfileRow } from './harness.ts'
 import type { ProfilesState } from './catalog.ts'
 import type { ProfilesActivityView } from './runtime.ts'
@@ -106,13 +108,6 @@ export interface ProfilesOverlaySpec {
   readonly invalidate: () => void
 }
 
-/** A transient message shown over the list without committing a transcript row. */
-interface Notice {
-  readonly text: string
-  readonly failed: boolean
-  readonly expiresAt: number
-}
-
 /**
  * The drawn document, and where its choices landed among the physical rows.
  *
@@ -154,7 +149,10 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
   let selected = 0
   let visible: readonly ProfilesSelection[] = []
   let closed = false
-  let notice: Notice | undefined
+  // The notice owns its own expiry repaint. The running-work heartbeat below
+  // invalidates while an install is in flight, but an idle browser has no
+  // heartbeat, so this timer is what retires a result on its own.
+  const notice = new SurfaceNotice(NOTICE_MS, { now: spec.now, invalidate: spec.invalidate })
   // `/` enters search mode explicitly, for the same reason `/plugins` does:
   // `a`, `u`, `r`, and `n` are bare single-key actions, and a package name is
   // full of all four letters.
@@ -194,10 +192,7 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
     closed = true
     spec.close()
   }
-  const currentNotice = (): Notice | undefined => {
-    if (notice !== undefined && spec.now() >= notice.expiresAt) notice = undefined
-    return notice
-  }
+  const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
   const move = (amount: number): void => {
     if (visible.length === 0) return
     selected = (selected + amount + visible.length) % visible.length
@@ -213,7 +208,7 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
 
   return {
     report(text, failed) {
-      notice = { text, failed, expiresAt: spec.now() + NOTICE_MS }
+      notice.show(text, failed)
       spec.invalidate()
     },
     closed(): boolean {
@@ -224,6 +219,7 @@ export function createProfilesOverlay(spec: ProfilesOverlaySpec): ProfilesOverla
     },
     dispose() {
       stopTicker()
+      notice.dispose()
     },
     render(columns, terminalRows = 24) {
       // Checked here because this is the one place guaranteed to run after the
@@ -711,7 +707,7 @@ function compactFallback(
   shown: number,
   columns: number,
   rows: number,
-  notice: Notice | undefined,
+  notice: SurfaceNoticeReading | undefined,
   activity: ProfilesActivityView,
   tick: number,
 ): string[] {

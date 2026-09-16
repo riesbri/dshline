@@ -309,6 +309,65 @@ describe('the context inspector’s compaction key', () => {
     expect(stripAnsi(overlay.render(80, 40).join('\n'))).toContain('no /compact command')
   })
 
+  it('repaints a refusal away when its lifetime ends, with no keystroke', async () => {
+    vi.useFakeTimers()
+    try {
+      const frames: string[] = []
+      const overlay = createContextOverlay({
+        reading: () => reading(),
+        survey: () => survey([entry()]),
+        preview: () => ({ text: 'x', truncated: false, available: true }),
+        capacity: () => 1_000_000,
+        canCompact: () => true,
+        compact: async () => 'This profile has no /compact command.',
+        close: () => {},
+        invalidate: () => { frames.push(stripAnsi(overlay.render(80, 40).join('\n'))) },
+      })
+      overlay.render(80, 40)
+      overlay.handleKey({ kind: 'text', text: 'c' })
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(stripAnsi(overlay.render(80, 40).join('\n'))).toContain('no /compact command')
+
+      // Idle, with nothing else asking for a frame. The old ticker stopped here
+      // without invalidating, so the retired notice stayed physically visible.
+      vi.advanceTimersByTime(3_000)
+      expect(frames.at(-1)).not.toContain('no /compact command')
+      // The geometry backstop reflects the retirement too.
+      expect(stripAnsi(overlay.render(80, 3).join('\n'))).not.toContain('no /compact command')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels a pending notice repaint when the surface comes down', async () => {
+    vi.useFakeTimers()
+    try {
+      const invalidate = vi.fn()
+      const overlay = createContextOverlay({
+        reading: () => reading(),
+        survey: () => survey([entry()]),
+        preview: () => ({ text: 'x', truncated: false, available: true }),
+        capacity: () => 1_000_000,
+        canCompact: () => true,
+        compact: async () => 'This profile has no /compact command.',
+        close: () => {},
+        invalidate,
+      })
+      overlay.render(80, 40)
+      overlay.handleKey({ kind: 'text', text: 'c' })
+      await Promise.resolve()
+      await Promise.resolve()
+      const before = invalidate.mock.calls.length
+      overlay.dispose?.()
+      vi.advanceTimersByTime(10_000)
+      // No stale repaint after teardown.
+      expect(invalidate.mock.calls.length).toBe(before)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('starts no heartbeat while the inspector is merely open', () => {
     const interval = vi.spyOn(globalThis, 'setInterval')
     try {

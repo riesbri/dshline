@@ -1,6 +1,6 @@
 /** The Connect browser's sections, keyboard, and states. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Key } from '@dshline/renderer'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import type { ConnectNewRouteTarget, ConnectProviderRow, ConnectSignInRow, ConnectState } from '../src/connect/model.ts'
@@ -323,6 +323,30 @@ describe('reporting a result', () => {
     const view = mount(ready([provider()]))
     view.overlay.report('anything', true)
     expect(view.render().length).toBeGreaterThan(0)
+  })
+
+  it('asks for a repaint when a result expires, with no keypress', () => {
+    // The shared notice owns one unref'd timer; an idle browser otherwise kept
+    // the expired result on screen until some unrelated paint.
+    vi.useFakeTimers()
+    try {
+      let invalidates = 0
+      const overlay = createConnectOverlay({
+        state: () => ready([provider()]),
+        refresh: () => {},
+        act: () => {},
+        now: () => Date.now(),
+        close: () => {},
+        invalidate: () => { invalidates += 1 },
+      })
+      overlay.render(COLUMNS, ROWS)
+      overlay.report('openai: key stored', false)
+      const afterShow = invalidates
+      vi.advanceTimersByTime(5_000)
+      expect(invalidates).toBe(afterShow + 1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
