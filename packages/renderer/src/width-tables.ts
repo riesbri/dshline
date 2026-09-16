@@ -1,14 +1,14 @@
 /**
  * Unicode code-point ranges for terminal display width.
  *
- * Generated from the Unicode Character Database 16.0.0 by
+ * Generated from the Unicode Character Database 17.0.0 by
  * tools/generate-width-tables.mjs. Do not edit by hand: re-run
  * `pnpm generate-width-tables` and review the diff instead.
  *
  * Pinned input files:
- * - EastAsianWidth.txt 43adc76c0686a42cb370764eb8cfe2b2a45b10b855e5572a2db4a0eecce15d5b
- * - DerivedGeneralCategory.txt 7676ab755a41ef82108460238569e60ad65c191ddafe61b36c6765ec1353f293
- * - emoji-data.txt f1365a5173eee18e1f98b240cdc492e84a25f1ce7e0c9d1094eb29c41a22696a
+ * - EastAsianWidth.txt ea7ce50f3444a050333448dffef1cadd9325af55cbb764b4a2280faf52170a33
+ * - DerivedGeneralCategory.txt d62e5bab70ca74f099343f71224fa051cb1fdd61a1ab45c0488c44cfc0b6102e
+ * - emoji-data.txt 2cb2bb9455cda83e8481541ecf5b6dfda66a3bb89efa3fa7c5297eccf607b72b
  *
  * Unicode data is copyright © Unicode, Inc.; see https://www.unicode.org/license.txt.
  */
@@ -75,10 +75,10 @@ export const WIDE_RANGES: readonly (readonly [number, number])[] = [
   [0xff01, 0xff60],
   [0xffe0, 0xffe6],
   [0x16fe0, 0x16fe4],
-  [0x16ff0, 0x16ff1],
-  [0x17000, 0x187f7],
-  [0x18800, 0x18cd5],
-  [0x18cff, 0x18d08],
+  [0x16ff0, 0x16ff6],
+  [0x17000, 0x18cd5],
+  [0x18cff, 0x18d1e],
+  [0x18d80, 0x18df2],
   [0x1aff0, 0x1aff3],
   [0x1aff5, 0x1affb],
   [0x1affd, 0x1affe],
@@ -120,7 +120,7 @@ export const WIDE_RANGES: readonly (readonly [number, number])[] = [
   [0x1f680, 0x1f6c5],
   [0x1f6cc, 0x1f6cc],
   [0x1f6d0, 0x1f6d2],
-  [0x1f6d5, 0x1f6d7],
+  [0x1f6d5, 0x1f6d8],
   [0x1f6dc, 0x1f6df],
   [0x1f6eb, 0x1f6ec],
   [0x1f6f4, 0x1f6fc],
@@ -130,18 +130,18 @@ export const WIDE_RANGES: readonly (readonly [number, number])[] = [
   [0x1f93c, 0x1f945],
   [0x1f947, 0x1f9ff],
   [0x1fa70, 0x1fa7c],
-  [0x1fa80, 0x1fa89],
-  [0x1fa8f, 0x1fac6],
-  [0x1face, 0x1fadc],
-  [0x1fadf, 0x1fae9],
-  [0x1faf0, 0x1faf8],
+  [0x1fa80, 0x1fa8a],
+  [0x1fa8e, 0x1fac6],
+  [0x1fac8, 0x1fac8],
+  [0x1facd, 0x1fadc],
+  [0x1fadf, 0x1faea],
+  [0x1faef, 0x1faf8],
   [0x20000, 0x2fffd],
   [0x30000, 0x3fffd],
 ]
 
-/** Inclusive code-point ranges a terminal advances no cell for (General_Category Mn, Me, Cf, Zl, Zp). */
+/** Inclusive code-point ranges a terminal advances no cell for: General_Category Mn and Me, plus the explicit format-control allowlist. */
 export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
-  [0xad, 0xad],
   [0x300, 0x36f],
   [0x483, 0x489],
   [0x591, 0x5bd],
@@ -149,16 +149,14 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x5c1, 0x5c2],
   [0x5c4, 0x5c5],
   [0x5c7, 0x5c7],
-  [0x600, 0x605],
   [0x610, 0x61a],
   [0x61c, 0x61c],
   [0x64b, 0x65f],
   [0x670, 0x670],
-  [0x6d6, 0x6dd],
+  [0x6d6, 0x6dc],
   [0x6df, 0x6e4],
   [0x6e7, 0x6e8],
   [0x6ea, 0x6ed],
-  [0x70f, 0x70f],
   [0x711, 0x711],
   [0x730, 0x74a],
   [0x7a6, 0x7b0],
@@ -169,9 +167,9 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x825, 0x827],
   [0x829, 0x82d],
   [0x859, 0x85b],
-  [0x890, 0x891],
   [0x897, 0x89f],
-  [0x8ca, 0x902],
+  [0x8ca, 0x8e1],
+  [0x8e3, 0x902],
   [0x93a, 0x93a],
   [0x93c, 0x93c],
   [0x941, 0x948],
@@ -285,7 +283,8 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x1a65, 0x1a6c],
   [0x1a73, 0x1a7c],
   [0x1a7f, 0x1a7f],
-  [0x1ab0, 0x1ace],
+  [0x1ab0, 0x1add],
+  [0x1ae0, 0x1aeb],
   [0x1b00, 0x1b03],
   [0x1b34, 0x1b34],
   [0x1b36, 0x1b3a],
@@ -310,7 +309,7 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x1cf8, 0x1cf9],
   [0x1dc0, 0x1dff],
   [0x200b, 0x200f],
-  [0x2028, 0x202e],
+  [0x202a, 0x202e],
   [0x2060, 0x2064],
   [0x2066, 0x206f],
   [0x20d0, 0x20f0],
@@ -371,7 +370,7 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x10d24, 0x10d27],
   [0x10d69, 0x10d6d],
   [0x10eab, 0x10eac],
-  [0x10efc, 0x10eff],
+  [0x10efa, 0x10eff],
   [0x10f46, 0x10f50],
   [0x10f82, 0x10f85],
   [0x11001, 0x11001],
@@ -381,9 +380,7 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x1107f, 0x11081],
   [0x110b3, 0x110b6],
   [0x110b9, 0x110ba],
-  [0x110bd, 0x110bd],
   [0x110c2, 0x110c2],
-  [0x110cd, 0x110cd],
   [0x11100, 0x11102],
   [0x11127, 0x1112b],
   [0x1112d, 0x11134],
@@ -448,6 +445,9 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x11a59, 0x11a5b],
   [0x11a8a, 0x11a96],
   [0x11a98, 0x11a99],
+  [0x11b60, 0x11b60],
+  [0x11b62, 0x11b64],
+  [0x11b66, 0x11b66],
   [0x11c30, 0x11c36],
   [0x11c38, 0x11c3d],
   [0x11c3f, 0x11c3f],
@@ -504,6 +504,10 @@ export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
   [0x1e2ec, 0x1e2ef],
   [0x1e4ec, 0x1e4ef],
   [0x1e5ee, 0x1e5ef],
+  [0x1e6e3, 0x1e6e3],
+  [0x1e6e6, 0x1e6e6],
+  [0x1e6ee, 0x1e6ef],
+  [0x1e6f5, 0x1e6f5],
   [0x1e8d0, 0x1e8d6],
   [0x1e944, 0x1e94a],
   [0xe0001, 0xe0001],

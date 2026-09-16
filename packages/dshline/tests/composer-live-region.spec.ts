@@ -257,6 +257,55 @@ describe('the composer live region with a keycap workspace label', () => {
 })
 
 /**
+ * Code points the renderer deliberately leaves measured one because their
+ * advance is disputed or sequence-dependent. The all-Cf-zero table this change
+ * replaced measured them zero; a terminal that draws one wider turns that into
+ * an under-measured, wrapping border, which is the failure this pins.
+ */
+const UNCERTAIN_FORMAT = [0x0600, 0x00ad, 0x06dd, 0x070f] as const
+
+describe('the composer live region with a format character the terminal widens', () => {
+  for (const format of UNCERTAIN_FORMAT) {
+    it(`projects U+${format.toString(16).toUpperCase()} instead of trusting a zero it does not honor`, async () => {
+      const emulator = createEmulator(COLUMNS, 4, { wideCodePoints: [format] })
+      let writes = 0
+      const screen = new Screen({
+        write: chunk => { writes += 1; emulator.target.write(chunk) },
+        columns: () => emulator.target.columns(),
+      })
+      const composer = longDraft()
+      // Six of them, so an unprojected run overflows by far more than the one
+      // column of breathing room the frame leaves the terminal.
+      const view = createComposerView(composer, `/w/${String.fromCodePoint(format).repeat(6)}repo`)
+      const redraw = (): void => {
+        screen.setLive(view.render(COLUMNS, 4), view.cursor?.(COLUMNS, 4))
+      }
+
+      redraw()
+      const before = await emulator.scrollback()
+      const firstFrameWrites = writes
+      for (let i = 0; i < 6; i += 1) {
+        expect(step(composer, -1)).toBe(true)
+        redraw()
+      }
+      for (let i = 0; i < 6; i += 1) {
+        expect(step(composer, 1)).toBe(true)
+        redraw()
+      }
+
+      const history = await emulator.scrollback()
+      // Every step changed the frame, so the erase/redraw path ran, and a
+      // wrapped border would have grown the held rows and left an extra `╭─`.
+      expect(writes - firstFrameWrites).toBe(12)
+      expect(history.length).toBe(before.length)
+      expect(history.filter(row => row.includes('╭─'))).toHaveLength(1)
+      expect(screen.height).toBeLessThanOrEqual(4)
+      emulator.dispose()
+    })
+  }
+})
+
+/**
  * A short ASCII composer, so a test can widen an ASCII code point in the LABEL
  * without that width change also landing in the body rows and confusing the two.
  * @returns the composer.
@@ -337,6 +386,8 @@ describe('the composer label across the classes a terminal draws differently', (
       '\u6807\u51c6\u6a21\u5f0f', '\u00b1\u00b1\u00b1\u00b1',
       '\u2764\ufe0f', '1\ufe0f\u20e3', '\u{1F1E8}\u{1F1F3}',
       '\u{1F469}\u200d\u{1F4BB}', '\u{1F44B}\u{1F3FD}', '\u231a\u4dc0',
+      '\u00ad', '\u0600\u0600', '\u06dd', '\u070f', '\u200b',
+      '\u1112\u1161\u11ab', '\u{1F6D8}',
     ]
     const composer = labelComposer()
     for (const label of labels) {

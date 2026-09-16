@@ -1478,18 +1478,53 @@ describe('widthStableLabel()', () => {
     expect(widthStableLabel(`a${'\u0301'}\u0308`)).toBe(`a${'\u0301'}\u0308`)
   })
 
-  it('keeps unambiguously narrow scripts, which no terminal widens', () => {
+  it('keeps unambiguously narrow scripts', () => {
     // The finding behind this change: Hebrew, Arabic, and Indic are East Asian
     // Neutral, not Ambiguous, so the old conservative superset was replacing
-    // text every terminal measures one column.
+    // text the renderer measures one column and no standard mode widens.
     expect(widthStableLabel('\u05e9\u05dc\u05d5\u05dd')).toBe('\u05e9\u05dc\u05d5\u05dd')
     expect(widthStableLabel('\u0645\u0631\u062d\u0628\u0627')).toBe('\u0645\u0631\u062d\u0628\u0627')
     expect(widthStableLabel('\u0928\u092e\u0938\u094d\u0924\u0947')).toBe('\u0928\u092e\u0938\u094d\u0924\u0947')
   })
 
-  it('keeps wide CJK and kana, which every terminal agrees are two columns', () => {
+  it('keeps wide CJK and kana, which are two columns under East Asian Width', () => {
     expect(widthStableLabel('\u6807\u51c6\u6a21\u5f0f')).toBe('\u6807\u51c6\u6a21\u5f0f')
     expect(widthStableLabel('\u3072\u3089\u304c\u306a')).toBe('\u3072\u3089\u304c\u306a')
+  })
+
+  it('keeps a code point added to Wide in the current final Unicode release', () => {
+    // U+1F6D8 is Wide from Unicode 17.0.0. A table that fell back to an older
+    // release would project it here, which is the visible form of the same
+    // stale-table bug the renderer test pins.
+    expect(widthStableLabel('\u{1F6D8}')).toBe('\u{1F6D8}')
+  })
+
+  it('composes a decomposed Hangul syllable instead of projecting its Jamo', () => {
+    // A terminal may draw a decomposed syllable as one wide glyph or as its
+    // Jamo parts, and the label cannot know which. NFC composition sends the
+    // single wide syllable, which every stack draws the same; the banner still
+    // prints the raw workspace identity.
+    expect(widthStableLabel('\u1112\u1161\u11ab')).toBe('\ud55c')
+    expect(widthStableLabel('\ud55c')).toBe('\ud55c')
+    expect(displayWidth(widthStableLabel('\u1112\u1161\u11ab'))).toBe(2)
+  })
+
+  it('projects a format character whose advance is disputed or sequence-dependent', () => {
+    // U+00AD is non-zero-width in GLib and mode-dependent in xterm; U+0600 and
+    // U+06DD attach to following text; U+070F spans a word. The renderer measures
+    // each one cell, and the label projects it rather than trust that.
+    for (const uncertain of ['\u00ad', '\u0600', '\u06dd', '\u070f', '\u2028']) {
+      expect(widthStableLabel(`a${uncertain}b`), JSON.stringify(uncertain)).toBe('a?b')
+    }
+  })
+
+  it('keeps a format control the renderer treats as an explicit zero', () => {
+    // The positive allowlist: these really are zero-advance controls, so the
+    // label can carry them and they add no physical cell. The joiners are the
+    // exception — see the ZWJ sequence test — because they weld text together.
+    for (const zero of ['\u200b', '\u200c', '\u061c', '\ufeff']) {
+      expect(widthStableLabel(`a${zero}b`), JSON.stringify(zero)).toBe(`a${zero}b`)
+    }
   })
 
   it('now keeps code points the old wide table mis-measured, because it measures them two', () => {
@@ -1525,6 +1560,14 @@ describe('widthStableLabel()', () => {
     // orphaned, zero-width selector is dropped.
     expect(widthStableLabel('\u2764\ufe0f')).toBe('?')
     expect(widthStableLabel('\u263a\ufe0f')).toBe('?')
+  })
+
+  it('projects a wide pictograph a selector asks to draw as text', () => {
+    // VS15 asks a wide pictograph to draw narrow; a terminal may ignore it, so
+    // the base is projected. ASCII has no pictographic form, so its selector is
+    // inert and simply dropped.
+    expect(widthStableLabel('\u{1F600}\ufe0e')).toBe('?')
+    expect(widthStableLabel('a\ufe0e')).toBe('a')
   })
 
   it('projects a keycap sequence as the whole sequence it is', () => {
@@ -1570,6 +1613,7 @@ describe('widthStableLabel()', () => {
       'caf\u00e9', '\u00f8', '\u05e9\u05dc\u05d5\u05dd', '\u6807\u51c6',
       '\u2764\ufe0f', '1\ufe0f\u20e3', '\u{1F1E8}\u{1F1F3}',
       '\u{1F469}\u200d\u{1F4BB}', 'a\u0301\u00b1', '\u231a',
+      '\u00ad', '\u06dd', '\u200b', '\u1112\u1161\u11ab', '\u{1F6D8}',
     ]
     for (const sample of samples) {
       const once = widthStableLabel(sample)

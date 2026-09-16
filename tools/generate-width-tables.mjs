@@ -10,10 +10,16 @@
  * table's Unicode release and its content from drifting apart.
  *
  * `EastAsianWidth.txt` supplies W/F (two columns). `DerivedGeneralCategory.txt`
- * supplies Mn/Me/Cf/Zl/Zp (no columns). `emoji/emoji-data.txt` supplies the
+ * supplies Mn/Me and the Cf candidate set. `emoji/emoji-data.txt` supplies the
  * emoji properties a terminal may draw as a two-column picture even when the
  * East Asian Width property says otherwise, so the presentation layer knows
  * which narrow-looking code points are still unsafe in width-critical chrome.
+ *
+ * General_Category describes character semantics, not a terminal `wcwidth`
+ * function, so the zero-width table is Mn/Me plus an explicit allowlist:
+ * `ZERO_WIDTH_FORMAT_RANGES`, below. Every other format character is measured
+ * one cell — the over-measuring direction, which cannot under-count a row — and
+ * the presentation layer projects it from a width-critical label.
  *
  * Run with `pnpm generate-width-tables`. It needs the network; the generated
  * files are committed, so a normal build and test never does.
@@ -26,7 +32,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-const UNICODE_VERSION = '16.0.0'
+const UNICODE_VERSION = '17.0.0'
 const BASE = `https://www.unicode.org/Public/${UNICODE_VERSION}/ucd`
 
 /**
@@ -35,10 +41,69 @@ const BASE = `https://www.unicode.org/Public/${UNICODE_VERSION}/ucd`
  * producing tables from a different UCD revision.
  */
 const INPUTS = [
-  { name: 'EastAsianWidth.txt', sha256: '43adc76c0686a42cb370764eb8cfe2b2a45b10b855e5572a2db4a0eecce15d5b', url: `${BASE}/EastAsianWidth.txt` },
-  { name: 'DerivedGeneralCategory.txt', sha256: '7676ab755a41ef82108460238569e60ad65c191ddafe61b36c6765ec1353f293', url: `${BASE}/extracted/DerivedGeneralCategory.txt` },
-  { name: 'emoji-data.txt', sha256: 'f1365a5173eee18e1f98b240cdc492e84a25f1ce7e0c9d1094eb29c41a22696a', url: `${BASE}/emoji/emoji-data.txt` },
+  { name: 'EastAsianWidth.txt', sha256: 'ea7ce50f3444a050333448dffef1cadd9325af55cbb764b4a2280faf52170a33', url: `${BASE}/EastAsianWidth.txt` },
+  { name: 'DerivedGeneralCategory.txt', sha256: 'd62e5bab70ca74f099343f71224fa051cb1fdd61a1ab45c0488c44cfc0b6102e', url: `${BASE}/extracted/DerivedGeneralCategory.txt` },
+  { name: 'emoji-data.txt', sha256: '2cb2bb9455cda83e8481541ecf5b6dfda66a3bb89efa3fa7c5297eccf607b72b', url: `${BASE}/emoji/emoji-data.txt` },
 ]
+
+/**
+ * General_Category Cf ranges this renderer treats as zero-width: the explicit
+ * terminal-width policy for format characters.
+ *
+ * The list is POSITIVE rather than "all of Cf". A future Unicode release may
+ * assign a Cf code point this policy has never seen, and an unlisted character
+ * must fall back to one measured cell (the safe, over-counting direction) and
+ * to projection in a width-critical label, never to a zero nobody chose.
+ *
+ * Every range here is a control a terminal does not advance for: bidirectional
+ * controls and isolates, the zero-width space and the joiners (handled
+ * separately where they join a sequence), the word joiner and invisible
+ * operators, the interlinear annotation and other format controls real
+ * terminals ignore, and the tag block, which is invisible by design. The
+ * evidence is the tables and policy comments in xterm's `wcwidth.c` and GLib's
+ * `g_unichar_iszerowidth`, both of which advance no cell for these.
+ *
+ * Deliberately ABSENT, and therefore measured one cell:
+ * - U+00AD SOFT HYPHEN. GLib returns non-zero-width for it and xterm switches
+ *   its width on a Latin-1/Unicode mode flag; a zero the terminal does not
+ *   honor under-measures a row, so the renderer takes the non-zero default and
+ *   the label projects it.
+ * - U+0600..U+0605, U+06DD, U+070F, U+0890..U+0891, U+08E2, U+110BD, U+110CD.
+ *   Prepended and spanning marks that attach to following text, so their own
+ *   advance is sequence-dependent; the renderer takes the over-measuring
+ *   default and the label projects them.
+ * - U+2028..U+2029. Line and paragraph separators: they can start a physical
+ *   row, which no horizontal width models, so they are measured one cell and
+ *   projected from a width-critical label.
+ */
+const ZERO_WIDTH_FORMAT_RANGES = [
+  [0x061c, 0x061c], // ARABIC LETTER MARK
+  [0x180e, 0x180e], // MONGOLIAN VOWEL SEPARATOR
+  [0x200b, 0x200f], // ZERO WIDTH SPACE .. RIGHT-TO-LEFT MARK
+  [0x202a, 0x202e], // bidirectional embeddings and overrides
+  [0x2060, 0x2064], // WORD JOINER .. INVISIBLE PLUS
+  [0x2066, 0x206f], // bidirectional isolates and deprecated format controls
+  [0xfeff, 0xfeff], // ZERO WIDTH NO-BREAK SPACE
+  [0xfff9, 0xfffb], // INTERLINEAR ANNOTATION controls
+  [0x13430, 0x1343f], // Egyptian hieroglyph format controls
+  [0x1bca0, 0x1bca3], // shorthand format controls
+  [0x1d173, 0x1d17a], // musical symbol format controls
+  [0xe0001, 0xe0001], // LANGUAGE TAG
+  [0xe0020, 0xe007f], // tag characters
+]
+
+/**
+ * The code points in `ranges`, as a set.
+ * @param ranges - inclusive `[start, end]` pairs.
+ * @returns every code point the ranges cover.
+ */
+function expandRanges(ranges) {
+  const set = new Set()
+  for (const [start, end] of ranges) {
+    for (let code = start; code <= end; code += 1) set.add(code)
+  }
+  return set
+}
 
 /** Code points reserved for UTF-16 surrogate pairs, never valid characters. */
 const SURROGATE_START = 0xd800
@@ -165,19 +230,32 @@ const generalCategory = parseUcd(await fetchPinned(INPUTS[1]))
 const emojiData = parseUcd(await fetchPinned(INPUTS[2]))
 
 const wide = toRanges(collect(eastAsian, new Set(['W', 'F'])))
-// Mn and Me are nonspacing/enclosing marks; Cf is a format character; Zl/Zp are
-// the line and paragraph separators. Terminals advance no cell for any of them,
-// and the renderer must not either or a combining mark shifts the row it sits on.
-const zero = toRanges(collect(generalCategory, new Set(['Mn', 'Me', 'Cf', 'Zl', 'Zp'])))
+// Mn and Me are nonspacing/enclosing marks, which a terminal never advances
+// for. The format controls are the explicit allowlist above, not all of Cf:
+// General_Category is semantics, and a false zero lets a terminal draw a row
+// wider than the renderer modeled.
+const zero = toRanges(new Set([
+  ...collect(generalCategory, new Set(['Mn', 'Me'])),
+  ...expandRanges(ZERO_WIDTH_FORMAT_RANGES),
+]))
+const zeroFormat = expandRanges(ZERO_WIDTH_FORMAT_RANGES)
 // The presentation layer's unsafe set: everything whose drawn width a terminal
 // may not match a narrow measurement. W/F joins it so a stale renderer table
 // still projects rather than under-measures; A is the genuinely ambiguous set;
-// the emoji properties cover sequences no per-code-point width rule can see.
+// the emoji properties cover sequences no per-code-point width rule can see;
+// the format characters outside the allowlist are projected even though the
+// renderer measures them one; and the line and paragraph separators can start
+// a physical row that no horizontal width models.
 const unsafePoints = new Set()
 for (const code of collect(eastAsian, new Set(['A', 'W', 'F']))) if (code >= 0x80) unsafePoints.add(code)
 for (const code of collect(emojiData, new Set(['Emoji', 'Emoji_Presentation', 'Emoji_Modifier', 'Regional_Indicator', 'Extended_Pictographic']))) {
   if (code >= 0x80) unsafePoints.add(code)
 }
+for (const code of collect(generalCategory, new Set(['Cf']))) {
+  if (code >= 0x80 && !zeroFormat.has(code)) unsafePoints.add(code)
+}
+unsafePoints.add(0x2028)
+unsafePoints.add(0x2029)
 const unsafe = toRanges(unsafePoints)
 
 const rendererPath = join(root, 'packages', 'renderer', 'src', 'width-tables.ts')
@@ -189,7 +267,7 @@ export const WIDE_RANGES: readonly (readonly [number, number])[] = [
 ${emitRanges(wide)}
 ]
 
-/** Inclusive code-point ranges a terminal advances no cell for (General_Category Mn, Me, Cf, Zl, Zp). */
+/** Inclusive code-point ranges a terminal advances no cell for: General_Category Mn and Me, plus the explicit format-control allowlist. */
 export const ZERO_WIDTH_RANGES: readonly (readonly [number, number])[] = [
 ${emitRanges(zero)}
 ]
@@ -197,12 +275,15 @@ ${emitRanges(zero)}
 
 const dshlineSource = `${header('Code points a width-critical terminal label cannot carry unchanged.')}
 /**
- * Inclusive code-point ranges whose drawn width is not guaranteed to equal a
+ * Inclusive code-point ranges whose drawn width is not guaranteed to match a
  * narrow per-code-point measurement: East_Asian_Width A (which a terminal may
- * widen), W/F (safe only once the renderer measures them two), and the emoji
- * properties (whose sequences a terminal may draw as one picture). The
- * presentation layer projects a width-one code point in this set rather than
- * trust that its cell count matches the terminal's.
+ * widen), W/F (safe only once the renderer measures them two), the emoji
+ * properties (whose sequences a terminal may draw as one picture), the format
+ * characters outside the renderer's explicit zero-width allowlist (whose
+ * advance is sequence-dependent or disputed), and the line and paragraph
+ * separators (which can start a physical row). The presentation layer projects
+ * a code point in this set rather than trust that its cell count matches the
+ * terminal's.
  */
 export const LABEL_UNSAFE_RANGES: readonly (readonly [number, number])[] = [
 ${emitRanges(unsafe)}

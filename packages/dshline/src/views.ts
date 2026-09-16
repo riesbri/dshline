@@ -232,23 +232,30 @@ function inRanges(ranges: readonly (readonly [number, number])[], code: number):
 }
 
 /**
- * Whether every terminal advances exactly the cells `displayWidth` counts.
+ * Whether a width-critical label can carry `code` without under-measuring it.
  *
- * ASCII and a zero- or two-column measurement are safe: terminals agree on
- * those. A one-column measurement is safe only when the code point is
- * unambiguously narrow. `LABEL_UNSAFE_RANGES` marks everything else — East Asian
- * Ambiguous code points a terminal in an ambiguous-width mode widens, wide code
- * points a renderer table may still measure one, and the emoji and
- * pictographic code points a terminal may draw as a two-column picture. That
- * set is a Unicode property, never a list of scripts: Hebrew, Arabic, and Indic
- * letters are one column in every terminal and are kept, while a Latin-1
- * accented letter, which is genuinely Ambiguous, is not — unless its canonical
+ * The invariant is one-directional: the terminal must never draw MORE cells
+ * than the model counts, because a row physically wider than its model wraps
+ * onto a row the live-region arithmetic never budgeted. ASCII and a zero- or
+ * two-column measurement are safe — a terminal does not draw a nonspacing mark
+ * or a wide code point as more than that — while a one-column measurement is
+ * safe only when the code point is unambiguously narrow.
+ *
+ * `LABEL_UNSAFE_RANGES` marks everything else: East Asian Ambiguous code points
+ * a terminal in an ambiguous-width mode widens, wide code points a stale
+ * renderer table may still measure one, the emoji and pictographic code points
+ * a terminal may draw as a two-column picture, and the format characters the
+ * renderer deliberately leaves measured one because their advance is disputed
+ * or sequence-dependent. That set is a Unicode property, never a list of
+ * scripts: Hebrew, Arabic, and Indic letters are East Asian Neutral, which no
+ * standard terminal mode widens, so they are kept, while a Latin-1 accented
+ * letter, which is genuinely Ambiguous, is not — unless its canonical
  * decomposition is stable, which {@link stableDecomposition} checks.
  *
  * The two-column branch is deliberately reached before the table: a terminal
- * draws a wide code point two columns and the renderer agrees, whereas a stale
- * renderer measures the same code point one and then the table catches it. That
- * makes the predicate safe against the published renderer as well as this one.
+ * draws a wide code point two columns, whereas a stale renderer measures the
+ * same code point one and then the table catches it. That makes the predicate
+ * safe against the published renderer as well as this one.
  * @param code - the code point.
  * @returns whether the code point may stay in the label unchanged.
  */
@@ -263,14 +270,15 @@ function stableWidth(code: number): boolean {
  *
  * A precomposed Latin accent such as `é` is East Asian Ambiguous and so is not
  * directly safe. Its canonical decomposition, `e` + U+0301, is: the base is
- * ASCII and the mark is zero-width in every terminal, so the pair measures and
- * draws as one cell on both an ambiguous-wide and a narrow terminal. Returning
- * the decomposition keeps the accent a reader sees while removing the
- * ambiguity the terminal would otherwise be free to widen. A decomposition is
- * only used when it does not change the measured width and introduces no
- * sequence-forming code point, so a Hangul syllable (whose Jamo parts measure
- * more than the syllable) and an accented Greek letter (whose base is itself
- * Ambiguous) both fall through and are projected instead.
+ * ASCII and the mark is zero-width under the renderer's mark policy, so the
+ * pair measures and draws as one cell whether or not the terminal widens
+ * Ambiguous characters. Returning the decomposition keeps the accent a reader
+ * sees while removing the ambiguity the terminal would otherwise be free to
+ * widen. A decomposition is only used when it does not change the measured
+ * width and introduces no sequence-forming code point, so a Hangul syllable
+ * (whose Jamo parts measure more than the syllable) and an accented Greek
+ * letter (whose base is itself Ambiguous) both fall through and are projected
+ * instead.
  * @param code - the code point to try to keep.
  * @returns the stable decomposition, or undefined when there is none.
  */
@@ -295,36 +303,41 @@ function stableDecomposition(code: number): string | undefined {
 }
 
 /**
- * Project untrusted text to characters whose width every terminal agrees on.
+ * Project untrusted text to characters whose width a terminal cannot draw wider
+ * than the model counts.
  *
  * `displayWidth` follows East Asian Width with Ambiguous code points measured
  * narrow. A terminal in ambiguous-width mode draws them two columns wide, so
  * untrusted text carrying one and placed into width-critical chrome — the
  * composer's frame label above all — makes the measured row shorter than the
  * drawn one, and the border wraps a physical row the redraw arithmetic never
- * counts; the stale border then survives every erase.
+ * counts; the stale border then survives every erase. The invariant here is
+ * one-directional: the terminal must not draw MORE than the model counts.
+ * Drawing less only shortens the row, which is safe.
  *
  * The alternative, treating every East Asian Ambiguous code point as two columns
  * globally, would move geometry for every terminal that keeps them narrow and for
  * the box drawing and punctuation the chrome cannot give up. So the projection
- * is per code point and only where the width is genuinely in doubt: an
- * Ambiguous letter is kept when its canonical decomposition is stable (`café`
- * renders as `cafe` + U+0301), and a narrow script no terminal widens is kept
- * whole. A code point that is Ambiguous with no stable decomposition, a
- * text-default pictograph a terminal may draw as a picture, and the
- * multi-code-point sequences no per-code-point rule can see — a keycap, a
- * VS15/VS16 presentation, a ZWJ sequence, a skin-tone modifier — are projected
- * to `placeholder`.
+ * is per code point and only where the width is in doubt: an Ambiguous letter is
+ * kept when its canonical decomposition is stable (`café` renders as `cafe` +
+ * U+0301), and a narrow script no terminal widens is kept whole. A code point
+ * that is Ambiguous with no stable decomposition, a text-default pictograph a
+ * terminal may draw as a picture, a format character whose advance the renderer
+ * deliberately leaves measured one, and the multi-code-point sequences no
+ * per-code-point rule can see — a keycap, a VS15/VS16 presentation, a ZWJ
+ * sequence, a skin-tone modifier — are projected to `placeholder`.
  *
- * The projection is LOSSY and not injective; identity survives because the
- * committed banner prints the full, unprojected workspace name, and this frame's
- * right title is the only consumer.
+ * The label is composed with NFC first, so a canonically decomposed Hangul
+ * syllable is drawn as its single wide syllable rather than as a run of Jamo
+ * whose widths terminals disagree about. The projection is LOSSY and not
+ * injective; identity survives because the committed banner prints the full,
+ * unprojected workspace name, and this frame's right title is the only consumer.
  * @param text - plain text; the caller has already neutralized controls.
  * @param placeholder - the width-stable character substituted one for one.
- * @returns text whose measured width is the width every terminal draws.
+ * @returns text the model can hold to a bounded number of physical cells.
  */
 export function widthStableLabel(text: string, placeholder = '?'): string {
-  const chars = [...text]
+  const chars = [...text.normalize('NFC')]
   let out = ''
   for (let index = 0; index < chars.length; index += 1) {
     const code = chars[index]?.codePointAt(0) ?? 0
