@@ -75,33 +75,31 @@ export interface StatusState {
    */
   attention: AttentionNotice | undefined
   /**
-   * The route-qualified identity of the live selection: the provider and model
-   * the NEXT model step will use, from the same mutable ref `/model` writes.
-   * Route-qualified because two provider routes can advertise the same model
-   * id, and a bare id would make them one reading here; one indivisible
-   * segment, so the body ladder drops or keeps it whole. This is the raw
-   * identity — whether it is `next` relative to the step already running is
-   * {@link modelPending}, not part of this string. The banner's attachment-time
-   * identity is deliberately a different fact.
+   * The route-qualified identity of the live selection — `selection.current`,
+   * the same mutable ref `/model` writes. Route-qualified because two provider
+   * routes can advertise the same model id, and a bare id would make them one
+   * reading here; one indivisible segment, so the body ladder drops or keeps it
+   * whole. This is the raw identity: whether the running Agent's selection is
+   * unconfirmed is {@link modelSelectionUnconfirmed}, not part of this string.
+   * The banner's attachment-time identity is deliberately a different fact.
    */
   model: string | undefined
   /** Reasoning level, only when it differs from the route's default. */
   effort: string | undefined
   /**
-   * Whether {@link model} names the selection for the NEXT model step rather
-   * than the one the running step assembled.
+   * Whether the running Agent's live selected route is unconfirmed against
+   * Harness's published `selection.assembled`.
    *
-   * True only while the Agent is running and the live selection differs from
-   * `selection.assembled` in the COMPLETE selection — provider, model, and
-   * reasoning effort. Harness captures `current` into `assembled` when a step's
-   * prompt assembly starts and routes that step from `assembled`, so during
-   * that window the running request still uses the old route and `/reasoning`
-   * alone can make the difference. Before the first assembly, or when idle, the
-   * live selection is simply the selected route and this is false. Presentation
-   * only: it adds the `next` qualifier to the one model segment, never a second
-   * authority.
+   * True only while the Agent is running and `selection.assembled` is absent or
+   * differs from `selection.current` in the COMPLETE selection — provider,
+   * model, and reasoning effort. Harness captures `current` when a step's
+   * `system-prompt/assemble` starts, but publishes it into `assembled` only
+   * after the downstream assembly returns; a paused or slow assembly therefore
+   * leaves the live value unprovable as the route the active assembly or
+   * request already took. Idle is never unconfirmed. Presentation only: it adds
+   * the `selected` qualifier to the one model segment, never a second authority.
    */
-  modelPending: boolean
+  modelSelectionUnconfirmed: boolean
   /**
    * The attached Session's effective Harness permission: the raw
    * `permissions.currentValue`, already one whole segment. A configured preset
@@ -774,18 +772,19 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const attention = current.attention === undefined
         ? undefined
         : paint(escapeControls(current.attention.text), 'warning')
-      // `next` qualifies the whole identity, effort included, while the running
-      // step assembled a different selection. It is inside the same painted
-      // segment, so the body ladder still drops the model fact entire. Provider
-      // and model ids originate upstream, so they are neutralized before they
-      // are styled: escaping after `paint` would destroy the colour, and
-      // escaping only one half would let a control through in the other.
+      // `selected` qualifies the whole identity, effort included, while the
+      // running Agent cannot prove its live selection against the published
+      // assembled one. It is inside the same painted segment, so the body
+      // ladder still drops the model fact entire. Provider and model ids
+      // originate upstream, so they are neutralized before they are styled:
+      // escaping after `paint` would destroy the colour, and escaping only one
+      // half would let a control through in the other.
       const identity = current.model === undefined
         ? undefined
         : current.effort === undefined ? current.model : `${current.model} (${current.effort})`
       const stated = identity === undefined
         ? undefined
-        : current.modelPending ? `next ${identity}` : identity
+        : current.modelSelectionUnconfirmed ? `selected ${identity}` : identity
       const model = stated === undefined ? undefined : paint(escapeControls(stated), 'subdued')
       // The effective permission is a state fact, not a convenience reading: it
       // gates what a turn may DO. It is still one opaque id, escaped because it

@@ -994,13 +994,14 @@ describe('the live model identity in the persistent status', () => {
   })
 })
 
-describe('the next-model-step reading while a step runs', () => {
+describe('the unconfirmed-selection reading while a step runs', () => {
   /**
    * A selection ref driven by Harness's own `installModelSelection`.
    *
    * The point is to exercise the adopted contract rather than assigning both
    * fields by hand: `assemble` runs one real `system-prompt/assemble`, which
-   * captures `selection.current` into `selection.assembled`.
+   * captures `selection.current` at the start and publishes it into
+   * `selection.assembled` when the downstream assembly returns.
    * @param initial - the selection the ref starts on.
    * @returns the ref, a function that runs one assembly, and the disposer.
    */
@@ -1031,10 +1032,10 @@ describe('the next-model-step reading while a step runs', () => {
     return stripAnsi((frames.at(-1) ?? []).at(-1) ?? '')
   }
 
-  it('shows the selected route without `next` while idle, even after an assembled route', async () => {
+  it('shows the selected route plainly while idle, even after an assembled route', async () => {
     // The idle boundary: the last step assembled provider-a, then the selection
     // moved to provider-b with nothing running. `assembled` is history here, not
-    // persistent authority, so the line must not mark the change pending.
+    // persistent authority, so the line must not qualify the value.
     const { selection, assemble, dispose } = installed({ provider: 'provider-a', model: 'shared-model' })
     try {
       await assemble()
@@ -1044,13 +1045,13 @@ describe('the next-model-step reading while a step runs', () => {
       const mounted = await fixture({ modelSelection: selection, agentStatus: 'idle' })
       await flush()
       expect(statusRow(mounted.frames)).toContain('provider-b/shared-model')
-      expect(statusRow(mounted.frames)).not.toContain('next')
+      expect(statusRow(mounted.frames)).not.toContain('selected')
     } finally {
       dispose()
     }
   })
 
-  it('marks the live selection `next` while a running step assembled another route', async () => {
+  it('marks the live selection `selected` while a running step assembled another route', async () => {
     const { selection, assemble, dispose } = installed({ provider: 'provider-a', model: 'shared-model' })
     try {
       await assemble()
@@ -1059,7 +1060,7 @@ describe('the next-model-step reading while a step runs', () => {
       const mounted = await fixture({ modelSelection: selection, agentStatus: 'running' })
       await flush()
       const line = statusRow(mounted.frames)
-      expect(line).toContain('next provider-b/shared-model')
+      expect(line).toContain('selected provider-b/shared-model')
       // The running step still uses provider-a; the line must not claim
       // provider-b is already the route producing it.
       expect(line).not.toContain('provider-a/shared-model')
@@ -1068,14 +1069,14 @@ describe('the next-model-step reading while a step runs', () => {
     }
   })
 
-  it('drops `next` once Harness assembles the new selection, with no dshline transition', async () => {
+  it('drops the qualifier once Harness publishes the new selection, with no dshline transition', async () => {
     const { selection, assemble, dispose } = installed({ provider: 'provider-a', model: 'shared-model' })
     try {
       await assemble()
       selection.current = { provider: 'provider-b', model: 'shared-model' }
       const mounted = await fixture({ modelSelection: selection, agentStatus: 'running' })
       await flush()
-      expect(statusRow(mounted.frames)).toContain('next provider-b/shared-model')
+      expect(statusRow(mounted.frames)).toContain('selected provider-b/shared-model')
 
       // Harness enters the next model step and captures the same selection.
       await assemble()
@@ -1083,15 +1084,15 @@ describe('the next-model-step reading while a step runs', () => {
       // Nothing in dshline changed; the next frame follows Harness alone.
       mounted.ctx.tuiSlots.invalidate()
       expect(statusRow(mounted.frames)).toContain('provider-b/shared-model')
-      expect(statusRow(mounted.frames)).not.toContain('next')
+      expect(statusRow(mounted.frames)).not.toContain('selected')
     } finally {
       dispose()
     }
   })
 
-  it('marks a reasoning-only change `next` while the step runs', async () => {
+  it('marks a reasoning-only change `selected` while the step runs', async () => {
     // Provider and model are unchanged, so equality that ignored effort would
-    // miss this change entirely.
+    // miss this divergence entirely.
     const { selection, assemble, dispose } = installed({
       provider: 'openai',
       model: 'gpt-x',
@@ -1107,9 +1108,154 @@ describe('the next-model-step reading while a step runs', () => {
         reasoning: REASONING,
       })
       await flush()
-      expect(statusRow(mounted.frames)).toContain('next openai/gpt-x (max)')
+      expect(statusRow(mounted.frames)).toContain('selected openai/gpt-x (max)')
     } finally {
       dispose()
+    }
+  })
+})
+
+describe('the paused-assembly timing boundary', () => {
+  /**
+   * A real `installModelSelection` chain whose downstream `system-prompt/assemble`
+   * leg can be paused.
+   *
+   * Harness captures `selection.current` when the waterfall starts and publishes
+   * it into `selection.assembled` only after the downstream leg returns. A paused
+   * leg is therefore the adopted interval in which the Agent is running while
+   * `assembled` is still absent (first assembly) or stale (a later one).
+   * @param initial - the selection the ref starts on.
+   * @returns the ref, pause/release controls, the starter, and the disposer.
+   */
+  function pausable(initial: ModelSelectionRef['current']): {
+    readonly selection: ModelSelectionRef
+    readonly pause: () => void
+    readonly release: () => void
+    readonly start: () => Promise<void>
+    readonly dispose: () => void
+  } {
+    const selection: ModelSelectionRef = { current: initial, assembled: undefined }
+    const ctx = new Context()
+    const dispose = installModelSelection(ctx, selection)
+    let release: () => void = () => {}
+    let gate: Promise<void> = Promise.resolve()
+    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
+      await gate
+      return next()
+    })
+    return {
+      selection,
+      pause: () => { gate = new Promise<void>(resolve => { release = resolve }) },
+      release: () => { release() },
+      start: async () => {
+        await ctx.waterfall(
+          'system-prompt/assemble',
+          {} as never,
+          {} as never,
+          () => Promise.resolve({ variables: {} } as never),
+        )
+      },
+      dispose,
+    }
+  }
+
+  /** The status row of the latest composed frame, unstyled. */
+  function statusRow(frames: readonly string[][]): string {
+    return stripAnsi((frames.at(-1) ?? []).at(-1) ?? '')
+  }
+
+  it('is observable: a paused first assembly leaves a running status with no published selection', async () => {
+    const paused = pausable({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      paused.pause()
+      const running = paused.start()
+      // Harness has privately captured A; `assembled` is not published yet.
+      expect(paused.selection.assembled).toBeUndefined()
+      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+
+      // The status is read while the assembly is still in flight, with the Agent
+      // running. `B` cannot be proven to be the step's route, so it is only the
+      // live selected value.
+      const mounted = await fixture({ modelSelection: paused.selection, agentStatus: 'running' })
+      await flush()
+      const line = statusRow(mounted.frames)
+      expect(line).toContain('selected provider-b/shared-model')
+      expect(line).not.toContain('next')
+
+      // Releasing publishes A, the value the entering assembly captured.
+      paused.release()
+      await running
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+    } finally {
+      paused.dispose()
+    }
+  })
+
+  it('does not claim a paused later assembly captured the newly selected route', async () => {
+    const paused = pausable({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      // The first assembly completes and publishes A.
+      await paused.start()
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+
+      // The next assembly starts with current = B and pauses after capturing B.
+      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+      paused.pause()
+      const running = paused.start()
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+
+      // The live selection moves on to C while A is still published. The
+      // in-progress assembly captured B, so C must not be presented as the route
+      // that assembly already took.
+      paused.selection.current = { provider: 'provider-c', model: 'shared-model' }
+      const mounted = await fixture({ modelSelection: paused.selection, agentStatus: 'running' })
+      await flush()
+      const line = statusRow(mounted.frames)
+      expect(line).toContain('selected provider-c/shared-model')
+      expect(line).not.toContain('next')
+
+      paused.release()
+      await running
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-b', model: 'shared-model' })
+    } finally {
+      paused.dispose()
+    }
+  })
+
+  it('drops the qualifier once Harness publishes the selection the live value names', async () => {
+    const paused = pausable({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      await paused.start()
+      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+      paused.pause()
+      const running = paused.start()
+
+      const mounted = await fixture({ modelSelection: paused.selection, agentStatus: 'running' })
+      await flush()
+      expect(statusRow(mounted.frames)).toContain('selected provider-b/shared-model')
+
+      paused.release()
+      await running
+      expect(paused.selection.assembled).toEqual({ provider: 'provider-b', model: 'shared-model' })
+      // No dshline transition: the next frame follows Harness alone.
+      mounted.ctx.tuiSlots.invalidate()
+      expect(statusRow(mounted.frames)).toContain('provider-b/shared-model')
+      expect(statusRow(mounted.frames)).not.toContain('selected')
+    } finally {
+      paused.dispose()
+    }
+  })
+
+  it('keeps the idle presentation plain with no published selection', async () => {
+    const paused = pausable({ provider: 'provider-a', model: 'shared-model' })
+    try {
+      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+      const mounted = await fixture({ modelSelection: paused.selection, agentStatus: 'idle' })
+      await flush()
+      expect(statusRow(mounted.frames)).toContain('provider-b/shared-model')
+      expect(statusRow(mounted.frames)).not.toContain('selected')
+    } finally {
+      paused.dispose()
     }
   })
 })

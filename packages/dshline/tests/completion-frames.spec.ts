@@ -55,7 +55,7 @@ async function terminal(rows: number, typed = '/command'): Promise<{
     activity: undefined,
     model: 'deepseek-v4-flash',
     effort: undefined,
-    modelPending: false,
+    modelSelectionUnconfirmed: false,
     usage: undefined,
     tokens: undefined,
     contextWindow: undefined,

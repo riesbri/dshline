@@ -131,9 +131,10 @@ export interface Window {
   /** Version reported in each attachment's banner. */
   readonly version: string
   /**
-   * The live model selection. `current` is the route the next model step will
-   * use; Harness's `installModelSelection` captures it into `assembled` when a
-   * step's prompt assembly starts, and routes that step from `assembled`.
+   * The live model selection. `current` is the selected route; Harness's
+   * `installModelSelection` captures it when a step's `system-prompt/assemble`
+   * starts, publishes it into `assembled` after the downstream assembly
+   * returns, and routes that step's request from `assembled`.
    */
   readonly selection: ModelSelectionRef
   /** Metadata for that route, refreshed when it changes. */

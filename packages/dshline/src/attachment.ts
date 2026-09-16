@@ -186,9 +186,9 @@ function selectionOutcomeLine(outcome: SelectionOutcome): string {
  *
  * The comparison is COMPLETE — provider, model, and reasoning effort — because
  * `/reasoning` moves the selection too, and a change to it while a step is
- * already running is just as much a change the running step has not assembled.
- * Both sides must be present: an absent `assembled` is the first assembly not
- * having happened yet, which is not a pending change.
+ * already running is just as much a divergence from what that step captured.
+ * Both sides must be present: the caller treats an absent `assembled` as its own
+ * unconfirmed case, because an assembly may still be in flight.
  * @param left - one selection, or undefined.
  * @param right - the other selection, or undefined.
  * @returns whether both are present and identical in all three fields.
@@ -752,7 +752,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     {
       name: 'model',
-      description: 'Choose the provider and model for the next model step',
+      description: 'Choose the provider and model for subsequent model steps',
       // The vocabulary is model-owned: each value is the `provider/model` route
       // the row names, with the bare id an alias for search. Building it here
       // from a bare model list is what once let two rows insert the same
@@ -837,7 +837,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     },
     {
       name: 'reasoning',
-      description: 'Set how hard the model thinks, for the next model step',
+      description: 'Set reasoning effort for subsequent model steps',
       complete: () => reasoningValues(w.modelInfo.reasoning),
       execute: async rawInput => {
         // The levels are a short fixed set a person learns by heart, so
@@ -1314,24 +1314,25 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       activityWord: primaryActivity(phase, cards.semanticActivity()),
       activity: cards.inFlight(),
       attention: attention.current(),
-      // The route the NEXT model step will use, route-qualified. `current` is
-      // dshline's live selection; Harness's `installModelSelection` captures it
-      // into `assembled` when a step's prompt assembly starts and routes that
-      // step from `assembled`. So a `/model` pressed mid-step moves `current`
-      // without moving the running route — `modelPending` carries that
-      // distinction rather than baking it into this raw identity. Two provider
-      // routes can advertise the same model id, so the route is named; there is
-      // no discovery, no cache, and no parsing a provider back out of a string.
+      // The live selected route, route-qualified. `current` is dshline's
+      // selection; Harness's `installModelSelection` captures it when a step's
+      // `system-prompt/assemble` starts but publishes it into `assembled` only
+      // after the downstream assembly returns, and the request then routes from
+      // `assembled`. So mid-step the published value can be absent or stale
+      // while `current` has moved — `modelSelectionUnconfirmed` carries that
+      // distinction rather than baking a qualifier into this raw identity. Two
+      // provider routes can advertise the same model id, so the route is named;
+      // there is no discovery, no cache, and no parsing a provider from a string.
       model: selected === undefined ? undefined : `${selected.provider}/${selected.model}`,
       effort: effortLabel(selected?.reasoningEffort, w.modelInfo.reasoning),
-      // The running step is still using a route the live selection has moved
-      // away from, and Harness has not assembled the new one yet. Before the
-      // first assembly `assembled` is undefined, which is not pending; idle is
-      // never pending even when the last assembled route differs.
-      modelPending: agent.status === 'running'
+      // The running Agent cannot prove the live selection is the one already
+      // captured for the active assembly or request: `assembled` is either
+      // absent (the first assembly is still in flight) or a different complete
+      // selection. Idle is never unconfirmed, even when the last assembled
+      // route differs.
+      modelSelectionUnconfirmed: agent.status === 'running'
         && selected !== undefined
-        && assembled !== undefined
-        && !sameSelection(selected, assembled),
+        && (assembled === undefined || !sameSelection(selected, assembled)),
       // The SAME snapshot one field over. Harness's `permissions` projection is
       // the effective current selection, folded from `permission/preset`,
       // `sandbox/mode`, `approval/policy`, and the composition defaults — not
