@@ -191,8 +191,8 @@ async function fixture(options: {
     await ctx.plugin(PermissionPresetService, config)
     // Reconstruction, not reuse. The source Session's durable log is captured
     // and a NEW Session is seeded from it through the store's own replay path,
-    // so the object that is attached has never been mutated by this process and
-    // the permission it shows can only have come from Harness folding that log.
+    // so the attached Session is a distinct reconstruction and is not the
+    // Session object on which the permission switch was performed.
     source = ctx.sessions.create(SessionId('resumed-source'))
     source.append(
       'user/message',
@@ -412,12 +412,12 @@ describe('replaying a resumed transcript from its live Session', () => {
   })
 
   it('shows a resumed Session’s restored permission without dshline-owned state', async () => {
-    // Reconstruction, not reuse: the source Session is mutated, its durable log
-    // is captured, and a NEW Session is seeded from that log through the store.
-    // The attached object has never been mutated by this process, so the value
-    // in the footer can only be Harness folding the restored history. The
-    // deployment default is `normal`, so a session that silently adopted today's
-    // default instead of its own restored state would be caught.
+    // Reconstruction, not reuse: the source Session's durable log is captured
+    // after its permission switch, and a NEW Session is seeded from that log
+    // through the store. The attached Session is a distinct reconstruction, not
+    // the object the switch was performed on. The deployment default is
+    // `normal`, so a session that silently adopted today's default instead of
+    // its own restored state would be caught.
     const permission: Config = {
       presets: {
         review: { sandbox: 'read-only', approval: 'ask' },

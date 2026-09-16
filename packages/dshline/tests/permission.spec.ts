@@ -549,14 +549,15 @@ describe('the status line’s current permission', () => {
     expect(types.filter(type => type === 'permission/preset')).toHaveLength(presetEventsBefore)
   })
 
-  it('repaints a withdrawn live auto contribution with no Session event', async () => {
+  it('repaints both edges of live auto availability with no Session event', async () => {
     // `auto` is a contribution rather than a table preset, and whether it is
-    // live is a derivation INPUT, not Session history. Withdrawing it changes
-    // what the next `permissions` snapshot derives from the same durable knobs,
-    // but it publishes no projection frame and appends no Session event — so the
-    // footer can only move when the catalog change is itself an invalidation
-    // signal. `danger-full-access` is the bundle Auto writes, which makes the
-    // post-withdrawal value deterministic without inventing a post-Auto preset.
+    // live is a derivation INPUT, not Session history. Adding or withdrawing it
+    // changes what the next `permissions` snapshot derives from the same durable
+    // knobs, but it publishes no projection frame and appends no Session event —
+    // so the footer can only move when the catalog change is itself an
+    // invalidation signal. `danger-full-access` is the bundle Auto writes, which
+    // makes the post-withdrawal value deterministic without inventing a
+    // post-Auto preset.
     const auto: Config = {
       presets: {
         review: { sandbox: 'read-only', approval: 'ask' },
@@ -587,6 +588,23 @@ describe('the status line’s current permission', () => {
     expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('danger-full-access')
     expect(segments(window)).toContain('danger-full-access')
     expect(segments(window)).not.toContain('auto')
+
+    // The inverse edge, on the same Session and the same durable log: the
+    // recorded selection is still `auto`, so re-contributing the preset must
+    // repaint back to it, again with no Session event. Segment-aware assertions
+    // keep the transient `permission → …` notice from satisfying either side.
+    const seqAtWithdrawal = session.seq
+    const eventsAtWithdrawal = session.snapshotEvents().length
+    const disposeSecondAuto = ctx.permissionPresets.registerAuto(() => {})
+    await window.settle()
+
+    expect(session.seq).toBe(seqAtWithdrawal)
+    expect(session.snapshotEvents()).toHaveLength(eventsAtWithdrawal)
+    expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('auto')
+    expect(segments(window)).toContain('auto')
+    expect(segments(window)).not.toContain('danger-full-access')
+
+    await disposeSecondAuto()
   })
 
   it('shows danger-full-access exactly and reinterprets nothing', async () => {
