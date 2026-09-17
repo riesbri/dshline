@@ -410,6 +410,56 @@ describe('filterChoices()', () => {
   })
 })
 
+describe('owner-contributed help', () => {
+  /** A phrase with no meaning to the picker at all. */
+  const OWNER_PHRASE = 'x frobnicate'
+
+  /**
+   * Render a picker that carries one owner phrase.
+   * @param extraHelp - the phrases the owner contributed.
+   * @param columns - terminal width.
+   * @returns the rendered rows, ANSI stripped.
+   */
+  function ownerHelp(extraHelp: readonly string[], columns = COLUMNS): string {
+    const overlay = createSelectOverlay({
+      title: 'Pick',
+      choices: SHORT,
+      extraHelp,
+      settle: () => {},
+      invalidate: () => {},
+    })
+    return stripAnsi(overlay.render(columns, ROWS).join('\n'))
+  }
+
+  it('renders an owner phrase without knowing anything about it', () => {
+    // The primitive must not learn subagents, models, or `ctrl-k`: a phrase it
+    // has never seen is drawn exactly like any other help segment.
+    expect(ownerHelp([OWNER_PHRASE])).toContain(OWNER_PHRASE)
+  })
+
+  it('offers no owner help when the owner contributed none', () => {
+    expect(ownerHelp([])).not.toContain(OWNER_PHRASE)
+  })
+
+  it('makes an owner phrase safe before drawing it', () => {
+    // Owner text is untrusted by this seam: an escape sequence is shown, not
+    // obeyed.
+    expect(ownerHelp(['ctrl-\u001b[2Jx'])).toContain('^[[2J')
+  })
+
+  it('drops an owner phrase whole under width pressure rather than cutting it', () => {
+    // Wide enough for the full ladder; narrow enough that movement goes first
+    // and the owner phrase goes next, while confirmation and the way out stay.
+    expect(ownerHelp([OWNER_PHRASE], 80)).toContain(OWNER_PHRASE)
+
+    const narrow = ownerHelp([OWNER_PHRASE], 45)
+    expect(narrow).toContain('enter confirm · esc cancel')
+    expect(narrow).not.toContain(OWNER_PHRASE)
+    // Whole-segment dropping: no truncated prefix of the dropped phrase.
+    expect(narrow).not.toContain('x frob')
+  })
+})
+
 /**
  * The compact fallback for a mounted picker, as plain text.
  * @param view - the mounted picker.

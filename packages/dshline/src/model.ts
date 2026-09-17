@@ -179,6 +179,15 @@ export interface PickModelOptions {
 }
 
 /**
+ * The bare picker's secondary action, as its footer names it.
+ *
+ * Kept beside the key it names so the advertised gesture and the intercepted
+ * one cannot drift. The phrase lives here rather than in `select.ts` because
+ * the model picker owns the action; the generic overlay only renders the text.
+ */
+const SUBAGENT_MODELS_HELP = 'ctrl-k subagents'
+
+/**
  * Show the model picker, reserving `ctrl-k` for one auxiliary surface.
  *
  * A thin owner around {@link createSelectOverlay}, not a change to it. The
@@ -186,6 +195,10 @@ export interface PickModelOptions {
  * subagent setting, and every ordinary key is forwarded to it unchanged.
  * `ctrl-k` is a `key`, never `text`, so intercepting it cannot swallow a
  * character the search query was about to use — a bare `k` still filters.
+ *
+ * The footer advertises `ctrl-k` only while this caller actually supplied the
+ * opener: {@link SelectSpec.extraHelp} is owner-supplied presentation, so a
+ * picker with no auxiliary surface (notably `/setup`) names nothing.
  *
  * The push-await-dismiss dance is the same one `promptSelect` owns; it is
  * repeated rather than widened because the wrapper has to sit between the
@@ -214,6 +227,7 @@ async function promptModelPicker(
     }
     const base = createSelectOverlay({
       ...spec,
+      ...onSubagentModels === undefined ? {} : { extraHelp: [SUBAGENT_MODELS_HELP] },
       invalidate: () => { ctx.tuiSlots.invalidate() },
       settle: finish,
     })

@@ -554,6 +554,8 @@ describe('the /model seam', () => {
       onSubagentModels: () => { void openSubagentModelSelection({ ctx, commit: () => {} }) },
     })
     await vi.waitFor(() => { expect(stack.depth()).toBe(1) })
+    // The picker advertises the gesture before the reader knows it exists.
+    expect(stripAnsi(stack.top()?.render(100, 30).join('\n') ?? '')).toContain('ctrl-k subagents')
     stack.top()?.handleKey(key('ctrl-k'))
     // Pushed synchronously, so a keystroke arriving before any await — a fast
     // enter — cannot settle the picker out from under the editor.
@@ -598,6 +600,9 @@ describe('the /model seam', () => {
     await vi.waitFor(() => {
       expect(stripAnsi(stack.top()?.render(100, 30).join('\n') ?? '')).toContain('⌕ k')
     })
+    // The advertised gesture is a key, not text: the footer still names it
+    // while the typed `k` filters.
+    expect(stripAnsi(stack.top()?.render(100, 30).join('\n') ?? '')).toContain('ctrl-k subagents')
     expect(opened).toEqual([])
     stack.top()?.handleKey(key('escape'))
     stack.top()?.handleKey(key('escape'))
