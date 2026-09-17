@@ -264,11 +264,14 @@ export function parseCapacity(
   const value = Number(trimmed)
   if (!Number.isFinite(value)) return { ok: false, reason: 'must be a number' }
   if (rules.min !== undefined && value < rules.min) return { ok: false, reason: `must be at least ${String(rules.min)}` }
-  if (rules.step !== undefined && rules.step > 0) {
-    const steps = (value - (rules.min ?? 0)) / rules.step
+  // The owning schema measures a multiple with `Math.abs(step)`, so a negative
+  // declaration means the same spacing rather than "no constraint".
+  const step = rules.step === undefined ? undefined : Math.abs(rules.step)
+  if (step !== undefined && Number.isFinite(step) && step > 0) {
+    const from = rules.min ?? 0
+    const steps = (value - from) / step
     if (Math.abs(steps - Math.round(steps)) > 1e-9) {
-      const from = rules.min === undefined ? 'zero' : String(rules.min)
-      return { ok: false, reason: `must be a multiple of ${String(rules.step)} from ${from}` }
+      return { ok: false, reason: `must be a multiple of ${String(step)} from ${String(from)}` }
     }
   }
   return { ok: true, value }

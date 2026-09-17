@@ -1446,6 +1446,42 @@ describe('schema-derived reasoning leaves', () => {
     }])
   })
 
+  it('keeps the draft when Harness refuses a schema-derived mapping it accepts structurally', async () => {
+    const { ctx, press, text } = slots()
+    const fixture = seamsFor({
+      descriptor: descriptorWithSchema(capabilitySchemaWithLevels('tiny', 'huge'), profile, user),
+      directory: [{ provider: 'local-llama' }],
+      // The schema allowed `tiny: null`; Harness's own rule does not. The
+      // frontend must build it, submit it, and show this refusal — not
+      // pre-empt it with a validator of its own.
+      mutateRejections: [new Error('llm-pi-ai: provider "local-llama" model "gpt" reasoningEfforts.tiny needs the wire value dispatch should send; only "off" may leave it empty')],
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, DOWN, DOWN, ENTER) // advanced
+    await press(DOWN, ENTER) // reasoning
+    await press(DOWN, DOWN, ENTER) // mapping
+    await press(ENTER) // tiny
+    await press(DOWN, ENTER) // send no wire value
+    await press(DOWN, DOWN, ENTER) // done
+    await press(DOWN, DOWN, ENTER) // back out of advanced
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // save
+    expect(fixture.mutateCalls).toHaveLength(1)
+    expect(fixture.mutateCalls[0]?.ops).toEqual([{
+      op: 'set',
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'reasoningEfforts'],
+      value: { tiny: null },
+    }])
+    expect(text()).toContain('refused the edit')
+    await press(UP, ENTER) // discard, the last item
+    expect(await outcome).toBeUndefined()
+    expect(fixture.mutateCalls).toHaveLength(1)
+  })
+
   it('hides the mapping editor when the value leaf is a shape it cannot render', async () => {
     const { ctx, press, text } = slots()
     const fixture = seamsFor({

@@ -221,6 +221,11 @@ describe('capacity fields', () => {
     expect(parseCapacity('0.5', { min: 0 })).toEqual({ ok: true, value: 0.5 })
     expect(parseCapacity('0.5', { min: 1, step: 1 }).ok).toBe(false)
   })
+
+  it('measures a negative step by its magnitude, the way the owning schema does', () => {
+    expect(parseCapacity('15', { min: 10, step: -5 })).toEqual({ ok: true, value: 15 })
+    expect(parseCapacity('12', { min: 10, step: -5 }).ok).toBe(false)
+  })
 })
 
 describe('what would actually be written', () => {

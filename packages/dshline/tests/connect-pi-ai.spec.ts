@@ -272,6 +272,32 @@ describe('model schema derivation', () => {
     expect(entry?.reasoningLevels).toEqual(['tiny', 'huge'])
   })
 
+  it('fails closed on a union with two dict branches rather than picking one', () => {
+    const twoDicts = {
+      uid: 1,
+      refs: {
+        1: { type: 'object', meta: {}, dict: { providers: 2 } },
+        2: { type: 'dict', meta: {}, inner: 3, sKey: 20 },
+        3: { type: 'object', meta: {}, dict: { models: 4 } },
+        4: { type: 'array', meta: { default: [] }, inner: 5 },
+        5: { type: 'object', meta: { default: {} }, dict: { name: 7, reasoningEfforts: 14 } },
+        7: { type: 'string', meta: {} },
+        14: { type: 'union', meta: {}, list: [18, 19] },
+        18: { type: 'dict', meta: { default: {} }, inner: 21, sKey: 30 },
+        19: { type: 'dict', meta: { default: {} }, inner: 21, sKey: 31 },
+        21: { type: 'string', meta: {} },
+        30: { type: 'union', meta: {}, list: [32] },
+        31: { type: 'union', meta: {}, list: [33] },
+        32: { type: 'const', meta: { required: true }, value: 'first' },
+        33: { type: 'const', meta: { required: true }, value: 'second' },
+        20: { type: 'string', meta: {} },
+      },
+    }
+    const entry = routeModelSchema(twoDicts, ['providers', 'openai']).entry
+    expect(entry?.reasoningLevels).toEqual([])
+    expect(entry?.reasoningWire).toBeUndefined()
+  })
+
   it('answers nothing readable for a route the schema does not describe', () => {
     const noModels = {
       uid: 1,

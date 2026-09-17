@@ -421,24 +421,27 @@ function entrySchema(node: SchemaNode, envelope: SchemaEnvelope): ModelEntrySche
 }
 
 /**
- * The `dict` branch of a union that also carries a non-dict constant.
+ * The one `dict` branch of a union that also carries a non-dict constant.
  *
  * `reasoningEfforts` is `union([const(false), dict])`, so the level vocabulary
  * lives on the dict member; a union of some other shape answers undefined and
- * the field is simply not offered.
+ * the field is simply not offered. TWO dict branches also answer undefined:
+ * which one is "the" vocabulary would be a guess, and a form that picked one
+ * would present a mapping the schema never described.
  * @param node - the `reasoningEfforts` node.
  * @param envelope - the table every uid is looked up in.
- * @returns the dict member, or undefined when there is none.
+ * @returns the dict member, or undefined when there is not exactly one.
  */
 function dictMember(node: SchemaNode | undefined, envelope: SchemaEnvelope): SchemaNode | undefined {
   if (node === undefined) return undefined
   if (node.type === 'dict') return node
   if (node.type !== 'union') return undefined
+  const dicts: SchemaNode[] = []
   for (const member of node.list ?? []) {
     const resolved = resolveSchemaNode(member, envelope)
-    if (resolved?.type === 'dict') return resolved
+    if (resolved?.type === 'dict') dicts.push(resolved)
   }
-  return undefined
+  return dicts.length === 1 ? dicts[0] : undefined
 }
 
 /**
