@@ -22,7 +22,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // command registry is imported for its parser as well as its merge, so this
 // frontend decides what a command LINE is by the same rule the registry resolves
 // one with.
-import { parseCommand } from '@deepseek-ai/dsh-commands'
+import { CommandDefinitionId, parseCommand } from '@deepseek-ai/dsh-commands'
 import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-cmdline'
@@ -121,7 +121,8 @@ import type { WorkConversationTarget } from './work/model.ts'
 import { createSubagentsPresenter } from './subagents/presenter.ts'
 import { SessionProjectionObserver } from './projections/observer.ts'
 import { openSurface } from './surface.ts'
-import { goalReading } from './goals/model.ts'
+import { goalInspection, goalReading } from './goals/model.ts'
+import { createGoalOverlay } from './goals/overlay.ts'
 import { todoReading, todoSummary } from './todos/model.ts'
 import { createTodosPresenter } from './todos/presenter.ts'
 import { SkillCatalog } from './skills/catalog.ts'
@@ -138,6 +139,15 @@ const TIMING_VALUES: readonly LocalCommandChoice[] = [
 
 /** Bounds path resolution, file reads, validation, and durable image commit. */
 const IMAGE_ADMISSION_TIMEOUT_MS = 30_000
+
+/**
+ * The one effective command this frontend presents itself, in its bare form.
+ *
+ * A definition id rather than a name is what proves the resolved command is the
+ * Harness-owned native `/goal` and not an agent-scoped shadow of the same name;
+ * any other definition goes to the registry unchanged.
+ */
+const GOAL_COMMAND_DEFINITION_ID = CommandDefinitionId('@deepseek-ai/dsh-command-goal')
 
 /**
  * Safe presentation for filesystem errors raised while admitting a local draft.
@@ -359,6 +369,18 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     invalidate: () => { ctx.tuiSlots.invalidate() },
   })
   scope.own(() => { projections.dispose() })
+  // Activation is process-local: a disarm writes no goal/change, advances no
+  // revision, and publishes no projection frame, so the observer above cannot
+  // schedule the repaint that turns the footer's `goal armed` into `goal idle`
+  // (nor an open inspector's Continuation row with it). This event is the one
+  // signal that edge produces, and it is GLOBAL rather than scoped to this
+  // attachment, so the exact Session is filtered here. The listener is an
+  // invalidation signal only: it never reads the service, derives a value, or
+  // retains the payload, so the next paint still takes activation from the one
+  // authority that owns it.
+  scope.own(ctx.on('goal/activation-changed', payload => {
+    if (payload.sessionId === agent.session.id) ctx.tuiSlots.invalidate()
+  }))
   // The observer above repaints only when a unit's VALUE changes on a committed
   // event. Live preset availability is a derivation INPUT, so losing it can
   // change what the very next `permissions` snapshot derives while publishing no
@@ -1710,6 +1732,47 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   }
 
   /**
+   * The open inspector's dismisser, or undefined while none stands.
+   *
+   * One at a time by choice: a second bare `/goal` while the frame is up would
+   * otherwise stack an identical overlay, and Esc would have to be pressed once
+   * per copy. The flag, not the dismisser, is the guard: `openSurface` may invoke
+   * the close callback synchronously while mounting, before the dismisser has
+   * been assigned.
+   */
+  let goalInspectionOpen = false
+  let dismissGoalInspection: (() => void) | undefined
+  /**
+   * Show the read-only goal inspector for this attachment.
+   *
+   * The reading is a closure, not a captured value: a live projection edit or a
+   * process-local disarm repaints from the current authorities rather than from
+   * whatever was true when the frame opened.
+   */
+  const openGoalInspection = (): void => {
+    if (goalInspectionOpen) return
+    goalInspectionOpen = true
+    try {
+      dismissGoalInspection = openSurface(ctx.tuiSlots, dismiss => createGoalOverlay({
+        reading: () => goalInspection(projections.snapshot(), goalActivation),
+        invalidate: () => { ctx.tuiSlots.invalidate() },
+        close: () => {
+          goalInspectionOpen = false
+          dismiss()
+        },
+      }))
+    } catch (error: unknown) {
+      // `pushOverlay` can throw after the flag is set — a throwing listener on
+      // its initial invalidation — and a latched flag would suppress every later
+      // bare `/goal` in this session. The failure still propagates; only the
+      // latch is rolled back.
+      goalInspectionOpen = false
+      throw error
+    }
+  }
+  scope.own(() => { dismissGoalInspection?.() })
+
+  /**
    * Handle one submitted line: a local gesture, a registered command, or a
    * prompt for the model.
    * @param text - the submitted line.
@@ -1753,6 +1816,29 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // can cancel. Harness later records its actual argued command lifecycle; a
     // resumed session cannot distinguish that from a directly typed argument.
     history.record(line)
+    // A semantically BARE `/goal` is the one command form this frontend presents
+    // itself, because the native show form has no argument and no lifecycle to
+    // run: opening a read-only inspector executes nothing and appends no
+    // command, goal, or session event. The definition-id gate is load-bearing —
+    // it proves the EFFECTIVE command declares Harness's native goal identity,
+    // so an agent-scoped shadow that declares a different or no identity is left
+    // for the registry to run. A shadow that declares the SAME identity is
+    // presenting itself as the native command; distinguishing that from the
+    // Harness package is not something the registry exposes, and registering a
+    // command in an agent scope is already a trusted act. Any argument-bearing
+    // form falls through too, and so does a bare line carrying staged images:
+    // native create/edit admit attachments while native show rejects them, and
+    // that adjudication is Harness's, not this frontend's.
+    if (
+      parsed?.name === 'goal'
+      && parsed.rawInput.trim() === ''
+      && imageDrafts.size === 0
+      && ctx.commands.find(agent, parsed.name)?.definitionId === GOAL_COMMAND_DEFINITION_ID
+    ) {
+      openGoalInspection()
+      draw()
+      return
+    }
     // Harness owns `/permission`; this is only a terminal presentation for its
     // bare form. Keeping it outside the local registry leaves discovery,
     // completion, validation, and lifecycle events with the registered command.

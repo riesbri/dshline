@@ -231,7 +231,7 @@ Each of the first three works the same way: **name the value and it changes, typ
 | --- | --- |
 | `/compact` | Summarize older conversation history to free up context |
 | `/plan`, `/plan off` | Enter or leave planning mode |
-| `/goal` | Show or set the goal for a long task |
+| `/goal` | Show or set the goal for a long task. Bare opens a bounded read-only inspection of the current goal |
 | `/permission` | Change the permission preset (see below) |
 | `/feedback` | Record a note about this session |
 
@@ -246,7 +246,7 @@ A leading `/name` is resolved in one fixed order: this interface's own commands,
 The check uses the harness's own rule for what a command line looks like, so the name must either end the line or be followed by a space. This means `/etc/hosts is missing` is treated as an ordinary message and reaches the model unchanged, while `/tmp is full` is treated as a command and reported as unknown. That trade-off is deliberate: a mistyped command is far more common than a message starting with a folder name.
 
 > [!WARNING]
-> **`/goal <objective>` does more than record a goal.** It starts the harness's goal driver, which immediately begins working on that objective by itself, for up to 256 rounds, using tools in your folder. Use `/goal` with no text to just view the current goal, and `/goal pause` or `/goal clear` to stop one. Nothing warns you before it begins — but once it has, the status line exposes its running state for as long as it runs.
+> **`/goal <objective>` does more than record a goal.** It starts the harness's goal driver, which immediately begins working on that objective by itself, for up to 256 rounds, using tools in your folder. Use `/goal` with no text to open a read-only inspection of the current goal, and `/goal pause` or `/goal clear` to stop one. Nothing warns you before it begins — but once it has, the status line exposes its running state for as long as it runs.
 >
 > **A goal can also start without you.** The harness gives the model a `create_goal` tool and tells it that it may infer a long-running objective from what you asked, without you saying the word "goal". The status line is how you find out through that state; `/goal` shows the full objective and `/goal pause` stops it. See [What the session is about to do](#what-the-session-is-about-to-do).
 
@@ -1504,6 +1504,8 @@ Two things change what a turn *does* rather than what it says, and both are invi
 | `goal paused`, `goal blocked`, `goal complete` | A goal that is not running, and why |
 
 A goal can begin without a command you typed. The harness publishes `create_goal` as a tool the model itself may call, and its own description says the model may infer that a request is long-running without being asked to create anything. The footer makes that automatic continuation visible through the goal's state and progress; `/goal` is the surface that shows the full objective, and `/goal pause` stops it.
+
+Bare `/goal` opens that read-only report as a bounded inspection: the phase, whether this process will continue the goal, the round count against the cap, the revision, the timestamps, the full objective, and — while the goal is blocked — the blocker. It is drawn only from the durable `goal` projection and the live activation, it reads both again on every paint, and `↑`/`↓` scroll a long objective. Nothing is executed and nothing is written to the session: `esc` or `ctrl-c` closes it, and any argument — an objective, or `edit`, `pause`, `resume`, or `clear` — is the harness command, unchanged.
 
 `256` is the deployment's cap on automatic continuation rounds, not a target — which is why the count appears only once a round has actually been taken. `goal 0/256` reads as a meter stuck at zero; `goal armed` says the same thing truthfully.
 

@@ -355,7 +355,13 @@ with no `goal/change` event, no revision, and no `goal/changed` notification, so
 no projection observer can reconstruct or own it. An activation that cannot be
 obtained is never taken for `armed`: a resumed session holding a durably active
 goal reports `goal idle` rather than claiming this process will continue it,
-which is the one thing neither authority could say on its own.
+which is the one thing neither authority could say on its own. The explicit bare
+`/goal` is a bounded read-only inspector over that same pair: it reports the
+projection's durable fields and the live activation as separate facts, re-reads
+both on every paint, and owns nothing but its scroll position. Its activation
+repaint comes from the one global `goal/activation-changed` event, filtered to
+this exact Session, because that edge publishes no projection frame for the
+observer above to see.
 
 The service call is a whole-view read because the adopted generation publishes
 no activation-only accessor, and `GoalService.get()` resolves its own durable
