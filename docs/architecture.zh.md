@@ -277,7 +277,7 @@ ctx.sessionQuery             → one child's bounded session window (no resume)
 ctx.subagents.prompt         → human queue / steer
 ```
 
-发现使用 `listChildren(parentSessionId)`，其行都是 Harness 事实：持久 id、label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及该子级是否有子级。diagnostic 行被保留而非丢弃，因此损坏或不可读的候选会诚实降级。打开一个子级会通过 `ctx.sessionQuery.listEvents` 与一个有界的 `readEvent` 窗口读取它自己的日志，并用 Harness 的 `extractSessionEventText` 呈现每个事件；为了检视它，子级绝不会被恢复或发布，移动光标也绝不会读取 transcript。向前翻页会**替换**该窗口而不是向其追加，因此无论读者回溯多远，检视器最多只保留一页完整事件正文；轻量级的 seq 索引是元数据，不是正文。
+发现使用 `listChildren(parentSessionId)`，其行都是 Harness 事实：持久 id、label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及该子级是否有子级。diagnostic 行被保留而非丢弃，因此损坏或不可读的候选会诚实降级。打开一个子级会通过 `ctx.sessionQuery.listEvents` 与一个有界的 `readEvent` 窗口读取它自己的日志，并用 Harness 的 `extractSessionEventText` 呈现每个事件；为了检视它，子级绝不会被恢复或发布，移动光标也绝不会读取 transcript。`[` 较旧与 `]` 较新两个方向的翻页都会**替换**该窗口而不是向其追加，因此检视器最多只保留一页 24 条完整事件正文和一个轻量级 seq 索引，后者是元数据，不是正文。两个方向都限于已捕获的索引；读取较新页面时，以目标片段的最后一个 seq 为锚点，只请求之前的上下文并设定 `after: 0`，因此新追加的事件不会混入翻页结果。只有 `r` 会通过 `listEvents` 和一次最新的有界读取进行刷新。翻页保留过期提示；读取失败时保留已加载的页面，翻页与刷新竞态时以最后发起的读取为准。
 
 人类跟进是本前端必须谨慎选择调用哪个 Harness 操作的唯一之处。`SubagentRuntime.sendMessage(sender: Agent, …)` 是**模型撰写**的相邻 Agent 消息：它接受一个精确的存活 `Agent` 发送者并打上 `agent-message` 来源，所以终端调用它就是在冒充父 Agent。人类路径是 `ctx.subagents.prompt`，它携带持久的父/子地址、由客户端铸造的请求身份、人类 `kind: 'user'` 来源、`queue`/`steer` 选择、冷物化，以及一条被接受的 `MessageId` 回执。dshline 的 `HumanSubagentSeam` 是 `SubagentRuntime` 的一个只含 `listChildren` 与 `prompt` 的 `Pick`，因此伸手去拿 `sendMessage` 会在类型检查阶段失败，而不是被发布出去；一个能识别注释与字符串的源码扫描则为绕过类型转换提供兜底。
 

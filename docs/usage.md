@@ -953,6 +953,12 @@ operation, so acceptance is Harness's own; the message appears in the child's
 transcript only when its session log says so. Interrupt stays on `/work`, where
 an open lifecycle epoch is the stronger premise.
 
+In the conversation inspector, `[` loads an older page and `]` loads a newer
+page within the history captured on opening or the last refresh. Each replaces
+the loaded page, and the footer offers only directions that exist. `]` does
+not fetch newly appended events: `r` refreshes the index and loads the latest
+page. A `new events` hint stays visible while paging until that explicit refresh.
+
 A row's mark says how much dshline actually knows about it:
 
 | Mark | Meaning |

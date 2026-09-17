@@ -191,6 +191,8 @@ export interface SubagentConversationOverlaySpec {
   readonly steer: boolean
   /** Read one older page if the child has one. */
   readonly loadOlder: () => void
+  /** Read one newer captured page if the child has one. */
+  readonly loadNewer: () => void
   /** Re-read the newest page. */
   readonly refresh: () => void
   /** Open the message composer with this delivery. */
@@ -241,6 +243,9 @@ export function createSubagentConversationOverlay(spec: SubagentConversationOver
             return
           case '[':
             spec.loadOlder()
+            return
+          case ']':
+            spec.loadNewer()
             return
           default:
             return
@@ -488,11 +493,14 @@ function conversationHeader(
 
 /** The truthful help for the inspector and its current authority. */
 function conversationHelp(spec: SubagentConversationOverlaySpec, reading: SubagentTranscriptReading): string {
-  const older = reading.kind === 'ready' && reading.hasOlder ? ['[ older'] : []
+  const ready = reading.kind === 'ready'
+  const older = ready && reading.hasOlder ? ['[ older'] : []
+  const newer = ready && reading.hasNewer ? ['] newer'] : []
   return [
     // ASCII, for the same ambiguous-width reason as the catalog footer.
     '^v scroll',
     ...older,
+    ...newer,
     ...spec.followUp ? ['m message'] : [],
     ...spec.steer ? ['s steer'] : [],
     'r refresh',

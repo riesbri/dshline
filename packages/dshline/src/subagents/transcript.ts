@@ -4,12 +4,12 @@
  * The inspector is a temporary live-region surface over Harness's own record,
  * not a second transcript database. It keeps a lightweight seq index plus ONE
  * bounded page of full event bodies, reads a further page only when the reader
- * asks for older history, and renders each event with Harness's
+ * asks for adjacent history, and renders each event with Harness's
  * `extractSessionEventText` — the same presentation helper `/sessions` uses.
  * Nothing here folds the log, and nothing resumes or publishes the child.
  *
  * The page size is a real tradeoff rather than a round number: Harness caps
- * `readEvent` at 50 events per window, and a child turn is roughly six to ten
+ * `readEvent` context at 50 events per side, and a child turn is roughly six to ten
  * raw events, so 24 spans about two or three turns of conversation while
  * keeping the retained bodies small.
  * @module dshline/subagents/transcript
@@ -25,7 +25,7 @@ import type { ChildSessionReads } from './seam.ts'
 /**
  * Full event bodies retained by one page read.
  *
- * Deliberately below Harness's 50-event window cap so a tail read of
+ * Deliberately below Harness's 50-event context cap so a tail read of
  * `before: TRANSCRIPT_PAGE - 1` plus its target never asks for more than the
  * engine will serve.
  */
@@ -51,6 +51,7 @@ export type SubagentTranscriptReading =
     readonly kind: 'ready'
     readonly events: readonly SessionEvent[]
     readonly hasOlder: boolean
+    readonly hasNewer: boolean
     readonly stale: boolean
   }
 
@@ -64,9 +65,13 @@ export interface TranscriptState {
   readonly events: readonly SessionEvent[]
   /** First seq of the loaded window, when one is loaded. */
   readonly startSeq?: SessionSeq
-  /** Whether an older page exists before the loaded window. */
+  /** Last seq of the loaded window, when one is loaded. */
+  readonly endSeq?: SessionSeq
+  /** Whether an older page exists in the captured index. */
   readonly hasOlder: boolean
-  /** Whether a child session event arrived since the window was read. */
+  /** Whether a newer page exists in the captured index. */
+  readonly hasNewer: boolean
+  /** Whether a child session event arrived since the index was refreshed. */
   readonly stale: boolean
   /** Harness's or the transport's failure message, when the read failed. */
   readonly message?: string
@@ -83,6 +88,7 @@ export function initialTranscript(available: boolean): TranscriptState {
     index: [],
     events: [],
     hasOlder: false,
+    hasNewer: false,
     stale: false,
   }
 }
@@ -101,7 +107,7 @@ export function transcriptReading(state: TranscriptState): SubagentTranscriptRea
     case 'failed':
       return { kind: 'failed', message: state.message ?? 'The transcript could not be read.' }
     case 'ready':
-      return { kind: 'ready', events: state.events, hasOlder: state.hasOlder, stale: state.stale }
+      return { kind: 'ready', events: state.events, hasOlder: state.hasOlder, hasNewer: state.hasNewer, stale: state.stale }
   }
 }
 
@@ -124,7 +130,7 @@ export async function readTranscriptTail(
 ): Promise<TranscriptState> {
   try {
     const index = await query.listEvents(childId)
-    if (index.length === 0) return { kind: 'empty', index, events: [], hasOlder: false, stale: false }
+    if (index.length === 0) return { kind: 'empty', index, events: [], hasOlder: false, hasNewer: false, stale: false }
     const last = index[index.length - 1] as SessionEventRecord
     const window = await query.readEvent(
       { sessionId: childId, seq: last.seq, before: TRANSCRIPT_PAGE - 1, after: 0 },
@@ -135,11 +141,13 @@ export async function readTranscriptTail(
       index,
       events: window.events,
       startSeq: window.startSeq,
+      endSeq: window.endSeq,
       hasOlder: index.some(record => record.seq < window.startSeq),
+      hasNewer: false,
       stale: false,
     }
   } catch (error: unknown) {
-    return { kind: 'failed', index: [], events: [], hasOlder: false, stale: false, message: reason(error) }
+    return { kind: 'failed', index: [], events: [], hasOlder: false, hasNewer: false, stale: false, message: reason(error) }
   }
 }
 
@@ -183,8 +191,52 @@ export async function readTranscriptOlder(
     ...state,
     events: window.events,
     startSeq: window.startSeq,
+    endSeq: window.endSeq,
     hasOlder: state.index.some(record => record.seq < window.startSeq),
-    stale: false,
+    hasNewer: state.index.some(record => record.seq > window.endSeq),
+  }
+}
+
+/**
+ * Read one newer page inside the captured index, replacing the loaded window.
+ *
+ * Anchor at the END of the next captured slice so the Harness request itself
+ * ends at the captured destination. Requesting only preceding context also
+ * keeps forward navigation aligned with the tail/older `after: 0` reads and
+ * reverses the tail-derived partition without repartitioning a partial oldest
+ * page.
+ * @param query - the bounded child-session read surface.
+ * @param childId - the durable child session being inspected.
+ * @param state - the captured index and currently loaded page.
+ * @param signal - caller cancellation.
+ * @returns the next captured page, preserving the index and staleness hint.
+ * @throws when the read fails; the caller retains the current page and facts.
+ */
+export async function readTranscriptNewer(
+  query: ChildSessionReads,
+  childId: SessionId,
+  state: TranscriptState,
+  signal?: AbortSignal,
+): Promise<TranscriptState> {
+  const at = state.endSeq === undefined
+    ? -1
+    : state.index.findIndex(record => record.seq === state.endSeq)
+  if (at < 0 || at >= state.index.length - 1) return { ...state, hasNewer: false }
+  const nextEnd = Math.min(at + TRANSCRIPT_PAGE, state.index.length - 1)
+  const target = state.index[nextEnd] as SessionEventRecord
+  const window = await query.readEvent(
+    { sessionId: childId, seq: target.seq, before: nextEnd - at - 1, after: 0 },
+    signal,
+  )
+  // Match older paging's empty-window backstop without discarding loaded bodies.
+  if (window.events.length === 0) return { ...state, hasNewer: false }
+  return {
+    ...state,
+    events: window.events,
+    startSeq: window.startSeq,
+    endSeq: window.endSeq,
+    hasOlder: state.index.some(record => record.seq < window.startSeq),
+    hasNewer: state.index.some(record => record.seq > window.endSeq),
   }
 }
 

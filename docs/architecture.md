@@ -480,9 +480,14 @@ a corrupt or unreadable candidate degrades honestly. Opening a child reads its
 own log through `ctx.sessionQuery.listEvents` and one bounded `readEvent` window
 and renders each event with Harness's `extractSessionEventText`; the child is
 never resumed or published to inspect it, and moving the cursor never reads a
-transcript. Paging older history **replaces** that window rather than appending
-to it, so the inspector holds at most one page of full event bodies no matter how
-far the reader walks back; the lightweight seq index is metadata, not bodies.
+transcript. Both `[` older and `]` newer **replace** that window rather than
+appending to it, so the inspector holds at most one page of 24 full event bodies
+and one lightweight seq index, which is metadata, not bodies. Both directions
+stay inside the captured index; newer reads anchor at the destination slice's
+last seq with preceding context and `after: 0`, so appended events cannot leak
+into navigation. Only `r` refreshes with `listEvents` and a newest bounded read.
+Paging preserves the stale hint; a failed read retains the loaded page, and the
+newest-started read wins if navigation races a refresh.
 
 A human follow-up is the one place this frontend must be careful about which
 Harness operation it calls. `SubagentRuntime.sendMessage(sender: Agent, …)` is
