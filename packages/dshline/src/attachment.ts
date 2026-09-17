@@ -77,6 +77,7 @@ import { applyHistorySearch, routeInputKey } from './input.ts'
 import { transcriptEvents, resumeBanner } from './resume.ts'
 import { createToolOutputOverlay } from './tool-output.ts'
 import { modelCompletionValues, pickModel } from './model.ts'
+import type { PickModelOptions } from './model.ts'
 import { installQuestionProvider } from './questions.ts'
 import { LocalCommandRegistry } from './local-commands.ts'
 import { runThemes, themeValues } from './themes/index.ts'
@@ -728,7 +729,39 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // in-flight turn, and an informational note is not worth that race, so
         // the note depends on the real provider/model move alone.
         const before = selection.current
-        const outcome = await pickModel(ctx, selection, rawInput)
+        // The editor's module graph belongs to the BARE picker only: a named
+        // route must not load it, and it is loaded BEFORE the picker opens so
+        // `ctrl-k` can push the editor synchronously. Loading it inside the
+        // gesture would let a fast enter settle the picker during the import
+        // and leave the editor stranded on the composer.
+        let options: PickModelOptions = {}
+        if (rawInput.trim() === '') {
+          try {
+            const { openSubagentModelSelection } = await import('./subagent-model-selection/index.ts')
+            // `ctrl-k` on the bare picker opens the subagent authorization
+            // editor. That editor reads and writes the Host's own
+            // `subagent-model-selection` setting and never touches this Agent's
+            // selection, so nothing here can produce a model `SelectionOutcome`.
+            options = {
+              onSubagentModels: () => {
+                void openSubagentModelSelection({ ctx, commit }).catch((error: unknown) => {
+                  // The editor reports its own read and write refusals; this is
+                  // only for a programming failure, which has nowhere else to go.
+                  const reason = error instanceof Error ? error.message : String(error)
+                  commit([paint(`\u2717 subagent model authorization unavailable: ${escapeControls(reason)}`, 'error')])
+                  draw()
+                })
+              },
+            }
+          } catch (error: unknown) {
+            // A module that cannot load must not take `/model` down with it:
+            // the picker still opens, and only the auxiliary editor is missing.
+            const reason = error instanceof Error ? error.message : String(error)
+            commit([paint(`\u2717 subagent model authorization unavailable: ${escapeControls(reason)}`, 'error')])
+            draw()
+          }
+        }
+        const outcome = await pickModel(ctx, selection, rawInput, options)
         if (outcome === undefined) {
           draw()
           return
