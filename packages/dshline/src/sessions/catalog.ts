@@ -235,16 +235,21 @@ function toEntry(record: SessionRecord, trait: ObservedTraits | undefined, snipp
 }
 
 /**
- * Scan the authoritative records once, count every row the presentation-only
- * origin predicate retains, and materialize only the first `limit` of them.
+ * Materialize the retained list from one authoritative listing.
  *
- * The count cannot come from a bounded slice: `truncated` and the `newest of N`
- * reading are exact and require every qualifying record to be seen. The
- * projection can, and materializing all of them first is the allocation this
- * avoids — a second, full presentation corpus whose length was needed only for
- * that count and which otherwise stayed reachable across the title await.
- * Records are scanned in their existing Harness order, so order, origin
- * semantics, and the retained set are unchanged.
+ * The two regimes have different costs, and naming the difference is the point:
+ *
+ * - `all` has no presentation predicate, and `records.length` is already the
+ *   exact authoritative total, so dshline touches only the retained prefix.
+ *   Presentation work is O(min(N, limit)). Harness still returned and paid for
+ *   the whole corpus — this bounds the frontend's second corpus, not the
+ *   authoritative listing itself.
+ * - `own`/`delegated` are presentation-only classifications Harness publishes
+ *   no predicate for, so every authoritative header must be read to keep
+ *   `truncated` and `newest of N` exact. Classification is O(N); only
+ *   materialization is bounded to `limit`.
+ *
+ * Either way rows are emitted in their existing Harness order.
  * @param records - the authoritative listing, in Harness order.
  * @param origin - the presentation-only origin choice to retain.
  * @param limit - maximum entries to materialize.
@@ -256,13 +261,16 @@ function retainListing(
   limit: number,
 ): { readonly entries: SessionEntry[]; readonly truncated: number } {
   const entries: SessionEntry[] = []
-  // `all` is the common case and needs no per-record classification. Skipping
-  // it keeps the ordinary open cheaper than the projection-only work it
-  // replaces, instead of trading the allocation for a predicate on every row.
-  const classify = origin !== 'all'
+  if (origin === 'all') {
+    const retained = Math.max(0, Math.min(records.length, limit))
+    for (let index = 0; index < retained; index += 1) {
+      entries.push(toEntry(records[index]!, undefined))
+    }
+    return { entries, truncated: records.length - retained }
+  }
   let retained = 0
   for (const record of records) {
-    if (classify && !originRetained(classifyOrigin(record, undefined), origin)) continue
+    if (!originRetained(classifyOrigin(record, undefined), origin)) continue
     retained += 1
     if (entries.length < limit) entries.push(toEntry(record, undefined))
   }

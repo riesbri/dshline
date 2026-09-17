@@ -2,16 +2,22 @@
  * Large-corpus guarantees for the ordinary Sessions listing pipeline.
  *
  * The catalog retains at most {@link CATALOG_LIMIT} rows, but an authoritative
- * listing can be arbitrarily larger. These tests pin the two things that must
- * therefore stay bounded no matter how big the corpus is: the number of full
- * `SessionEntry` projections and the number of title observations. A direct
- * projection counter is read off the fixture records themselves — only
- * `toEntry` reads `record.live` — so the bound is asserted without exposing a
- * new public API.
+ * listing can be arbitrarily larger. These tests pin what stays bounded no
+ * matter how big the corpus is — the full `SessionEntry` projections and the
+ * title observations — and they pin the two different scan regimes:
  *
- * Counting is deliberately NOT bounded: `truncated` and `newest of N` are
- * exact, so the scan still visits every authoritative record. Only the
- * materialization is capped.
+ * - `origin === 'all'` has no presentation predicate and `records.length` is
+ *   already the exact authoritative total, so only the retained prefix is
+ *   touched: presentation work is O(min(N, limit)).
+ * - `origin` `own`/`delegated` are presentation-only classifications Harness
+ *   publishes no predicate for, so every authoritative header is read to keep
+ *   `truncated` and `newest of N` exact. Classification is O(N); only the
+ *   materialization is capped.
+ *
+ * Two counters are read off the fixture without a production hook. `toEntry`
+ * is the only reader of `record.live`, so a getter there counts projections;
+ * the engine serves a `Proxy` over the authoritative array, so an indexed read
+ * counts how far the catalog actually walked.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -56,11 +62,21 @@ function header(id: string, overrides: Record<string, unknown> = {}): SessionHea
   } as SessionHeader
 }
 
-/** A 10,000-record corpus with a read counter on every record's `live`. */
+/** A 10,000-record corpus with read counters on the object the catalog serves. */
 interface LargeCorpus {
+  /** The raw authoritative records, for computing expected values only. */
   readonly records: SessionRecord[]
+  /**
+   * The same array behind a counting `Proxy`, handed to the query engine.
+   *
+   * Expected-value computation uses {@link records} so it cannot inflate the
+   * count; only the catalog's own access to the served object is measured.
+   */
+  readonly served: SessionRecord[]
   /** Full `SessionEntry` projections performed so far, via `toEntry`. */
   projections: () => number
+  /** Indexed reads of the served array, i.e. how far the catalog walked. */
+  indexReads: () => number
 }
 
 /**
@@ -72,10 +88,11 @@ interface LargeCorpus {
  * origin filter has qualifying records both before and after the retained
  * bound.
  * @param size - number of authoritative records.
- * @returns the records and the projection counter.
+ * @returns the raw records, the counted served array, and both counters.
  */
 function largeCorpus(size: number): LargeCorpus {
   let projections = 0
+  let indexReads = 0
   const records = Array.from({ length: size }, (_, index) => {
     const record = {
       header: header(`large-${String(index).padStart(6, '0')}`, {
@@ -93,7 +110,16 @@ function largeCorpus(size: number): LargeCorpus {
     })
     return record as unknown as SessionRecord
   })
-  return { records, projections: () => projections }
+  // `for...of` on an array reaches every index through the iterator, and the
+  // all-origin prefix loop reads only `0..retained-1`, so the index count is
+  // what separates "walked the whole corpus" from "touched the prefix".
+  const served = new Proxy(records, {
+    get(target, property, receiver) {
+      if (typeof property === 'string' && /^(?:0|[1-9]\d*)$/u.test(property)) indexReads += 1
+      return Reflect.get(target, property, receiver)
+    },
+  })
+  return { records, served, projections: () => projections, indexReads: () => indexReads }
 }
 
 /** What one catalog construction observed. */
@@ -109,13 +135,15 @@ interface Observed {
  * @param observed - the mutable recorder the engine appends to.
  * @returns the narrowed query surface.
  */
-function countingEngine(records: readonly SessionRecord[], observed: Observed): SessionQueryReads {
+function countingEngine(records: SessionRecord[], observed: Observed): SessionQueryReads {
   return {
-    listSessions: async () => { observed.calls.listSessions += 1; return [...records] },
+    // Return the served array itself rather than a copy: spreading it here
+    // would read every index in the fixture and erase the catalog's own walk.
+    listSessions: async () => { observed.calls.listSessions += 1; return records },
     filterSessions: async clauses => {
       observed.calls.filterSessions += 1
       observed.clauses.push(clauses)
-      return [...records]
+      return records
     },
     readTitleSnapshots: async ids => {
       observed.calls.readTitleSnapshots += 1
@@ -145,7 +173,7 @@ function countingEngine(records: readonly SessionRecord[], observed: Observed): 
  * @returns the catalog state and what the engine observed.
  */
 async function browse(
-  records: readonly SessionRecord[],
+  records: SessionRecord[],
   action: (catalog: SessionCatalog) => void,
   overrides: { readonly workspace?: { readonly kind: 'cwd'; readonly cwd: string } } = {},
 ): Promise<{ catalog: SessionCatalog; observed: Observed }> {
@@ -180,12 +208,12 @@ function expectedIds(records: readonly SessionRecord[], delegated: boolean): Ses
 describe('a 10,000-record ordinary listing', () => {
   it('materializes at most the configured limit and counts every dropped row', async () => {
     // The whole point of the bound: a corpus two orders of magnitude past the
-    // limit must not build a second full presentation corpus. The scan still
-    // visits every record, so the exact truncated count and `newest of N` stay
-    // truthful.
+    // limit must not build a second full presentation corpus. `all` needs no
+    // per-record classification, so `records.length` is the exact total and the
+    // `truncated` count and `newest of N` stay truthful without walking it.
     // Deliberate break: projecting before bounding makes the counter 10,000.
-    const { records, projections } = largeCorpus(CORPUS)
-    const { catalog } = await browse(records, c => { c.refresh() })
+    const { records, served, projections } = largeCorpus(CORPUS)
+    const { catalog } = await browse(served, c => { c.refresh() })
     const listing = catalog.listing()
     expect(listing).toMatchObject({
       kind: 'ready',
@@ -202,9 +230,28 @@ describe('a 10,000-record ordinary listing', () => {
     )
   })
 
+  it('touches only the retained prefix for the all-origin listing', async () => {
+    // `all` has no predicate and `records.length` is the exact total, so a
+    // 10,000-row corpus must not be walked past the prefix at all.
+    // Deliberate break: restoring a full `for (const record of records)` loop
+    // reads all 10,000 indices and fails the single assertion below.
+    const { served, indexReads } = largeCorpus(CORPUS)
+    await browse(served, c => { c.refresh() })
+    expect(indexReads()).toBe(CATALOG_LIMIT)
+  })
+
+  it('still classifies every authoritative header for an origin filter', async () => {
+    // own/delegated have no Harness predicate, so the exact total genuinely
+    // requires reading every header. The full walk here is deliberate, and the
+    // two tests together pin the complexity distinction.
+    const { served, indexReads } = largeCorpus(CORPUS)
+    await browse(served, c => { c.applyFilters({ ...NO_FILTERS, origin: 'own' }) })
+    expect(indexReads()).toBe(CORPUS)
+  })
+
   it('observes titles for exactly one batch of at most the retained ids, in order', async () => {
-    const { records } = largeCorpus(CORPUS)
-    const { observed } = await browse(records, c => { c.refresh() })
+    const { records, served } = largeCorpus(CORPUS)
+    const { observed } = await browse(served, c => { c.refresh() })
     expect(observed.calls.readTitleSnapshots).toBe(1)
     expect(observed.titleIds).toHaveLength(1)
     const ids = observed.titleIds[0] ?? []
@@ -213,7 +260,7 @@ describe('a 10,000-record ordinary listing', () => {
   })
 
   it('keeps a row whose title observation was rejected', async () => {
-    const { records } = largeCorpus(CORPUS)
+    const { served } = largeCorpus(CORPUS)
     const observed: Observed = {
       calls: { listSessions: 0, filterSessions: 0, readTitleSnapshots: 0 },
       clauses: [],
@@ -221,7 +268,7 @@ describe('a 10,000-record ordinary listing', () => {
     }
     const catalog = new SessionCatalog({
       query: {
-        ...countingEngine(records, observed),
+        ...countingEngine(served, observed),
         readTitleSnapshots: async ids => {
           observed.calls.readTitleSnapshots += 1
           observed.titleIds.push([...ids])
@@ -275,8 +322,8 @@ describe('origin remains presentation-only at scale', () => {
     ['delegated', true],
     ['own', false],
   ] as const)('retains the first %s rows and counts the rest', async (choice, delegated) => {
-    const { records, projections } = largeCorpus(CORPUS)
-    const { catalog, observed } = await browse(records, c => {
+    const { records, served, projections, indexReads } = largeCorpus(CORPUS)
+    const { catalog, observed } = await browse(served, c => {
       c.applyFilters({ ...NO_FILTERS, origin: choice })
     })
     const listing = catalog.listing()
@@ -285,6 +332,9 @@ describe('origin remains presentation-only at scale', () => {
     expect(listing.entries.map(entry => entry.id)).toEqual(qualifying.slice(0, CATALOG_LIMIT))
     expect(listing.truncated).toBe(qualifying.length - CATALOG_LIMIT)
     expect(projections()).toBe(CATALOG_LIMIT)
+    // The full walk is required for the exact qualifying total, but it never
+    // materializes past the retained limit.
+    expect(indexReads()).toBe(CORPUS)
     // Zero Harness clauses: origin has no predicate, so this is a plain listing
     // that never invokes the filtered read.
     expect(observed.calls).toEqual({ listSessions: 1, filterSessions: 0, readTitleSnapshots: 1 })
@@ -328,9 +378,9 @@ describe('the Harness call each filter value makes', () => {
     filters: (typeof NO_FILTERS) | undefined,
     workspace?: { readonly kind: 'cwd'; readonly cwd: string },
   ): Promise<Observed['calls']> {
-    const { records } = largeCorpus(20)
+    const { records, served } = largeCorpus(20)
     const { observed } = await browse(
-      records,
+      served,
       c => { if (filters === undefined) c.refresh(); else c.applyFilters(filters) },
       workspace === undefined ? {} : { workspace },
     )
@@ -353,7 +403,7 @@ describe('the Harness call each filter value makes', () => {
     // The regression: an origin-only browser filter translates to zero Harness
     // clauses, and `filterSessions([])` would make the engine re-derive the
     // whole corpus under an empty predicate for no new rows.
-    const { records } = largeCorpus(50)
+    const { served } = largeCorpus(50)
     const observed: Observed = {
       calls: { listSessions: 0, filterSessions: 0, readTitleSnapshots: 0 },
       clauses: [],
@@ -361,7 +411,7 @@ describe('the Harness call each filter value makes', () => {
     }
     const catalog = new SessionCatalog({
       query: {
-        ...countingEngine(records, observed),
+        ...countingEngine(served, observed),
         filterSessions: async () => { throw new Error('filterSessions must not be called with zero clauses') },
       },
       invalidate: () => {},
@@ -372,9 +422,9 @@ describe('the Harness call each filter value makes', () => {
   })
 
   it('still applies a real workspace clause to the filtered read', async () => {
-    const { records } = largeCorpus(20)
+    const { served } = largeCorpus(20)
     const { observed } = await browse(
-      records,
+      served,
       c => { c.applyFilters({ ...NO_FILTERS, workspace: 'current' }) },
       { workspace: { kind: 'cwd', cwd: '/w/even' } },
     )
