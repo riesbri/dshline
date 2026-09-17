@@ -828,8 +828,8 @@ persisted session would require resuming it first.
 
 If reopening fails anyway — an unreadable log, an incompatible format version, no
 persistence backend — the window prints the reason and opens the browser again so
-you can pick something else. `esc` there starts a new session instead. It never
-ends the process, and never quietly substitutes a session you did not ask for.
+you can pick something else. Closing the browser with `esc` ends the opening
+instead: the window exits, and no session is started that you did not ask for.
 
 ### Worktrees
 

@@ -48,6 +48,7 @@ import { TuiSlots } from './slots.ts'
 import type { ModelRates, PeakWindow, PricingTable } from './usage.ts'
 import { parsePeakWindows, pricingFrom } from './usage.ts'
 import { attachOptions, chooseTarget, createWindow, offerSetup } from './window.ts'
+import type { Window } from './window.ts'
 
 /** Cordis plugin name used by Loader diagnostics. */
 export const name = 'dshline'
@@ -186,14 +187,24 @@ async function run(
   // continue, so no Agent is attached and none of the generation-specific
   // calls in `attachment.ts` is ever reached. `ctrl-d` remains the way out.
   if (await offerSetup(w) === 'blocked') return
+  await runWindowSessions(w)
+}
+
+/**
+ * Drive session choices in an established window without turning cancellation into creation.
+ * @param w - the window whose setup has completed.
+ * @returns when an unattached reader cancels; Harness owns process shutdown.
+ */
+export async function runWindowSessions(w: Window): Promise<void> {
+  const { ctx } = w
   // The launch flag decides the FIRST target only. Everything after it is the
   // reader's own choice, made through the session browser or `/new`.
-  let target: AttachTarget = w.startup.resume === undefined
+  let target: AttachTarget | undefined = w.startup.resume === undefined
     ? { kind: 'new' }
     : w.startup.resume === true
       ? await chooseTarget(w)
       : { kind: 'resume', id: SessionId(w.startup.resume) }
-  for (;;) {
+  while (target !== undefined) {
     const outcome = await attachTarget({
       agents: ctx.agents,
       newSessionId: () => SessionId(`dshline-${randomUUID()}`),
@@ -211,6 +222,10 @@ async function run(
       },
       ask: () => chooseTarget(w),
     }, target)
+    if (outcome === undefined) break
     target = await attachSession(w, outcome)
   }
+  // No attachment exists here. Cancellation answers only the resume request,
+  // never the different question of whether to create a new Session.
+  w.requestExit()
 }

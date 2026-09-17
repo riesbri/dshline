@@ -160,9 +160,9 @@ function handle(label: string): AgentHandle {
  * @param answers - what the browser answers, in order; exhausted answers dismiss.
  * @returns the spec fields and the recorded reports.
  */
-function windowSide(answers: readonly AttachTarget[]): {
+function windowSide(answers: readonly Extract<AttachTarget, { kind: 'resume' }>[]): {
   report: (kind: 'new' | 'resume', reason: string) => void
-  ask: () => Promise<AttachTarget>
+  ask: () => Promise<Extract<AttachTarget, { kind: 'resume' }> | undefined>
   reportedKinds: Array<'new' | 'resume'>
   reported: string[]
   asked: () => number
@@ -178,7 +178,7 @@ function windowSide(answers: readonly AttachTarget[]): {
       reportedKinds.push(kind)
       reported.push(reason)
     },
-    ask: async () => answers[index++] ?? { kind: 'new', afterDismissal: true },
+    ask: async () => answers[index++],
   }
 }
 
@@ -194,8 +194,8 @@ describe('attaching the agent a window drives', () => {
       options: {},
       ...side,
     }, { kind: 'new' })
-    expect(outcome.attached.reopened).toBe(false)
-    expect(outcome.target).toEqual({ kind: 'new' })
+    expect(outcome!.attached.reopened).toBe(false)
+    expect(outcome!.target).toEqual({ kind: 'new' })
     expect(resumed).toHaveLength(0)
     expect(created[0]).toMatchObject({ sessionId: 'dshline-new', meta: { cwd: '/w' } })
     expect(side.reported).toEqual([])
@@ -213,7 +213,7 @@ describe('attaching the agent a window drives', () => {
       ...side,
     }, { kind: 'new', cwd: '/bar' })
     expect(created[0]).toMatchObject({ meta: { cwd: '/bar' } })
-    expect(outcome.target).toEqual({ kind: 'new', cwd: '/bar' })
+    expect(outcome!.target).toEqual({ kind: 'new', cwd: '/bar' })
   })
 
   it('stamps a new session\'s header with the resolved preset, when one is mounted', async () => {
@@ -258,7 +258,7 @@ describe('attaching the agent a window drives', () => {
       options: { agentOptions: { provider: 'p', model: 'm' } },
       ...side,
     }, { kind: 'resume', id: 'past' as SessionId })
-    expect(outcome.attached.reopened).toBe(true)
+    expect(outcome!.attached.reopened).toBe(true)
     expect(created).toHaveLength(0)
     expect(resumed[0]).toMatchObject({ resumeSessionId: 'past', agentOptions: { provider: 'p', model: 'm' } })
   })
@@ -284,13 +284,12 @@ describe('attaching the agent a window drives', () => {
     expect(side.asked()).toBe(1)
     expect(resumed.map(options => options.resumeSessionId)).toEqual(['broken', 'sound'])
     expect(created).toHaveLength(0)
-    expect(outcome.target).toEqual({ kind: 'resume', id: 'sound' })
-    expect(outcome.attached.reopened).toBe(true)
+    expect(outcome!.target).toEqual({ kind: 'resume', id: 'sound' })
+    expect(outcome!.attached.reopened).toBe(true)
   })
 
-  it('creates a new session when the reader dismisses the browser after a failure', async () => {
-    // Dismissal is how the reader chooses a fresh session deliberately, and the
-    // attachment marks it so the transcript says a request went unanswered.
+  it('cancels opening without creating when the reader dismisses after resume failure', async () => {
+    // A resume request never grants permission for a different Session.
     const { agents, created } = opener(async () => { throw new Error('session persistence is not configured') })
     const side = windowSide([])
     const outcome = await attachTarget({
@@ -302,14 +301,13 @@ describe('attaching the agent a window drives', () => {
       ...side,
     }, { kind: 'resume', id: 'past' as SessionId })
     expect(side.reported).toEqual(['session persistence is not configured'])
-    expect(outcome.target).toEqual({ kind: 'new', afterDismissal: true })
-    expect(created[0]).toMatchObject({ sessionId: 'dshline-new', meta: { cwd: '/w' } })
+    expect(outcome).toBeUndefined()
+    expect(created).toHaveLength(0)
   })
 
   it('keeps asking while reopening keeps failing, and never loops on its own', async () => {
     // Bounded by the reader, not by a retry count: every attempt is reported and
-    // re-asked, and dismissing ends it. A broken persistence backend therefore
-    // reaches a usable window in one keystroke instead of spinning or dying.
+    // re-asked, and dismissing ends it without inventing a replacement Session.
     const { agents, created, resumed } = opener(async () => { throw new Error('unreadable') })
     const side = windowSide([
       { kind: 'resume', id: 'second' as SessionId },
@@ -325,8 +323,8 @@ describe('attaching the agent a window drives', () => {
     }, { kind: 'resume', id: 'first' as SessionId })
     expect(resumed.map(options => options.resumeSessionId)).toEqual(['first', 'second', 'third'])
     expect(side.reported).toEqual(['unreadable', 'unreadable', 'unreadable'])
-    expect(outcome.target).toEqual({ kind: 'new', afterDismissal: true })
-    expect(created).toHaveLength(1)
+    expect(outcome).toBeUndefined()
+    expect(created).toHaveLength(0)
   })
 
   it('reports a thrown non-error too', async () => {
@@ -390,11 +388,11 @@ describe('attaching the agent a window drives', () => {
     expect(side.asked()).toBe(1)
     expect(created).toHaveLength(1)
     expect(resumed.map(options => options.resumeSessionId)).toEqual(['left-session'])
-    expect(outcome.target).toEqual({ kind: 'resume', id: 'left-session' })
-    expect(outcome.attached.reopened).toBe(true)
+    expect(outcome!.target).toEqual({ kind: 'resume', id: 'left-session' })
+    expect(outcome!.attached.reopened).toBe(true)
   })
 
-  it('retries fresh only after the reader asks, and keeps the attachment workspace', async () => {
+  it('cancels a failed /new without retrying creation on dismissal', async () => {
     const created: CreateAgentOptions[] = []
     const agents: AgentOpener = {
       create: async options => {
@@ -404,7 +402,7 @@ describe('attaching the agent a window drives', () => {
       },
       resume: async () => { throw new Error('unused') },
     }
-    const side = windowSide([{ kind: 'new', afterDismissal: true }])
+    const side = windowSide([])
     const outcome = await attachTarget({
       agents,
       newSessionId: () => `dshline-new-${created.length}` as SessionId,
@@ -414,18 +412,16 @@ describe('attaching the agent a window drives', () => {
       ...side,
     }, { kind: 'new', cwd: '/bar' })
     expect(side.asked()).toBe(1)
-    expect(created.map(options => options.meta?.cwd)).toEqual(['/bar', '/bar'])
-    expect(outcome.target).toEqual({ kind: 'new', afterDismissal: true, cwd: '/bar' })
+    expect(created.map(options => options.meta?.cwd)).toEqual(['/bar'])
+    expect(outcome).toBeUndefined()
   })
 })
 
 describe('whether a fresh attach should clear the visible display', () => {
   it('clears only a fresh target that carried /clear intent', () => {
     expect(shouldClearDisplay({ kind: 'new', cwd: '/w', clearDisplay: true })).toBe(true)
-    // A plain /new, a chooser dismissal, and a resumed session all keep the
-    // display exactly as the reader left it.
+    // A plain /new and a resumed session keep the existing display.
     expect(shouldClearDisplay({ kind: 'new', cwd: '/w' })).toBe(false)
-    expect(shouldClearDisplay({ kind: 'new', afterDismissal: true })).toBe(false)
     expect(shouldClearDisplay({ kind: 'resume', id: 'past' as SessionId })).toBe(false)
   })
 
@@ -440,15 +436,15 @@ describe('whether a fresh attach should clear the visible display', () => {
       options: {},
       ...side,
     }, { kind: 'new', cwd: '/bar', clearDisplay: true })
-    expect(outcome.target).toEqual({ kind: 'new', cwd: '/bar', clearDisplay: true })
-    expect(shouldClearDisplay(outcome.target)).toBe(true)
+    expect(outcome!.target).toEqual({ kind: 'new', cwd: '/bar', clearDisplay: true })
+    expect(shouldClearDisplay(outcome!.target)).toBe(true)
     // `clearDisplay` is presentation, never a fact about the session: the
     // created header stays exactly what a plain /new would record.
     expect(created[0]).toMatchObject({ meta: { cwd: '/bar' } })
     expect(created[0]?.meta).not.toHaveProperty('clearDisplay')
   })
 
-  it('keeps /clear intent when a failed create is retried fresh, exactly as it keeps the workspace', async () => {
+  it('cancels a failed /clear without a fresh attachment or display-clear target', async () => {
     const created: CreateAgentOptions[] = []
     const agents: AgentOpener = {
       create: async options => {
@@ -458,7 +454,7 @@ describe('whether a fresh attach should clear the visible display', () => {
       },
       resume: async () => { throw new Error('unused') },
     }
-    const side = windowSide([{ kind: 'new', afterDismissal: true }])
+    const side = windowSide([])
     const outcome = await attachTarget({
       agents,
       newSessionId: () => `dshline-new-${created.length}` as SessionId,
@@ -468,11 +464,8 @@ describe('whether a fresh attach should clear the visible display', () => {
       ...side,
     }, { kind: 'new', cwd: '/bar', clearDisplay: true })
     expect(side.reported).toEqual(['first setup failed'])
-    expect(created.map(options => options.meta?.cwd)).toEqual(['/bar', '/bar'])
-    expect(created[1]?.meta).not.toHaveProperty('clearDisplay')
-    // The retried fresh session is still the /clear the reader asked for once.
-    expect(outcome.target).toEqual({ kind: 'new', afterDismissal: true, cwd: '/bar', clearDisplay: true })
-    expect(shouldClearDisplay(outcome.target)).toBe(true)
+    expect(created.map(options => options.meta?.cwd)).toEqual(['/bar'])
+    expect(outcome).toBeUndefined()
   })
 
   it('drops /clear intent when a failed create is answered by resuming a session', async () => {
@@ -489,14 +482,11 @@ describe('whether a fresh attach should clear the visible display', () => {
       options: {},
       ...side,
     }, { kind: 'new', cwd: '/bar', clearDisplay: true })
-    expect(outcome.target).toEqual({ kind: 'resume', id: 'left-session' })
-    expect(shouldClearDisplay(outcome.target)).toBe(false)
+    expect(outcome!.target).toEqual({ kind: 'resume', id: 'left-session' })
+    expect(shouldClearDisplay(outcome!.target)).toBe(false)
   })
 
-  it('keeps /clear intent when a failed resume is answered by fresh, as it keeps the workspace', async () => {
-    // The recovery loop folds `cwd` into every fresh retry, wherever it is
-    // chosen; the presentation intent rides the same request, so it must not
-    // be the one field the resume-failure path drops.
+  it('cancels after failed /clear and failed resume without resurrecting creation intent', async () => {
     const created: CreateAgentOptions[] = []
     const agents: AgentOpener = {
       create: async options => {
@@ -508,7 +498,6 @@ describe('whether a fresh attach should clear the visible display', () => {
     }
     const side = windowSide([
       { kind: 'resume', id: 'first' as SessionId },
-      { kind: 'new', afterDismissal: true },
     ])
     const outcome = await attachTarget({
       agents,
@@ -519,10 +508,8 @@ describe('whether a fresh attach should clear the visible display', () => {
       ...side,
     }, { kind: 'new', cwd: '/bar', clearDisplay: true })
     expect(side.reported).toEqual(['first setup failed', 'cannot resume'])
-    expect(created.map(options => options.meta?.cwd)).toEqual(['/bar', '/bar'])
-    expect(created[1]?.meta).not.toHaveProperty('clearDisplay')
-    expect(outcome.target).toEqual({ kind: 'new', afterDismissal: true, cwd: '/bar', clearDisplay: true })
-    expect(shouldClearDisplay(outcome.target)).toBe(true)
+    expect(created.map(options => options.meta?.cwd)).toEqual(['/bar'])
+    expect(outcome).toBeUndefined()
   })
 
   it('keeps a plain /new indistinguishable from the pre-/clear target', async () => {
@@ -536,8 +523,8 @@ describe('whether a fresh attach should clear the visible display', () => {
       options: {},
       ...side,
     }, { kind: 'new', cwd: '/bar' })
-    expect(outcome.target).toEqual({ kind: 'new', cwd: '/bar' })
-    expect(shouldClearDisplay(outcome.target)).toBe(false)
+    expect(outcome!.target).toEqual({ kind: 'new', cwd: '/bar' })
+    expect(shouldClearDisplay(outcome!.target)).toBe(false)
     expect(created[0]).toMatchObject({ meta: { cwd: '/bar' } })
     expect(created[0]?.meta).not.toHaveProperty('clearDisplay')
   })
@@ -547,7 +534,7 @@ describe('what a failed reopen says', () => {
   it('names the reason and the way out of the browser it is about to open', () => {
     const lines = reopenFailureLines('replay validation failed').map(stripAnsi)
     expect(lines[0]).toContain('could not reopen that session: replay validation failed')
-    expect(lines[1]).toContain('esc for a new session')
+    expect(lines[1]).toContain('close the browser to exit')
   })
 
   it('escapes a reason it did not compose', () => {
@@ -564,7 +551,7 @@ describe('what a failed in-window /new says', () => {
     const lines = newSessionFailureLines('factory setup failed').map(stripAnsi)
     expect(lines[0]).toContain('could not start a new session: factory setup failed')
     expect(lines[1]).toContain('choose a session')
-    expect(lines[1]).toContain('try fresh again')
+    expect(lines[1]).toContain('close the browser to exit')
   })
 
   it('escapes a create reason it did not compose', () => {

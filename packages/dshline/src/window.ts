@@ -713,9 +713,9 @@ export async function offerSetup(w: Window): Promise<SetupOutcome> {
  * already redraws on `tui/render`, so pushing the overlay paints it and `ctrl-d`
  * still leaves.
  * @param w - the window whose input routing the browser borrows.
- * @returns the chosen session, or a fresh one when the reader dismissed it.
+ * @returns the chosen resume target, or undefined when the reader cancelled.
  */
-export async function chooseTarget(w: Window): Promise<AttachTarget> {
+export async function chooseTarget(w: Window): Promise<Extract<AttachTarget, { kind: 'resume' }> | undefined> {
   const { ctx } = w
   // Resolved BEFORE dispatch changes below: routing ordinary keys toward
   // `activeOverlay` before the module that creates it is ready would open a
@@ -730,7 +730,7 @@ export async function chooseTarget(w: Window): Promise<AttachTarget> {
       activeWork: () => 0,
       workspace: w.startup.cwd,
     })
-    return chosen === undefined ? { kind: 'new', afterDismissal: true } : { kind: 'resume', id: chosen }
+    return chosen === undefined ? undefined : { kind: 'resume', id: chosen }
   } finally {
     w.setDispatch(undefined)
   }

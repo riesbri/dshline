@@ -579,8 +579,8 @@ frontend's capability because this frontend created the agent — and
 scrollback under what is already there; nothing committed is rewritten. A
 rejected resume neither ends the process nor substitutes a session: by then the
 previous agent is already retired, so the window commits Harness's reason and
-asks again through the same browser. Dismissing that is how a reader chooses a
-fresh session deliberately.
+asks again through the same browser. Dismissing it cancels the opening: the
+loop exits the window rather than starting a session nobody asked for.
 
 ## Worktrees: the working directory is a different question
 
