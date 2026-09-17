@@ -28,10 +28,11 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 import {
   applyOrigin,
-  equalFilters,
   EVERY_WORKSPACE,
   NO_FILTERS,
+  originRetained,
   sessionFilterClauses,
+  type OriginChoice,
   type SessionFiltersValue,
   type SessionWorkspace,
 } from './filters.ts'
@@ -95,7 +96,14 @@ export interface SessionCatalogSpec {
   readonly query: SessionQueryReads | undefined
   /** Redraw after catalog state changes. */
   readonly invalidate: () => void
-  /** Rows to keep from one listing; omitted, {@link CATALOG_LIMIT} applies. */
+  /**
+   * Rows to keep from one listing; omitted, {@link CATALOG_LIMIT} applies.
+   *
+   * A non-negative safe integer. This is internal presentation configuration,
+   * not corpus data, so an unusable value is rejected before any Harness read
+   * rather than coerced by `Math.min`/`slice` into a fractional or `NaN`
+   * truncation count. The same value is validated once for every origin mode.
+   */
   readonly limit?: number
   /**
    * The exact corpus scope the `current` workspace filter narrows to.
@@ -234,6 +242,69 @@ function toEntry(record: SessionRecord, trait: ObservedTraits | undefined, snipp
 }
 
 /**
+ * Validate one configured listing limit.
+ *
+ * A listing limit is internal presentation configuration rather than corpus
+ * data, so an unusable value is a programming error, not a listing failure: it
+ * is rejected with a named contract before any Harness read, instead of being
+ * silently coerced into a fractional or `NaN` `truncated` count. Both origin
+ * regimes pass through this one gate, so an invalid limit cannot behave
+ * differently for `all` and `own`/`delegated`.
+ * @param value - the configured limit.
+ * @returns the same value, once proven a non-negative safe integer.
+ */
+function listingLimit(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError('Session catalog limit must be a non-negative safe integer')
+  }
+  return value
+}
+
+/**
+ * Materialize the retained list from one authoritative listing.
+ *
+ * The two regimes have different costs, and naming the difference is the point:
+ *
+ * - `all` has no origin predicate — workspace/age clauses, if any, were already
+ *   applied by Harness — and `records.length` is already the exact
+ *   authoritative total, so dshline touches only the retained prefix.
+ *   Presentation work is O(min(N, limit)). Harness still returned and paid for
+ *   the whole corpus — this bounds the frontend's second corpus, not the
+ *   authoritative listing itself.
+ * - `own`/`delegated` are presentation-only classifications Harness publishes
+ *   no predicate for, so every authoritative header must be read to keep
+ *   `truncated` and `newest of N` exact. Classification is O(N); only
+ *   materialization is bounded to `limit`.
+ *
+ * Either way rows are emitted in their existing Harness order.
+ * @param records - the authoritative listing, in Harness order.
+ * @param origin - the presentation-only origin choice to retain.
+ * @param limit - maximum entries to materialize; already validated.
+ * @returns the retained entries and the exact count the limit dropped.
+ */
+function retainListing(
+  records: readonly SessionRecord[],
+  origin: OriginChoice,
+  limit: number,
+): { readonly entries: SessionEntry[]; readonly truncated: number } {
+  const entries: SessionEntry[] = []
+  if (origin === 'all') {
+    const retained = Math.max(0, Math.min(records.length, limit))
+    for (let index = 0; index < retained; index += 1) {
+      entries.push(toEntry(records[index]!, undefined))
+    }
+    return { entries, truncated: records.length - retained }
+  }
+  let retained = 0
+  for (const record of records) {
+    if (!originRetained(classifyOrigin(record, undefined), origin)) continue
+    retained += 1
+    if (entries.length < limit) entries.push(toEntry(record, undefined))
+  }
+  return { entries, truncated: retained - entries.length }
+}
+
+/**
  * Fold a batch title observation into per-session presentation traits.
  *
  * Every fulfilled settlement stores an entry, even one with no title and no
@@ -357,8 +428,16 @@ export class SessionCatalog {
    */
   private pageRevision = 0
   private disposed = false
+  /**
+   * The validated listing limit shared by every request and origin mode.
+   *
+   * Resolved once at construction so no listing path can reach
+   * {@link retainListing} with an unusable value.
+   */
+  private readonly limit: number
 
   constructor(private readonly spec: SessionCatalogSpec) {
+    this.limit = listingLimit(spec.limit ?? CATALOG_LIMIT)
     this.base = spec.query === undefined ? { kind: 'unavailable' } : { kind: 'loading' }
   }
 
@@ -420,7 +499,7 @@ export class SessionCatalog {
 
   /** Load the unfiltered newest-first listing for backward-compatible callers. */
   refresh(): void {
-    this.requestListing(NO_FILTERS, false)
+    this.requestListing(NO_FILTERS)
   }
 
   /**
@@ -446,7 +525,7 @@ export class SessionCatalog {
     this.contentChain = undefined
     this.contentState = { kind: 'idle' }
     this.spec.invalidate()
-    this.requestListing(this.filterValue, !equalFilters(this.filterValue, NO_FILTERS))
+    this.requestListing(this.filterValue)
   }
 
   /**
@@ -756,7 +835,19 @@ export class SessionCatalog {
     this.lineageAbort = undefined
   }
 
-  private requestListing(filters: SessionFiltersValue, filtered: boolean): void {
+  /**
+   * Start a fresh authoritative listing under one filter value.
+   *
+   * The Harness call is chosen by the TRANSLATED CLAUSES, not by whether the
+   * browser's filter value differs from the default. Origin has no Harness
+   * predicate, so an origin-only filter translates to zero clauses and is a
+   * plain listing; `filterSessions([])` would ask the engine to re-derive the
+   * whole corpus under an empty predicate and then have the frontend discard
+   * it down to the same rows. The origin choice still applies below, as it
+   * always did, because {@link retainListing} scans presentation-only.
+   * @param filters - the complete filter value to apply.
+   */
+  private requestListing(filters: SessionFiltersValue): void {
     const query = this.spec.query
     if (query === undefined) return
     const generation = (this.listingGeneration += 1)
@@ -770,15 +861,10 @@ export class SessionCatalog {
     void (async (): Promise<void> => {
       try {
         const clauses = sessionFilterClauses(filters, this.spec.workspace ?? EVERY_WORKSPACE, this.filterAnchor)
-        const records = filtered
-          ? await query.filterSessions(clauses, abort.signal)
-          : await query.listSessions(abort.signal)
-        const classified = applyOrigin(
-          records.map(record => toEntry(record, undefined)),
-          filtered ? filters.origin : 'all',
-        )
-        const limit = this.spec.limit ?? CATALOG_LIMIT
-        const kept = classified.slice(0, limit)
+        const records = clauses.length === 0
+          ? await query.listSessions(abort.signal)
+          : await query.filterSessions(clauses, abort.signal)
+        const { entries: kept, truncated } = retainListing(records, filters.origin, this.limit)
         const traits = observedTraits(await query.readTitleSnapshots(
           kept.map(entry => entry.id),
           abort.signal,
@@ -787,7 +873,7 @@ export class SessionCatalog {
         this.base = {
           kind: 'ready',
           entries: kept.map(entry => ({ ...entry, title: traits.get(entry.id)?.title })),
-          truncated: classified.length - kept.length,
+          truncated,
         }
       } catch (error: unknown) {
         if (this.stale(generation, this.listingGeneration)) return
