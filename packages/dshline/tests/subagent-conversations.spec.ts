@@ -32,7 +32,8 @@ import {
   createSubagentMessageOverlay,
 } from '../src/subagents/overlay.ts'
 import { createSubagentsPresenter, type SubagentsPresenterDeps } from '../src/subagents/presenter.ts'
-import { readTranscriptOlder, readTranscriptTail, TRANSCRIPT_PAGE } from '../src/subagents/transcript.ts'
+import { readTranscriptNewer, readTranscriptOlder, readTranscriptTail, transcriptReading, TRANSCRIPT_PAGE } from '../src/subagents/transcript.ts'
+import type { SubagentTranscriptReading } from '../src/subagents/transcript.ts'
 import { HarnessWork } from '../src/work/index.ts'
 import { activeWorkCount } from '../src/work/model.ts'
 
@@ -123,10 +124,16 @@ class FakeSession {
   readonly readEventCalls: { request: SessionEventReadRequest; signal?: AbortSignal }[] = []
   private readonly logs = new Map<string, SessionEvent[]>()
   private held = false
+  private failure: unknown
   private readonly pending: (() => void)[] = []
 
   setLog(sessionId: string, events: readonly SessionEvent[]): void {
     this.logs.set(sessionId, [...events])
+  }
+
+  /** Make every subsequent `readEvent` reject with this error. */
+  failReads(error: unknown): void {
+    this.failure = error
   }
 
   /** Defer every subsequent `readEvent` until {@link releaseRead}. */
@@ -146,6 +153,7 @@ class FakeSession {
 
   readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow> {
     this.readEventCalls.push({ request, ...signal === undefined ? {} : { signal } })
+    if (this.failure !== undefined) return Promise.reject(this.failure)
     const window = this.windowFor(request)
     if (!this.held) return Promise.resolve(window)
     return new Promise<SessionEventWindow>(resolve => { this.pending.push(() => { resolve(window) }) })
@@ -369,13 +377,14 @@ describe('subagent conversation catalog overlay', () => {
 
 describe('subagent conversation inspector overlay', () => {
   function inspector(overrides: Partial<Parameters<typeof createSubagentConversationOverlay>[0]> = {}) {
-    const calls = { older: 0, refresh: 0, message: [] as string[] }
+    const calls = { older: 0, newer: 0, refresh: 0, message: [] as string[] }
     const overlay = createSubagentConversationOverlay({
       child: () => ({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false, label: 'review' }),
-      reading: () => ({ kind: 'ready', events: [message(1, 'the child said hello')], hasOlder: true, stale: false }),
+      reading: () => ({ kind: 'ready', events: [message(1, 'the child said hello')], hasOlder: true, hasNewer: true, stale: false }),
       followUp: true,
       steer: true,
       loadOlder: () => { calls.older += 1 },
+      loadNewer: () => { calls.newer += 1 },
       refresh: () => { calls.refresh += 1 },
       message: delivery => { calls.message.push(delivery) },
       notice: new SurfaceNotice(1_000),
@@ -395,14 +404,16 @@ describe('subagent conversation inspector overlay', () => {
     expect(plain).toContain('the child said hello')
   })
 
-  it('routes m, s, [, and r to their presenters', () => {
+  it('routes m, s, [, ], and r to their presenters', () => {
     const { overlay, calls } = inspector()
     overlay.handleKey(text('m'))
     overlay.handleKey(text('s'))
     overlay.handleKey(text('['))
+    overlay.handleKey(text(']'))
     overlay.handleKey(text('r'))
     expect(calls.message).toEqual(['queue', 'steer'])
     expect(calls.older).toBe(1)
+    expect(calls.newer).toBe(1)
     expect(calls.refresh).toBe(1)
   })
 
@@ -426,6 +437,7 @@ describe('subagent conversation inspector overlay', () => {
         kind: 'ready',
         events: [message(1, 'a very long conversation body that must wrap and never leak a row 标签')],
         hasOlder: false,
+        hasNewer: true,
         stale: false,
       }),
     })
@@ -433,6 +445,46 @@ describe('subagent conversation inspector overlay', () => {
       for (const rows of [3, 5, 7, 8, 10, 12, 24]) {
         expect(physicalRows(overlay.render(columns, rows), columns).length).toBeLessThanOrEqual(rows)
       }
+    }
+  })
+
+  it('advertises page directions only when the reading offers them', () => {
+    const footerFor = (reading: SubagentTranscriptReading): string => {
+      const overlay = createSubagentConversationOverlay({
+        child: () => ({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false, label: 'review' }),
+        reading: () => reading,
+        followUp: true,
+        steer: true,
+        loadOlder: () => {},
+        loadNewer: () => {},
+        refresh: () => {},
+        message: () => {},
+        notice: new SurfaceNotice(1_000),
+        close: () => {},
+        invalidate: () => {},
+      })
+      return stripAnsi(overlay.render(160, 24).join('\n'))
+    }
+    const ready = (hasOlder: boolean, hasNewer: boolean): SubagentTranscriptReading =>
+      ({ kind: 'ready', events: [message(1, 'x')], hasOlder, hasNewer, stale: false })
+    expect(footerFor(ready(true, false))).toContain('[ older')
+    expect(footerFor(ready(true, false))).not.toContain('] newer')
+    expect(footerFor(ready(true, true))).toContain('[ older')
+    expect(footerFor(ready(true, true))).toContain('] newer')
+    expect(footerFor(ready(false, true))).toContain('] newer')
+    expect(footerFor(ready(false, true))).not.toContain('[ older')
+    expect(footerFor(ready(false, false))).not.toContain('[ older')
+    expect(footerFor(ready(false, false))).not.toContain('] newer')
+    for (const state of [
+      { kind: 'loading' },
+      { kind: 'unavailable' },
+      { kind: 'empty' },
+      { kind: 'failed', message: 'boom' },
+    ] as const) {
+      const plain = footerFor(state)
+      expect(plain).not.toContain('[ older')
+      expect(plain).not.toContain('] newer')
+      expect(plain).toContain('r refresh')
     }
   })
 })
@@ -567,6 +619,92 @@ describe('bounded transcript paging', () => {
     session.setLog('c', Array.from({ length: LARGE }, (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`)))
     return session
   }
+
+  it('round-trips 53 events through a partial oldest page without gaps or overlap', async () => {
+    const session = new FakeSession()
+    session.setLog('c', Array.from({ length: 53 }, (_, i) => message(i + 1, `event ${i + 1}`)))
+    let state = await readTranscriptTail(session, 'c' as never)
+    const index = state.index
+    const ranges = [[30, 53], [6, 29], [1, 5], [6, 29], [30, 53]] as const
+    for (let step = 0; step < ranges.length; step += 1) {
+      if (step > 0) state = await (step <= 2 ? readTranscriptOlder : readTranscriptNewer)(session, 'c' as never, state)
+      const [start, end] = ranges[step]!
+      expect(state.events.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE)
+      expect(state.events.map(event => event.seq)).toEqual(Array.from({ length: end - start + 1 }, (_, i) => start + i))
+      expect(state).toMatchObject({ startSeq: start, endSeq: end, hasOlder: start > 1, hasNewer: end < 53 })
+      expect(transcriptReading(state)).toMatchObject({ hasOlder: start > 1, hasNewer: end < 53 })
+      expect(state.index).toBe(index)
+    }
+  })
+
+  it('reuses the captured index for both directions until refresh', async () => {
+    const session = seeded()
+    let state = await readTranscriptTail(session, 'c' as never)
+    const index = state.index
+    for (let i = 0; i < 4; i += 1) state = await readTranscriptOlder(session, 'c' as never, state)
+    expect(state.hasOlder).toBe(false)
+    const reads = session.readEventCalls.length
+    state = await readTranscriptOlder(session, 'c' as never, state)
+    expect(session.readEventCalls).toHaveLength(reads)
+    for (let i = 0; i < 4; i += 1) {
+      state = await readTranscriptNewer(session, 'c' as never, state)
+      expect(state.events.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE)
+      expect(state.index).toBe(index)
+    }
+    expect(state.hasNewer).toBe(false)
+    await readTranscriptNewer(session, 'c' as never, state)
+    expect(session.readEventCalls).toHaveLength(9)
+    expect(session.listEventsCalls).toHaveLength(1)
+    for (const { request } of session.readEventCalls) {
+      expect((request.before ?? 0) + (request.after ?? 0) + 1).toBeLessThanOrEqual(TRANSCRIPT_PAGE)
+    }
+    await readTranscriptTail(session, 'c' as never)
+    expect(session.listEventsCalls).toHaveLength(2)
+  })
+
+  it('keeps newer inside captured 72-event history until explicit refresh', async () => {
+    const session = new FakeSession()
+    const log = Array.from({ length: 75 }, (_, i) => message(i + 1, `event ${i + 1}`))
+    session.setLog('c', log.slice(0, 72))
+    let state = await readTranscriptTail(session, 'c' as never)
+    expect(state).toMatchObject({ startSeq: 49, endSeq: 72, hasOlder: true, hasNewer: false })
+    state = await readTranscriptOlder(session, 'c' as never, state)
+    expect(state).toMatchObject({ startSeq: 25, endSeq: 48, hasOlder: true, hasNewer: true })
+    session.setLog('c', log)
+    state = await readTranscriptNewer(session, 'c' as never, { ...state, stale: true })
+    expect(state.events.map(event => event.seq)).toEqual(log.slice(48, 72).map(event => event.seq))
+    expect(state).toMatchObject({ endSeq: 72, hasNewer: false, stale: true })
+    expect(session.listEventsCalls).toHaveLength(1)
+    state = await readTranscriptTail(session, 'c' as never)
+    expect(state.events.map(event => event.seq)).toEqual(log.slice(51).map(event => event.seq))
+    expect(state).toMatchObject({ endSeq: 75, hasNewer: false, stale: false })
+  })
+
+  it('anchors newer requests at the captured destination end', async () => {
+    const session = seeded()
+    const tail = await readTranscriptTail(session, 'c' as never)
+    const older = await readTranscriptOlder(session, 'c' as never, tail)
+    await readTranscriptNewer(session, 'c' as never, older)
+    expect(session.readEventCalls.at(-1)?.request).toEqual({ sessionId: 'c', seq: LARGE, before: 23, after: 0 })
+  })
+
+  it('preserves stale through both pure paging helpers', async () => {
+    const session = seeded()
+    const tail = await readTranscriptTail(session, 'c' as never)
+    const older = await readTranscriptOlder(session, 'c' as never, { ...tail, stale: true })
+    expect(older.stale).toBe(true)
+    expect((await readTranscriptNewer(session, 'c' as never, older)).stale).toBe(true)
+  })
+
+  it('offers neither direction for a single page', async () => {
+    const session = new FakeSession()
+    session.setLog('c', [message(0, 'first')])
+    const state = await readTranscriptTail(session, 'c' as never)
+    expect(state).toMatchObject({ startSeq: 0, endSeq: 0, hasOlder: false, hasNewer: false })
+    await readTranscriptOlder(session, 'c' as never, state)
+    await readTranscriptNewer(session, 'c' as never, state)
+    expect(session.readEventCalls).toHaveLength(1)
+  })
 
   it('retains at most one page of full event bodies while paging backward', async () => {
     const session = seeded()
@@ -885,6 +1023,126 @@ describe('subagent conversation presenter', () => {
     expect(session.readEventCalls.length).toBe(1)
   })
 
+  it('keeps the loaded page when the newer read rejects', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', Array.from(
+      { length: TRANSCRIPT_PAGE * 2 },
+      (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`),
+    ))
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    slots.top()?.handleKey(text('['))
+    await flush()
+    session.failReads(new Error('newer unavailable'))
+    slots.top()?.handleKey(text(']'))
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 80).join('\n') ?? '')
+    expect(plain).toContain('event 001')
+    expect(plain).toContain('event 024')
+    expect(plain).not.toContain('event 025')
+    expect(plain).toContain('Newer events failed: newer unavailable')
+    expect(session.readEventCalls.at(-1)?.request.after).toBe(0)
+    expect(session.listEventsCalls).toHaveLength(1)
+    // A later gesture navigates from the retained page, not from a guessed one.
+    session.failReads(undefined)
+    slots.top()?.handleKey(text(']'))
+    await flush()
+    expect(session.readEventCalls.at(-1)?.request.seq).toBe(TRANSCRIPT_PAGE * 2)
+  })
+
+  it('publishes the winning read when two newer gestures race', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', Array.from(
+      { length: TRANSCRIPT_PAGE * 3 },
+      (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`),
+    ))
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    slots.top()?.handleKey(text('['))
+    await flush()
+    session.holdReads()
+    // Two gestures before either settles: both derive from the published
+    // page, the newest-started read wins, and neither re-indexes.
+    slots.top()?.handleKey(text(']'))
+    slots.top()?.handleKey(text(']'))
+    await flush()
+    session.releaseRead(1)
+    await flush()
+    session.releaseRead(0)
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 80).join('\n') ?? '')
+    expect(plain).toContain('event 049')
+    expect(plain).not.toContain('event 025')
+    // Both gestures read the same captured slice: the settled page advances
+    // one page (the winner publishes), never two.
+    expect(session.readEventCalls).toHaveLength(4)
+    expect(session.readEventCalls[2]?.request).toEqual({ sessionId: 'c', seq: TRANSCRIPT_PAGE * 3, before: TRANSCRIPT_PAGE - 1, after: 0 })
+    expect(session.readEventCalls[3]?.request).toEqual(session.readEventCalls[2]?.request)
+    expect(session.listEventsCalls).toHaveLength(1)
+  })
+
+  it('discards a newer page superseded by an explicit refresh', async () => {
+    const { slots, subagents, session, p } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    const log = Array.from({ length: 75 }, (_, i) => message(i + 1, `event ${i + 1}`))
+    session.setLog('c', log.slice(0, 72))
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    slots.top()?.handleKey(text('['))
+    await flush()
+    session.holdReads()
+    slots.top()?.handleKey(text(']'))
+    await flush()
+    session.setLog('c', log)
+    slots.top()?.handleKey(text('r'))
+    await flush()
+    session.releaseRead(1)
+    await flush()
+    session.releaseRead(0)
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(160, 80).join('\n') ?? '')
+    expect(plain).toContain('event 75')
+    expect(plain).not.toContain('event 49')
+    expect(session.listEventsCalls).toHaveLength(2)
+  })
+
+  it.each(['before', 'during'] as const)('preserves stale when an event arrives %s newer navigation', async timing => {
+    const { slots, subagents, session, p, fireSessionEvent } = mount()
+    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    session.setLog('c', Array.from({ length: 72 }, (_, i) => message(i + 1, `event ${i + 1}`)))
+    p.open()
+    await flush()
+    slots.top()?.handleKey(key('enter'))
+    await flush()
+    if (timing === 'before') fireSessionEvent('c')
+    slots.top()?.handleKey(text('['))
+    await flush()
+    if (timing === 'before') expect(stripAnsi(slots.top()?.render(160, 80).join('\n') ?? '')).toContain('new events')
+    session.holdReads()
+    slots.top()?.handleKey(text(']'))
+    await flush()
+    if (timing === 'during') fireSessionEvent('c')
+    session.releaseRead()
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(160, 80).join('\n') ?? '')
+    expect(plain).toContain('event 72')
+    expect(plain).toContain('new events')
+    expect(session.listEventsCalls).toHaveLength(1)
+    slots.top()?.handleKey(text('r'))
+    await flush()
+    session.releaseRead()
+    await flush()
+    expect(stripAnsi(slots.top()?.render(160, 80).join('\n') ?? '')).not.toContain('new events')
+  })
+
   it('marks a replaced older page stale when an event arrives during its read', async () => {
     const { slots, subagents, session, p, fireSessionEvent } = mount()
     subagents.setChildren([child('c', 'continuable', 'inactive')])
@@ -1156,10 +1414,11 @@ describe('subagent navigation chrome', () => {
     })
     const conversation = createSubagentConversationOverlay({
       child: () => ({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false, label: 'review' }),
-      reading: () => ({ kind: 'ready', events: [message(1, 'x')], hasOlder: false, stale: false }),
+      reading: () => ({ kind: 'ready', events: [message(1, 'x')], hasOlder: false, hasNewer: false, stale: false }),
       followUp: true,
       steer: true,
       loadOlder: () => {},
+      loadNewer: () => {},
       refresh: () => {},
       message: () => {},
       notice: new SurfaceNotice(1_000),

@@ -27,6 +27,7 @@ function reading(): SubagentTranscriptReading {
   return {
     kind: 'ready',
     hasOlder: false,
+    hasNewer: false,
     stale: false,
     events: Array.from({ length: 12 }, (_, index) => ({
       type: 'user/message',
@@ -45,6 +46,7 @@ function inspector(): ReturnType<typeof createSubagentConversationOverlay> {
     followUp: true,
     steer: true,
     loadOlder: () => {},
+    loadNewer: () => {},
     refresh: () => {},
     message: () => {},
     notice: new SurfaceNotice(1_000),

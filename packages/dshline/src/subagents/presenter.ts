@@ -43,6 +43,7 @@ import {
 import type { ChildSessionReads, HumanSubagentSeam } from './seam.ts'
 import {
   initialTranscript,
+  readTranscriptNewer,
   readTranscriptOlder,
   readTranscriptTail,
   transcriptReading,
@@ -192,12 +193,31 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
     void readTranscriptOlder(query, state.child.id as SessionId, state.transcript, state.abort.signal)
       .then(next => {
         if (conversation !== state || state.readGeneration !== generation) return
-        state.transcript = { ...next, stale: state.eventGeneration !== seen }
+        state.transcript = { ...next, stale: next.stale || state.eventGeneration !== seen }
         deps.invalidate()
       })
       .catch((error: unknown) => {
         if (conversation !== state || state.readGeneration !== generation) return
         state.notice.show(`Older events failed: ${reason(error)}`, true)
+        deps.invalidate()
+      })
+  }
+
+  /** Replace the loaded window with one newer captured page, keeping it on failure. */
+  const loadNewer = (state: OpenConversation): void => {
+    const query = deps.query
+    if (query === undefined || state.transcript.kind !== 'ready' || !state.transcript.hasNewer) return
+    const generation = (state.readGeneration += 1)
+    const seen = state.eventGeneration
+    void readTranscriptNewer(query, state.child.id as SessionId, state.transcript, state.abort.signal)
+      .then(next => {
+        if (conversation !== state || state.readGeneration !== generation) return
+        state.transcript = { ...next, stale: next.stale || state.eventGeneration !== seen }
+        deps.invalidate()
+      })
+      .catch((error: unknown) => {
+        if (conversation !== state || state.readGeneration !== generation) return
+        state.notice.show(`Newer events failed: ${reason(error)}`, true)
         deps.invalidate()
       })
   }
@@ -250,6 +270,7 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
       followUp: subagentRowFollowUp(row, deps.subagents !== undefined),
       steer: subagentRowFollowUp(row, deps.subagents !== undefined),
       loadOlder: () => { loadOlder(state) },
+      loadNewer: () => { loadNewer(state) },
       refresh: () => { reload(state) },
       message: delivery => { openComposer(state, delivery) },
       notice: state.notice,

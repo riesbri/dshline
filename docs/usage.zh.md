@@ -643,6 +643,8 @@ No Harness session corpus is mounted in this profile.
 
 持久 subagent 对话是与活动工作分开的视图。`/work` 只列出开放的生命周期 epoch，而一个 continuable 子级的 epoch 会在它结算时结束——因此 `/subagents` 打开的是 Harness 的持久直接子级发现；而在 `/work` 的 subagent 详情中按 `c`，当 Work 已持有该子级的持久发现事实时会直接打开该子级，否则回退到目录。每一行都是 Harness 发布的事实：子级 id、其 label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及它是否有子级。打开其中一个会通过 `ctx.sessionQuery` 读取该子级自己的会话日志，而不恢复该子级；continuable 子级可以接收人类跟进（`m`）或 steer（`s`）。one-shot 子级可检视且只读。跟进与 steer 使用 Harness 的人类提示操作，因此接受与否由 Harness 自己决定；消息只有当子级的会话日志如此记录时才出现在其 transcript（文本记录）中。中断保留在 `/work`，那里一个开放的生命周期 epoch 是更强的前提。
 
+在对话检视器中，`[` 加载较旧的一页，`]` 加载较新的一页，两者都只在打开时或上次刷新时捕获的历史范围内移动。每次翻页都会替换已加载的页面，页脚只提示实际存在的方向。`]` 不会读取新追加的事件：`r` 会刷新索引并加载最新一页。翻页时，`new events` 提示会一直保留，直到显式刷新。
+
 行的标记说明 dshline 对它到底知道多少：
 
 | 标记 | 含义 |
