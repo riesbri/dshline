@@ -15,6 +15,21 @@
  * in particular walks the whole draft through one review menu, so leaving a
  * submenu never mutates settings on its own.
  *
+ * A route that serves no explicit `models` list inherits the installed
+ * catalog, and there per-model edits are written as `modelOverrides.<id>`
+ * path ops — one model corrected, the other thirty-seven untouched. A route
+ * whose profile DOES list models writes that whole array back with every
+ * uncurated field (including `compat`) carried through. The two are never
+ * written into one profile at once, because `llm-pi-ai` refuses an override
+ * beside a list.
+ *
+ * A save that loses a revision race does not retry. {@link runRouteEditor}
+ * keeps the draft on screen, re-reads the descriptor and the provider
+ * directory, says plainly that the route changed elsewhere, and waits for a
+ * second explicit Save before writing against the fresh revision. A route
+ * deleted underneath the editor is never resurrected: the draft stays for
+ * inspection and the reader is told to back out and add it again.
+ *
  * Nothing here imports `@deepseek-ai/dsh-llm-pi-ai` or performs network I/O.
  * The one seam that touches an endpoint is `ctx.llm.discoverModels`, and its
  * result is candidates a reader chooses from, never a fact adopted automatically.
@@ -25,23 +40,26 @@ import type { Context } from '@deepseek-ai/cordis'
 import { promptSelect } from '../select.ts'
 import { promptText } from '../prompt.ts'
 import type { ConnectActionOutcome } from './actions.ts'
-import { messageOf } from './catalog.ts'
-import type { LlmDiscoveredModelRead, LlmModelDiscoveryRequestRead, ConnectSeams } from './harness.ts'
+import { isSettingsConflict, messageOf } from './catalog.ts'
+import type { ConnectSeams, LlmModelDiscoveryRequestRead, SettingsPathOp } from './harness.ts'
 import { normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { ConnectNewRouteTarget, ConnectProviderRow } from './model.ts'
 import { derivedCredentialRef, newRouteIdProblem } from './model.ts'
 import {
   addCandidates,
   addManual,
+  entriesFromOverrides,
   entriesFromRaw,
   includedEntries,
   parseCapacity,
   sameModelSet,
+  sameOverrideSet,
   toRawEntries,
+  toRawOverrides,
   toggleIncluded,
   updateFields,
 } from './model-editor.ts'
-import type { ModelDraftEntry } from './model-editor.ts'
+import type { ModelDraftEntry, ModelStorage } from './model-editor.ts'
 import {
   entriesFromRawHeaders,
   headerNameProblem,
@@ -58,14 +76,21 @@ import {
   DISPLAY_NAME_FIELD,
   fieldOps,
   headersCurated,
+  INPUT_FIELD,
   protocolChoices,
   rawHeaders,
+  rawModelOverrides,
   rawModels,
+  REASONING_EFFORTS_FIELD,
+  routeModelSchema,
   setHeadersOp,
   setModelsOp,
+  setOverrideOp,
   unsetHeadersOp,
   unsetModelsOp,
+  unsetOverrideOp,
 } from './pi-ai.ts'
+import type { ModelEntrySchema, ReasoningEffortsValue, RouteModelSchema } from './pi-ai.ts'
 import { credentialRefFields, profileNode, valueAt } from './schema.ts'
 import type { CuratedFieldChange } from './pi-ai.ts'
 
@@ -87,23 +112,31 @@ interface RouteDraft {
   readonly api: string
   readonly headers: HeaderDraftEntry[]
   readonly models: ModelDraftEntry[]
-  readonly modelsInherited: boolean
+  /** Which field the model entries write: an explicit list, or per-id overrides. */
+  readonly storage: ModelStorage
 }
 
 /**
  * Read a route's curated fields into a draft.
- * @param profile - the profile value at the route's settings path.
+ *
+ * The mode is decided from the EFFECTIVE resolved value, never from whether a
+ * key exists: `llm-pi-ai`'s schema materializes `[]` for an absent `models`
+ * array, and absent and empty are the same "serve the installed catalog"
+ * request. So a route is explicit exactly when its resolved list has entries,
+ * and otherwise its per-model edits address `modelOverrides`.
+ * @param effective - the resolved profile value at the route's settings path.
  * @returns the draft, ready to compare edits against.
  */
-function readDraft(profile: unknown): RouteDraft {
-  const raw = rawModels(profile)
+function readDraft(effective: unknown): RouteDraft {
+  const listed = rawModels(effective)
+  const explicit = listed !== undefined && listed.length > 0
   return {
-    displayName: stringField(profile, DISPLAY_NAME_FIELD),
-    baseURL: stringField(profile, BASE_URL_FIELD) ?? '',
-    api: stringField(profile, API_FIELD) ?? '',
-    headers: entriesFromRawHeaders(rawHeaders(profile)),
-    models: entriesFromRaw(raw),
-    modelsInherited: raw === undefined,
+    displayName: stringField(effective, DISPLAY_NAME_FIELD),
+    baseURL: stringField(effective, BASE_URL_FIELD) ?? '',
+    api: stringField(effective, API_FIELD) ?? '',
+    headers: entriesFromRawHeaders(rawHeaders(effective)),
+    models: explicit ? entriesFromRaw(listed) : entriesFromOverrides(rawModelOverrides(effective)),
+    storage: explicit ? 'models' : 'override',
   }
 }
 
@@ -130,6 +163,12 @@ function headersSummary(entries: readonly HeaderDraftEntry[]): string {
 
 /**
  * Edit one route the directory already lists.
+ *
+ * The route menu and every submenu are side-effect free; a save is the only
+ * write, and it is one revision-checked `settings.mutate`. A rejected write
+ * never discards the draft: the cause is shown, the descriptor and directory
+ * are re-read, and the reader must Save again — so a revision race is resolved
+ * by a person, not by an automatic retry that could apply a stale intent.
  * @param ctx - context carrying the slot registry.
  * @param seams - the Harness seams.
  * @param row - the route being edited.
@@ -142,116 +181,190 @@ export async function runRouteEditor(
 ): Promise<ConnectActionOutcome | undefined> {
   const { settings } = seams
   if (settings === undefined) return failed('this profile mounts no settings provider')
-  const descriptor = settings.describe({ redactSecrets: true }).find(entry => entry.ns === row.settingsNs)
+  let descriptor = settings.describe({ redactSecrets: true }).find(entry => entry.ns === row.settingsNs)
   if (descriptor === undefined) return failed(`${row.settingsNs} is no longer available`)
-  const profile = valueAt(descriptor.value, row.settingsPath)
-  const original = readDraft(profile)
-  const protocolOptions = protocolChoices(descriptor.schema, row.settingsPath)
+  const original = readDraft(valueAt(descriptor.value, row.settingsPath))
   const editableIdentity = row.declared === true
-  // Not gated on `declared`, unlike protocol and display name: a header is
-  // additive and means the same thing on a catalog route as on a declared one
-  // — a tenant tag or an egress token the deployment needs on requests to an
-  // endpoint it did not itself describe.
-  const headersOffered = headersCurated(descriptor.schema, row.settingsPath)
   let draft = original
   let notice: string | undefined
+  // Set when a re-read finds the route gone. The draft survives for
+  // inspection, but no save may write it back: a declared route's profile was
+  // removed (or the directory dropped the route), and a path op would recreate
+  // it through the settings schema's intermediate-object creation.
+  let removed = false
   for (;;) {
-    const modelsLabel = draft.modelsInherited
-      ? 'inherited from adapter'
-      : `customized · ${String(includedEntries(draft.models).length)}`
-    const choice = await promptSelect(ctx, {
-      title: `Edit ${row.displayName}`,
-      view: 'Edit route',
-      detail: notice ?? `${row.settingsNs}${row.settingsPath.length > 0 ? ` · ${row.settingsPath.join('.')}` : ''}`,
-      choices: [
-        { value: 'base-url', label: 'Base URL', description: draft.baseURL === '' ? '(not set)' : draft.baseURL },
-        ...editableIdentity && protocolOptions.length > 0
-          ? [{ value: 'protocol', label: 'Protocol', description: draft.api === '' ? '(not set)' : draft.api }]
-          : [],
-        ...editableIdentity
-          ? [{ value: 'display-name', label: 'Display name', description: draft.displayName ?? '(none)' }]
-          : [],
-        ...headersOffered
-          ? [{ value: 'headers', label: 'Request headers', description: headersSummary(draft.headers) }]
-          : [],
-        { value: 'models', label: 'Models', description: modelsLabel },
-        ...draft.modelsInherited
-          ? []
-          : [{ value: 'reset-models', label: 'Reset models to adapter catalog' }],
-        { value: 'save', label: 'Save changes' },
-        { value: 'cancel', label: 'Discard changes' },
-      ],
-    })
-    notice = undefined
-    if (choice === undefined || choice === 'cancel') return undefined
-    if (choice === 'base-url') {
-      const typed = await promptText(ctx, {
-        title: 'Base URL',
+    const protocolOptions = protocolChoices(descriptor.schema, row.settingsPath)
+    // Not gated on `declared`, unlike protocol and display name: a header is
+    // additive and means the same thing on a catalog route as on a declared one
+    // — a tenant tag or an egress token the deployment needs on requests to an
+    // endpoint it did not itself describe.
+    const headersOffered = headersCurated(descriptor.schema, row.settingsPath)
+    const modelSchema = routeModelSchema(descriptor.schema, row.settingsPath)
+    const ownedOverrideIds = new Set(Object.keys(rawModelOverrides(valueAt(descriptor.user, row.settingsPath))))
+    for (;;) {
+      const modelsLabel = draft.storage === 'override'
+        ? draft.models.length === 0
+          ? 'inherited from adapter'
+          : `overrides · ${String(includedEntries(draft.models).length)}`
+        : `customized · ${String(includedEntries(draft.models).length)}`
+      const choice = await promptSelect(ctx, {
+        title: `Edit ${row.displayName}`,
         view: 'Edit route',
-        message: 'The base URL this route calls.',
-        kind: 'text',
-        initial: draft.baseURL,
+        detail: notice ?? `${row.settingsNs}${row.settingsPath.length > 0 ? ` · ${row.settingsPath.join('.')}` : ''}`,
+        choices: [
+          { value: 'base-url', label: 'Base URL', description: draft.baseURL === '' ? '(not set)' : draft.baseURL },
+          ...editableIdentity && protocolOptions.length > 0
+            ? [{ value: 'protocol', label: 'Protocol', description: draft.api === '' ? '(not set)' : draft.api }]
+            : [],
+          ...editableIdentity
+            ? [{ value: 'display-name', label: 'Display name', description: draft.displayName ?? '(none)' }]
+            : [],
+          ...headersOffered
+            ? [{ value: 'headers', label: 'Request headers', description: headersSummary(draft.headers) }]
+            : [],
+          { value: 'models', label: 'Models', description: modelsLabel },
+          ...draft.storage === 'models'
+            ? [{ value: 'reset-models', label: 'Reset models to adapter catalog' }]
+            : [],
+          { value: 'save', label: 'Save changes' },
+          { value: 'cancel', label: 'Discard changes' },
+        ],
       })
-      if (typed !== undefined) draft = { ...draft, baseURL: typed.trim() }
+      notice = undefined
+      if (choice === undefined || choice === 'cancel') return undefined
+      if (choice === 'base-url') {
+        const typed = await promptText(ctx, {
+          title: 'Base URL',
+          view: 'Edit route',
+          message: 'The base URL this route calls.',
+          kind: 'text',
+          initial: draft.baseURL,
+        })
+        if (typed !== undefined) draft = { ...draft, baseURL: typed.trim() }
+        continue
+      }
+      if (choice === 'protocol') {
+        const picked = await promptSelect(ctx, {
+          title: 'Protocol',
+          view: 'Edit route',
+          choices: protocolOptions.map(option => ({ value: option, label: option })),
+        })
+        if (picked !== undefined) draft = { ...draft, api: picked }
+        continue
+      }
+      if (choice === 'display-name') {
+        const typed = await promptText(ctx, {
+          title: 'Display name',
+          view: 'Edit route',
+          message: 'Shown in /connect and /model. Leave blank to show the route id instead.',
+          kind: 'text',
+          initial: draft.displayName ?? '',
+        })
+        if (typed !== undefined) draft = { ...draft, displayName: typed.trim() === '' ? undefined : typed.trim() }
+        continue
+      }
+      if (choice === 'headers') {
+        draft = { ...draft, headers: await editHeaders(ctx, 'Edit route', draft.headers) }
+        continue
+      }
+      if (choice === 'models') {
+        // Opening the submenu must be side-effect free: a route that inherits
+        // its catalog and leaves the submenu without an actual adoption must
+        // still inherit it. `changed` is measured against what would be
+        // WRITTEN, so a fetch that finds candidates nobody adopted counts the
+        // same as never having fetched at all.
+        //
+        // Discovery for an existing route is identified by `provider` alone, so
+        // the owning adapter resolves this route's STORED headers and credential
+        // itself — which is also why an unsaved header edit cannot reach the
+        // fetch, and why the reader is told so rather than left to wonder why a
+        // gateway still refuses the listing.
+        const result = await editModels(
+          ctx,
+          seams,
+          row.settingsNs,
+          { provider: row.provider },
+          draft.baseURL,
+          draft.api,
+          draft.models,
+          draft.storage,
+          modelSchema,
+          ownedOverrideIds,
+          sameHeaderSet(draft.headers, original.headers)
+            ? undefined
+            : 'Fetching uses this route’s saved headers; unsaved header edits are not sent.',
+        )
+        if (result.changed) draft = { ...draft, models: result.entries }
+        continue
+      }
+      if (choice === 'reset-models') {
+        // Back to the adapter's catalog: drop the explicit list, and with it
+        // any per-model edits it carried. A route that never had overrides
+        // therefore resolves exactly as an untouched catalog route does.
+        draft = { ...draft, models: [], storage: 'override' }
+        continue
+      }
+      if (choice === 'save') {
+        if (removed) {
+          notice = `${row.provider} is no longer configured here; back out and add the route again to save this draft.`
+          continue
+        }
+        break
+      }
+    }
+    const ops = buildRouteOps(draft, original, row.settingsPath, editableIdentity, headersOffered)
+    if (ops.length === 0) return { kind: 'done', message: `${row.provider}: nothing changed` }
+    try {
+      await settings.mutate(row.settingsNs, ops, descriptor.revision)
+      return { kind: 'done', message: `${row.provider}: route updated` }
+    } catch (error) {
+      // The draft is never recomputed from a re-read: a field the reader never
+      // touched must keep the value it was shown, so the next save cannot
+      // silently revert someone else's edit to it.
+      const conflict = isSettingsConflict(error)
+      const fresh = settings.describe({ redactSecrets: true }).find(entry => entry.ns === row.settingsNs)
+      const stillListed = seams.llm.listConfigurableProviders().some(entry =>
+        entry.settingsNs === row.settingsNs && samePath(entry.settingsPath, row.settingsPath))
+      if (fresh === undefined || !stillListed) {
+        removed = true
+        notice = `${row.provider} was removed elsewhere; the draft is kept for inspection. Back out and add the route again to save it.`
+        continue
+      }
+      descriptor = fresh
+      removed = false
+      // A non-conflict refusal — an owner-invalid reasoning mapping, a
+      // catalog-unknown override id — is shown verbatim and keeps the draft,
+      // because only Harness is allowed to judge those semantics.
+      notice = conflict
+        ? `${row.provider} changed elsewhere since this editor opened. Review the draft, then Save again to apply it to the current revision.`
+        : `${row.settingsNs} refused the edit: ${messageOf(error)}`
       continue
     }
-    if (choice === 'protocol') {
-      const picked = await promptSelect(ctx, {
-        title: 'Protocol',
-        view: 'Edit route',
-        choices: protocolOptions.map(option => ({ value: option, label: option })),
-      })
-      if (picked !== undefined) draft = { ...draft, api: picked }
-      continue
-    }
-    if (choice === 'display-name') {
-      const typed = await promptText(ctx, {
-        title: 'Display name',
-        view: 'Edit route',
-        message: 'Shown in /connect and /model. Leave blank to show the route id instead.',
-        kind: 'text',
-        initial: draft.displayName ?? '',
-      })
-      if (typed !== undefined) draft = { ...draft, displayName: typed.trim() === '' ? undefined : typed.trim() }
-      continue
-    }
-    if (choice === 'headers') {
-      draft = { ...draft, headers: await editHeaders(ctx, 'Edit route', draft.headers) }
-      continue
-    }
-    if (choice === 'models') {
-      // Opening the submenu must be side-effect free: a route that inherits
-      // its catalog and leaves the submenu without an actual adoption must
-      // still inherit it. `changed` is measured against what would be
-      // WRITTEN, so a fetch that finds candidates nobody adopted counts the
-      // same as never having fetched at all.
-      //
-      // Discovery for an existing route is identified by `provider` alone, so
-      // the owning adapter resolves this route's STORED headers and credential
-      // itself — which is also why an unsaved header edit cannot reach the
-      // fetch, and why the reader is told so rather than left to wonder why a
-      // gateway still refuses the listing.
-      const result = await editModels(
-        ctx,
-        seams,
-        row.settingsNs,
-        { provider: row.provider },
-        draft.baseURL,
-        draft.api,
-        draft.models,
-        sameHeaderSet(draft.headers, original.headers)
-          ? undefined
-          : 'Fetching uses this route’s saved headers; unsaved header edits are not sent.',
-      )
-      if (result.changed) draft = { ...draft, models: result.entries, modelsInherited: false }
-      continue
-    }
-    if (choice === 'reset-models') {
-      draft = { ...draft, models: [], modelsInherited: true }
-      continue
-    }
-    if (choice === 'save') break
   }
+}
+
+/**
+ * The ordered path ops one route draft would write.
+ *
+ * One array for one `settings.mutate`. An explicit catalog writes its whole
+ * `models` array — carrying every uncurated field forward — while an inherited
+ * route writes per-id `modelOverrides` and unsets only the ids it dropped.
+ * Switching from a list back to the catalog unsets `models`; the two are never
+ * both present, which `llm-pi-ai` would refuse.
+ * @param draft - the draft as it stands.
+ * @param original - the draft as first read; the comparison basis, never refreshed.
+ * @param routePath - the route's settings path.
+ * @param editableIdentity - whether protocol and display name are user-editable.
+ * @param headersOffered - whether the schema still offers the header editor.
+ * @returns the ops, in the order they should apply; empty when nothing changed.
+ */
+function buildRouteOps(
+  draft: RouteDraft,
+  original: RouteDraft,
+  routePath: readonly string[],
+  editableIdentity: boolean,
+  headersOffered: boolean,
+): SettingsPathOp[] {
   const changes: CuratedFieldChange[] = []
   if (draft.baseURL !== original.baseURL) {
     changes.push({ field: BASE_URL_FIELD, value: draft.baseURL === '' ? undefined : draft.baseURL })
@@ -260,24 +373,40 @@ export async function runRouteEditor(
     if (draft.api !== original.api) changes.push({ field: API_FIELD, value: draft.api === '' ? undefined : draft.api })
     if (draft.displayName !== original.displayName) changes.push({ field: DISPLAY_NAME_FIELD, value: draft.displayName })
   }
-  const ops = fieldOps(row.settingsPath, changes)
+  const ops = fieldOps(routePath, changes)
   if (headersOffered && !sameHeaderSet(draft.headers, original.headers)) {
     ops.push(draft.headers.length === 0
-      ? unsetHeadersOp(row.settingsPath)
-      : setHeadersOp(row.settingsPath, toRawHeaders(draft.headers)))
+      ? unsetHeadersOp(routePath)
+      : setHeadersOp(routePath, toRawHeaders(draft.headers)))
   }
-  if (draft.modelsInherited !== original.modelsInherited || !sameModelSet(draft.models, original.models)) {
-    ops.push(draft.modelsInherited
-      ? unsetModelsOp(row.settingsPath)
-      : setModelsOp(row.settingsPath, toRawEntries(draft.models)))
+  if (original.storage === 'models' && draft.storage === 'override') {
+    ops.push(unsetModelsOp(routePath))
   }
-  if (ops.length === 0) return { kind: 'done', message: `${row.provider}: nothing changed` }
-  try {
-    await settings.mutate(row.settingsNs, ops, descriptor.revision)
-  } catch (error) {
-    return failed(`${row.settingsNs} refused the edit: ${messageOf(error)}`)
+  if (draft.storage === 'models') {
+    if (original.storage === 'models' && !sameModelSet(draft.models, original.models)) {
+      ops.push(setModelsOp(routePath, toRawEntries(draft.models)))
+    }
+    return ops
   }
-  return { kind: 'done', message: `${row.provider}: route updated` }
+  const before = original.storage === 'override' ? toRawOverrides(original.models) : {}
+  const after = toRawOverrides(draft.models)
+  for (const id of Object.keys(before)) {
+    if (!(id in after)) ops.push(unsetOverrideOp(routePath, id))
+  }
+  for (const [id, value] of Object.entries(after)) {
+    if (JSON.stringify(before[id]) !== JSON.stringify(value)) ops.push(setOverrideOp(routePath, id, value))
+  }
+  return ops
+}
+
+/**
+ * Whether two settings paths address the same profile.
+ * @param left - one path.
+ * @param right - the other.
+ * @returns true when they are the same segments in the same order.
+ */
+function samePath(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((segment, index) => segment === right[index])
 }
 
 /**
@@ -425,6 +554,7 @@ export async function runCreateRoute(
   const keyAvailable = credentialField !== undefined
 
   const headersOffered = headersCurated(descriptor.schema, routePath)
+  const modelSchema = routeModelSchema(descriptor.schema, routePath)
   const draft: CreateDraft = {
     displayName: undefined,
     baseURL: '',
@@ -448,7 +578,18 @@ export async function runCreateRoute(
     if (firstApiKey === 'cancel') return undefined
     draft.apiKey = firstApiKey
   }
-  const firstModels = await editModels(ctx, seams, target.settingsNs, keyIdentity(draft.apiKey), draft.baseURL, draft.api, draft.models)
+  const firstModels = await editModels(
+    ctx,
+    seams,
+    target.settingsNs,
+    keyIdentity(draft.apiKey),
+    draft.baseURL,
+    draft.api,
+    draft.models,
+    'models',
+    modelSchema,
+    new Set(),
+  )
   draft.models = firstModels.entries
 
   let notice: string | undefined
@@ -521,6 +662,9 @@ export async function runCreateRoute(
         draft.baseURL,
         draft.api,
         draft.models,
+        'models',
+        modelSchema,
+        new Set(),
         draft.headers.length === 0
           ? undefined
           : 'Fetching cannot send this route’s request headers until the route exists.',
@@ -768,6 +912,15 @@ interface ModelsEditResult {
 
 /**
  * The models sub-menu: toggle, add, or fetch, looping until the reader is done.
+ *
+ * The list means different things in the two modes, and says so. An explicit
+ * route lists its `models` entries, where inclusion is membership in the
+ * written array. An inherited route lists stored overrides as included rows and
+ * the installed catalog's ids as unincluded ones, where editing a field writes
+ * that one `modelOverrides.<id>` and leaving the rest alone. A stored override
+ * that came from the composition base rather than the user layer is shown but
+ * locked: removing it could not be expressed as a user-layer op, so pretending
+ * to would be a save that silently did nothing.
  * @param ctx - context carrying the slot registry.
  * @param seams - the Harness seams.
  * @param settingsNs - the namespace whose registered discovery serves this draft.
@@ -777,6 +930,9 @@ interface ModelsEditResult {
  * @param baseURL - the draft's current endpoint.
  * @param api - the draft's current protocol, when one is chosen.
  * @param entries - the draft's current model list.
+ * @param storage - which field an edited entry writes.
+ * @param schema - the schema-derived entry fields and vocabularies.
+ * @param ownedOverrideIds - the ids the user layer already overrides.
  * @param discoveryNote - a standing caveat about what this fetch can carry,
  *   shown until a fetch replaces it. `LlmModelDiscoveryRequest` names only a
  *   provider, endpoint, protocol, and one-shot key, so a draft's request
@@ -793,9 +949,26 @@ async function editModels(
   baseURL: string,
   api: string,
   entries: readonly ModelDraftEntry[],
+  storage: ModelStorage,
+  schema: RouteModelSchema,
+  ownedOverrideIds: ReadonlySet<string>,
   discoveryNote?: string,
 ): Promise<ModelsEditResult> {
   let current = [...entries]
+  if (storage === 'override' && identity.provider !== undefined) {
+    // The installed catalog is the only set of ids an override may name, and no
+    // generic seam publishes it as such. `listModels` is the registry's own
+    // read of an ACTIVE route's models, which for a catalog route is that
+    // catalog; ids only, never their values, so opening this menu cannot pin a
+    // catalog name or capacity into an override nobody asked for. A route that
+    // cannot be listed keeps whatever is already stored.
+    try {
+      const catalog = await seams.llm.listModels(identity.provider)
+      current = addCandidates(current, catalog.map(model => ({ id: model.id })), 'override')
+    } catch {
+      // Not listable right now; manual ids and an endpoint fetch remain.
+    }
+  }
   let notice: string | undefined
   for (;;) {
     // A fetch result is transient and clears on the next pass; the discovery
@@ -823,13 +996,16 @@ async function editModels(
     })
     notice = undefined
     if (choice === undefined || choice === '__done') {
-      return { entries: current, changed: !sameModelSet(current, entries) }
+      return {
+        entries: current,
+        changed: storage === 'override' ? !sameOverrideSet(current, entries) : !sameModelSet(current, entries),
+      }
     }
     if (choice === '__fetch') {
       try {
         const request: LlmDiscoveredModelRequest = { ...identity, baseURL, ...api === '' ? {} : { api } }
         const candidates = await seams.llm.discoverModels(settingsNs, request)
-        current = addCandidates(current, candidates)
+        current = addCandidates(current, candidates, storage)
         notice = `found ${String(candidates.length)} model${candidates.length === 1 ? '' : 's'}; unchecked ones are new`
       } catch (error) {
         notice = `could not fetch models: ${messageOf(error)}`
@@ -837,25 +1013,48 @@ async function editModels(
       continue
     }
     if (choice === '__add') {
-      const added = await promptNewModel(ctx, current)
+      const added = await promptNewModel(ctx, current, storage)
       if (added.ok) current = added.entries
       else if (added.reason !== undefined) notice = added.reason
       continue
     }
     const target = current.find(entry => entry.id === choice)
     if (target === undefined) continue
+    const locked = storage === 'override' && target.included && !ownedOverrideIds.has(target.id)
     const next = await promptSelect(ctx, {
       title: target.id,
       view: 'Models',
+      ...locked
+        ? { detail: 'This override comes from the composition base, not your settings; edit settings.yaml to change it.' }
+        : {},
       choices: [
-        { value: 'toggle', label: target.included ? 'Remove from list' : 'Include in list' },
-        { value: 'edit', label: 'Edit fields' },
+        ...locked ? [] : [{
+          value: 'toggle',
+          label: toggleLabel(target, storage),
+        }],
+        ...locked ? [] : [{ value: 'edit', label: 'Edit fields' }],
         { value: 'back', label: 'Back' },
       ],
     })
     if (next === 'toggle') current = toggleIncluded(current, target.id)
-    else if (next === 'edit') current = await promptEditModel(ctx, current, target)
+    else if (next === 'edit') current = await replaceEntry(current, await editModelFields(ctx, target, schema))
   }
+}
+
+/** The row-menu verb for one entry, which depends on the storage and its state. */
+function toggleLabel(entry: ModelDraftEntry, storage: ModelStorage): string {
+  if (storage === 'override') return entry.included ? 'Remove override' : 'Override this model'
+  return entry.included ? 'Remove from list' : 'Include in list'
+}
+
+/**
+ * Replace one entry in the draft, by id.
+ * @param entries - the draft.
+ * @param updated - the entry's new shape.
+ * @returns the draft with that entry replaced.
+ */
+function replaceEntry(entries: readonly ModelDraftEntry[], updated: ModelDraftEntry): ModelDraftEntry[] {
+  return entries.map(entry => entry.id === updated.id ? updated : entry)
 }
 
 /** What `ctx.llm.discoverModels` takes; named locally so `editModels` reads narrowly. */
@@ -871,22 +1070,57 @@ function modelSummary(entry: ModelDraftEntry): string {
   if (entry.name !== undefined) facts.push(entry.name)
   if (entry.contextWindow !== undefined) facts.push(`${String(entry.contextWindow)} ctx`)
   if (entry.maxTokens !== undefined) facts.push(`${String(entry.maxTokens)} max out`)
+  if (entry.input !== undefined) facts.push(entry.input.length === 0 ? 'no input' : entry.input.join('/'))
+  if (entry.reasoningEfforts === false) facts.push('no reasoning')
+  else if (entry.reasoningEfforts !== undefined) {
+    facts.push(`reasoning ${Object.keys(entry.reasoningEfforts).join(',')}`)
+  }
   return facts.join(' · ')
+}
+
+/**
+ * A one-line reading of a draft's input modalities.
+ * @param value - the declared list, or undefined for inherited.
+ * @param vocab - the schema's vocabulary, for a stable word.
+ * @returns the summary text.
+ */
+function inputSummary(value: readonly string[] | undefined, vocab: readonly string[]): string {
+  if (value === undefined) return 'inherited'
+  if (value.length === 0) return 'none declared'
+  return vocab.filter(entry => value.includes(entry)).join(', ')
+}
+
+/**
+ * A one-line reading of a draft's reasoning capability.
+ * @param value - the declared value, or undefined for inherited.
+ * @returns the summary text.
+ */
+function reasoningSummary(value: ReasoningEffortsValue | undefined): string {
+  if (value === undefined) return 'inherited'
+  if (value === false) return 'disabled'
+  const levels = Object.entries(value).map(([level, wire]) => wire === null ? level : `${level}=${wire}`)
+  return levels.length === 0 ? '(nothing declared)' : levels.join(', ')
 }
 
 /**
  * Ask for one capacity field, re-asking on an invalid answer.
  * @param ctx - context carrying the slot registry.
+ * @param view - the flow's own view name.
  * @param title - the field's name.
  * @param initial - the field's current value, prefilled.
  * @returns the parsed count, or undefined both when left blank and when cancelled.
  */
-async function promptOptionalCapacity(ctx: Context, title: string, initial: number | undefined): Promise<number | undefined | 'cancel'> {
+async function promptOptionalCapacity(
+  ctx: Context,
+  view: string,
+  title: string,
+  initial: number | undefined,
+): Promise<number | undefined | 'cancel'> {
   let detail: string | undefined
   for (;;) {
     const raw = await promptText(ctx, {
       title,
-      view: 'Models',
+      view,
       message: `${title}. Leave blank to omit.`,
       ...detail === undefined ? {} : { detail },
       kind: 'text',
@@ -901,58 +1135,326 @@ async function promptOptionalCapacity(ctx: Context, title: string, initial: numb
 
 /**
  * Walk the add-model form and append the result.
+ *
+ * Only the id is required; the curated capabilities are left for the fields
+ * menu, so adding an id never freezes values the reader did not choose.
  * @param ctx - context carrying the slot registry.
  * @param entries - the draft before this add.
+ * @param storage - which field a later write addresses, matching the draft.
  * @returns the updated draft, or the refusal reason when one applies.
  */
 async function promptNewModel(
   ctx: Context,
   entries: readonly ModelDraftEntry[],
+  storage: ModelStorage,
 ): Promise<{ ok: true; entries: ModelDraftEntry[] } | { ok: false; reason: string | undefined }> {
   const id = await promptText(ctx, { title: 'Model id', view: 'Add model', message: 'The id this route should offer.', kind: 'text' })
   if (id === undefined || id.trim() === '') return { ok: false, reason: undefined }
-  const name = await promptText(ctx, { title: 'Display name', view: 'Add model', message: 'Optional; leave blank to omit.', kind: 'text' })
-  if (name === undefined) return { ok: false, reason: undefined }
-  const contextWindow = await promptOptionalCapacity(ctx, 'Context window', undefined)
-  if (contextWindow === 'cancel') return { ok: false, reason: undefined }
-  const maxTokens = await promptOptionalCapacity(ctx, 'Max output tokens', undefined)
-  if (maxTokens === 'cancel') return { ok: false, reason: undefined }
   const result = addManual(entries, {
     id: id.trim(),
-    name: name.trim() === '' ? undefined : name.trim(),
-    contextWindow,
-    maxTokens,
-  })
+    name: undefined,
+    contextWindow: undefined,
+    maxTokens: undefined,
+    input: undefined,
+    reasoningEfforts: undefined,
+  }, storage)
   return result.ok ? { ok: true, entries: result.entries } : { ok: false, reason: result.reason }
 }
 
 /**
- * Walk the edit-fields form for one existing entry.
+ * The staged fields form for one model entry.
+ *
+ * Name, capacities, and the schema-derived capabilities live one level in, and
+ * nothing here touches settings. The entry is marked included only when a field
+ * actually changed, so opening this menu on a catalog model and backing out
+ * writes no empty override.
  * @param ctx - context carrying the slot registry.
- * @param entries - the draft before this edit.
  * @param target - the entry being edited.
- * @returns the updated draft; unchanged when the reader backs out partway.
+ * @param schema - the schema-derived entry fields and vocabularies.
+ * @returns the entry after the reader leaves; unchanged when nothing changed.
  */
-async function promptEditModel(
+async function editModelFields(
   ctx: Context,
-  entries: readonly ModelDraftEntry[],
   target: ModelDraftEntry,
-): Promise<ModelDraftEntry[]> {
-  const name = await promptText(ctx, {
-    title: 'Display name',
-    view: 'Edit model',
-    message: 'Optional; leave blank to omit.',
-    kind: 'text',
-    initial: target.name ?? '',
-  })
-  if (name === undefined) return [...entries]
-  const contextWindow = await promptOptionalCapacity(ctx, 'Context window', target.contextWindow)
-  if (contextWindow === 'cancel') return [...entries]
-  const maxTokens = await promptOptionalCapacity(ctx, 'Max output tokens', target.maxTokens)
-  if (maxTokens === 'cancel') return [...entries]
-  return updateFields(entries, target.id, {
-    name: name.trim() === '' ? undefined : name.trim(),
-    contextWindow,
-    maxTokens,
-  })
+  schema: RouteModelSchema,
+): Promise<ModelDraftEntry> {
+  const entry = schema.entry
+  if (entry === undefined) return target
+  let current = { ...target }
+  let dirty = false
+  for (;;) {
+    const advanced = entry.input.length > 0 || entry.reasoningLevels.length > 0
+    const choice = await promptSelect(ctx, {
+      title: target.id,
+      view: 'Edit model',
+      choices: [
+        ...entry.name
+          ? [{ value: 'name', label: 'Display name', description: current.name ?? '(inherit)' }]
+          : [],
+        ...entry.contextWindow !== undefined
+          ? [{ value: 'context', label: 'Context window', description: describeCapacity(current.contextWindow) }]
+          : [],
+        ...entry.maxTokens !== undefined
+          ? [{ value: 'max', label: 'Max output tokens', description: describeCapacity(current.maxTokens) }]
+          : [],
+        ...advanced
+          ? [{
+            value: 'advanced',
+            label: 'Advanced',
+            description: `input ${inputSummary(current.input, entry.input)} · reasoning ${reasoningSummary(current.reasoningEfforts)}`,
+          }]
+          : [],
+        { value: 'back', label: 'Back' },
+      ],
+    })
+    if (choice === undefined || choice === 'back') {
+      return dirty ? { ...current, included: true } : target
+    }
+    if (choice === 'name') {
+      const typed = await promptText(ctx, {
+        title: 'Display name',
+        view: 'Edit model',
+        message: 'Optional; leave blank to inherit the catalog name.',
+        kind: 'text',
+        initial: current.name ?? '',
+      })
+      if (typed !== undefined) {
+        current = { ...current, name: typed.trim() === '' ? undefined : typed.trim() }
+        dirty = true
+      }
+      continue
+    }
+    if (choice === 'context') {
+      const value = await promptOptionalCapacity(ctx, 'Edit model', 'Context window', current.contextWindow)
+      if (value !== 'cancel') {
+        current = { ...current, contextWindow: value }
+        dirty = true
+      }
+      continue
+    }
+    if (choice === 'max') {
+      const value = await promptOptionalCapacity(ctx, 'Edit model', 'Max output tokens', current.maxTokens)
+      if (value !== 'cancel') {
+        current = { ...current, maxTokens: value }
+        dirty = true
+      }
+      continue
+    }
+    if (choice === 'advanced') {
+      const updated = await editAdvanced(ctx, current, entry)
+      if (updated !== undefined) {
+        current = updated
+        dirty = true
+      }
+    }
+  }
+}
+
+/**
+ * The advanced capability menu: the schema-derived modalities and reasoning.
+ * @param ctx - context carrying the slot registry.
+ * @param current - the entry as it stands.
+ * @param entry - the schema-derived field availability and vocabularies.
+ * @returns the updated entry, or undefined when the reader backed out unchanged.
+ */
+async function editAdvanced(
+  ctx: Context,
+  current: ModelDraftEntry,
+  entry: ModelEntrySchema,
+): Promise<ModelDraftEntry | undefined> {
+  let working = { ...current }
+  let dirty = false
+  for (;;) {
+    const choice = await promptSelect(ctx, {
+      title: 'Advanced',
+      view: 'Edit model',
+      choices: [
+        ...entry.input.length > 0
+          ? [{ value: INPUT_FIELD, label: 'Input modalities', description: inputSummary(working.input, entry.input) }]
+          : [],
+        ...entry.reasoningLevels.length > 0 || entry.reasoningCanDisable
+          ? [{ value: REASONING_EFFORTS_FIELD, label: 'Reasoning capability', description: reasoningSummary(working.reasoningEfforts) }]
+          : [],
+        { value: 'back', label: 'Back' },
+      ],
+    })
+    if (choice === undefined || choice === 'back') return dirty ? working : undefined
+    if (choice === INPUT_FIELD) {
+      const value = await editInputModalities(ctx, working.input, entry.input)
+      if (value !== 'cancel') {
+        working = { ...working, input: value }
+        dirty = true
+      }
+      continue
+    }
+    if (choice === REASONING_EFFORTS_FIELD) {
+      const value = await editReasoningEfforts(ctx, working.reasoningEfforts, entry)
+      if (value !== 'cancel') {
+        working = { ...working, reasoningEfforts: value.value }
+        dirty = true
+      }
+    }
+  }
+}
+
+/**
+ * Toggle the schema's modalities on and off.
+ *
+ * An empty answer is a declaration of nothing, which `llm-pi-ai` reads exactly
+ * like the absent field — so it is returned as `undefined` and the key is
+ * dropped rather than stored as `[]`, keeping the profile saying what it means.
+ * @param ctx - context carrying the slot registry.
+ * @param selected - the entry's current declared list.
+ * @param vocab - the schema-derived modality vocabulary.
+ * @returns the chosen list (undefined for inherit), or `'cancel'`.
+ */
+async function editInputModalities(
+  ctx: Context,
+  selected: readonly string[] | undefined,
+  vocab: readonly string[],
+): Promise<readonly string[] | undefined | 'cancel'> {
+  let current = selected === undefined ? [] : [...selected]
+  for (;;) {
+    const choice = await promptSelect(ctx, {
+      title: 'Input modalities',
+      view: 'Edit model',
+      detail: 'Unselected means inherit the installed catalog, then the route default.',
+      choices: [
+        ...vocab.map(modality => ({
+          value: `m:${modality}`,
+          label: `${current.includes(modality) ? '✓' : '○'} ${modality}`,
+        })),
+        { value: '__clear', label: 'Inherit (declare none)' },
+        { value: '__done', label: 'Done' },
+      ],
+    })
+    if (choice === undefined) return 'cancel'
+    if (choice === '__done') return current.length === 0 ? undefined : current
+    if (choice === '__clear') {
+      current = []
+      continue
+    }
+    const modality = choice.startsWith('m:') ? choice.slice(2) : undefined
+    if (modality === undefined || !vocab.includes(modality)) continue
+    // Vocabulary order, so a save writes the levels in the schema's own order
+    // rather than the order a reader happened to toggle them.
+    current = current.includes(modality)
+      ? current.filter(entry => entry !== modality)
+      : vocab.filter(entry => entry === modality || current.includes(entry))
+  }
+}
+
+/**
+ * The declared reasoning capability: inherit, disabled, or a level mapping.
+ * @param ctx - context carrying the slot registry.
+ * @param current - the entry's declared value.
+ * @param entry - the schema-derived field availability and vocabularies.
+ * @returns the chosen value, or `'cancel'` when the reader backed out.
+ */
+async function editReasoningEfforts(
+  ctx: Context,
+  current: ReasoningEffortsValue | undefined,
+  entry: ModelEntrySchema,
+): Promise<{ readonly value: ReasoningEffortsValue | undefined } | 'cancel'> {
+  for (;;) {
+    const choice = await promptSelect(ctx, {
+      title: 'Reasoning capability',
+      view: 'Edit model',
+      choices: [
+        { value: 'inherit', label: 'Inherit from installed catalog', description: current === undefined ? '(current)' : '' },
+        ...entry.reasoningCanDisable
+          ? [{ value: 'disabled', label: 'Disabled — this model does not reason', description: current === false ? '(current)' : '' }]
+          : [],
+        {
+          value: 'mapping',
+          label: 'Custom mapping…',
+          description: current === false || current === undefined ? '' : reasoningSummary(current),
+        },
+        { value: 'back', label: 'Back' },
+      ],
+    })
+    if (choice === undefined || choice === 'back') return 'cancel'
+    if (choice === 'inherit') return { value: undefined }
+    if (choice === 'disabled') return { value: false }
+    const mapped = await editReasoningMapping(ctx, current === false || current === undefined ? undefined : current, entry.reasoningLevels)
+    if (mapped !== 'cancel') return { value: mapped }
+  }
+}
+
+/**
+ * The per-level mapping editor.
+ *
+ * Nothing here judges the mapping's semantics — a level left undeclared, an
+ * empty wire value, or a mapping that offers nothing beyond `off` are all built
+ * as typed and handed to Harness, whose refusal is what the reader sees. A
+ * local validator would be a second copy of a rule `llm-pi-ai` already owns.
+ * @param ctx - context carrying the slot registry.
+ * @param current - the entry's current mapping, when it has one.
+ * @param levels - the schema-derived level vocabulary.
+ * @returns the mapping, or `'cancel'`.
+ */
+async function editReasoningMapping(
+  ctx: Context,
+  current: Record<string, string | null> | undefined,
+  levels: readonly string[],
+): Promise<Record<string, string | null> | 'cancel'> {
+  let mapping: Record<string, string | null> = current === undefined ? {} : { ...current }
+  for (;;) {
+    const choice = await promptSelect(ctx, {
+      title: 'Reasoning mapping',
+      view: 'Edit model',
+      detail: 'Each level maps to the wire value dispatch should send; "off" alone may send nothing.',
+      choices: [
+        ...levels.map(level => ({
+          value: `l:${level}`,
+          label: `${mapping[level] === undefined ? '○' : '✓'} ${level}`,
+          description: mapping[level] === undefined ? 'not offered' : mapping[level] === null ? 'supported, send nothing' : mapping[level] ?? '',
+        })),
+        { value: '__done', label: 'Done' },
+        { value: '__back', label: 'Back' },
+      ],
+    })
+    if (choice === undefined || choice === '__back') return 'cancel'
+    if (choice === '__done') return mapping
+    const level = choice.startsWith('l:') ? choice.slice(2) : undefined
+    if (level === undefined || !levels.includes(level)) continue
+    const action = await promptSelect(ctx, {
+      title: level,
+      view: 'Edit model',
+      choices: [
+        { value: 'none', label: 'Not offered' },
+        ...level === 'off' ? [{ value: 'nothing', label: 'Supported, send nothing' }] : [],
+        { value: 'wire', label: 'Send a wire value…' },
+        { value: 'back', label: 'Back' },
+      ],
+    })
+    if (action === 'none') {
+      const { [level]: _removed, ...kept } = mapping
+      mapping = kept
+      continue
+    }
+    if (action === 'nothing') {
+      mapping = { ...mapping, [level]: null }
+      continue
+    }
+    if (action === 'wire') {
+      const typed = await promptText(ctx, {
+        title: `${level} wire value`,
+        view: 'Edit model',
+        message: 'The value dispatch sends for this level.',
+        kind: 'text',
+        initial: typeof mapping[level] === 'string' ? mapping[level] : '',
+      })
+      if (typed !== undefined) mapping = { ...mapping, [level]: typed }
+    }
+  }
+}
+
+/**
+ * A capacity's menu description.
+ * @param value - the declared number, or undefined for inherited.
+ * @returns the summary text.
+ */
+function describeCapacity(value: number | undefined): string {
+  return value === undefined ? '(inherit)' : String(value)
 }

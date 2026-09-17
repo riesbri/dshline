@@ -227,13 +227,15 @@ longer needs `ctrl-r`.
 
 Still ahead for Connect:
 
-- exposing pi-ai's advanced `compat`, retry policy, and per-model reasoning
-  fields, which stay in `settings.yaml` for now; Connect curates the fields
-  that decide what route/model a reader can reach, not the whole profile.
-  `headers` crossed that line and is curated now: a gateway authenticating
-  with anything but the `credential-ref` field was otherwise unreachable from
-  the terminal at all, which is the same test that admitted endpoint,
-  protocol, and catalog
+- exposing pi-ai's advanced `compat`, retry policy, and operational budgets,
+  which stay in `settings.yaml` for now; Connect curates the fields that decide
+  what route/model a reader can reach and which capabilities a deployment has
+  to state, not the whole profile. `headers` crossed that line first — a
+  gateway authenticating with anything but the `credential-ref` field was
+  otherwise unreachable from the terminal at all — and per-model `input` and
+  `reasoningEfforts` followed, read from the namespace's own schema rather than
+  a dshline vocabulary: the same test that admitted endpoint, protocol, and
+  catalog
 - a second namespace besides `llm-pi-ai` gaining the same declare-a-whole-route
   shape, which would need its own small presentation module rather than a
   generic one — see [Architecture → Connect 2.0](docs/architecture.md#connect-20-one-route-can-be-a-declaration-not-only-a-lookup)
@@ -454,13 +456,14 @@ does not promise is that any older prerelease generation keeps working.
   can describe a whole route. Other adapter families remain limited to the
   routes their configurable-provider directory already publishes unless they
   gain an equivalent declaration contract.
-- **`/connect` curates a route's endpoint, protocol, request headers, and
-  model catalog, not its whole settings profile.** Advanced pi-ai fields —
-  `compat`, retry policy, per-model reasoning — stay in `settings.yaml`;
-  editing what Connect shows never destroys a field it does not render. A
-  model fetch carries a route's headers only once the route exists for the
-  owning adapter to resolve them from: the discovery request itself names a
-  provider, an endpoint, a protocol, and a one-shot key, and nothing else.
+- **`/connect` curates a route's endpoint, protocol, request headers, model
+  catalog, and per-model input/reasoning capabilities, not its whole settings
+  profile.** Advanced pi-ai fields — `compat`, retry policy, timeouts, image
+  budgets, transport — stay in `settings.yaml`; editing what Connect shows
+  never destroys a field it does not render. A model fetch carries a route's
+  headers only once the route exists for the owning adapter to resolve them
+  from: the discovery request itself names a provider, an endpoint, a protocol,
+  and a one-shot key, and nothing else.
 - **Forgetting a sign-in is local.** Harness has no place for a provider to
   declare a server-side revoke, so deleting the credential record does not tell
   the issuer.

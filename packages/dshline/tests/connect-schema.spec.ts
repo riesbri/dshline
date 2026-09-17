@@ -11,7 +11,18 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { credentialRefFields, profileNode, valueAt } from '../src/connect/schema.ts'
+import {
+  credentialRefFields,
+  dictKeyStrings,
+  fieldNode,
+  innerNode,
+  numberConstraints,
+  profileNode,
+  resolveSchemaNode,
+  unionConstValues,
+  unionHasConst,
+  valueAt,
+} from '../src/connect/schema.ts'
 
 /** A `z.string().role('credential-ref')` node. */
 const REF_NODE = { type: 'string', meta: { role: 'credential-ref' } }
@@ -121,5 +132,95 @@ describe('reading a path out of a resolved settings value', () => {
     expect(valueAt({ providers: {} }, ['providers', 'openai', 'apiKeyEnv'])).toBeUndefined()
     expect(valueAt({ providers: 'text' }, ['providers', 'openai'])).toBeUndefined()
     expect(valueAt(undefined, ['providers'])).toBeUndefined()
+  })
+})
+
+/**
+ * The model shapes `llm-pi-ai` really serializes, taken from running
+ * `Config.toJSON()` against the pinned harness: `models` is an array of entry
+ * objects, `modelOverrides` a dict of the same object with a plain-string key
+ * schema, `input` an array of modality consts, and `reasoningEfforts` a union
+ * of `const(false)` and a dict whose key schema is the level vocabulary.
+ * @returns the serialized envelope.
+ */
+function modelSchema(): unknown {
+  return {
+    uid: 1,
+    refs: {
+      1: { type: 'object', meta: {}, dict: { providers: 2 } },
+      2: { type: 'dict', meta: {}, inner: 3, sKey: 30 },
+      3: { type: 'object', meta: {}, dict: { models: 40, modelOverrides: 41 } },
+      40: { type: 'array', meta: { default: [] }, inner: 42 },
+      41: { type: 'dict', meta: { default: {} }, inner: 42, sKey: 7 },
+      42: { type: 'object', meta: { default: {} }, dict: { contextWindow: 11, input: 12, reasoningEfforts: 14 } },
+      7: { type: 'string', meta: {} },
+      11: { type: 'number', meta: { step: 1, min: 1 } },
+      12: { type: 'array', meta: { default: [] }, inner: 13 },
+      13: { type: 'union', meta: {}, list: [15, 16] },
+      15: { type: 'const', meta: { required: true }, value: 'text' },
+      16: { type: 'const', meta: { required: true }, value: 'image' },
+      14: { type: 'union', meta: {}, list: [17, 18] },
+      17: { type: 'const', meta: {}, value: false },
+      18: { type: 'dict', meta: { default: {} }, inner: 21, sKey: 19 },
+      19: { type: 'union', meta: {}, list: [22, 23] },
+      22: { type: 'const', meta: { required: true }, value: 'off' },
+      23: { type: 'const', meta: { required: true }, value: 'max' },
+      21: { type: 'union', meta: {}, list: [24, 25] },
+      24: { type: 'string', meta: {} },
+      25: { type: 'const', meta: {}, value: null },
+      30: { type: 'string', meta: {} },
+    },
+  }
+}
+
+describe('generic schema introspection', () => {
+  it('descends a dict or array to its single element node', () => {
+    const located = profileNode(modelSchema(), ['providers', 'openai'])
+    if (located === undefined) throw new Error('fixture did not locate')
+    const entry = innerNode(fieldNode(located, 'models'), located.envelope)
+    expect(entry?.type).toBe('object')
+    expect(innerNode(fieldNode(located, 'modelOverrides'), located.envelope)?.type).toBe('object')
+    expect(innerNode(fieldNode(located, 'models'), located.envelope)?.dict).toHaveProperty('input')
+  })
+
+  it('reads the fixed key vocabulary a dict declares at `sKey`', () => {
+    const located = profileNode(modelSchema(), ['providers', 'openai'])
+    if (located === undefined) throw new Error('fixture did not locate')
+    const entry = innerNode(fieldNode(located, 'models'), located.envelope)
+    if (entry === undefined) throw new Error('fixture has no entry')
+    const reasoning = fieldNode({ node: entry, envelope: located.envelope }, 'reasoningEfforts')
+    const dict = (reasoning?.list ?? [])
+      .map(member => resolveSchemaNode(member, located.envelope))
+      .find(member => member?.type === 'dict')
+    expect(dictKeyStrings(dict, located.envelope)).toEqual(['off', 'max'])
+    // An open dict (`z.dict(z.string())`) declares no vocabulary.
+    expect(dictKeyStrings(fieldNode(located, 'modelOverrides'), located.envelope)).toEqual([])
+  })
+
+  it('reports a union of constants by value, not only by string type', () => {
+    const located = profileNode(modelSchema(), ['providers', 'openai'])
+    if (located === undefined) throw new Error('fixture did not locate')
+    const entry = innerNode(fieldNode(located, 'models'), located.envelope)
+    if (entry === undefined) throw new Error('fixture has no entry')
+    const reasoning = fieldNode({ node: entry, envelope: located.envelope }, 'reasoningEfforts')
+    // A union with a structured branch answers no pure constant list, but the
+    // constant it DOES carry is still visible to a targeted lookup.
+    expect(unionConstValues(reasoning, located.envelope)).toEqual([])
+    expect(unionConstValues(
+      innerNode(fieldNode({ node: entry, envelope: located.envelope }, 'input'), located.envelope),
+      located.envelope,
+    )).toEqual(['text', 'image'])
+    expect(unionHasConst(reasoning, located.envelope, false)).toBe(true)
+    expect(unionHasConst(reasoning, located.envelope, true)).toBe(false)
+  })
+
+  it('reads the numeric bounds the schema actually declares', () => {
+    const located = profileNode(modelSchema(), ['providers', 'openai'])
+    if (located === undefined) throw new Error('fixture did not locate')
+    const entry = innerNode(fieldNode(located, 'models'), located.envelope)
+    if (entry === undefined) throw new Error('fixture has no entry')
+    expect(numberConstraints(fieldNode({ node: entry, envelope: located.envelope }, 'contextWindow')))
+      .toEqual({ min: 1, step: 1 })
+    expect(numberConstraints(PLAIN_NODE)).toBeUndefined()
   })
 })

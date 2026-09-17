@@ -889,14 +889,17 @@ curated editor needs field names — "base URL", "protocol", "request headers",
 means knowing one namespace's shape. That knowledge is isolated in
 `connect/pi-ai.ts` alongside the declaration check above, and:
 
-- names its five curated fields (`displayName`, `baseURL`, `api`, `headers`,
-  `models`) as plain strings, and reads protocol *choices* from the namespace's
-  own serialized schema (`z.union` of string consts) rather than a dshline
-  constant, so a protocol `dsh-llm-pi-ai` adds later needs no change here. The
-  test for which fields earn a terminal form is what a route can REACH, which
-  is why `headers` is in — a gateway authenticating with anything but the
-  `credential-ref` field is otherwise unreachable from the terminal — and why
-  `compat`, retry policy, and per-model reasoning stay out;
+- names its curated fields as plain strings (`displayName`, `baseURL`, `api`,
+  `headers`, `models`, and the per-model `name`/`contextWindow`/`maxTokens`/
+  `input`/`reasoningEfforts`), and reads every CHOICE and VOCABULARY from the
+  namespace's own serialized schema — protocol choices from a `z.union` of
+  string consts, input modalities from the same shape, reasoning levels from a
+  dict's declared key union, the explicit-disable branch from the union's
+  `const(false)` — rather than a dshline constant, so a protocol, modality, or
+  thinking level `dsh-llm-pi-ai` adds later needs no change here. The test for
+  which fields earn a terminal form is what a route can REACH and what a
+  deployment must be able to state; `compat`, retry policy, timeouts, and
+  operational budgets still stay out;
 - reads the SHAPE of a curated field from the schema even where it hard-codes
   the name: `headers` is offered only while the namespace still describes it as
   a dict of strings, the same fail-closed check that makes an unreadable `api`
@@ -920,16 +923,48 @@ provider" on a final review — Provider ID and every other field shown back,
 the API key only ever as "configured" or "not set" — triggers the first
 write. Leaving the model submenu without adopting anything, in particular,
 changes nothing: a route that inherits its catalog stays inherited until a
-real adoption happens, never becoming a stored `models: []` merely because the
-submenu was opened and closed.
+real edit happens, and that edit is written as `modelOverrides.<id>` — never
+by materializing a `models` list the route did not have.
 
 `connect/model-editor.ts` and `connect/route-editor.ts` sit on top: the first
 is pure draft logic for a model list (adopting a discovered candidate without
 overwriting a hand-corrected capacity, telling an inherited catalog apart from
-an explicit empty one), and the second sequences the same `promptSelect` /
+an explicit one), and the second sequences the same `promptSelect` /
 `promptText` overlays every other Connect action already uses into two small
-menu loops — editing an existing declared route, and declaring a new one —
-rather than a bespoke form overlay.
+menu loops — editing an existing route and declaring a new one — rather than a
+bespoke form overlay.
+
+Where the two catalogs differ is what a model edit WRITES. A route whose
+profile carries an explicit `models` list writes that whole array back, with
+every uncurated field (including `compat`) carried through each entry. A route
+that serves no list — which is what an absent `models` key and `models: []`
+both mean to `llm-pi-ai`; the schema materializes the former as the latter —
+writes one `modelOverrides.<id>` path op per customized model, so correcting
+one model leaves the rest of the catalog serving untouched. The two are never
+written into one profile, and an override never carries an `id`, because the
+adapter refuses both. The mode is read from the EFFECTIVE resolved profile,
+while which overrides belong to the user layer is read field-presence-wise from
+`descriptor.user` — the resolved value has schema defaults applied, so it
+cannot tell a stored key from a materialized one.
+
+A rejected save keeps its draft. `connect/route-editor.ts` recognizes the
+settings seam's `SETTINGS_CONFLICT` code structurally — no runtime import of
+the error class — re-reads the descriptor and the configurable-provider
+directory, and waits for a second explicit Save against the fresh revision;
+there is no automatic retry, because a retry would apply an intent formed
+against a state the reader never saw. A route deleted underneath the editor is
+not resurrected: the draft stays on screen for inspection and the reader is
+told to back out and add it again. What Harness refuses for a semantic reason —
+a reasoning mapping that offers nothing beyond `off`, an override on a model
+the installed catalog does not describe — is shown verbatim and leaves the
+draft intact; this frontend holds no second copy of that validator.
+
+Three things that look similar are deliberately separate. A model's
+`reasoningEfforts` is a DEPLOYMENT capability and wire mapping, written by
+`/connect` into the provider profile. `/reasoning` is the AGENT's request
+preference for a session. `/thinking` is display only. Connect therefore never
+changes the Agent default selection or the session's reasoning choice, even
+when the edited model stops supporting the level that choice names.
 
 Model discovery is advisory, and stays that way by construction:
 `ctx.llm.discoverModels()` takes a draft (`provider` for an existing route, so

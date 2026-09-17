@@ -376,6 +376,22 @@ export function messageOf(error: unknown): string {
 }
 
 /**
+ * Whether a rejected write lost a revision race.
+ *
+ * Recognized by the published `code` property, never by importing the error
+ * class: this frontend consumes Harness through type-only imports, and a wire
+ * layer that maps `SETTINGS_CONFLICT` to its own taxonomy is exactly the
+ * caller this stable code exists for. Any other failure — including a refusal
+ * carrying no code — answers false and is reported verbatim.
+ * @param error - whatever a `settings.mutate` rejection carried.
+ * @returns true when the namespace moved since the descriptor was read.
+ */
+export function isSettingsConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null
+    && (error as { code?: unknown }).code === 'SETTINGS_CONFLICT'
+}
+
+/**
  * Re-read whenever something Connect renders could have changed underneath it.
  *
  * Four feeds, because Connect joins four surfaces and each can move on its

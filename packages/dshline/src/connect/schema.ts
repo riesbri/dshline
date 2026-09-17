@@ -30,6 +30,8 @@ export interface SchemaNode {
   dict?: Record<string, unknown>
   /** `dict` and `array` element schema. */
   inner?: unknown
+  /** A `dict`'s key schema; a plain string when the schema does not constrain keys. */
+  sKey?: unknown
   /** `union` and `intersect` members. */
   list?: readonly unknown[]
   /** The one value a `const` node accepts. */
@@ -84,6 +86,20 @@ function resolveNode(reference: unknown, envelope: SchemaEnvelope): SchemaNode |
     return isRecord(found) ? found : undefined
   }
   return isRecord(reference) ? reference : undefined
+}
+
+/**
+ * Resolve one node reference against the envelope's table.
+ *
+ * The exported companion to the private walk step, for a caller that needs to
+ * inspect a node's members directly — a `union` whose branches it must classify
+ * itself, rather than one of the fixed shapes the other helpers recognize.
+ * @param reference - a uid, or an inline node.
+ * @param envelope - the table every uid is looked up in.
+ * @returns the node, or undefined when the reference resolves to nothing.
+ */
+export function resolveSchemaNode(reference: unknown, envelope: SchemaEnvelope): SchemaNode | undefined {
+  return resolveNode(reference, envelope)
 }
 
 /**
@@ -235,6 +251,101 @@ export function unionConstStrings(node: SchemaNode | undefined, envelope: Schema
     found.push(value)
   }
   return found
+}
+
+/**
+ * Every value a `union`-of-`const` node accepts, whatever type the constants are.
+ *
+ * The typed companion to {@link unionConstStrings}: a schema may union a
+ * non-string constant with a structured branch — `llm-pi-ai`'s
+ * `reasoningEfforts` unions `const(false)` with a dict — and a caller deciding
+ * which BRANCHES exist needs those values without assuming strings.
+ * @param node - the union node.
+ * @param envelope - the table every uid is looked up in.
+ * @returns the constant values, in schema order; empty when some member is not
+ *   a `const` node.
+ */
+export function unionConstValues(node: SchemaNode | undefined, envelope: SchemaEnvelope): unknown[] {
+  if (node?.type !== 'union') return []
+  const found: unknown[] = []
+  for (const member of node.list ?? []) {
+    const resolved = resolveNode(member, envelope)
+    if (resolved?.type !== 'const') return []
+    found.push(resolved.value)
+  }
+  return found
+}
+
+/**
+ * The fixed key vocabulary a `dict` node describes, when it declares one.
+ *
+ * `z.dict(value, keys)` serializes the key schema at `sKey`; when that schema
+ * is a union of string consts the dict admits exactly those keys, which is how
+ * a reasoning-level vocabulary travels from the owning adapter to this
+ * frontend without either side hard-coding it. A dict of open keys (a plain
+ * `z.dict(z.string())`, say) or one this walk cannot read answers with an
+ * empty list, the honest "no fixed vocabulary here" a caller falls back from.
+ * @param node - the field's own node, typically a `dict`.
+ * @param envelope - the table every uid is looked up in.
+ * @returns the key strings, in schema order; empty when none are declared.
+ */
+export function dictKeyStrings(node: SchemaNode | undefined, envelope: SchemaEnvelope): string[] {
+  if (node?.type !== 'dict') return []
+  return unionConstStrings(resolveNode(node.sKey, envelope), envelope)
+}
+
+/**
+ * The one node a `dict` or `array` describes all of its entries with.
+ *
+ * A dict segment and an array index are both answered by a single element
+ * schema, so this is the step that turns "the `models` field" into "one model
+ * entry" or "the `modelOverrides` dict" into "one override value."
+ * @param node - the `dict` or `array` node.
+ * @param envelope - the table every uid is looked up in.
+ * @returns the element node, or undefined for any other node kind.
+ */
+export function innerNode(node: SchemaNode | undefined, envelope: SchemaEnvelope): SchemaNode | undefined {
+  if (node?.type !== 'dict' && node?.type !== 'array') return undefined
+  return resolveNode(node.inner, envelope)
+}
+
+/**
+ * The numeric constraints a `number` schema declares, when it is one.
+ *
+ * `z.number().step(1).min(1)` serializes its bounds into `meta`; reading them
+ * lets a form state the same floor the owning schema enforces instead of
+ * discovering it at a refused write. A `number` with no recorded bounds
+ * answers an empty object, and any non-number node answers undefined so a
+ * caller can tell "a number field with no bounds" from "not a number field."
+ * @param node - the field's own node.
+ * @returns the declared `min`/`step`, or undefined when the node is not a number.
+ */
+export function numberConstraints(node: SchemaNode | undefined): { min?: number; step?: number } | undefined {
+  if (node?.type !== 'number') return undefined
+  const meta = node.meta as { min?: unknown; step?: unknown } | undefined
+  return {
+    ...typeof meta?.min === 'number' ? { min: meta.min } : {},
+    ...typeof meta?.step === 'number' ? { step: meta.step } : {},
+  }
+}
+
+/**
+ * Whether a `union` node offers one exact constant.
+ *
+ * The companion to {@link unionConstValues} for a caller that only needs to
+ * know a branch EXISTS — `llm-pi-ai`'s `reasoningEfforts` offering `false` is
+ * what makes an explicit "this model does not reason" state expressible.
+ * @param node - the union node.
+ * @param envelope - the table every uid is looked up in.
+ * @param value - the constant to look for, compared by `Object.is`.
+ * @returns true when some member is a `const` carrying that value.
+ */
+export function unionHasConst(node: SchemaNode | undefined, envelope: SchemaEnvelope, value: unknown): boolean {
+  if (node?.type !== 'union') return false
+  return (node.list ?? []).some((member) => {
+    const resolved = resolveNode(member, envelope)
+    return resolved?.type === 'const' && Object.is(resolved.value, value)
+  })
 }
 
 /**

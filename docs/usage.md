@@ -543,8 +543,40 @@ are still declaring there is nothing stored yet to resolve, so the fetch goes
 out without them and says so — add the models by hand, create the route, then
 re-open **Edit route** and fetch with the headers in place.
 
-What stays settings work: `compat`, retry policy, timeouts, and per-model
-reasoning live in `settings.yaml`. Editing what `/connect` shows never disturbs
+**Models** opens the catalog. On a route with an explicit `models` list, its
+entries are the list you are writing. On a route that inherits its adapter's
+catalog, the stored customizations are shown as overrides and the installed
+models beside them; opening one and editing it writes a single
+`modelOverrides.<model>` entry and leaves every other model the catalog serves
+untouched. A route never carries both an explicit list and overrides, because
+`llm-pi-ai` refuses that; **Reset models to adapter catalog** drops the list.
+
+Inside a model, **Display name**, **Context window**, and **Max output tokens**
+write the fields every provider understands. **Advanced** holds the two
+capabilities this interface reads from the adapter's own schema rather than
+from a list baked into dshline:
+
+- **Input modalities** are the request types the endpoint accepts — `text`,
+  `image`, or whatever a future adapter adds. Declaring text alone corrects a
+  catalog model whose gateway serves less than the catalog records; declaring
+  images is what makes a hand-declared vision model usable. An empty selection
+  inherits the installed catalog's answer, then the route default.
+- **Reasoning capability** is either inherited from the installed catalog,
+  explicitly **disabled** for a model that does not reason, or a custom mapping
+  from each offered level (`off`, `low`, `high`, …) to the wire value dispatch
+  should send. `off` alone may send nothing. Harness validates the mapping
+  where it writes it: a mapping it refuses leaves the form exactly as you built
+  it, with its own explanation on screen.
+
+Every submenu is a draft. Nothing is written until **Save changes**, which is
+one revision-checked write; **Discard changes** and `esc` write nothing at all.
+If the namespace moved while the editor was open, the draft is kept, the editor
+says so, and a second explicit **Save** applies it to the current revision —
+never an automatic retry. A route removed underneath the editor is not
+re-created: the draft stays for inspection until you back out.
+
+What stays settings work: `compat`, retry policy, timeouts, image budgets, and
+transport live in `settings.yaml`. Editing what `/connect` shows never disturbs
 a field it does not render. See
 [Reaching DeepSeek through a gateway](#reaching-deepseek-through-a-gateway).
 
