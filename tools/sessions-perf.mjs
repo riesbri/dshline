@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Fixture-service benchmark of the REAL compiled Sessions catalog and overlays.
- * Run: pnpm build && node tools/sessions-perf.mjs --output /tmp/dshline-sessions-perf-baseline.json
+ * Run: pnpm build && node tools/sessions-perf.mjs --output /some/explicit/path.json
  * No production hooks, replacement algorithm, terminal, Harness backend, or dependencies.
  * Each size/repetition/mode has a fresh --expose-gc process; modes never share JIT state.
  */
@@ -269,8 +269,17 @@ if (process.argv[2] === '--child') {
   process.stdout.write(`${JSON.stringify(await child(Number(process.argv[3]), process.argv[4]))}\n`)
 } else {
   const outputIndex = process.argv.indexOf('--output')
-  const output = outputIndex < 0 ? '/tmp/dshline-sessions-perf-baseline.json' : process.argv[outputIndex + 1]
-  assert.ok(output && !resolve(output).startsWith(ROOT), 'save raw results outside the tracked tree')
+  const output = outputIndex < 0 ? undefined : process.argv[outputIndex + 1]
+  // The destination is required and explicit. A hard-coded default in the
+  // shared temp directory is a predictable path another local process can
+  // pre-create, and these JSON artifacts are evidence that deserve a chosen
+  // location rather than a silent fallback.
+  if (output === undefined || output === '' || output.startsWith('--')) {
+    process.stderr.write('usage: pnpm build && node tools/sessions-perf.mjs --output <path.json>\n')
+    process.stderr.write('Choose an explicit destination outside the repository, e.g. ~/sessions-perf.json\n')
+    process.exit(2)
+  }
+  assert.ok(!resolve(output).startsWith(ROOT), 'save raw results outside the tracked tree')
   const files = ['packages/dshline/lib/sessions/catalog.js', 'packages/dshline/lib/sessions/overlay.js', 'packages/dshline/lib/sessions/panels.js', 'packages/dshline/lib/sessions/model.js', 'packages/dshline/lib/sessions/filters.js']
   const hashes = () => Object.fromEntries(files.map(file => [file, createHash('sha256').update(readFileSync(new URL(`../${file}`, import.meta.url))).digest('hex')]))
   const before = hashes()
