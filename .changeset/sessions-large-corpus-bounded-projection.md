@@ -8,7 +8,8 @@ result to its 200-row presentation limit, so a large corpus built a second, full
 presentation array whose length was needed only for the exact `truncated`
 count.
 
-The unfiltered listing now works from the retained prefix alone: with no origin
+The origin-all listing (`origin === 'all'`, which may still be workspace/age
+filtered by Harness) now works from the retained prefix alone: with no origin
 choice there is no presentation predicate, `records.length` is already the exact
 authoritative total, and a 10,000-session corpus materializes about 200 rows
 instead of 10,000. An origin-filtered listing still reads every authoritative

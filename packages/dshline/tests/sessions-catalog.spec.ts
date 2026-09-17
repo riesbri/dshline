@@ -19,7 +19,7 @@ import type {
   SessionTitleObservationResult,
 } from '@deepseek-ai/dsh-session-query'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
-import { EVENT_CONTEXT_AFTER, EVENT_CONTEXT_BEFORE, SessionCatalog } from '../src/sessions/catalog.ts'
+import { CATALOG_LIMIT, EVENT_CONTEXT_AFTER, EVENT_CONTEXT_BEFORE, SessionCatalog } from '../src/sessions/catalog.ts'
 import { NO_FILTERS } from '../src/sessions/filters.ts'
 import { flattenLineage } from '../src/sessions/lineage.ts'
 
@@ -261,6 +261,72 @@ describe('listing the corpus', () => {
     catalog.refresh()
     await settled()
     expect(catalog.listing()).toMatchObject({ kind: 'ready', truncated: 1 })
+  })
+
+  /**
+   * One catalog over a three-record corpus, with an optional limit.
+   * @param limit - the configured limit, or undefined for the default.
+   * @returns the constructed catalog.
+   */
+  function withLimit(limit: number | undefined): SessionCatalog {
+    return new SessionCatalog({
+      query: engine({ listSessions: async () => [record('a'), record('b'), record('c')] }),
+      invalidate: () => {},
+      ...limit === undefined ? {} : { limit },
+    })
+  }
+
+  it.each([0, 1, 2, CATALOG_LIMIT])('accepts the valid limit %i', async limit => {
+    // A limit is presentation configuration, so every non-negative safe
+    // integer is meaningful: zero retains nothing and drops all three.
+    const catalog = withLimit(limit)
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    expect(listing.entries).toHaveLength(Math.min(3, limit))
+    expect(listing.truncated).toBe(Math.max(0, 3 - limit))
+  })
+
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects the invalid limit %s', limit => {
+    // Deliberate break: skipping the validation lets `Math.min`/`slice`
+    // silently coerce these into a fractional or NaN truncated count.
+    expect(() => withLimit(limit)).toThrow(RangeError)
+    expect(() => withLimit(limit)).toThrow('non-negative safe integer')
+  })
+
+  it('validates once, before any origin mode can change the retained set', async () => {
+    // The limit is resolved at construction, ahead of every listing and every
+    // origin predicate, so `all` and `own`/`delegated` cannot disagree about
+    // what a bad limit does, and a good limit applies identically to each.
+    // Corpus [delegated, own, delegated] with limit 1: `all` retains the first
+    // row and drops two; `own` retains the single own row; `delegated` retains
+    // one of two qualifying rows.
+    const expected = { all: 2, own: 0, delegated: 1 } as const
+    for (const origin of ['all', 'own', 'delegated'] as const) {
+      expect(() => new SessionCatalog({
+        query: engine({ listSessions: async () => [record('a', { origin: 'subagent' })] }),
+        invalidate: () => {},
+        limit: 1.5,
+      })).toThrow(RangeError)
+      const catalog = new SessionCatalog({
+        query: engine({
+          listSessions: async () => [
+            record('a', { origin: 'subagent' }),
+            record('b'),
+            record('c', { origin: 'subagent' }),
+          ],
+        }),
+        invalidate: () => {},
+        limit: 1,
+      })
+      catalog.applyFilters({ ...NO_FILTERS, origin })
+      await settled()
+      const listing = catalog.listing()
+      if (listing.kind !== 'ready') throw new Error('listing did not settle')
+      expect(listing.entries).toHaveLength(1)
+      expect(listing.truncated).toBe(expected[origin])
+    }
   })
 
   it('reports a refused listing instead of showing an empty corpus', async () => {

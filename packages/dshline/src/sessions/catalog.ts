@@ -96,7 +96,14 @@ export interface SessionCatalogSpec {
   readonly query: SessionQueryReads | undefined
   /** Redraw after catalog state changes. */
   readonly invalidate: () => void
-  /** Rows to keep from one listing; omitted, {@link CATALOG_LIMIT} applies. */
+  /**
+   * Rows to keep from one listing; omitted, {@link CATALOG_LIMIT} applies.
+   *
+   * A non-negative safe integer. This is internal presentation configuration,
+   * not corpus data, so an unusable value is rejected before any Harness read
+   * rather than coerced by `Math.min`/`slice` into a fractional or `NaN`
+   * truncation count. The same value is validated once for every origin mode.
+   */
   readonly limit?: number
   /**
    * The exact corpus scope the `current` workspace filter narrows to.
@@ -235,12 +242,32 @@ function toEntry(record: SessionRecord, trait: ObservedTraits | undefined, snipp
 }
 
 /**
+ * Validate one configured listing limit.
+ *
+ * A listing limit is internal presentation configuration rather than corpus
+ * data, so an unusable value is a programming error, not a listing failure: it
+ * is rejected with a named contract before any Harness read, instead of being
+ * silently coerced into a fractional or `NaN` `truncated` count. Both origin
+ * regimes pass through this one gate, so an invalid limit cannot behave
+ * differently for `all` and `own`/`delegated`.
+ * @param value - the configured limit.
+ * @returns the same value, once proven a non-negative safe integer.
+ */
+function listingLimit(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError('Session catalog limit must be a non-negative safe integer')
+  }
+  return value
+}
+
+/**
  * Materialize the retained list from one authoritative listing.
  *
  * The two regimes have different costs, and naming the difference is the point:
  *
- * - `all` has no presentation predicate, and `records.length` is already the
- *   exact authoritative total, so dshline touches only the retained prefix.
+ * - `all` has no origin predicate — workspace/age clauses, if any, were already
+ *   applied by Harness — and `records.length` is already the exact
+ *   authoritative total, so dshline touches only the retained prefix.
  *   Presentation work is O(min(N, limit)). Harness still returned and paid for
  *   the whole corpus — this bounds the frontend's second corpus, not the
  *   authoritative listing itself.
@@ -252,7 +279,7 @@ function toEntry(record: SessionRecord, trait: ObservedTraits | undefined, snipp
  * Either way rows are emitted in their existing Harness order.
  * @param records - the authoritative listing, in Harness order.
  * @param origin - the presentation-only origin choice to retain.
- * @param limit - maximum entries to materialize.
+ * @param limit - maximum entries to materialize; already validated.
  * @returns the retained entries and the exact count the limit dropped.
  */
 function retainListing(
@@ -401,8 +428,16 @@ export class SessionCatalog {
    */
   private pageRevision = 0
   private disposed = false
+  /**
+   * The validated listing limit shared by every request and origin mode.
+   *
+   * Resolved once at construction so no listing path can reach
+   * {@link retainListing} with an unusable value.
+   */
+  private readonly limit: number
 
   constructor(private readonly spec: SessionCatalogSpec) {
+    this.limit = listingLimit(spec.limit ?? CATALOG_LIMIT)
     this.base = spec.query === undefined ? { kind: 'unavailable' } : { kind: 'loading' }
   }
 
@@ -829,8 +864,7 @@ export class SessionCatalog {
         const records = clauses.length === 0
           ? await query.listSessions(abort.signal)
           : await query.filterSessions(clauses, abort.signal)
-        const limit = this.spec.limit ?? CATALOG_LIMIT
-        const { entries: kept, truncated } = retainListing(records, filters.origin, limit)
+        const { entries: kept, truncated } = retainListing(records, filters.origin, this.limit)
         const traits = observedTraits(await query.readTitleSnapshots(
           kept.map(entry => entry.id),
           abort.signal,
