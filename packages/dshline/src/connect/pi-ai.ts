@@ -12,25 +12,32 @@
  *
  * `llm-pi-ai` is that one namespace today — the adapter whose settings profile
  * can describe a provider route wholesale, per
- * `@deepseek-ai/dsh-llm-pi-ai`'s `PiAiProviderProfile`. This module names its
- * five curated fields (`displayName`, `baseURL`, `api`, `headers`, `models`)
- * as plain strings and reads/writes them through the same generic
- * `ctx.settings` path ops every other Connect action uses. It does not import
- * the pi-ai package at runtime, does not register providers, does not parse
- * model output, and does not perform network I/O — Harness still does every one
- * of those. What lives here is only the knowledge of which five fields, out of
- * the many `PiAiProviderProfile` now has, are worth a terminal form in this
- * pass.
+ * `@deepseek-ai/dsh-llm-pi-ai`'s `PiAiProviderProfile`. This module names the
+ * fields it curates (`displayName`, `baseURL`, `api`, `headers`, `models`,
+ * `modelOverrides`, and each model's `name`/`contextWindow`/`maxTokens`/
+ * `input`/`reasoningEfforts`) as plain strings and reads/writes them through
+ * the same generic `ctx.settings` path ops every other Connect action uses. It
+ * does not import the pi-ai package at runtime, does not register providers,
+ * does not parse model output, and does not perform network I/O — Harness still
+ * does every one of those. What lives here is only the knowledge of which
+ * fields, out of the many `PiAiProviderProfile` now has, are worth a terminal
+ * form in this pass.
  *
- * `headers` earns its place for the same reason the other four have it: it
+ * `headers` earns its place for the same reason the route fields have it: it
  * decides what a route can REACH. A gateway that authenticates with anything
  * other than the one field carrying the `credential-ref` role — a tenant
  * header, a signed proxy token, a routing tag a corporate egress requires — is
  * otherwise unreachable from the terminal, and the route has to be finished by
- * hand in `settings.yaml`. That is the same "can a reader get to a model at
- * all" test that admitted endpoint, protocol, and catalog, and it is why the
- * genuinely advanced fields (`compat`, `retryPolicy`, per-model reasoning)
- * still stay out.
+ * hand in `settings.yaml`. The per-model capabilities earn theirs for the
+ * complementary reason: they are what a deployment MUST state when nothing can
+ * infer it, because no endpoint listing reports a model's modalities or its
+ * reasoning-level wire spellings. `compat`, `retryPolicy`, and the operational
+ * budgets still stay out.
+ *
+ * Which of those fields exist, and every CHOICE or VOCABULARY one offers, comes
+ * from the namespace's own serialized schema rather than a list written here —
+ * see {@link routeModelSchema}. The field NAMES are the knowledge this module
+ * is allowed to hold; their shapes are the owner's to publish.
  *
  * The protocol CHOICES this module offers are not hard-coded even though the
  * field name is: `protocolChoices` reads the `api` field's own schema node and
@@ -67,22 +74,55 @@
 import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type { SettingsDescriptorRead, SettingsPathOp } from './harness.ts'
 import type { ConnectAction, ConnectCapabilities, ConnectNewRouteTarget, ConnectProviderRow } from './model.ts'
-import { fieldNode, isStringDict, profileNode, unionConstStrings } from './schema.ts'
+import {
+  dictKeyStrings,
+  fieldNode,
+  innerNode,
+  isStringDict,
+  leafAcceptance,
+  numberConstraints,
+  profileNode,
+  resolveSchemaNode,
+  unionConstStrings,
+  unionHasConst,
+} from './schema.ts'
+import type { LeafAcceptance, LocatedProfile, SchemaEnvelope, SchemaNode } from './schema.ts'
 
 /** The one namespace this module knows how to present curated fields for. */
 export const PI_AI_NAMESPACE = 'llm-pi-ai'
 
-/** `PiAiProviderProfile` field names this pass curates; see the module note for why only these five. */
+/** `PiAiProviderProfile` field names this pass curates; see the module note for why only these. */
 export const DISPLAY_NAME_FIELD = 'displayName'
 export const BASE_URL_FIELD = 'baseURL'
 export const API_FIELD = 'api'
 export const HEADERS_FIELD = 'headers'
 export const MODELS_FIELD = 'models'
+export const MODEL_OVERRIDES_FIELD = 'modelOverrides'
+
+/**
+ * `PiAiModelProfile` fields this pass curates, in either a `models` entry or a
+ * `modelOverrides` value. The two sites share every field but the id's home, so
+ * one set of names serves both.
+ */
+export const NAME_FIELD = 'name'
+export const CONTEXT_WINDOW_FIELD = 'contextWindow'
+export const MAX_TOKENS_FIELD = 'maxTokens'
+export const INPUT_FIELD = 'input'
+export const REASONING_EFFORTS_FIELD = 'reasoningEfforts'
 
 /** Whether a route row belongs to the one domain this module presents. */
 export function isPiAiNamespace(settingsNs: string): boolean {
   return settingsNs === PI_AI_NAMESPACE
 }
+
+/**
+ * One model entry's `reasoningEfforts` exactly as `llm-pi-ai` accepts it:
+ * `false` disables reasoning, and a dict maps each offered level to its wire
+ * spelling (or `null` for "supported, send no wire value"). WHICH levels may
+ * carry `null` is the namespace owner's semantic rule, not this module's — the
+ * schema's leaf shape is the only thing read here.
+ */
+export type ReasoningEffortsValue = false | Record<string, string | null>
 
 /** One `PiAiModelProfile` entry, exactly as this pass curates it — never the whole shape. */
 export interface CuratedModelFields {
@@ -90,15 +130,108 @@ export interface CuratedModelFields {
   readonly name: string | undefined
   readonly contextWindow: number | undefined
   readonly maxTokens: number | undefined
+  /** Declared modalities, or undefined to inherit. An empty list is read back as absent. */
+  readonly input: readonly string[] | undefined
+  /** The declared reasoning capability, or undefined to inherit the installed catalog's. */
+  readonly reasoningEfforts: ReasoningEffortsValue | undefined
+}
+
+/**
+ * One per-model field this pass curates, named by its profile key.
+ *
+ * The union is the write vocabulary: a `modelOverrides.<id>` edit addresses
+ * exactly one of these paths, so the type is what keeps an override edit from
+ * becoming a whole-object rewrite that could carry a stale sibling back.
+ */
+export type ModelCuratedField =
+  | typeof NAME_FIELD
+  | typeof CONTEXT_WINDOW_FIELD
+  | typeof MAX_TOKENS_FIELD
+  | typeof INPUT_FIELD
+  | typeof REASONING_EFFORTS_FIELD
+
+/** Every curated model field, in the order a form writes them. */
+export const CURATED_MODEL_FIELDS: readonly ModelCuratedField[] = [
+  NAME_FIELD,
+  CONTEXT_WINDOW_FIELD,
+  MAX_TOKENS_FIELD,
+  INPUT_FIELD,
+  REASONING_EFFORTS_FIELD,
+]
+
+/**
+ * One curated field's current value, read off a curated view.
+ *
+ * The single place the field-name union meets the value object, so a caller
+ * diffing or writing fields never re-enumerates them. An absent value stays
+ * `undefined`, which is the "inherit/unset" spelling a path op uses.
+ * @param fields - the curated view of an entry or override.
+ * @param field - the field to read.
+ * @returns the field's JSON-compatible value, or undefined when unset.
+ */
+export function curatedFieldValue(fields: CuratedModelFields, field: ModelCuratedField): unknown {
+  switch (field) {
+    case NAME_FIELD:
+      return fields.name
+    case CONTEXT_WINDOW_FIELD:
+      return fields.contextWindow
+    case MAX_TOKENS_FIELD:
+      return fields.maxTokens
+    case INPUT_FIELD:
+      return fields.input === undefined ? undefined : [...fields.input]
+    case REASONING_EFFORTS_FIELD:
+      return fields.reasoningEfforts
+  }
+}
+
+/**
+ * Read one model entry's `input`/`reasoningEfforts` without assuming a shape.
+ *
+ * An absent array and an empty one are one statement — "no answer here" — which
+ * is what lets a catalog model keep its installed modalities and its installed
+ * reasoning capability. A dict is carried through as written, including an
+ * empty one: that is a profile stating nothing, which Harness refuses on the
+ * next write, and this frontend must show it rather than quietly repair it.
+ * @param raw - the entry's raw value.
+ * @returns the curated `input` and `reasoningEfforts`.
+ */
+function capabilityFields(raw: unknown): Pick<CuratedModelFields, 'input' | 'reasoningEfforts'> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { input: undefined, reasoningEfforts: undefined }
+  }
+  const record = raw as Record<string, unknown>
+  const rawInput = record[INPUT_FIELD]
+  const input = Array.isArray(rawInput) && rawInput.length > 0 && rawInput.every(entry => typeof entry === 'string')
+    ? [...rawInput] as string[]
+    : undefined
+  const rawReasoning = record[REASONING_EFFORTS_FIELD]
+  return { input, reasoningEfforts: readReasoningEfforts(rawReasoning) }
+}
+
+/**
+ * Read one `reasoningEfforts` value, keeping the three states apart.
+ * @param raw - the stored value.
+ * @returns `false`, a mapping, or undefined for "inherit/not stated".
+ */
+function readReasoningEfforts(raw: unknown): ReasoningEffortsValue | undefined {
+  if (raw === false) return false
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined
+  const mapping: Record<string, string | null> = {}
+  for (const [level, wire] of Object.entries(raw as Record<string, unknown>)) {
+    if (wire === null || typeof wire === 'string') mapping[level] = wire
+  }
+  // Preserved even when empty: `{}` is a profile declaring nothing, which
+  // Harness refuses, and echoing it back is how a reader sees that state.
+  return mapping
 }
 
 /**
  * The curated fields the row-editor form shows, out of whatever a raw model
  * entry actually carries.
  *
- * Every other property on the entry — `input`, `reasoningEfforts`, `compat`,
- * anything a future pi-ai release adds — is read past here rather than
- * discarded: {@link mergeModelEntry} is what carries them forward.
+ * Every other property on the entry — `compat`, anything a future pi-ai
+ * release adds — is read past here rather than discarded: {@link mergeModelEntry}
+ * is what carries them forward.
  * @param raw - one element of the profile's `models` array, whatever shape it is.
  * @returns the curated view, or undefined when the entry has no usable `id`.
  */
@@ -112,24 +245,68 @@ export function curatedModelFields(raw: unknown): CuratedModelFields | undefined
     name: typeof record.name === 'string' ? record.name : undefined,
     contextWindow: typeof record.contextWindow === 'number' ? record.contextWindow : undefined,
     maxTokens: typeof record.maxTokens === 'number' ? record.maxTokens : undefined,
+    ...capabilityFields(raw),
   }
 }
 
 /**
- * The profile's raw `models` array, exactly as stored — undefined when the
- * route inherits its owning catalog, `[]` when the profile explicitly serves
- * none. Reading straight off the resolved value keeps that distinction: the
- * `llm-pi-ai` schema materializes no default for this field, so an absent key
- * survives resolution as absent rather than being synthesized from the
- * installed catalog (that inheritance happens deeper, in the adapter, not in
- * settings resolution).
+ * The curated view of one `modelOverrides.<id>` value, whose id is the dict key.
+ *
+ * The same field reading as {@link curatedModelFields} without requiring an
+ * `id` in the value — an override carrying one is refused by `llm-pi-ai`, so a
+ * hand-edited profile's stray key is read past rather than trusted. A
+ * non-object value still yields an id-only view rather than vanishing: a stored
+ * override the adapter cannot serve must stay visible for repair.
+ * @param id - the dict key.
+ * @param raw - the override value, whatever shape it is.
+ * @returns the curated view.
+ */
+export function curatedOverrideFields(id: string, raw: unknown): CuratedModelFields {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { id, name: undefined, contextWindow: undefined, maxTokens: undefined, input: undefined, reasoningEfforts: undefined }
+  }
+  const record = raw as Record<string, unknown>
+  return {
+    id,
+    name: typeof record.name === 'string' ? record.name : undefined,
+    contextWindow: typeof record.contextWindow === 'number' ? record.contextWindow : undefined,
+    maxTokens: typeof record.maxTokens === 'number' ? record.maxTokens : undefined,
+    ...capabilityFields(raw),
+  }
+}
+
+/**
+ * The profile's raw `models` array, exactly as stored.
+ *
+ * An absent key and `[]` are the same request in `llm-pi-ai`: the schema
+ * materializes `[]` for the absent case, and an empty catalog could serve no
+ * request anyway, so both mean "serve the installed catalog". A caller
+ * therefore asks whether the array has entries, never whether the key exists.
+ * A non-empty array is the profile's explicit replacement for that catalog.
  * @param profile - the profile value at a route's `settingsPath`.
- * @returns the raw entries, or undefined when the field is unset.
+ * @returns the raw entries, or undefined when the field is not an array.
  */
 export function rawModels(profile: unknown): readonly unknown[] | undefined {
   if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return undefined
   const value = (profile as Record<string, unknown>)[MODELS_FIELD]
   return Array.isArray(value) ? value : undefined
+}
+
+/**
+ * The profile's raw `modelOverrides` dict, exactly as stored.
+ *
+ * Only a catalog route with no explicit `models` list may carry one, and each
+ * key is an installed model id whose entry this overrides field by field. A
+ * non-object answers an empty dict, which is the same "no overrides" the
+ * absence means.
+ * @param profile - the profile value at a route's `settingsPath`.
+ * @returns the raw overrides, keyed by model id.
+ */
+export function rawModelOverrides(profile: unknown): Record<string, unknown> {
+  if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return {}
+  const value = (profile as Record<string, unknown>)[MODEL_OVERRIDES_FIELD]
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return value as Record<string, unknown>
 }
 
 /**
@@ -149,11 +326,129 @@ export function rawHeaders(profile: unknown): unknown {
   return value
 }
 
+/** One model entry's field availability and vocabularies, derived from the schema alone. */
+export interface ModelEntrySchema {
+  /** Whether the entry still declares a `name` string. */
+  readonly name: boolean
+  /** `contextWindow` bounds when it is still a constrained number; undefined otherwise. */
+  readonly contextWindow: { min?: number; step?: number } | undefined
+  /** `maxTokens` bounds when it is still a constrained number; undefined otherwise. */
+  readonly maxTokens: { min?: number; step?: number } | undefined
+  /** Schema-derived modality vocabulary; empty when the field is not offered. */
+  readonly input: readonly string[]
+  /** Schema-derived reasoning-level vocabulary; empty when the field is not offered. */
+  readonly reasoningLevels: readonly string[]
+  /** Whether the schema still offers `reasoningEfforts: false`. */
+  readonly reasoningCanDisable: boolean
+  /**
+   * What one level's mapping VALUE accepts, derived from the dict's element
+   * schema. `undefined` means the leaf is not a primitive (`union` of them)
+   * this form can render, so the mapping editor fails closed rather than
+   * guessing; an all-false record means the leaf accepts nothing.
+   */
+  readonly reasoningWire: LeafAcceptance | undefined
+}
+
+/** Which model-catalog shapes one route's schema still describes. */
+export interface RouteModelSchema {
+  /** Whether `models` is still an array of entry objects. */
+  readonly models: boolean
+  /** Whether `modelOverrides` is still a dict of entry objects. */
+  readonly overrides: boolean
+  /** The shared entry field set, when either site is still readable. */
+  readonly entry: ModelEntrySchema | undefined
+}
+
+/** Nothing readable — the answer for a schema that does not describe this route. */
+const NO_MODEL_SCHEMA: RouteModelSchema = { models: false, overrides: false, entry: undefined }
+
+/**
+ * The model-catalog shapes one route's schema describes right now.
+ *
+ * Every choice and vocabulary a model form needs is read from here rather than
+ * written down in this module: a pi-ai release that adds a modality, a thinking
+ * level, or a new entry field is presented without a dshline change, and a
+ * schema that stops describing one disables that control instead of writing a
+ * value the namespace would refuse. The field NAMES are the one thing this
+ * module is allowed to know, for the same reason `protocolChoices` knows `api`.
+ * @param schema - the `llm-pi-ai` namespace's serialized schema.
+ * @param routePath - path to the route's profile.
+ * @returns the readable shapes; all absent when the schema cannot be walked.
+ */
+export function routeModelSchema(schema: unknown, routePath: readonly string[]): RouteModelSchema {
+  const located = profileNode(schema, routePath)
+  if (located === undefined) return NO_MODEL_SCHEMA
+  const modelsNode = entryObjectNode(located, MODELS_FIELD)
+  const overridesNode = entryObjectNode(located, MODEL_OVERRIDES_FIELD)
+  const entryNode = modelsNode ?? overridesNode
+  return {
+    models: modelsNode !== undefined,
+    overrides: overridesNode !== undefined,
+    entry: entryNode === undefined ? undefined : entrySchema(entryNode, located.envelope),
+  }
+}
+
+/**
+ * The element node of a `models`/`modelOverrides` field, when it is an object.
+ * @param located - the route's located profile.
+ * @param field - the field name.
+ * @returns the element node, or undefined when the field is not a collection of objects.
+ */
+function entryObjectNode(located: LocatedProfile, field: string): SchemaNode | undefined {
+  const element = innerNode(fieldNode(located, field), located.envelope)
+  return element?.type === 'object' ? element : undefined
+}
+
+/**
+ * Read one entry object's field set and vocabularies.
+ * @param node - the entry's object node.
+ * @param envelope - the table every uid is looked up in.
+ * @returns the derived field availability and choices.
+ */
+function entrySchema(node: SchemaNode, envelope: SchemaEnvelope): ModelEntrySchema {
+  const located: LocatedProfile = { node, envelope }
+  const reasoning = fieldNode(located, REASONING_EFFORTS_FIELD)
+  const mapping = dictMember(reasoning, envelope)
+  return {
+    name: fieldNode(located, NAME_FIELD)?.type === 'string',
+    contextWindow: numberConstraints(fieldNode(located, CONTEXT_WINDOW_FIELD)),
+    maxTokens: numberConstraints(fieldNode(located, MAX_TOKENS_FIELD)),
+    input: unionConstStrings(innerNode(fieldNode(located, INPUT_FIELD), envelope), envelope),
+    reasoningLevels: dictKeyStrings(mapping, envelope),
+    reasoningCanDisable: unionHasConst(reasoning, envelope, false),
+    reasoningWire: leafAcceptance(innerNode(mapping, envelope), envelope),
+  }
+}
+
+/**
+ * The one `dict` branch of a union that also carries a non-dict constant.
+ *
+ * `reasoningEfforts` is `union([const(false), dict])`, so the level vocabulary
+ * lives on the dict member; a union of some other shape answers undefined and
+ * the field is simply not offered. TWO dict branches also answer undefined:
+ * which one is "the" vocabulary would be a guess, and a form that picked one
+ * would present a mapping the schema never described.
+ * @param node - the `reasoningEfforts` node.
+ * @param envelope - the table every uid is looked up in.
+ * @returns the dict member, or undefined when there is not exactly one.
+ */
+function dictMember(node: SchemaNode | undefined, envelope: SchemaEnvelope): SchemaNode | undefined {
+  if (node === undefined) return undefined
+  if (node.type === 'dict') return node
+  if (node.type !== 'union') return undefined
+  const dicts: SchemaNode[] = []
+  for (const member of node.list ?? []) {
+    const resolved = resolveSchemaNode(member, envelope)
+    if (resolved?.type === 'dict') dicts.push(resolved)
+  }
+  return dicts.length === 1 ? dicts[0] : undefined
+}
+
 /**
  * Merge curated edits onto whatever a model entry already carried.
  *
  * The retained object is the source of unknown-field survival: spreading it
- * first and the curated fields second keeps `input`, `compat`, and anything
+ * first and the curated fields second keeps `compat`, `headers`, and anything
  * else this pass does not render, while still letting a curated edit win. A
  * curated field cleared back to undefined is deleted rather than written as
  * `null` or literal `undefined` — `settings.mutate` accepts only JSON-compatible
@@ -168,10 +463,42 @@ export function mergeModelEntry(
   curated: CuratedModelFields,
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...retained, id: curated.id }
-  setOrDelete(next, 'name', curated.name)
-  setOrDelete(next, 'contextWindow', curated.contextWindow)
-  setOrDelete(next, 'maxTokens', curated.maxTokens)
+  applyCuratedFields(next, curated)
   return next
+}
+
+/**
+ * Merge curated edits onto a `modelOverrides.<id>` value.
+ *
+ * The id lives in the dict key, so a value carrying its own is refused by
+ * `llm-pi-ai` — this strips one a hand-edited profile may have stored as well
+ * as the `id` {@link mergeModelEntry} always stamps, so an override can never
+ * carry a stray rename.
+ * @param retained - the override's previous raw shape, when one existed.
+ * @param curated - the fields the editor changed.
+ * @returns the override value to write, JSON-compatible.
+ */
+export function mergeOverrideEntry(
+  retained: Record<string, unknown> | undefined,
+  curated: CuratedModelFields,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...retained }
+  delete next.id
+  applyCuratedFields(next, curated)
+  return next
+}
+
+/**
+ * Write every curated field onto a raw entry, deleting the ones cleared.
+ * @param target - the object being built.
+ * @param curated - the curated values.
+ */
+function applyCuratedFields(target: Record<string, unknown>, curated: CuratedModelFields): void {
+  setOrDelete(target, NAME_FIELD, curated.name)
+  setOrDelete(target, CONTEXT_WINDOW_FIELD, curated.contextWindow)
+  setOrDelete(target, MAX_TOKENS_FIELD, curated.maxTokens)
+  setOrDelete(target, INPUT_FIELD, curated.input === undefined ? undefined : [...curated.input])
+  setOrDelete(target, REASONING_EFFORTS_FIELD, curated.reasoningEfforts)
 }
 
 /**
@@ -287,14 +614,76 @@ export function unsetHeadersOp(routePath: readonly string[]): SettingsPathOp {
 /**
  * The op that resets a route's model catalog back to its owning adapter's.
  *
- * `unset`, never `set` with `[]`: an empty array is an explicit "this route
- * serves nothing", while unsetting the field is "serve the installed catalog
- * unchanged" — the same distinction {@link rawModels} preserves on the way in.
+ * `unset`, never `set` with `[]`. The two are the same request to `llm-pi-ai` —
+ * the schema materializes `[]` for the absent case, so both mean "serve the
+ * installed catalog" — but only `unset` removes the key, leaving a
+ * `settings.yaml` that says what it means instead of an empty array a reader
+ * has to know is equivalent.
  * @param routePath - the route's `settingsPath`.
  * @returns the op.
  */
 export function unsetModelsOp(routePath: readonly string[]): SettingsPathOp {
   return { op: 'unset', path: [...routePath, MODELS_FIELD] }
+}
+
+/**
+ * One op creating a whole `modelOverrides.<id>` that did NOT exist at open.
+ *
+ * Deliberately not the general edit path. An override the route already
+ * carried is edited field by field through {@link setOverrideFieldOp}, because
+ * only the fields a reader actually touched may be written — a whole-object
+ * `set` would carry the open-time copy of every field it never rendered back
+ * over a concurrent edit. There is no sibling to preserve on the id's first
+ * appearance, so one whole-value `set` is the honest spelling for it.
+ * @param routePath - the route's `settingsPath`.
+ * @param id - the installed model id, which is the dict key.
+ * @param value - the override value, already merged by {@link mergeOverrideEntry}.
+ * @returns the op.
+ */
+export function setNewOverrideOp(
+  routePath: readonly string[],
+  id: string,
+  value: Record<string, unknown>,
+): SettingsPathOp {
+  return { op: 'set', path: [...routePath, MODEL_OVERRIDES_FIELD, id], value }
+}
+
+/**
+ * One op addressing exactly one curated field of an existing override.
+ *
+ * The narrowest owned path the settings seam can express, so a conflict-time
+ * second save reapplies only what the reader edited and leaves every other
+ * field — curated or unknown — at whatever the current revision holds. An
+ * undefined value unsets the key, which is how a field is returned to
+ * inheritance rather than stored as `null`.
+ * @param routePath - the route's `settingsPath`.
+ * @param id - the installed model id.
+ * @param field - the curated field to write.
+ * @param value - the field's value, or undefined to unset it.
+ * @returns the op.
+ */
+export function setOverrideFieldOp(
+  routePath: readonly string[],
+  id: string,
+  field: ModelCuratedField,
+  value: unknown,
+): SettingsPathOp {
+  const path = [...routePath, MODEL_OVERRIDES_FIELD, id, field]
+  return value === undefined ? { op: 'unset', path } : { op: 'set', path, value }
+}
+
+/**
+ * The op that removes one installed-catalog model's override.
+ *
+ * `unset` on the exact id, so removing the last override leaves an empty dict
+ * the schema reads as "no overrides" — no whole-dict write that could drop a
+ * sibling this pass never showed.
+ * @param routePath - the route's `settingsPath`.
+ * @param id - the installed model id.
+ * @returns the op.
+ */
+export function unsetOverrideOp(routePath: readonly string[], id: string): SettingsPathOp {
+  return { op: 'unset', path: [...routePath, MODEL_OVERRIDES_FIELD, id] }
 }
 
 /** Every curated field a brand-new route's profile may set. */

@@ -5,24 +5,39 @@ import type { LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import {
   API_FIELD,
   BASE_URL_FIELD,
+  CONTEXT_WINDOW_FIELD,
   createRouteOp,
+  CURATED_MODEL_FIELDS,
+  curatedFieldValue,
   curatedModelFields,
+  curatedOverrideFields,
   DISPLAY_NAME_FIELD,
   extraActions,
   fieldOps,
   HEADERS_FIELD,
   headersCurated,
+  INPUT_FIELD,
   isPiAiNamespace,
+  MAX_TOKENS_FIELD,
   mergeModelEntry,
+  mergeOverrideEntry,
+  MODEL_OVERRIDES_FIELD,
   MODELS_FIELD,
+  NAME_FIELD,
   piAiDeclarationTarget,
   protocolChoices,
   rawHeaders,
+  rawModelOverrides,
   rawModels,
+  REASONING_EFFORTS_FIELD,
+  routeModelSchema,
   setHeadersOp,
   setModelsOp,
+  setNewOverrideOp,
+  setOverrideFieldOp,
   unsetHeadersOp,
   unsetModelsOp,
+  unsetOverrideOp,
 } from '../src/connect/pi-ai.ts'
 import type { ConnectCapabilities, ConnectProviderRow } from '../src/connect/model.ts'
 import type { SettingsDescriptorRead } from '../src/connect/harness.ts'
@@ -41,6 +56,48 @@ const PI_AI_SCHEMA = {
     8: { type: 'string', meta: { role: 'credential-ref' } },
     9: { type: 'string', meta: {} },
     10: { type: 'array', meta: {}, inner: 3 },
+  },
+}
+
+/**
+ * The real `llm-pi-ai` model shapes: a `models` array of objects, a
+ * `modelOverrides` dict of the SAME object (keyed by model id), and the
+ * `input`/`reasoningEfforts` field shapes the schema actually serializes.
+ * Mirrors `z.array(modelProfile)` / `z.dict(modelOverride)` with
+ * `z.union(MODALITIES)` and `z.union([z.const(false), reasoningEfforts])`.
+ *
+ * The reasoning level names are deliberately NOT pi-ai's (`tiny`, `huge`), so a
+ * test that reads them proves the implementation has no hidden vocabulary of
+ * its own.
+ */
+const PI_AI_MODEL_SCHEMA = {
+  uid: 1,
+  refs: {
+    1: { type: 'object', meta: {}, dict: { providers: 2 } },
+    2: { type: 'dict', meta: {}, inner: 3, sKey: 20 },
+    3: { type: 'object', meta: {}, dict: { models: 4, modelOverrides: 8 } },
+    4: { type: 'array', meta: { default: [] }, inner: 5 },
+    5: { type: 'object', meta: { default: {} }, dict: { id: 6, name: 7, contextWindow: 11, maxTokens: 11, input: 12, reasoningEfforts: 14 } },
+    6: { type: 'string', meta: { required: true } },
+    7: { type: 'string', meta: {} },
+    8: { type: 'dict', meta: { default: {} }, inner: 9, sKey: 10 },
+    9: { type: 'object', meta: { default: {} }, dict: { name: 7, contextWindow: 11, maxTokens: 11, input: 12, reasoningEfforts: 14 } },
+    10: { type: 'string', meta: {} },
+    11: { type: 'number', meta: { step: 1, min: 1 } },
+    12: { type: 'array', meta: { default: [] }, inner: 13 },
+    13: { type: 'union', meta: {}, list: [15, 16] },
+    15: { type: 'const', meta: { required: true }, value: 'text' },
+    16: { type: 'const', meta: { required: true }, value: 'image' },
+    14: { type: 'union', meta: {}, list: [17, 18] },
+    17: { type: 'const', meta: {}, value: false },
+    18: { type: 'dict', meta: { default: {} }, inner: 21, sKey: 19 },
+    19: { type: 'union', meta: {}, list: [22, 23] },
+    22: { type: 'const', meta: { required: true }, value: 'tiny' },
+    23: { type: 'const', meta: { required: true }, value: 'huge' },
+    21: { type: 'union', meta: {}, list: [24, 25] },
+    24: { type: 'string', meta: {} },
+    25: { type: 'const', meta: {}, value: null },
+    20: { type: 'string', meta: {} },
   },
 }
 
@@ -80,19 +137,216 @@ describe('the inherited-vs-explicit-empty distinction', () => {
 
 describe('merging curated edits without losing unknown fields', () => {
   it('spreads the retained shape first, so curated fields win but the rest survives', () => {
-    const retained = { id: 'gpt', name: 'old', compat: { supportsDeveloperRole: false }, reasoningEfforts: ['low'] }
-    const merged = mergeModelEntry(retained, { id: 'gpt', name: 'new', contextWindow: undefined, maxTokens: undefined })
-    expect(merged).toEqual({ id: 'gpt', name: 'new', compat: { supportsDeveloperRole: false }, reasoningEfforts: ['low'] })
+    const retained = { id: 'gpt', name: 'old', compat: { supportsDeveloperRole: false } }
+    const merged = mergeModelEntry(retained, {
+      id: 'gpt',
+      name: 'new',
+      contextWindow: undefined,
+      maxTokens: undefined,
+      input: undefined,
+      reasoningEfforts: undefined,
+    })
+    expect(merged).toEqual({ id: 'gpt', name: 'new', compat: { supportsDeveloperRole: false } })
   })
 
-  it('deletes a curated field cleared to undefined rather than writing null', () => {
-    expect(mergeModelEntry({ id: 'gpt', name: 'old' }, { id: 'gpt', name: undefined, contextWindow: undefined, maxTokens: undefined }))
-      .toEqual({ id: 'gpt' })
+  it('deletes every curated field cleared to undefined rather than writing null', () => {
+    const retained = {
+      id: 'gpt',
+      name: 'old',
+      contextWindow: 1000,
+      input: ['text'],
+      reasoningEfforts: { low: 'low' },
+    }
+    expect(mergeModelEntry(retained, {
+      id: 'gpt',
+      name: undefined,
+      contextWindow: undefined,
+      maxTokens: undefined,
+      input: undefined,
+      reasoningEfforts: undefined,
+    })).toEqual({ id: 'gpt' })
+  })
+
+  it('writes the capability fields it was given, including an explicit disable', () => {
+    expect(mergeModelEntry(undefined, {
+      id: 'gpt',
+      name: undefined,
+      contextWindow: undefined,
+      maxTokens: undefined,
+      input: ['text', 'image'],
+      reasoningEfforts: false,
+    })).toEqual({ id: 'gpt', input: ['text', 'image'], reasoningEfforts: false })
   })
 
   it('builds a fresh entry when there is nothing retained', () => {
-    expect(mergeModelEntry(undefined, { id: 'gpt', name: 'GPT', contextWindow: 128000, maxTokens: undefined }))
-      .toEqual({ id: 'gpt', name: 'GPT', contextWindow: 128000 })
+    expect(mergeModelEntry(undefined, {
+      id: 'gpt',
+      name: 'GPT',
+      contextWindow: 128000,
+      maxTokens: undefined,
+      input: undefined,
+      reasoningEfforts: undefined,
+    })).toEqual({ id: 'gpt', name: 'GPT', contextWindow: 128000 })
+  })
+})
+
+describe('override values and reading them back', () => {
+  it('merges curated fields without ever writing an id', () => {
+    expect(mergeOverrideEntry({ id: 'stray', name: 'old', compat: { supportsStore: false } }, {
+      id: 'gpt',
+      name: 'new',
+      contextWindow: undefined,
+      maxTokens: undefined,
+      input: undefined,
+      reasoningEfforts: undefined,
+    })).toEqual({ name: 'new', compat: { supportsStore: false } })
+  })
+
+  it('reads an override value whose id is the dict key', () => {
+    expect(curatedOverrideFields('gpt', { name: 'GPT', input: ['text'], reasoningEfforts: { off: null } }))
+      .toMatchObject({ id: 'gpt', name: 'GPT', input: ['text'], reasoningEfforts: { off: null } })
+  })
+
+  it('still reads an id-only view from a malformed value, so it stays visible', () => {
+    expect(curatedOverrideFields('gpt', 'not an object')).toMatchObject({ id: 'gpt', name: undefined })
+  })
+
+  it('reads the raw override dict, empty for anything that is not one', () => {
+    expect(rawModelOverrides({ modelOverrides: { gpt: { name: 'G' } } })).toEqual({ gpt: { name: 'G' } })
+    expect(rawModelOverrides({ modelOverrides: [] })).toEqual({})
+    expect(rawModelOverrides({})).toEqual({})
+  })
+})
+
+/** The base model schema with node 21 — the reasoning dict's value leaf — replaced. */
+function modelSchemaWithWire(wire: unknown): unknown {
+  const schema = structuredClone(PI_AI_MODEL_SCHEMA) as { uid: number; refs: Record<string, unknown> }
+  schema.refs['21'] = wire
+  return schema
+}
+
+describe('model schema derivation', () => {
+  it('reads the fields and vocabularies from the entry objects themselves', () => {
+    expect(routeModelSchema(PI_AI_MODEL_SCHEMA, ['providers', 'openai'])).toEqual({
+      models: true,
+      overrides: true,
+      entry: {
+        name: true,
+        contextWindow: { min: 1, step: 1 },
+        maxTokens: { min: 1, step: 1 },
+        input: ['text', 'image'],
+        // The non-pi-ai level names prove the vocabulary is read, not known.
+        reasoningLevels: ['tiny', 'huge'],
+        reasoningCanDisable: true,
+        reasoningWire: { string: true, number: false, boolean: false, null: true },
+      },
+    })
+  })
+
+  it('reads null availability from the value leaf, never from the level name', () => {
+    // `tiny` is not a code path this frontend could special-case; the leaf is
+    // what says a valueless mapping is expressible at all.
+    const entry = routeModelSchema(PI_AI_MODEL_SCHEMA, ['providers', 'openai']).entry
+    expect(entry?.reasoningWire?.null).toBe(true)
+    expect(entry?.reasoningLevels).toContain('tiny')
+  })
+
+  it('withholds null when the value leaf is string-only', () => {
+    const entry = routeModelSchema(modelSchemaWithWire({ type: 'string', meta: {} }), ['providers', 'openai']).entry
+    expect(entry?.reasoningWire).toEqual({ string: true, number: false, boolean: false, null: false })
+  })
+
+  it('withholds the wire string when the value leaf is null-only', () => {
+    const entry = routeModelSchema(modelSchemaWithWire({ type: 'const', meta: {}, value: null }), ['providers', 'openai']).entry
+    expect(entry?.reasoningWire).toEqual({ string: false, number: false, boolean: false, null: true })
+  })
+
+  it('fails closed when the value leaf is a shape this form cannot render', () => {
+    const entry = routeModelSchema(
+      modelSchemaWithWire({ type: 'object', meta: {}, dict: { nested: 30 } }),
+      ['providers', 'openai'],
+    ).entry
+    expect(entry?.reasoningWire).toBeUndefined()
+    // The vocabulary is still readable, so a caller can tell "structured leaf"
+    // from "no field" and simply not offer the mapping.
+    expect(entry?.reasoningLevels).toEqual(['tiny', 'huge'])
+  })
+
+  it('fails closed on a union with two dict branches rather than picking one', () => {
+    const twoDicts = {
+      uid: 1,
+      refs: {
+        1: { type: 'object', meta: {}, dict: { providers: 2 } },
+        2: { type: 'dict', meta: {}, inner: 3, sKey: 20 },
+        3: { type: 'object', meta: {}, dict: { models: 4 } },
+        4: { type: 'array', meta: { default: [] }, inner: 5 },
+        5: { type: 'object', meta: { default: {} }, dict: { name: 7, reasoningEfforts: 14 } },
+        7: { type: 'string', meta: {} },
+        14: { type: 'union', meta: {}, list: [18, 19] },
+        18: { type: 'dict', meta: { default: {} }, inner: 21, sKey: 30 },
+        19: { type: 'dict', meta: { default: {} }, inner: 21, sKey: 31 },
+        21: { type: 'string', meta: {} },
+        30: { type: 'union', meta: {}, list: [32] },
+        31: { type: 'union', meta: {}, list: [33] },
+        32: { type: 'const', meta: { required: true }, value: 'first' },
+        33: { type: 'const', meta: { required: true }, value: 'second' },
+        20: { type: 'string', meta: {} },
+      },
+    }
+    const entry = routeModelSchema(twoDicts, ['providers', 'openai']).entry
+    expect(entry?.reasoningLevels).toEqual([])
+    expect(entry?.reasoningWire).toBeUndefined()
+  })
+
+  it('answers nothing readable for a route the schema does not describe', () => {
+    const noModels = {
+      uid: 1,
+      refs: {
+        1: { type: 'object', meta: {}, dict: { providers: 2 } },
+        2: { type: 'dict', meta: {}, inner: 3 },
+        3: { type: 'object', meta: {}, dict: { api: 4 } },
+        4: { type: 'string', meta: {} },
+      },
+    }
+    expect(routeModelSchema(noModels, ['providers', 'openai']))
+      .toEqual({ models: false, overrides: false, entry: undefined })
+  })
+})
+
+describe('reading one curated field by name', () => {
+  it('maps every curated field to its value, without enumerating them twice', () => {
+    const fields = {
+      id: 'gpt',
+      name: 'GPT',
+      contextWindow: 8000,
+      maxTokens: undefined,
+      input: ['text'],
+      reasoningEfforts: false,
+    }
+    expect(CURATED_MODEL_FIELDS.map(field => curatedFieldValue(fields, field)))
+      .toEqual(['GPT', 8000, undefined, ['text'], false])
+  })
+})
+
+describe('override path ops', () => {
+  it('creates a whole override only for an id that did not exist at open', () => {
+    expect(setNewOverrideOp(['providers', 'openai'], 'gpt', { name: 'G' }))
+      .toEqual({ op: 'set', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt'], value: { name: 'G' } })
+  })
+
+  it('addresses exactly one curated field of an existing override', () => {
+    expect(setOverrideFieldOp(['providers', 'openai'], 'gpt', INPUT_FIELD, ['text']))
+      .toEqual({ op: 'set', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt', INPUT_FIELD], value: ['text'] })
+  })
+
+  it('unsets exactly one curated field when it is cleared', () => {
+    expect(setOverrideFieldOp(['providers', 'openai'], 'gpt', REASONING_EFFORTS_FIELD, undefined))
+      .toEqual({ op: 'unset', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt', REASONING_EFFORTS_FIELD] })
+  })
+
+  it('unsets exactly the named id, which is how a whole override is removed', () => {
+    expect(unsetOverrideOp(['providers', 'openai'], 'gpt'))
+      .toEqual({ op: 'unset', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt'] })
   })
 })
 
