@@ -1,7 +1,7 @@
 /** Pure Sessions-browser filter vocabulary and Harness-clause translation. */
 
 import type { SessionResultFilter, SessionResultRange } from '@deepseek-ai/dsh-session-query'
-import type { SessionEntry } from './model.ts'
+import type { SessionEntry, SessionOrigin } from './model.ts'
 
 /** Whether workspace filtering is disabled or bound to the active workspace. */
 export type WorkspaceChoice = 'all' | 'current'
@@ -126,6 +126,24 @@ export function sessionFilterClauses(
 }
 
 /**
+ * Whether one already-classified origin survives the presentation-only choice.
+ *
+ * The single predicate behind both the browse scan and {@link applyOrigin}.
+ * The scan must decide on a RAW authoritative record — before any
+ * `SessionEntry` is materialized — while the entry filter decides on the
+ * projected origin; sharing this function is what keeps a row the scan counted
+ * exactly a row the entry filter would have kept, with no second spelling of
+ * "delegated means subagent" to drift.
+ * @param origin - one session's classified origin.
+ * @param choice - the origin choice to retain.
+ * @returns whether that origin remains visible.
+ */
+export function originRetained(origin: SessionOrigin, choice: OriginChoice): boolean {
+  if (choice === 'all') return true
+  return choice === 'delegated' ? origin === 'delegated' : origin !== 'delegated'
+}
+
+/**
  * Apply the presentation-only origin choice without changing Harness order.
  *
  * Missing origin metadata is classified as `own` by the catalog. This filter
@@ -140,7 +158,5 @@ export function applyOrigin(
   origin: OriginChoice,
 ): readonly SessionEntry[] {
   if (origin === 'all') return entries
-  return entries.filter(entry => origin === 'delegated'
-    ? entry.origin === 'delegated'
-    : entry.origin !== 'delegated')
+  return entries.filter(entry => originRetained(entry.origin, origin))
 }

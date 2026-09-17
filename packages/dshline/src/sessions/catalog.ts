@@ -28,10 +28,11 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 import {
   applyOrigin,
-  equalFilters,
   EVERY_WORKSPACE,
   NO_FILTERS,
+  originRetained,
   sessionFilterClauses,
+  type OriginChoice,
   type SessionFiltersValue,
   type SessionWorkspace,
 } from './filters.ts'
@@ -234,6 +235,41 @@ function toEntry(record: SessionRecord, trait: ObservedTraits | undefined, snipp
 }
 
 /**
+ * Scan the authoritative records once, count every row the presentation-only
+ * origin predicate retains, and materialize only the first `limit` of them.
+ *
+ * The count cannot come from a bounded slice: `truncated` and the `newest of N`
+ * reading are exact and require every qualifying record to be seen. The
+ * projection can, and materializing all of them first is the allocation this
+ * avoids — a second, full presentation corpus whose length was needed only for
+ * that count and which otherwise stayed reachable across the title await.
+ * Records are scanned in their existing Harness order, so order, origin
+ * semantics, and the retained set are unchanged.
+ * @param records - the authoritative listing, in Harness order.
+ * @param origin - the presentation-only origin choice to retain.
+ * @param limit - maximum entries to materialize.
+ * @returns the retained entries and the exact count the limit dropped.
+ */
+function retainListing(
+  records: readonly SessionRecord[],
+  origin: OriginChoice,
+  limit: number,
+): { readonly entries: SessionEntry[]; readonly truncated: number } {
+  const entries: SessionEntry[] = []
+  // `all` is the common case and needs no per-record classification. Skipping
+  // it keeps the ordinary open cheaper than the projection-only work it
+  // replaces, instead of trading the allocation for a predicate on every row.
+  const classify = origin !== 'all'
+  let retained = 0
+  for (const record of records) {
+    if (classify && !originRetained(classifyOrigin(record, undefined), origin)) continue
+    retained += 1
+    if (entries.length < limit) entries.push(toEntry(record, undefined))
+  }
+  return { entries, truncated: retained - entries.length }
+}
+
+/**
  * Fold a batch title observation into per-session presentation traits.
  *
  * Every fulfilled settlement stores an entry, even one with no title and no
@@ -420,7 +456,7 @@ export class SessionCatalog {
 
   /** Load the unfiltered newest-first listing for backward-compatible callers. */
   refresh(): void {
-    this.requestListing(NO_FILTERS, false)
+    this.requestListing(NO_FILTERS)
   }
 
   /**
@@ -446,7 +482,7 @@ export class SessionCatalog {
     this.contentChain = undefined
     this.contentState = { kind: 'idle' }
     this.spec.invalidate()
-    this.requestListing(this.filterValue, !equalFilters(this.filterValue, NO_FILTERS))
+    this.requestListing(this.filterValue)
   }
 
   /**
@@ -756,7 +792,19 @@ export class SessionCatalog {
     this.lineageAbort = undefined
   }
 
-  private requestListing(filters: SessionFiltersValue, filtered: boolean): void {
+  /**
+   * Start a fresh authoritative listing under one filter value.
+   *
+   * The Harness call is chosen by the TRANSLATED CLAUSES, not by whether the
+   * browser's filter value differs from the default. Origin has no Harness
+   * predicate, so an origin-only filter translates to zero clauses and is a
+   * plain listing; `filterSessions([])` would ask the engine to re-derive the
+   * whole corpus under an empty predicate and then have the frontend discard
+   * it down to the same rows. The origin choice still applies below, as it
+   * always did, because {@link retainListing} scans presentation-only.
+   * @param filters - the complete filter value to apply.
+   */
+  private requestListing(filters: SessionFiltersValue): void {
     const query = this.spec.query
     if (query === undefined) return
     const generation = (this.listingGeneration += 1)
@@ -770,15 +818,11 @@ export class SessionCatalog {
     void (async (): Promise<void> => {
       try {
         const clauses = sessionFilterClauses(filters, this.spec.workspace ?? EVERY_WORKSPACE, this.filterAnchor)
-        const records = filtered
-          ? await query.filterSessions(clauses, abort.signal)
-          : await query.listSessions(abort.signal)
-        const classified = applyOrigin(
-          records.map(record => toEntry(record, undefined)),
-          filtered ? filters.origin : 'all',
-        )
+        const records = clauses.length === 0
+          ? await query.listSessions(abort.signal)
+          : await query.filterSessions(clauses, abort.signal)
         const limit = this.spec.limit ?? CATALOG_LIMIT
-        const kept = classified.slice(0, limit)
+        const { entries: kept, truncated } = retainListing(records, filters.origin, limit)
         const traits = observedTraits(await query.readTitleSnapshots(
           kept.map(entry => entry.id),
           abort.signal,
@@ -787,7 +831,7 @@ export class SessionCatalog {
         this.base = {
           kind: 'ready',
           entries: kept.map(entry => ({ ...entry, title: traits.get(entry.id)?.title })),
-          truncated: classified.length - kept.length,
+          truncated,
         }
       } catch (error: unknown) {
         if (this.stale(generation, this.listingGeneration)) return

@@ -360,13 +360,16 @@ describe('filtering the authoritative listing', () => {
     expect({ listed, filtered }).toEqual({ listed: 2, filtered: 0 })
   })
 
-  it('aborts and discards a filter listing superseded by another value', async () => {
+  it('aborts and discards a listing superseded by another value', async () => {
+    // An origin-only filter has no Harness predicate, so superseding one
+    // supersedes a plain LISTING rather than a filtered read. What this pins is
+    // the abort/discard contract, which is unchanged by that call path.
     const first = deferred<SessionRecord[]>()
     const signals: AbortSignal[] = []
     let calls = 0
     const catalog = new SessionCatalog({
       query: engine({
-        filterSessions: async (_filters, signal) => {
+        listSessions: async signal => {
           signals.push(signal!)
           calls += 1
           return calls === 1 ? first.promise : [record('fresh')]
@@ -1554,7 +1557,7 @@ describe('tracing bounded lineage', () => {
     const never = new Promise<never>(() => {})
     const catalog = new SessionCatalog({
       query: engine({
-        filterSessions: async (_filters, signal) => { signals.push(signal!); return never },
+        listSessions: async signal => { signals.push(signal!); return never },
         searchSessions: async (_request, exec) => { signals.push(exec!.signal!); return never },
         searchEvents: async (_request, exec) => { signals.push(exec!.signal!); return never },
         readEvent: async (_request, signal) => { signals.push(signal!); return never },
@@ -1562,6 +1565,7 @@ describe('tracing bounded lineage', () => {
       }),
       invalidate: () => {},
     })
+    // Origin-only: zero Harness clauses, so the listing read is `listSessions`.
     catalog.applyFilters({ ...NO_FILTERS, origin: 'own' })
     catalog.search('content')
     catalog.searchEvents('a' as SessionId, 'event')
