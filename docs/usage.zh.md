@@ -217,7 +217,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 | --- | --- |
 | `/compact` | 总结更早的对话历史以腾出上下文 |
 | `/plan`、`/plan off` | 进入或离开计划模式 |
-| `/goal` | 显示或设置长任务的目标 |
+| `/goal` | 显示或设置长任务的目标。裸命令打开对当前目标的有界只读检视 |
 | `/permission` | 更改权限预设（见下文） |
 | `/feedback` | 记录关于本次会话的备注 |
 
@@ -232,7 +232,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 该检查使用 Harness 自己对命令行是什么的规则，因此名字必须要么结束该行、要么后跟一个空格。这意味着 `/etc/hosts is missing` 被当作普通消息原样到达模型，而 `/tmp is full` 被当作命令报告为未知。这个取舍是刻意的：打错的命令远比以文件夹名开头的消息常见。
 
 > [!WARNING]
-> **`/goal <objective>` 不只是记录一个目标。**它会启动 Harness 的目标驱动器，立即在最多 256 轮内、使用你文件夹中的工具，自行开始处理该目标。不带文本使用 `/goal` 只查看当前目标，`/goal pause` 或 `/goal clear` 停止一个。开始前没有任何警告——但一旦开始，状态行会在其运行的整个期间显示运行状态。
+> **`/goal <objective>` 不只是记录一个目标。**它会启动 Harness 的目标驱动器，立即在最多 256 轮内、使用你文件夹中的工具，自行开始处理该目标。不带文本使用 `/goal` 打开对当前目标的只读检视，`/goal pause` 或 `/goal clear` 停止一个。开始前没有任何警告——但一旦开始，状态行会在其运行的整个期间显示运行状态。
 >
 > **目标也可能在你不知情时启动。**Harness 给模型一个 `create_goal` 工具，并告诉它可以不要求你说出「goal」这个词、就从你要求的内容推断长期目标。状态行通过这个状态让你发现它；`/goal` 显示完整目标文本，`/goal pause` 停止它。见 [本会话接下来要做什么](#what-the-session-is-about-to-do)。
 
@@ -1032,6 +1032,8 @@ dshline:
 | `goal paused`、`goal blocked`、`goal complete` | 一个未在运行的目标，以及原因 |
 
 目标可以在没有你输入命令的情况下开始。Harness 把 `create_goal` 发布为模型自己可以调用的工具，其自身描述说模型可以在没有被要求创建任何东西的情况下推断请求是长期的。页脚通过目标的状态与进度让这种自动续跑可见；`/goal` 才是查看完整目标的界面，`/goal pause` 停止它。
+
+裸 `/goal` 把那份只读报告打开为一个有界检视：阶段、本进程是否会继续该目标、已取轮数对上限、revision、时间戳、完整 objective，以及目标被阻塞时的 blocker。它只来自持久的 `goal` 投影与实时激活，每次绘制都重新读取两者，`↑`/`↓` 滚动很长的 objective。不执行任何东西，也不向会话写入任何内容：`esc` 或 `ctrl-c` 关闭它，而任何参数——一个 objective，或 `edit`、`pause`、`resume`、`clear`——都是 Harness 命令，原样不变。
 
 `256` 是部署对自动续跑轮数的上限，而不是目标——这就是为什么计数只在实际取了一轮之后才出现。`goal 0/256` 读起来像卡在零上的仪表；`goal armed` 真实地说出同一件事。
 

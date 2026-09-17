@@ -25,7 +25,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import { SessionProjectionObserver } from '../src/projections/observer.ts'
-import { goalReading } from '../src/goals/model.ts'
+import { goalInspection, goalReading } from '../src/goals/model.ts'
 
 /**
  * One durable `goal` projection value, as the registry publishes it.
@@ -153,6 +153,86 @@ describe('the Goal projection adapter', () => {
     )
     expect(reading).toEqual({ label: 'goal 3/256', running: true })
     expect(reading?.label).not.toContain('deprecated adapter')
+  })
+})
+
+describe('the Goal inspector adapter', () => {
+  it('names the three absences apart and consults no service for any of them', () => {
+    // A profile with no projection registry, a registry that never registered
+    // the goal unit, and the goal domain's own no-current-goal after a clear are
+    // three different statements. The explicit report says which one it is.
+    const never = activationSource('armed')
+    expect(goalInspection(undefined, never.read)).toEqual({ kind: 'projections-unavailable' })
+    expect(goalInspection(cut(undefined), never.read)).toEqual({ kind: 'unregistered' })
+    expect(goalInspection(cut(null), never.read)).toEqual({ kind: 'none' })
+    expect(never.calls()).toBe(0)
+  })
+
+  it('reports every durable field from the projection and asks activation once for an active phase', () => {
+    const source = activationSource('disarmed')
+    const reading = goalInspection(
+      cut(projection({ objective: 'migrate every call site off the deprecated adapter' })),
+      source.read,
+    )
+    expect(reading).toEqual({
+      kind: 'goal',
+      goal: {
+        id: GoalId('goal-projected'),
+        revision: 4,
+        objective: 'migrate every call site off the deprecated adapter',
+        phase: 'active',
+        maxGoalRounds: 256,
+      },
+      roundsStarted: 3,
+      createdAt: 1_000,
+      updatedAt: 2_000,
+      activation: 'disarmed',
+    })
+    expect(source.calls()).toBe(1)
+  })
+
+  it('leaves activation unknown rather than inferring armed from an active phase', () => {
+    const reading = goalInspection(cut(projection()), () => undefined)
+    if (reading.kind !== 'goal') throw new Error('expected a goal reading')
+    expect(reading.activation).toBeUndefined()
+    expect(reading.goal.phase).toBe('active')
+  })
+
+  it('never consults activation for a stopped phase and reports none', () => {
+    for (const phase of ['paused', 'blocked', 'complete'] as const) {
+      const source = activationSource('armed')
+      const reading = goalInspection(cut(projection({ phase })), source.read)
+      expect(source.calls(), phase).toBe(0)
+      if (reading.kind !== 'goal') throw new Error('expected a goal reading')
+      expect(reading.activation, phase).toBeUndefined()
+    }
+  })
+
+  it('takes durable fields from the projection even when the service disagrees', () => {
+    const service: GoalView = {
+      id: GoalId('goal-from-service'),
+      revision: 99,
+      objective: 'a stale objective the service still remembers',
+      phase: 'complete',
+      maxGoalRounds: 25,
+      roundsStarted: 24,
+      createdAt: 5,
+      updatedAt: 6,
+      activation: 'armed',
+    }
+    const durable = projection({
+      objective: 'ship the release', phase: 'active', roundsStarted: 12, maxGoalRounds: 256,
+    })
+    const reading = goalInspection(cut(durable), () => service.activation)
+    if (reading.kind !== 'goal') throw new Error('expected a goal reading')
+    expect(reading.goal.objective).toBe('ship the release')
+    expect(reading.goal.phase).toBe('active')
+    expect(reading.roundsStarted).toBe(12)
+    expect(reading.goal.maxGoalRounds).toBe(256)
+    expect(reading.goal.revision).toBe(4)
+    // The live half is still the service's, and only activation is taken.
+    expect(reading.activation).toBe('armed')
+    expect(reading.goal.objective).not.toContain('stale')
   })
 })
 

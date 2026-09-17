@@ -28,7 +28,7 @@
  * @module dshline/goals/model
  */
 
-import type { GoalActivation } from '@deepseek-ai/dsh-goal'
+import type { GoalActivation, GoalSnapshot } from '@deepseek-ai/dsh-goal'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 
 /** The goal state shown in the footer and whether this process will continue it. */
@@ -98,5 +98,78 @@ export function goalReading(
     // the compact state that remains useful on every redraw and terminal width.
     label,
     running,
+  }
+}
+
+/**
+ * Detailed inspector reading: the whole current goal, or a named absence.
+ *
+ * The footer's {@link GoalReading} deliberately drops everything but one
+ * indivisible state label. This is the other half of the same adapter: the
+ * explicit `/goal` report needs the objective, the durable counts and
+ * timestamps, the blocker, and — separately from all of those — whether this
+ * process will continue the goal. Every durable field still comes from the
+ * projection, and the service is still consulted only when it can change the
+ * answer.
+ *
+ * The three absences are kept apart rather than collapsed, because they call
+ * for different actions from a reader: a profile with no projection
+ * infrastructure at all, a profile whose goal unit was never registered, and a
+ * session whose goal domain reports no current goal after a clear. Only the
+ * last is a statement about this session's goal.
+ */
+export type GoalInspection =
+  | { readonly kind: 'projections-unavailable' }
+  | { readonly kind: 'unregistered' }
+  | { readonly kind: 'none' }
+  | {
+    readonly kind: 'goal'
+    /** The durable snapshot: identity, revision, objective, phase, cap, blocker. */
+    readonly goal: GoalSnapshot
+    /** Highest admitted round number, folded from the log by the projection. */
+    readonly roundsStarted: number
+    /** Epoch milliseconds of the create mutation. */
+    readonly createdAt: number
+    /** Epoch milliseconds of the latest durable mutation. */
+    readonly updatedAt: number
+    /**
+     * Live process-local activation, asked for only while the durable phase is
+     * `active`; `undefined` when it could not be obtained. Never inferred.
+     */
+    readonly activation: GoalActivation | undefined
+  }
+
+/**
+ * How the explicit inspector reports a goal, or why it has none.
+ *
+ * The durable half is read from the projection exactly as {@link goalReading}
+ * reads it, for the same reason: the goal service also remembers durable fields,
+ * and only the projection is authoritative after a replay. The live half is
+ * asked for ONLY for an `active` projected phase, matching the footer: a paused,
+ * blocked, or complete goal reads the same whatever activation says, so asking
+ * would be a pointless call on a surface that repaints on every activation edge.
+ * @param snapshot - the attachment's shared projection cut, or undefined without the registry.
+ * @param activation - live process-local activation, called at most once and only for an active phase.
+ * @returns the detailed reading, never undefined: an absence is a named kind.
+ */
+export function goalInspection(
+  snapshot: ProjectionSnapshot | undefined,
+  activation: GoalActivationSource,
+): GoalInspection {
+  // `undefined` is the absence of the projection registry; an absent `goal` key
+  // is the absence of goal support inside a registry that exists; `null` is the
+  // goal domain's own no-current-goal. Only the last is about this session.
+  if (snapshot === undefined) return { kind: 'projections-unavailable' }
+  const current = snapshot.values.goal
+  if (current === undefined) return { kind: 'unregistered' }
+  if (current === null) return { kind: 'none' }
+  const { goal, roundsStarted, createdAt, updatedAt } = current
+  return {
+    kind: 'goal',
+    goal,
+    roundsStarted,
+    createdAt,
+    updatedAt,
+    activation: goal.phase === 'active' ? activation() : undefined,
   }
 }
