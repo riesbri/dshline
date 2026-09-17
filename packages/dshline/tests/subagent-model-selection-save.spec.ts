@@ -120,6 +120,12 @@ function slots(): {
   slots: { pushOverlay(overlay: TuiOverlay): () => void; invalidate(): void }
   top: () => TuiOverlay | undefined
   depth: () => number
+  /**
+   * Remove every overlay the way `TuiSlots` teardown does: drop the
+   * registrations first, then dispose each one. This is the external-removal
+   * path, distinct from an overlay dismissing itself.
+   */
+  teardown: () => void
 } {
   const stack: TuiOverlay[] = []
   return {
@@ -129,12 +135,17 @@ function slots(): {
         return () => {
           const index = stack.indexOf(overlay)
           if (index >= 0) stack.splice(index, 1)
+          // The real registry disposes an overlay after removing it.
+          overlay.dispose?.()
         }
       },
       invalidate: () => {},
     },
     top: () => stack.at(-1),
     depth: () => stack.length,
+    teardown: () => {
+      for (const overlay of stack.splice(0)) overlay.dispose?.()
+    },
   }
 }
 
@@ -185,6 +196,30 @@ async function openEditor(
 /** Wait until the mounted surface is the ready editor. */
 async function readyEditor(view: Awaited<ReturnType<typeof openEditor>>): Promise<void> {
   await vi.waitFor(() => { expect(view.text()).toContain('Selection') })
+}
+
+/**
+ * Await an editor's lifecycle promise under a bounded deadline.
+ *
+ * The contract is that `openSubagentModelSelection` finishes once the editor
+ * is gone, however it went. Racing a deadline turns a violated contract into a
+ * named failure instead of a suite-wide timeout.
+ * @param running - the promise `openSubagentModelSelection` returned.
+ * @param ms - the deadline in milliseconds.
+ * @returns once the promise resolves.
+ */
+async function settlesWithin(running: Promise<void>, ms = 1_000): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    await Promise.race([
+      running,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { reject(new Error('openSubagentModelSelection never settled')) }, ms)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 /** A named key. */
@@ -397,6 +432,51 @@ describe('saving the draft', () => {
     release()
     await vi.waitFor(() => { expect(view.stack.depth()).toBe(0) })
     await view.running
+  })
+})
+
+describe('lifecycle', () => {
+  it('settles when the registry tears the editor down externally, writing nothing', async () => {
+    const settings = fakeSettings({
+      enabled: true,
+      allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-chat' }],
+    })
+    const view = await openEditor(settings)
+    await readyEditor(view)
+    // Exactly what `TuiSlots` teardown does: drop the registration, then
+    // dispose the overlay. This never goes through the editor's Escape path.
+    view.stack.teardown()
+    await settlesWithin(view.running)
+    expect(settings.writes).toEqual([])
+    expect(view.committed).toEqual([])
+    expect(view.stack.depth()).toBe(0)
+  })
+
+  it('settles and drops the acknowledgement when teardown lands during a save', async () => {
+    const settings = fakeSettings({ enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] })
+    const view = await openEditor(settings)
+    await readyEditor(view)
+    const overlay = view.stack.top()
+    expect(overlay).toBeDefined()
+    // Count every disposal, so a second settle trying to dismiss a
+    // registration that is already gone would be visible.
+    let disposals = 0
+    const dispose = overlay?.dispose
+    if (overlay !== undefined) {
+      overlay.dispose = () => { disposals += 1; dispose?.() }
+    }
+    const release = settings.deferNext()
+    overlay?.handleKey({ kind: 'text', text: 's' })
+    await vi.waitFor(() => { expect(view.text()).toContain('saving') })
+    expect(settings.writes).toHaveLength(1)
+    view.stack.teardown()
+    await settlesWithin(view.running)
+    release()
+    // Let the landed mutation's continuation run.
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(view.committed).toEqual([])
+    expect(disposals).toBe(1)
+    expect(view.stack.depth()).toBe(0)
   })
 })
 

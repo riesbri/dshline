@@ -95,12 +95,25 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
   let resolveOpen = (): void => {}
 
   const invalidate = (): void => { ctx.tuiSlots.invalidate() }
-  const settle = (): void => {
+  /**
+   * Complete the editor exactly once, from either way it can end.
+   *
+   * A normal close asks this to remove its own registration; an external
+   * `TuiSlots` teardown has ALREADY removed it before calling the overlay's
+   * `dispose`, so that path must not call the disposer again. Both paths
+   * resolve the promise `openSubagentModelSelection` awaits, which is the
+   * lifecycle contract: once the editor is gone — by escape, by a landed Save,
+   * or by teardown — the caller finishes too.
+   * @param dismissSelf - whether this completion should also remove the
+   *   overlay; false from external disposal, which has already done so.
+   */
+  const finish = (dismissSelf: boolean): void => {
     if (closed) return
     closed = true
-    dismiss()
+    if (dismissSelf) dismiss()
     resolveOpen()
   }
+  const settle = (): void => { finish(true) }
   const readingOf = (): SubagentModelReading => {
     if (loading) return { kind: 'loading' }
     if (failure !== undefined) return { kind: 'unavailable', message: failure }
@@ -243,6 +256,9 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
         settle()
       })
       .catch((error: unknown) => {
+        // A teardown can dispose the surface while the write is in flight;
+        // there is no reader left to report a refusal to.
+        if (closed) return
         saving = false
         // The draft stays open with the reader's edit intact: a conflict is
         // theirs to resolve, and a Harness refusal is the authority speaking.
@@ -279,10 +295,9 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
       close: settle,
       invalidate,
     })
-    // Teardown removes an overlay without going through `settle`, so this marks
-    // the surface closed and lets an in-flight write drop its acknowledgement
-    // instead of committing into a screen that is already gone.
-    overlay.dispose = () => { closed = true }
+    // Registration is already gone when `TuiSlots` calls this, so it completes
+    // without dismissing again — but it still resolves the caller's promise.
+    overlay.dispose = () => { finish(false) }
     dismiss = ctx.tuiSlots.pushOverlay(overlay)
     void loadAll()
   })
