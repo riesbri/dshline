@@ -265,16 +265,32 @@ function summarize(runs) {
   })
 }
 
-if (process.argv[2] === '--child') {
+/**
+ * Resolve the required benchmark destination from an argument vector.
+ *
+ * The destination is required and explicit: a hard-coded default in the shared
+ * temp directory is a predictable path another local process can pre-create,
+ * and these JSON artifacts are evidence that deserve a chosen location rather
+ * than a silent fallback. A missing, empty, or flag-like value has no usable
+ * destination, so this returns `undefined` and the caller rejects it before
+ * touching the filesystem.
+ *
+ * @param {string[]} argv - A process argument vector, including the node and script entries.
+ * @returns {string | undefined} The explicit output path, or `undefined` when it is not usable.
+ */
+export function benchmarkOutput(argv) {
+  const outputIndex = argv.indexOf('--output')
+  const output = outputIndex < 0 ? undefined : argv[outputIndex + 1]
+  return output === undefined || output === '' || output.startsWith('--') ? undefined : output
+}
+
+const invokedDirectly = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])
+
+if (invokedDirectly && process.argv[2] === '--child') {
   process.stdout.write(`${JSON.stringify(await child(Number(process.argv[3]), process.argv[4]))}\n`)
-} else {
-  const outputIndex = process.argv.indexOf('--output')
-  const output = outputIndex < 0 ? undefined : process.argv[outputIndex + 1]
-  // The destination is required and explicit. A hard-coded default in the
-  // shared temp directory is a predictable path another local process can
-  // pre-create, and these JSON artifacts are evidence that deserve a chosen
-  // location rather than a silent fallback.
-  if (output === undefined || output === '' || output.startsWith('--')) {
+} else if (invokedDirectly) {
+  const output = benchmarkOutput(process.argv)
+  if (output === undefined) {
     process.stderr.write('usage: pnpm build && node tools/sessions-perf.mjs --output <path.json>\n')
     process.stderr.write('Choose an explicit destination outside the repository, e.g. ~/sessions-perf.json\n')
     process.exit(2)
