@@ -78,6 +78,22 @@ export interface SelectSpec {
   /** Optional initially highlighted value when it remains in the offered rows. */
   initialValue?: string
   /**
+   * Whole footer-help phrases for secondary actions this overlay's OWNER
+   * handles itself.
+   *
+   * Each item is one complete footer-help phrase. Callers must not include the
+   * footer separator (` · `) inside an item: the picker treats each item as one
+   * indivisible segment, so an embedded separator would look like a boundary it
+   * does not actually control.
+   *
+   * Presentation only. The picker escapes and renders each phrase but never
+   * interprets or handles it — the owning overlay keeps the keys, so a phrase
+   * here cannot make this primitive aware of a domain or a key. They are
+   * composed after the picker's own navigation help and before confirmation
+   * and the way out, so width pressure drops them in that order.
+   */
+  readonly extraHelp?: readonly string[]
+  /**
    * Called once with the confirmed value, or with undefined when the user
    * cancelled. The overlay never calls this twice.
    */
@@ -203,7 +219,7 @@ export function createSelectOverlay(spec: SelectSpec): TuiOverlay {
           context: paint(escapeControls(spec.view ?? spec.title), 'overlay-title'),
           body: [...heading, ...rendered.rows.slice(viewport.start, viewport.end)],
           footer: fitFooterHelp(
-            help(searchable, query, visible.length > 0, footerBudget(columns)),
+            help(searchable, query, visible.length > 0, spec.extraHelp ?? [], footerBudget(columns)),
             footerBudget(columns),
           ),
         }),
@@ -393,17 +409,32 @@ function renderChoices(
  * Whole segments are dropped rather than the line being cut, for the reason the
  * status line gives up whole segments. The way out is named last and surrendered
  * last: it is the only thing here a reader cannot guess.
+ *
+ * An owner's {@link SelectSpec.extraHelp} phrases sit between the picker's own
+ * navigation help and its confirmation: they are secondary to the choice this
+ * screen exists to make, so they must never outlive `enter confirm` or the way
+ * out, but they outlive arrow movement, which every reader already knows.
  * @param searchable - whether the picker offers a query box.
  * @param query - the typed query.
  * @param selectable - whether any row can be confirmed.
+ * @param extraHelp - whole phrases the owning overlay contributed.
  * @param columns - room available for the line.
  * @returns the help text that fits.
  */
-function help(searchable: boolean, query: string, selectable: boolean, columns: number): string {
+function help(
+  searchable: boolean,
+  query: string,
+  selectable: boolean,
+  extraHelp: readonly string[],
+  columns: number,
+): string {
   const leave = searchable && query !== '' ? 'esc clear' : 'esc cancel'
   const parts = [
     ...selectable ? ['\u2191\u2193 move'] : [],
     ...searchable ? ['type to filter'] : [],
+    // Owner text is untrusted by this primitive: made safe before it is
+    // measured or painted, exactly as a choice label is.
+    ...extraHelp.map(phrase => escapeControls(phrase)),
     ...selectable ? ['enter confirm'] : [],
     leave,
   ]

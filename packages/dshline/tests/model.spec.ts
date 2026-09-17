@@ -317,6 +317,36 @@ describe('what the picker offers', () => {
   })
 })
 
+describe('the bare picker advertises its auxiliary action', () => {
+  it('names ctrl-k subagents when the caller supplied the editor opener', async () => {
+    const { ctx, overlay } = llmContext()
+    const running = pickModel(ctx, selectionOn(), '', { onSubagentModels: () => {} })
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    // What a person sees: the shortcut is discoverable on the screen itself,
+    // not only from the usage guide.
+    expect(stripAnsi(overlay()?.render(100, 30).join('\n') ?? '')).toContain('ctrl-k subagents')
+    overlay()?.handleKey({ kind: 'key', name: 'escape' })
+    await running
+  })
+
+  it('names nothing and leaves ctrl-k inert when the caller supplied no opener', async () => {
+    // `/setup` reaches a picker by exactly this call — `pickModel` with no
+    // options — so what that screen must not advertise is pinned here.
+    const { ctx, overlay } = llmContext()
+    const running = pickModel(ctx, selectionOn(), '')
+    await vi.waitFor(() => { expect(overlay()).toBeDefined() })
+    expect(stripAnsi(overlay()?.render(100, 30).join('\n') ?? '')).not.toContain('ctrl-k')
+    overlay()?.handleKey({ kind: 'key', name: 'ctrl-k' })
+    // No auxiliary surface exists, so the same picker is still the mounted
+    // screen; nothing opened and nothing settled.
+    const after = stripAnsi(overlay()?.render(100, 30).join('\n') ?? '')
+    expect(after).toContain('Select a model')
+    expect(after).not.toContain('Subagent models')
+    overlay()?.handleKey({ kind: 'key', name: 'escape' })
+    await running
+  })
+})
+
 describe('pickModel() with an argument', () => {
   it('switches without opening the picker', async () => {
     const { ctx, pushed } = llmContext()

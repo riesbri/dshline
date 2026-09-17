@@ -13,5 +13,7 @@ its recorded policy. A saved route the live catalog no longer advertises stays
 visible, authorized, and removable. Saving writes both fields in one
 revision-fenced mutation, a conflict keeps the draft and reports itself, and
 `esc` discards without writing. `/model provider/model`, `/setup`, and command
-completion are unchanged; the shared select overlay remains unaware of the
-feature.
+completion are unchanged, and the bare picker's footer now advertises
+`ctrl-k subagents`. The shared select overlay gains only a generic,
+owner-supplied footer-help list, so it stays unaware of subagents, Harness, and
+this key.
