@@ -9,7 +9,7 @@
  * smaller version of that — it is a different thing wearing its place. So the
  * reason is committed and the browser is opened again, which is the same
  * question the launch path asks and leaves the reader in control. Dismissing it
- * is how they choose a new session, deliberately.
+ * cancels the opening; it is not permission to create a replacement session.
  *
  * A failed launch-time `create` is deliberately NOT caught. There is nothing to
  * fall back to and nothing to ask; it belongs on the runner's boot-failure path.
@@ -28,10 +28,8 @@ import { escapeControls, paint } from '@dshline/renderer'
 /** Which session the next attachment drives. */
 export type AttachTarget =
   /**
-   * Open a fresh session. `afterDismissal` marks the one case worth a note: the
-   * window asked which session to open and the reader chose none, where silence
-   * would read as the request having been ignored. `cwd` is present on a live
-   * attachment's `/new` transition and any fresh retry after it: it preserves
+   * Open a fresh session only on normal-launch or explicit new-session intent.
+   * `cwd` is present on a live attachment's `/new` transition: it preserves
    * that attachment's workspace and distinguishes recoverable creation from boot.
    * `clearDisplay` is the same recovery applied to PRESENTATION: an in-window
    * `/clear` carries the intent to begin this fresh session on an emptied
@@ -45,7 +43,6 @@ export type AttachTarget =
    */
   | {
     readonly kind: 'new'
-    readonly afterDismissal?: boolean
     readonly cwd?: string
     readonly clearDisplay?: boolean
   }
@@ -110,8 +107,8 @@ export interface AttachSpec {
   readonly options: Omit<ResumeAgentOptions, 'resumeSessionId'>
   /** Say which attachment operation failed, in the transcript, before asking again. */
   readonly report: (kind: 'new' | 'resume', reason: string) => void
-  /** Ask which session to open; dismissal answers `{ kind: 'new' }`. */
-  readonly ask: () => Promise<AttachTarget>
+  /** Ask which persisted session to open; dismissal cancels the opening. */
+  readonly ask: () => Promise<Extract<AttachTarget, { kind: 'resume' }> | undefined>
 }
 
 /** The attached agent and the target it actually came from. */
@@ -134,7 +131,7 @@ export interface AttachOutcome {
 export function reopenFailureLines(reason: string): string[] {
   return [
     paint(`✗ could not reopen that session: ${escapeControls(reason)}`, 'error'),
-    paint('· choose another, or press esc for a new session', 'muted'),
+    paint('· choose another session, or close the browser to exit', 'muted'),
   ]
 }
 
@@ -146,92 +143,38 @@ export function reopenFailureLines(reason: string): string[] {
 export function newSessionFailureLines(reason: string): string[] {
   return [
     paint(`✗ could not start a new session: ${escapeControls(reason)}`, 'error'),
-    paint('· choose a session, or press esc to try fresh again', 'muted'),
+    paint('· choose a session, or close the browser to exit', 'muted'),
   ]
-}
-
-/** A fresh target and the recovery fields a failed transition keeps alive. */
-interface FreshRecovery {
-  /** The workspace the retired attachment was rooted in. */
-  readonly cwd: string
-  /** `/clear`'s presentation intent, when the first target carried it. */
-  readonly clearDisplay: boolean | undefined
-}
-
-/**
- * Fold the recovery fields into a fresh target.
- *
- * One place rather than three. The direct path, the retry after a failed
- * create, and the retry after a failed resume all mean the same thing, and
- * three inline spreads of the same field list is how one of them silently
- * stops carrying a field the other two do. Both fields belong to the ORIGINAL
- * request rather than to the browser dismissal that followed it, which is why
- * the recovery wins over whatever the chosen fresh target carried.
- * @param fresh - the fresh target being attached or retried.
- * @param recovery - the fields the failed transition kept alive.
- * @returns the target to attach, or record as attached.
- */
-function withRecovery(
-  fresh: Extract<AttachTarget, { readonly kind: 'new' }>,
-  recovery: FreshRecovery,
-): AttachTarget {
-  return {
-    ...fresh,
-    cwd: recovery.cwd,
-    ...(recovery.clearDisplay === undefined ? {} : { clearDisplay: recovery.clearDisplay }),
-  }
 }
 
 /**
  * Resolve a target into an attached agent, asking again while reopening fails.
  *
- * Loops on the reader's answer, not on its own: every failure is reported and
- * re-asked, and dismissing the browser ends it by creating a new session. A
- * deployment whose persistence is broken therefore reaches a usable window in
- * one keystroke instead of either spinning or dying.
+ * Every retry requires another selected session. Cancelling the browser leaves
+ * the window unattached; the loop owns exiting, not a fallback creation here.
  * @param spec - the factory surface and the window's report/ask callbacks.
  * @param first - the target to try before asking anything.
- * @returns the attached agent and the target it came from.
+ * @returns the attached agent and target, or undefined when opening was cancelled.
  */
-export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promise<AttachOutcome> {
-  let target = first
-  // Kept across reader choices after a failed `/new`: choosing a broken resume
-  // and then trying fresh must not quietly fall back to the launch directory.
-  const recoveryCwd = first.kind === 'new' ? first.cwd : undefined
-  // `/clear`'s presentation intent survives the same recovery as the
-  // workspace: a failed create whose reader retries fresh is still the same
-  // request, and the retried fresh session should still open on a cleared
-  // display. A resume choice drops it, which is why it is folded into a
-  // fresh target only.
-  const recoveryClear = first.kind === 'new' ? first.clearDisplay : undefined
-  const recovery = (cwd: string): FreshRecovery => ({ cwd, clearDisplay: recoveryClear })
-  for (;;) {
+export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promise<AttachOutcome | undefined> {
+  let target: AttachTarget | undefined = first
+  while (target !== undefined) {
     if (target.kind === 'new') {
       const preset = spec.newSessionPreset()
-      const cwd = target.cwd ?? recoveryCwd ?? spec.cwd
+      const cwd = target.cwd ?? spec.cwd
       try {
         const handle = await spec.agents.create({
           sessionId: spec.newSessionId(),
           meta: { cwd, ...preset === undefined ? {} : { agentPreset: preset } },
           ...spec.options,
         })
-        // A retried fresh target was already merged with the recovery fields at
-        // the catch below; this merge covers the direct path where the first
-        // attempt succeeded after a target reassignment. Session metadata is
-        // deliberately untouched: `clearDisplay` is presentation, and must not
-        // leak into the session record.
-        const attachedTarget = target.cwd === undefined && recoveryCwd !== undefined
-          ? withRecovery(target, recovery(recoveryCwd))
-          : target
-        return { target: attachedTarget, attached: { handle, reopened: false } }
+        return { target, attached: { handle, reopened: false } }
       } catch (error: unknown) {
-        // No cwd means application boot or a normal browser dismissal. Those
-        // failures still belong to the runner's boot-failure path; only `/new`
-        // has already retired a healthy attachment and has somewhere to return.
-        if (recoveryCwd === undefined) throw error
+        // Normal launch has no previous attachment; its creation failure still
+        // belongs to the runner's boot-failure path.
+        if (target.cwd === undefined) throw error
         spec.report('new', error instanceof Error ? error.message : String(error))
-        const chosen = await spec.ask()
-        target = chosen.kind === 'new' ? withRecovery(chosen, recovery(recoveryCwd)) : chosen
+        target = await spec.ask()
         continue
       }
     }
@@ -239,15 +182,11 @@ export async function attachTarget(spec: AttachSpec, first: AttachTarget): Promi
       const handle = await spec.agents.resume({ resumeSessionId: target.id, ...spec.options })
       return { target, attached: { handle, reopened: true } }
     } catch (error: unknown) {
-      // Deliberately not narrowed to one error class. Reopening can fail because
-      // persistence is unmounted, because the log fails replay validation, or
-      // because a header is from an incompatible format version, and the reader's
-      // next move is the same for all of them.
+      // Persistence, replay validation, and setup failures all belong to Harness;
+      // report its reason rather than pretending a fresh Session repairs it.
       spec.report('resume', error instanceof Error ? error.message : String(error))
-      const chosen = await spec.ask()
-      target = chosen.kind === 'new' && recoveryCwd !== undefined
-        ? withRecovery(chosen, recovery(recoveryCwd))
-        : chosen
+      target = await spec.ask()
     }
   }
+  return undefined
 }

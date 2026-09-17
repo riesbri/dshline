@@ -293,15 +293,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   w.setExit(requestAttachmentExit)
   scope.own(() => { w.setExit(undefined) })
 
-  // Held until after the banner, so the transcript reads in the order it
-  // happened rather than opening with a footnote. The window asked which session
-  // to open and got no answer; silence would read as the request having been
-  // ignored. A reopen that FAILED was already reported before the reader was
-  // asked again, so there is nothing to repeat here.
-  const resumeNote = target.kind === 'new' && target.afterDismissal === true
-    ? [paint('· no session reopened; starting a new one', 'muted')]
-    : []
-
   // A resumed session keeps the workspace it was created in: the header is the
   // authority, and resuming into the directory that happens to be current would
   // silently re-root the conversation.
@@ -2234,7 +2225,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // the visible transcript intact.
   if (shouldClearDisplay(outcome.target)) clear()
   commit(bannerLines(workspace, model, w.version, terminal.columns()))
-  commit(resumeNote)
 
   if (attached.reopened && target.kind === 'resume') {
     // The transcript is rebuilt from the Session the resumed Agent already owns,

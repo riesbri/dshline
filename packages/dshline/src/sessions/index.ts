@@ -105,8 +105,8 @@ export interface BrowseSpec {
  * Show the Sessions browser and wait for the reader's answer.
  *
  * Resolves with a session id only when the reader chose one AND the resume plan
- * accepted it, so the caller never has to re-check the conditions. Dismissing,
- * or choosing a session the plan refused, resolves with undefined.
+ * accepted it, so the caller never has to re-check the conditions. Dismissing
+ * resolves with undefined; a refused selection keeps the browser open.
  * @param spec - the context, the current session, and the live conditions.
  * @returns the session to reopen, or undefined when nothing was chosen.
  */

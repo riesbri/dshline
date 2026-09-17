@@ -66,10 +66,10 @@ function opener(createRejects?: Error): {
  */
 async function attach(
   first: AttachTarget,
-  answers: readonly AttachTarget[] = [],
+  answers: readonly Extract<AttachTarget, { kind: 'resume' }>[] = [],
   createRejects?: Error,
 ): Promise<{
-  readonly target: AttachTarget
+  readonly target: AttachTarget | undefined
   readonly created: CreateAgentOptions[]
   readonly resumed: ResumeAgentOptions[]
   readonly reported: string[]
@@ -84,9 +84,9 @@ async function attach(
     cwd: '/launch/dir',
     options: {},
     report: (_kind, reason) => reported.push(reason),
-    ask: async () => answers[index++] ?? { kind: 'new', afterDismissal: true },
+    ask: async () => answers[index++],
   }, first)
-  return { target: outcome.target, created, resumed, reported }
+  return { target: outcome?.target, created, resumed, reported }
 }
 
 describe('a fresh session in the chosen directory', () => {
@@ -110,17 +110,16 @@ describe('a fresh session in the chosen directory', () => {
     expect(Object.keys(created[0]?.meta ?? {})).toEqual(['cwd'])
   })
 
-  it('keeps its cwd through a retried attempt after a failed creation', async () => {
+  it('cancels a failed worktree creation without retrying on browser dismissal', async () => {
     const { target, created, reported } = await attach(
       { kind: 'new', cwd: '/home/me/src/dshline-auth' },
-      // A plain dismissal, which carries no cwd of its own.
-      [{ kind: 'new', afterDismissal: true }],
+      [],
       new Error('provider route missing'),
     )
     expect(reported).toEqual(['provider route missing'])
-    expect(created).toHaveLength(2)
-    expect(created[1]).toMatchObject({ meta: { cwd: '/home/me/src/dshline-auth' } })
-    expect(target).toMatchObject({ cwd: '/home/me/src/dshline-auth' })
+    expect(created).toHaveLength(1)
+    expect(created[0]).toMatchObject({ meta: { cwd: '/home/me/src/dshline-auth' } })
+    expect(target).toBeUndefined()
   })
 
   it('reports a creation Harness refused rather than substituting a directory', async () => {
