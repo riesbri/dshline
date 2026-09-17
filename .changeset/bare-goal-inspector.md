@@ -20,5 +20,5 @@ The report is read-only: opening it executes no command, appends no
 long objective scrolls with `↑`/`↓`, and `esc` or `ctrl-c` closes it. Every
 argument-bearing form — an objective, `edit`, `pause`, `resume`, `clear` — and
 a bare line carrying staged images go to the registered Harness command
-unchanged, and an agent-scoped shadow of the name is left for the registry to
-resolve rather than being intercepted.
+unchanged, and an agent-scoped shadow that declares a different definition id is
+left for the registry to resolve rather than being intercepted.

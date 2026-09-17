@@ -141,11 +141,13 @@ const TIMING_VALUES: readonly LocalCommandChoice[] = [
 const IMAGE_ADMISSION_TIMEOUT_MS = 30_000
 
 /**
- * The one effective command this frontend presents itself, in its bare form.
+ * The definition id the effective `/goal` command identifies itself with.
  *
- * A definition id rather than a name is what proves the resolved command is the
- * Harness-owned native `/goal` and not an agent-scoped shadow of the same name;
- * any other definition goes to the registry unchanged.
+ * A definition id rather than a name is what tells the resolved command apart
+ * from an agent-scoped shadow of the same name: a different or absent identity
+ * goes to the registry unchanged, and a command that declares this same
+ * identity is presenting itself as the native command — a trusted registration
+ * the registry does not let this frontend see through.
  */
 const GOAL_COMMAND_DEFINITION_ID = CommandDefinitionId('@deepseek-ai/dsh-command-goal')
 
@@ -1816,27 +1818,29 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // can cancel. Harness later records its actual argued command lifecycle; a
     // resumed session cannot distinguish that from a directly typed argument.
     history.record(line)
-    // A semantically BARE `/goal` is the one command form this frontend presents
-    // itself, because the native show form has no argument and no lifecycle to
-    // run: opening a read-only inspector executes nothing and appends no
+    // A semantically BARE `/goal` is presented here rather than sent to the
+    // registry, because the native show form has no argument and no lifecycle
+    // to run: opening a read-only inspector executes nothing and appends no
     // command, goal, or session event. The definition-id gate is load-bearing —
-    // it proves the EFFECTIVE command declares Harness's native goal identity,
-    // so an agent-scoped shadow that declares a different or no identity is left
-    // for the registry to run. A shadow that declares the SAME identity is
-    // presenting itself as the native command; distinguishing that from the
-    // Harness package is not something the registry exposes, and registering a
-    // command in an agent scope is already a trusted act. Any argument-bearing
-    // form falls through too, and so does a bare line carrying staged images:
-    // native create/edit admit attachments while native show rejects them, and
-    // that adjudication is Harness's, not this frontend's.
+    // it checks that the EFFECTIVE command declares Harness's native goal
+    // identity, so an agent-scoped shadow that declares a different or no
+    // identity is left for the registry to run. A shadow that declares the SAME
+    // identity is presenting itself as the native command; distinguishing that
+    // from the Harness package is not something the registry exposes, and
+    // registering a command in an agent scope is already a trusted act. Any
+    // argument-bearing form falls through too, and so does a bare line carrying
+    // staged images: native create/edit admit attachments while native show
+    // rejects them, and that adjudication is Harness's, not this frontend's.
     if (
       parsed?.name === 'goal'
       && parsed.rawInput.trim() === ''
       && imageDrafts.size === 0
       && ctx.commands.find(agent, parsed.name)?.definitionId === GOAL_COMMAND_DEFINITION_ID
     ) {
+      // `pushOverlay` invalidates as it mounts, so this paints through the
+      // window's normal `tui/render` path; a second `draw()` here would only
+      // request the coalesced redraw twice.
       openGoalInspection()
-      draw()
       return
     }
     // Harness owns `/permission`; this is only a terminal presentation for its

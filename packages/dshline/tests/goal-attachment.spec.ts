@@ -171,6 +171,21 @@ describe('native bare /goal inspection through attachSession', () => {
     expect(f.session.snapshotEvents()).toEqual(before)
   })
 
+  it('paints a bare-open inspector through TUI invalidation, not a direct repaint', async () => {
+    // Type the line and let every completion refresh settle first, so the only
+    // repaint left that can show the overlay is the invalidation `pushOverlay`
+    // emits as it mounts. A stray explicit `draw()` after the push would mask a
+    // broken invalidation here; none exists, which is the point.
+    const f = await fixture({ resumed: true })
+    for (const text of [...'/goal']) f.key({ kind: 'text', text })
+    await flush()
+    f.draw.mockClear()
+    f.key({ kind: 'key', name: 'enter' })
+    await flush()
+    expect(f.frame()).toContain('Goal')
+    expect(f.frame()).toMatch(/Phase\s+active/)
+  })
+
   it.each([' edit replacement', ' pause', ' resume', ' clear', ' ordinary objective', '\nedit objective'])('leaves argued /goal%s to Harness execution', async suffix => {
     const f = await fixture()
     await f.submit(`/goal${suffix}`)
