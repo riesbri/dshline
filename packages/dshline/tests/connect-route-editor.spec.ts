@@ -1349,6 +1349,19 @@ function capabilitySchemaWithLevels(first: string, second: string): unknown {
   return schema
 }
 
+/**
+ * `CAPABILITY_SCHEMA` with no `false` branch and an unrenderable value leaf:
+ * the only reasoning states left are ones this form cannot express.
+ */
+function capabilitySchemaUnrenderableOnly(): unknown {
+  const schema = capabilitySchemaWithWire({ type: 'object', meta: {}, dict: {} }) as {
+    uid: number
+    refs: Record<string, unknown>
+  }
+  schema.refs['14'] = 18 // the bare dict, without `const(false)`
+  return schema
+}
+
 /** A descriptor over an arbitrary schema fixture. */
 function descriptorWithSchema(
   schema: unknown,
@@ -1452,6 +1465,26 @@ describe('schema-derived reasoning leaves', () => {
     expect(text()).not.toContain('Custom mapping')
     await press(UP, ENTER) // back out of reasoning, the last item
     await press(UP, ENTER) // back out of advanced
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(UP, ENTER) // discard the route
+    expect(await outcome).toBeUndefined()
+    expect(fixture.mutateCalls).toEqual([])
+  })
+
+  it('offers no reasoning row when neither disable nor a mapping can be expressed', async () => {
+    const { ctx, press, text } = slots()
+    const fixture = seamsFor({
+      descriptor: descriptorWithSchema(capabilitySchemaUnrenderableOnly(), profile, user),
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, DOWN, DOWN, ENTER) // advanced
+    expect(text()).toContain('Input modalities')
+    expect(text()).not.toContain('Reasoning capability')
+    await press(UP, ENTER) // back out of advanced, the last item
     await press(UP, ENTER) // back out of fields
     await press(UP, ENTER) // done with models
     await press(UP, ENTER) // discard the route

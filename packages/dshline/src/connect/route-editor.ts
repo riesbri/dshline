@@ -1333,7 +1333,7 @@ async function editAdvanced(
         ...entry.input.length > 0
           ? [{ value: INPUT_FIELD, label: 'Input modalities', description: inputSummary(working.input, entry.input) }]
           : [],
-        ...entry.reasoningLevels.length > 0 || entry.reasoningCanDisable
+        ...reasoningOfferable(entry)
           ? [{ value: REASONING_EFFORTS_FIELD, label: 'Reasoning capability', description: reasoningSummary(working.reasoningEfforts) }]
           : [],
         { value: 'back', label: 'Back' },
