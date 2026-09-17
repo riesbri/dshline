@@ -7,6 +7,8 @@ import {
   BASE_URL_FIELD,
   CONTEXT_WINDOW_FIELD,
   createRouteOp,
+  CURATED_MODEL_FIELDS,
+  curatedFieldValue,
   curatedModelFields,
   curatedOverrideFields,
   DISPLAY_NAME_FIELD,
@@ -31,7 +33,8 @@ import {
   routeModelSchema,
   setHeadersOp,
   setModelsOp,
-  setOverrideOp,
+  setNewOverrideOp,
+  setOverrideFieldOp,
   unsetHeadersOp,
   unsetModelsOp,
   unsetOverrideOp,
@@ -62,6 +65,10 @@ const PI_AI_SCHEMA = {
  * `input`/`reasoningEfforts` field shapes the schema actually serializes.
  * Mirrors `z.array(modelProfile)` / `z.dict(modelOverride)` with
  * `z.union(MODALITIES)` and `z.union([z.const(false), reasoningEfforts])`.
+ *
+ * The reasoning level names are deliberately NOT pi-ai's (`tiny`, `huge`), so a
+ * test that reads them proves the implementation has no hidden vocabulary of
+ * its own.
  */
 const PI_AI_MODEL_SCHEMA = {
   uid: 1,
@@ -85,8 +92,8 @@ const PI_AI_MODEL_SCHEMA = {
     17: { type: 'const', meta: {}, value: false },
     18: { type: 'dict', meta: { default: {} }, inner: 21, sKey: 19 },
     19: { type: 'union', meta: {}, list: [22, 23] },
-    22: { type: 'const', meta: { required: true }, value: 'off' },
-    23: { type: 'const', meta: { required: true }, value: 'high' },
+    22: { type: 'const', meta: { required: true }, value: 'tiny' },
+    23: { type: 'const', meta: { required: true }, value: 'huge' },
     21: { type: 'union', meta: {}, list: [24, 25] },
     24: { type: 'string', meta: {} },
     25: { type: 'const', meta: {}, value: null },
@@ -211,6 +218,13 @@ describe('override values and reading them back', () => {
   })
 })
 
+/** The base model schema with node 21 — the reasoning dict's value leaf — replaced. */
+function modelSchemaWithWire(wire: unknown): unknown {
+  const schema = structuredClone(PI_AI_MODEL_SCHEMA) as { uid: number; refs: Record<string, unknown> }
+  schema.refs['21'] = wire
+  return schema
+}
+
 describe('model schema derivation', () => {
   it('reads the fields and vocabularies from the entry objects themselves', () => {
     expect(routeModelSchema(PI_AI_MODEL_SCHEMA, ['providers', 'openai'])).toEqual({
@@ -221,10 +235,41 @@ describe('model schema derivation', () => {
         contextWindow: { min: 1, step: 1 },
         maxTokens: { min: 1, step: 1 },
         input: ['text', 'image'],
-        reasoningLevels: ['off', 'high'],
+        // The non-pi-ai level names prove the vocabulary is read, not known.
+        reasoningLevels: ['tiny', 'huge'],
         reasoningCanDisable: true,
+        reasoningWire: { string: true, number: false, boolean: false, null: true },
       },
     })
+  })
+
+  it('reads null availability from the value leaf, never from the level name', () => {
+    // `tiny` is not a code path this frontend could special-case; the leaf is
+    // what says a valueless mapping is expressible at all.
+    const entry = routeModelSchema(PI_AI_MODEL_SCHEMA, ['providers', 'openai']).entry
+    expect(entry?.reasoningWire?.null).toBe(true)
+    expect(entry?.reasoningLevels).toContain('tiny')
+  })
+
+  it('withholds null when the value leaf is string-only', () => {
+    const entry = routeModelSchema(modelSchemaWithWire({ type: 'string', meta: {} }), ['providers', 'openai']).entry
+    expect(entry?.reasoningWire).toEqual({ string: true, number: false, boolean: false, null: false })
+  })
+
+  it('withholds the wire string when the value leaf is null-only', () => {
+    const entry = routeModelSchema(modelSchemaWithWire({ type: 'const', meta: {}, value: null }), ['providers', 'openai']).entry
+    expect(entry?.reasoningWire).toEqual({ string: false, number: false, boolean: false, null: true })
+  })
+
+  it('fails closed when the value leaf is a shape this form cannot render', () => {
+    const entry = routeModelSchema(
+      modelSchemaWithWire({ type: 'object', meta: {}, dict: { nested: 30 } }),
+      ['providers', 'openai'],
+    ).entry
+    expect(entry?.reasoningWire).toBeUndefined()
+    // The vocabulary is still readable, so a caller can tell "structured leaf"
+    // from "no field" and simply not offer the mapping.
+    expect(entry?.reasoningLevels).toEqual(['tiny', 'huge'])
   })
 
   it('answers nothing readable for a route the schema does not describe', () => {
@@ -242,13 +287,38 @@ describe('model schema derivation', () => {
   })
 })
 
+describe('reading one curated field by name', () => {
+  it('maps every curated field to its value, without enumerating them twice', () => {
+    const fields = {
+      id: 'gpt',
+      name: 'GPT',
+      contextWindow: 8000,
+      maxTokens: undefined,
+      input: ['text'],
+      reasoningEfforts: false,
+    }
+    expect(CURATED_MODEL_FIELDS.map(field => curatedFieldValue(fields, field)))
+      .toEqual(['GPT', 8000, undefined, ['text'], false])
+  })
+})
+
 describe('override path ops', () => {
-  it('sets one id under the route without touching a sibling', () => {
-    expect(setOverrideOp(['providers', 'openai'], 'gpt', { name: 'G' }))
+  it('creates a whole override only for an id that did not exist at open', () => {
+    expect(setNewOverrideOp(['providers', 'openai'], 'gpt', { name: 'G' }))
       .toEqual({ op: 'set', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt'], value: { name: 'G' } })
   })
 
-  it('unsets exactly the named id', () => {
+  it('addresses exactly one curated field of an existing override', () => {
+    expect(setOverrideFieldOp(['providers', 'openai'], 'gpt', INPUT_FIELD, ['text']))
+      .toEqual({ op: 'set', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt', INPUT_FIELD], value: ['text'] })
+  })
+
+  it('unsets exactly one curated field when it is cleared', () => {
+    expect(setOverrideFieldOp(['providers', 'openai'], 'gpt', REASONING_EFFORTS_FIELD, undefined))
+      .toEqual({ op: 'unset', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt', REASONING_EFFORTS_FIELD] })
+  })
+
+  it('unsets exactly the named id, which is how a whole override is removed', () => {
     expect(unsetOverrideOp(['providers', 'openai'], 'gpt'))
       .toEqual({ op: 'unset', path: ['providers', 'openai', MODEL_OVERRIDES_FIELD, 'gpt'] })
   })

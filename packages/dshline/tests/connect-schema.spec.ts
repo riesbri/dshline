@@ -16,6 +16,7 @@ import {
   dictKeyStrings,
   fieldNode,
   innerNode,
+  leafAcceptance,
   numberConstraints,
   profileNode,
   resolveSchemaNode,
@@ -222,5 +223,50 @@ describe('generic schema introspection', () => {
     expect(numberConstraints(fieldNode({ node: entry, envelope: located.envelope }, 'contextWindow')))
       .toEqual({ min: 1, step: 1 })
     expect(numberConstraints(PLAIN_NODE)).toBeUndefined()
+  })
+
+  it('reads which primitive kinds one value leaf accepts', () => {
+    const envelope = { uid: 1, refs: {} as Record<string, unknown> }
+    expect(leafAcceptance({ type: 'string', meta: {} }, envelope))
+      .toEqual({ string: true, number: false, boolean: false, null: false })
+    expect(leafAcceptance({ type: 'number', meta: {} }, envelope))
+      .toEqual({ string: false, number: true, boolean: false, null: false })
+    expect(leafAcceptance({ type: 'const', meta: {}, value: false }, envelope))
+      .toEqual({ string: false, number: false, boolean: true, null: false })
+    expect(leafAcceptance({ type: 'const', meta: {}, value: null }, envelope))
+      .toEqual({ string: false, number: false, boolean: false, null: true })
+  })
+
+  it('merges the kinds of a union of primitive leaves', () => {
+    const envelope = { uid: 1, refs: {} as Record<string, unknown> }
+    expect(leafAcceptance({ type: 'union', meta: {}, list: [
+      { type: 'string', meta: {} },
+      { type: 'const', meta: {}, value: null },
+    ] }, envelope)).toEqual({ string: true, number: false, boolean: false, null: true })
+  })
+
+  it('fails closed on a leaf shape it cannot classify', () => {
+    const envelope = { uid: 1, refs: {} as Record<string, unknown> }
+    // A structured member makes the whole leaf unrenderable as a primitive.
+    expect(leafAcceptance({ type: 'union', meta: {}, list: [
+      { type: 'string', meta: {} },
+      { type: 'object', meta: {}, dict: {} },
+    ] }, envelope)).toBeUndefined()
+    expect(leafAcceptance({ type: 'object', meta: {}, dict: {} }, envelope)).toBeUndefined()
+    expect(leafAcceptance({ type: 'intersect', meta: {}, list: [] }, envelope)).toBeUndefined()
+    expect(leafAcceptance(undefined, envelope)).toBeUndefined()
+  })
+
+  it('reads the reasoning value leaf through the real dict shape', () => {
+    const located = profileNode(modelSchema(), ['providers', 'openai'])
+    if (located === undefined) throw new Error('fixture did not locate')
+    const entry = innerNode(fieldNode(located, 'models'), located.envelope)
+    if (entry === undefined) throw new Error('fixture has no entry')
+    const reasoning = fieldNode({ node: entry, envelope: located.envelope }, 'reasoningEfforts')
+    const dict = (reasoning?.list ?? [])
+      .map(member => resolveSchemaNode(member, located.envelope))
+      .find(member => member?.type === 'dict')
+    expect(leafAcceptance(innerNode(dict, located.envelope), located.envelope))
+      .toEqual({ string: true, number: false, boolean: false, null: true })
   })
 })

@@ -51,15 +51,15 @@ import {
   entriesFromOverrides,
   entriesFromRaw,
   includedEntries,
+  markChanged,
   parseCapacity,
   sameModelSet,
   sameOverrideSet,
   toRawEntries,
-  toRawOverrides,
+  toRawOverride,
   toggleIncluded,
-  updateFields,
 } from './model-editor.ts'
-import type { ModelDraftEntry, ModelStorage } from './model-editor.ts'
+import type { ModelDraftEntry, ModelStorage, NumericRules } from './model-editor.ts'
 import {
   entriesFromRawHeaders,
   headerNameProblem,
@@ -72,11 +72,16 @@ import type { HeaderDraftEntry } from './header-editor.ts'
 import {
   API_FIELD,
   BASE_URL_FIELD,
+  CONTEXT_WINDOW_FIELD,
   createRouteOp,
+  CURATED_MODEL_FIELDS,
+  curatedFieldValue,
   DISPLAY_NAME_FIELD,
   fieldOps,
   headersCurated,
   INPUT_FIELD,
+  MAX_TOKENS_FIELD,
+  NAME_FIELD,
   protocolChoices,
   rawHeaders,
   rawModelOverrides,
@@ -85,7 +90,8 @@ import {
   routeModelSchema,
   setHeadersOp,
   setModelsOp,
-  setOverrideOp,
+  setNewOverrideOp,
+  setOverrideFieldOp,
   unsetHeadersOp,
   unsetModelsOp,
   unsetOverrideOp,
@@ -347,8 +353,14 @@ export async function runRouteEditor(
  * The ordered path ops one route draft would write.
  *
  * One array for one `settings.mutate`. An explicit catalog writes its whole
- * `models` array — carrying every uncurated field forward — while an inherited
- * route writes per-id `modelOverrides` and unsets only the ids it dropped.
+ * `models` array — array elements are not independently path-addressable
+ * through this seam, and the write carries every uncurated field forward — while
+ * an inherited route writes the narrowest `modelOverrides.<id>.<field>` paths
+ * the reader actually edited. That narrowness is the conflict guarantee: a
+ * second save after a revision race reapplies exactly those fields and leaves
+ * every field the reader never opened at whatever the current revision holds.
+ * An id the reader removed is one whole-id `unset`; an id appearing for the
+ * first time is one whole-value `set`, because it has no stored sibling yet.
  * Switching from a list back to the catalog unsets `models`; the two are never
  * both present, which `llm-pi-ai` would refuse.
  * @param draft - the draft as it stands.
@@ -388,13 +400,26 @@ function buildRouteOps(
     }
     return ops
   }
-  const before = original.storage === 'override' ? toRawOverrides(original.models) : {}
-  const after = toRawOverrides(draft.models)
-  for (const id of Object.keys(before)) {
-    if (!(id in after)) ops.push(unsetOverrideOp(routePath, id))
+  const originalIds = new Set(
+    original.storage === 'override' ? includedEntries(original.models).map(entry => entry.id) : [],
+  )
+  const draftIds = new Set(includedEntries(draft.models).map(entry => entry.id))
+  for (const id of originalIds) {
+    if (!draftIds.has(id)) ops.push(unsetOverrideOp(routePath, id))
   }
-  for (const [id, value] of Object.entries(after)) {
-    if (JSON.stringify(before[id]) !== JSON.stringify(value)) ops.push(setOverrideOp(routePath, id, value))
+  for (const entry of includedEntries(draft.models)) {
+    if (entry.changed.size === 0) {
+      // Nothing in this entry was edited: an id appearing for the first time is
+      // an explicit "override this model" with no fields yet, which a
+      // whole-value set is the only spelling for. An id that already existed
+      // and was not edited writes nothing at all.
+      if (!originalIds.has(entry.id)) ops.push(setNewOverrideOp(routePath, entry.id, toRawOverride(entry)))
+      continue
+    }
+    for (const field of CURATED_MODEL_FIELDS) {
+      if (!entry.changed.has(field)) continue
+      ops.push(setOverrideFieldOp(routePath, entry.id, field, curatedFieldValue(entry, field)))
+    }
   }
   return ops
 }
@@ -1103,18 +1128,24 @@ function reasoningSummary(value: ReasoningEffortsValue | undefined): string {
 }
 
 /**
- * Ask for one capacity field, re-asking on an invalid answer.
+ * Ask for one numeric field, re-asking on an answer its schema refuses.
+ *
+ * The acceptance rules come from the serialized field node the caller already
+ * read, so this prompt never applies a bound of its own: a schema that allows
+ * zero, or a fractional step, is honored as written.
  * @param ctx - context carrying the slot registry.
  * @param view - the flow's own view name.
  * @param title - the field's name.
  * @param initial - the field's current value, prefilled.
- * @returns the parsed count, or undefined both when left blank and when cancelled.
+ * @param rules - the schema-declared numeric bounds.
+ * @returns the parsed number, or undefined both when left blank and when cancelled.
  */
 async function promptOptionalCapacity(
   ctx: Context,
   view: string,
   title: string,
   initial: number | undefined,
+  rules: NumericRules,
 ): Promise<number | undefined | 'cancel'> {
   let detail: string | undefined
   for (;;) {
@@ -1127,7 +1158,7 @@ async function promptOptionalCapacity(
       initial: initial === undefined ? '' : String(initial),
     })
     if (raw === undefined) return 'cancel'
-    const parsed = parseCapacity(raw)
+    const parsed = parseCapacity(raw, rules)
     if (parsed.ok) return parsed.value
     detail = parsed.reason
   }
@@ -1183,7 +1214,7 @@ async function editModelFields(
   let current = { ...target }
   let dirty = false
   for (;;) {
-    const advanced = entry.input.length > 0 || entry.reasoningLevels.length > 0
+    const advanced = entry.input.length > 0 || reasoningOfferable(entry)
     const choice = await promptSelect(ctx, {
       title: target.id,
       view: 'Edit model',
@@ -1219,23 +1250,23 @@ async function editModelFields(
         initial: current.name ?? '',
       })
       if (typed !== undefined) {
-        current = { ...current, name: typed.trim() === '' ? undefined : typed.trim() }
+        current = markChanged({ ...current, name: typed.trim() === '' ? undefined : typed.trim() }, NAME_FIELD)
         dirty = true
       }
       continue
     }
     if (choice === 'context') {
-      const value = await promptOptionalCapacity(ctx, 'Edit model', 'Context window', current.contextWindow)
+      const value = await promptOptionalCapacity(ctx, 'Edit model', 'Context window', current.contextWindow, entry.contextWindow ?? {})
       if (value !== 'cancel') {
-        current = { ...current, contextWindow: value }
+        current = markChanged({ ...current, contextWindow: value }, CONTEXT_WINDOW_FIELD)
         dirty = true
       }
       continue
     }
     if (choice === 'max') {
-      const value = await promptOptionalCapacity(ctx, 'Edit model', 'Max output tokens', current.maxTokens)
+      const value = await promptOptionalCapacity(ctx, 'Edit model', 'Max output tokens', current.maxTokens, entry.maxTokens ?? {})
       if (value !== 'cancel') {
-        current = { ...current, maxTokens: value }
+        current = markChanged({ ...current, maxTokens: value }, MAX_TOKENS_FIELD)
         dirty = true
       }
       continue
@@ -1248,6 +1279,36 @@ async function editModelFields(
       }
     }
   }
+}
+
+/**
+ * Whether the schema leaves anything for the reasoning menu to do.
+ *
+ * `false` disables reasoning, and a mapping is editable only when the level
+ * vocabulary exists AND the schema's value leaf is a primitive shape this form
+ * can render. A leaf this walk cannot classify hides the mapping rather than
+ * guessing at it; the owner still validates which LEVELS may carry which value.
+ * @param entry - the schema-derived entry shapes.
+ * @returns true when the reasoning menu should be offered.
+ */
+function reasoningOfferable(entry: ModelEntrySchema): boolean {
+  return entry.reasoningCanDisable || reasoningMappingOfferable(entry)
+}
+
+/**
+ * Whether the mapping editor can be rendered from the schema at all.
+ *
+ * A level vocabulary alone is not enough: the dict's VALUE leaf must accept a
+ * primitive this form knows how to write. An unclassifiable leaf (a structured
+ * shape, an intersection) answers false, which is the fail-closed answer — the
+ * menu shows only the states the schema still describes.
+ * @param entry - the schema-derived entry shapes.
+ * @returns true when the custom-mapping editor should be offered.
+ */
+function reasoningMappingOfferable(entry: ModelEntrySchema): boolean {
+  return entry.reasoningLevels.length > 0
+    && entry.reasoningWire !== undefined
+    && (entry.reasoningWire.string || entry.reasoningWire.null)
 }
 
 /**
@@ -1282,7 +1343,7 @@ async function editAdvanced(
     if (choice === INPUT_FIELD) {
       const value = await editInputModalities(ctx, working.input, entry.input)
       if (value !== 'cancel') {
-        working = { ...working, input: value }
+        working = markChanged({ ...working, input: value }, INPUT_FIELD)
         dirty = true
       }
       continue
@@ -1290,7 +1351,7 @@ async function editAdvanced(
     if (choice === REASONING_EFFORTS_FIELD) {
       const value = await editReasoningEfforts(ctx, working.reasoningEfforts, entry)
       if (value !== 'cancel') {
-        working = { ...working, reasoningEfforts: value.value }
+        working = markChanged({ ...working, reasoningEfforts: value.value }, REASONING_EFFORTS_FIELD)
         dirty = true
       }
     }
@@ -1365,18 +1426,20 @@ async function editReasoningEfforts(
         ...entry.reasoningCanDisable
           ? [{ value: 'disabled', label: 'Disabled — this model does not reason', description: current === false ? '(current)' : '' }]
           : [],
-        {
-          value: 'mapping',
-          label: 'Custom mapping…',
-          description: current === false || current === undefined ? '' : reasoningSummary(current),
-        },
+        ...reasoningMappingOfferable(entry)
+          ? [{
+            value: 'mapping',
+            label: 'Custom mapping…',
+            description: current === false || current === undefined ? '' : reasoningSummary(current),
+          }]
+          : [],
         { value: 'back', label: 'Back' },
       ],
     })
     if (choice === undefined || choice === 'back') return 'cancel'
     if (choice === 'inherit') return { value: undefined }
     if (choice === 'disabled') return { value: false }
-    const mapped = await editReasoningMapping(ctx, current === false || current === undefined ? undefined : current, entry.reasoningLevels)
+    const mapped = await editReasoningMapping(ctx, current === false || current === undefined ? undefined : current, entry)
     if (mapped !== 'cancel') return { value: mapped }
   }
 }
@@ -1384,31 +1447,37 @@ async function editReasoningEfforts(
 /**
  * The per-level mapping editor.
  *
- * Nothing here judges the mapping's semantics — a level left undeclared, an
- * empty wire value, or a mapping that offers nothing beyond `off` are all built
- * as typed and handed to Harness, whose refusal is what the reader sees. A
- * local validator would be a second copy of a rule `llm-pi-ai` already owns.
+ * Nothing here judges the mapping's semantics — which levels may carry `null`,
+ * whether a level may repeat, or whether the mapping names any level at all are
+ * all built as typed and handed to Harness, whose refusal is what the reader
+ * sees. A local validator would be a second copy of a rule `llm-pi-ai` already
+ * owns. What IS read from the schema is the shape: the level vocabulary, and
+ * whether one level's value leaf accepts a string and/or `null`. An action the
+ * leaf does not accept is simply not offered; a leaf of an unclassified shape
+ * never reaches here, because the caller hid the mapping menu.
  * @param ctx - context carrying the slot registry.
  * @param current - the entry's current mapping, when it has one.
- * @param levels - the schema-derived level vocabulary.
+ * @param entry - the schema-derived level vocabulary and value leaf.
  * @returns the mapping, or `'cancel'`.
  */
 async function editReasoningMapping(
   ctx: Context,
   current: Record<string, string | null> | undefined,
-  levels: readonly string[],
+  entry: ModelEntrySchema,
 ): Promise<Record<string, string | null> | 'cancel'> {
+  const levels = entry.reasoningLevels
+  const wire = entry.reasoningWire
   let mapping: Record<string, string | null> = current === undefined ? {} : { ...current }
   for (;;) {
     const choice = await promptSelect(ctx, {
       title: 'Reasoning mapping',
       view: 'Edit model',
-      detail: 'Each level maps to the wire value dispatch should send; "off" alone may send nothing.',
+      detail: 'Each level maps to the wire value dispatch should send; a level may also send no wire value.',
       choices: [
         ...levels.map(level => ({
           value: `l:${level}`,
           label: `${mapping[level] === undefined ? '○' : '✓'} ${level}`,
-          description: mapping[level] === undefined ? 'not offered' : mapping[level] === null ? 'supported, send nothing' : mapping[level] ?? '',
+          description: mapping[level] === undefined ? 'not offered' : mapping[level] === null ? 'supported, send no wire value' : mapping[level] ?? '',
         })),
         { value: '__done', label: 'Done' },
         { value: '__back', label: 'Back' },
@@ -1423,8 +1492,8 @@ async function editReasoningMapping(
       view: 'Edit model',
       choices: [
         { value: 'none', label: 'Not offered' },
-        ...level === 'off' ? [{ value: 'nothing', label: 'Supported, send nothing' }] : [],
-        { value: 'wire', label: 'Send a wire value…' },
+        ...wire?.null ? [{ value: 'nothing', label: 'Supported, send no wire value' }] : [],
+        ...wire?.string ? [{ value: 'wire', label: 'Send a wire value…' }] : [],
         { value: 'back', label: 'Back' },
       ],
     })

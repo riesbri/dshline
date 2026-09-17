@@ -546,10 +546,11 @@ re-open **Edit route** and fetch with the headers in place.
 **Models** opens the catalog. On a route with an explicit `models` list, its
 entries are the list you are writing. On a route that inherits its adapter's
 catalog, the stored customizations are shown as overrides and the installed
-models beside them; opening one and editing it writes a single
-`modelOverrides.<model>` entry and leaves every other model the catalog serves
-untouched. A route never carries both an explicit list and overrides, because
-`llm-pi-ai` refuses that; **Reset models to adapter catalog** drops the list.
+models beside them; editing one writes only the exact
+`modelOverrides.<model>.<field>` paths you changed and leaves every other model
+the catalog serves, and every field of that model you did not open, untouched.
+A route never carries both an explicit list and overrides, because `llm-pi-ai`
+refuses that; **Reset models to adapter catalog** drops the list.
 
 Inside a model, **Display name**, **Context window**, and **Max output tokens**
 write the fields every provider understands. **Advanced** holds the two
@@ -563,17 +564,20 @@ from a list baked into dshline:
   inherits the installed catalog's answer, then the route default.
 - **Reasoning capability** is either inherited from the installed catalog,
   explicitly **disabled** for a model that does not reason, or a custom mapping
-  from each offered level (`off`, `low`, `high`, …) to the wire value dispatch
-  should send. `off` alone may send nothing. Harness validates the mapping
-  where it writes it: a mapping it refuses leaves the form exactly as you built
-  it, with its own explanation on screen.
+  from each offered level to the wire value dispatch should send. A level can
+  also map to no wire value, when the adapter's own schema says a level's value
+  may be empty — which level that is remains the adapter's rule, not this
+  interface's. Harness validates the mapping where it writes it: a mapping it
+  refuses leaves the form exactly as you built it, with its own explanation on
+  screen.
 
 Every submenu is a draft. Nothing is written until **Save changes**, which is
 one revision-checked write; **Discard changes** and `esc` write nothing at all.
 If the namespace moved while the editor was open, the draft is kept, the editor
-says so, and a second explicit **Save** applies it to the current revision —
-never an automatic retry. A route removed underneath the editor is not
-re-created: the draft stays for inspection until you back out.
+says so, and a second explicit **Save** reapplies only the exact fields your
+draft changed to the current revision — never an automatic retry, and never a
+stale copy of a field you did not open. A route removed underneath the editor
+is not re-created: the draft stays for inspection until you back out.
 
 What stays settings work: `compat`, retry policy, timeouts, image budgets, and
 transport live in `settings.yaml`. Editing what `/connect` shows never disturbs

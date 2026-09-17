@@ -8,6 +8,7 @@ import {
   entriesFromOverrides,
   entriesFromRaw,
   includedEntries,
+  markChanged,
   parseCapacity,
   removeEntry,
   sameModelSet,
@@ -18,6 +19,7 @@ import {
   updateFields,
 } from '../src/connect/model-editor.ts'
 import type { ModelDraftEntry } from '../src/connect/model-editor.ts'
+import { CURATED_MODEL_FIELDS, INPUT_FIELD } from '../src/connect/pi-ai.ts'
 
 describe('building a draft from a stored profile', () => {
   it('is empty when the profile inherits, distinct from an explicit empty list', () => {
@@ -147,8 +149,16 @@ describe('adding and editing a model by hand', () => {
         retained: undefined,
         included: true,
         storage: 'models',
+        // Every field the caller supplied is intent; an id-only add records none.
+        changed: new Set(CURATED_MODEL_FIELDS),
       }])
     }
+  })
+
+  it('records no edited field when only an id was supplied', () => {
+    const result = addManual([], { id: 'gpt', ...BLANK }, 'override')
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.entries[0]?.changed).toEqual(new Set())
   })
 
   it('replaces curated fields while keeping id, inclusion, and retained shape', () => {
@@ -165,26 +175,51 @@ describe('adding and editing a model by hand', () => {
       retained: raw,
       included: true,
       storage: 'models',
+      changed: new Set(),
     }])
+  })
+
+  it('accumulates the fields an edit records as changed', () => {
+    const draft = entriesFromOverrides({ gpt: { name: 'GPT' } })
+    const after = updateFields(draft, 'gpt', { name: 'Renamed' }, [INPUT_FIELD])
+    expect(after[0]?.changed).toEqual(new Set([INPUT_FIELD]))
+    expect(markChanged(after[0]!, 'name').changed).toEqual(new Set([INPUT_FIELD, 'name']))
   })
 })
 
 describe('capacity fields', () => {
   it('treats a blank answer as absent, not as zero', () => {
-    expect(parseCapacity(undefined)).toEqual({ ok: true, value: undefined })
-    expect(parseCapacity('')).toEqual({ ok: true, value: undefined })
-    expect(parseCapacity('   ')).toEqual({ ok: true, value: undefined })
+    expect(parseCapacity(undefined, { min: 1, step: 1 })).toEqual({ ok: true, value: undefined })
+    expect(parseCapacity('', { min: 1, step: 1 })).toEqual({ ok: true, value: undefined })
+    expect(parseCapacity('   ', { min: 1, step: 1 })).toEqual({ ok: true, value: undefined })
   })
 
-  it('accepts a positive whole number', () => {
-    expect(parseCapacity('128000')).toEqual({ ok: true, value: 128000 })
+  it('honors the current pinned bounds: min 1, step 1', () => {
+    expect(parseCapacity('128000', { min: 1, step: 1 })).toEqual({ ok: true, value: 128000 })
+    expect(parseCapacity('1', { min: 1, step: 1 }).ok).toBe(true)
+    expect(parseCapacity('0', { min: 1, step: 1 }).ok).toBe(false)
+    expect(parseCapacity('-5', { min: 1, step: 1 }).ok).toBe(false)
+    expect(parseCapacity('12.5', { min: 1, step: 1 }).ok).toBe(false)
+    expect(parseCapacity('not a number', { min: 1, step: 1 }).ok).toBe(false)
   })
 
-  it('refuses zero, negative, and non-integral answers', () => {
-    expect(parseCapacity('0').ok).toBe(false)
-    expect(parseCapacity('-5').ok).toBe(false)
-    expect(parseCapacity('12.5').ok).toBe(false)
-    expect(parseCapacity('not a number').ok).toBe(false)
+  it('permits zero when the schema declares min 0', () => {
+    expect(parseCapacity('0', { min: 0, step: 1 })).toEqual({ ok: true, value: 0 })
+    expect(parseCapacity('-1', { min: 0, step: 1 }).ok).toBe(false)
+  })
+
+  it('honors a step measured from the declared minimum', () => {
+    expect(parseCapacity('10', { min: 10, step: 5 })).toEqual({ ok: true, value: 10 })
+    expect(parseCapacity('15', { min: 10, step: 5 })).toEqual({ ok: true, value: 15 })
+    expect(parseCapacity('20', { min: 10, step: 5 })).toEqual({ ok: true, value: 20 })
+    expect(parseCapacity('9', { min: 10, step: 5 }).ok).toBe(false)
+    expect(parseCapacity('12', { min: 10, step: 5 }).ok).toBe(false)
+  })
+
+  it('applies no integer assumption the schema did not declare', () => {
+    // No `step`: the schema admits any finite number, so the parser does too.
+    expect(parseCapacity('0.5', { min: 0 })).toEqual({ ok: true, value: 0.5 })
+    expect(parseCapacity('0.5', { min: 1, step: 1 }).ok).toBe(false)
   })
 })
 

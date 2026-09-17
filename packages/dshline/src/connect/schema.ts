@@ -1,5 +1,5 @@
 /**
- * Finding the credential field of a provider profile, from the schema alone.
+ * Reading a provider profile out of a namespace's serialized settings schema.
  *
  * This is the part of Connect that keeps it provider-neutral. The naive way to
  * offer "set an API key" is to write `apiKeyEnv` into the profile, which is
@@ -17,6 +17,14 @@
  * own uid, and a nested node appears as that uid rather than inline, because
  * schemastery preserves shared and recursive references. So walking it means
  * resolving a number at each step, which is all {@link resolveNode} does.
+ *
+ * The rest of this module is the same walk applied to SHAPE, not just names:
+ * a union's string constants (a protocol or modality vocabulary), a dict's
+ * declared key schema (a reasoning-level vocabulary), a dict's element schema
+ * (what one mapping value accepts), a number's `min`/`step`, and which
+ * properties exist at all. A caller decides what a field is CALLED; everything
+ * about what it accepts comes from here, and a shape this walk cannot classify
+ * answers "unreadable" so the caller can fail closed rather than guess.
  * @module dshline/connect/schema
  */
 
@@ -346,6 +354,80 @@ export function unionHasConst(node: SchemaNode | undefined, envelope: SchemaEnve
     const resolved = resolveNode(member, envelope)
     return resolved?.type === 'const' && Object.is(resolved.value, value)
   })
+}
+
+/** Which primitive JSON kinds one schema leaf accepts. */
+export interface LeafAcceptance {
+  /** Whether the leaf accepts a string. */
+  readonly string: boolean
+  /** Whether the leaf accepts a number. */
+  readonly number: boolean
+  /** Whether the leaf accepts a boolean. */
+  readonly boolean: boolean
+  /** Whether the leaf accepts `null`. */
+  readonly null: boolean
+}
+
+/** A leaf that accepts nothing this walk recognizes. */
+const NOTHING_ACCEPTED: LeafAcceptance = { string: false, number: false, boolean: false, null: false }
+
+/**
+ * The primitive kinds one `const` node's value belongs to.
+ * @param value - the constant's value.
+ * @returns the accepted kinds, or undefined when it is not a primitive.
+ */
+function acceptanceOfConst(value: unknown): LeafAcceptance | undefined {
+  if (value === null) return { ...NOTHING_ACCEPTED, null: true }
+  if (typeof value === 'string') return { ...NOTHING_ACCEPTED, string: true }
+  if (typeof value === 'number') return { ...NOTHING_ACCEPTED, number: true }
+  if (typeof value === 'boolean') return { ...NOTHING_ACCEPTED, boolean: true }
+  return undefined
+}
+
+/**
+ * Which primitive kinds a leaf schema accepts, when it is one.
+ *
+ * The value-side companion to {@link dictKeyStrings}: `llm-pi-ai`'s
+ * `reasoningEfforts` maps each offered level to `union([z.string(),
+ * z.const(null)])`, and a form that means to edit a leaf as text-or-nothing
+ * must learn that from the schema rather than from the field's name. A union
+ * of recognizable primitives merges their kinds; a structured member, an
+ * intersection, an `any`, or a node this walk cannot classify answers
+ * `undefined`, which is how a caller fails closed instead of guessing at a
+ * shape it does not understand. An empty union accepts nothing and answers the
+ * all-false record rather than `undefined`.
+ * @param node - the leaf node itself, typically a `dict`'s `inner`.
+ * @param envelope - the table every uid is looked up in.
+ * @returns the accepted primitive kinds, or undefined when the shape is unrecognized.
+ */
+export function leafAcceptance(node: SchemaNode | undefined, envelope: SchemaEnvelope): LeafAcceptance | undefined {
+  if (node === undefined) return undefined
+  switch (node.type) {
+    case 'string':
+      return { ...NOTHING_ACCEPTED, string: true }
+    case 'number':
+      return { ...NOTHING_ACCEPTED, number: true }
+    case 'boolean':
+      return { ...NOTHING_ACCEPTED, boolean: true }
+    case 'const':
+      return acceptanceOfConst(node.value)
+    case 'union': {
+      let accepted = NOTHING_ACCEPTED
+      for (const member of node.list ?? []) {
+        const part = leafAcceptance(resolveNode(member, envelope), envelope)
+        if (part === undefined) return undefined
+        accepted = {
+          string: accepted.string || part.string,
+          number: accepted.number || part.number,
+          boolean: accepted.boolean || part.boolean,
+          null: accepted.null || part.null,
+        }
+      }
+      return accepted
+    }
+    default:
+      return undefined
+  }
 }
 
 /**

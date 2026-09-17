@@ -8,6 +8,13 @@
  * catalog keeps serving untouched. {@link ModelStorage} is what tells the two
  * apart inside one draft type, and the write projection follows from it.
  *
+ * An override draft records which curated fields the reader actually edited
+ * ({@link ModelDraftEntry.changed}), because a whole-object rewrite would carry
+ * the open-time copy of a field nobody opened back over a concurrent edit. The
+ * `models` array keeps its whole-array write: array elements are not
+ * independently path-addressable through this settings seam, and that write
+ * already carries every uncurated field through.
+ *
  * Every function here is a pure transform over `ModelDraftEntry[]`. The
  * terminal loop that turns keystrokes into calls on these lives in
  * `route-editor.ts`; nothing here pushes an overlay or calls a seam.
@@ -15,11 +22,14 @@
  */
 
 import type { LlmDiscoveredModelRead } from './harness.ts'
-import type { ReasoningEffortsValue } from './pi-ai.ts'
-import { curatedModelFields, curatedOverrideFields, mergeModelEntry, mergeOverrideEntry } from './pi-ai.ts'
+import type { CuratedModelFields, ModelCuratedField, ReasoningEffortsValue } from './pi-ai.ts'
+import { CURATED_MODEL_FIELDS, curatedFieldValue, curatedModelFields, curatedOverrideFields, mergeModelEntry, mergeOverrideEntry } from './pi-ai.ts'
 
 /** Which profile field one draft's entries are written into. */
 export type ModelStorage = 'models' | 'override'
+
+/** No field edited yet; shared so an untouched entry allocates nothing. */
+const NOTHING_CHANGED: ReadonlySet<ModelCuratedField> = new Set()
 
 /** One model row in a draft being edited. */
 export interface ModelDraftEntry {
@@ -37,6 +47,14 @@ export interface ModelDraftEntry {
   readonly included: boolean
   /** Which profile field a write addresses. */
   readonly storage: ModelStorage
+  /**
+   * The curated fields this draft actually edited, and therefore the only
+   * fields a `modelOverrides.<id>` write may address. An untouched field stays
+   * out of the set even though its value is displayed, which is what keeps a
+   * second save after a revision race from reapplying a stale copy of a field
+   * the reader never opened.
+   */
+  readonly changed: ReadonlySet<ModelCuratedField>
 }
 
 /**
@@ -55,7 +73,7 @@ export function entriesFromRaw(raw: readonly unknown[] | undefined): ModelDraftE
   for (const item of raw) {
     const curated = curatedModelFields(item)
     if (curated === undefined) continue
-    entries.push({ ...curated, retained: item as Record<string, unknown>, included: true, storage: 'models' })
+    entries.push({ ...curated, retained: item as Record<string, unknown>, included: true, storage: 'models', changed: NOTHING_CHANGED })
   }
   return entries
 }
@@ -81,6 +99,7 @@ export function entriesFromOverrides(raw: Record<string, unknown>): ModelDraftEn
         : undefined,
       included: true,
       storage: 'override',
+      changed: NOTHING_CHANGED,
     })
   }
   return entries
@@ -119,6 +138,7 @@ export function addCandidates(
       retained: undefined,
       included: false,
       storage,
+      changed: NOTHING_CHANGED,
     })
   }
   return [...entries, ...added]
@@ -132,6 +152,18 @@ export function addCandidates(
  */
 export function toggleIncluded(entries: readonly ModelDraftEntry[], id: string): ModelDraftEntry[] {
   return entries.map(entry => entry.id === id ? { ...entry, included: !entry.included } : entry)
+}
+
+/**
+ * Mark one curated field as edited, keeping every other field and the set's
+ * previous members.
+ * @param entry - the entry being edited.
+ * @param field - the field the reader changed.
+ * @returns the entry with the field recorded as changed.
+ */
+export function markChanged(entry: ModelDraftEntry, field: ModelCuratedField): ModelDraftEntry {
+  if (entry.changed.has(field)) return entry
+  return { ...entry, changed: new Set([...entry.changed, field]) }
 }
 
 /** Fields a hand-typed or hand-edited model row carries. */
@@ -164,9 +196,13 @@ export function addManual(
   const id = fields.id.trim()
   if (id === '') return { ok: false, reason: 'a model id is required' }
   if (entries.some(entry => entry.id === id)) return { ok: false, reason: `"${id}" is already in the list` }
+  // Only the fields actually supplied count as edited. An id-only add leaves
+  // `changed` empty, so an override write for it is the whole-value spelling a
+  // first appearance earns — never a set of paths nobody chose.
+  const changed = new Set(CURATED_MODEL_FIELDS.filter(field => curatedFieldValue(fields, field) !== undefined))
   return {
     ok: true,
-    entries: [...entries, { ...fields, id, retained: undefined, included: true, storage }],
+    entries: [...entries, { ...fields, id, retained: undefined, included: true, storage, changed }],
   }
 }
 
@@ -175,14 +211,18 @@ export function addManual(
  * @param entries - the draft.
  * @param id - the entry being edited.
  * @param fields - the new curated values.
+ * @param changed - the fields this edit actually touched.
  * @returns the draft with that entry updated.
  */
 export function updateFields(
   entries: readonly ModelDraftEntry[],
   id: string,
   fields: Omit<ModelFieldInput, 'id'>,
+  changed: readonly ModelCuratedField[] = [],
 ): ModelDraftEntry[] {
-  return entries.map(entry => entry.id === id ? { ...entry, ...fields } : entry)
+  return entries.map(entry => entry.id === id
+    ? { ...entry, ...fields, changed: new Set([...entry.changed, ...changed]) }
+    : entry)
 }
 
 /**
@@ -195,17 +235,42 @@ export function removeEntry(entries: readonly ModelDraftEntry[], id: string): Mo
   return entries.filter(entry => entry.id !== id)
 }
 
+/** The numeric bounds a serialized `number` field declared; absent means unconstrained. */
+export interface NumericRules {
+  readonly min?: number
+  readonly step?: number
+}
+
 /**
- * Parse an optional capacity field: blank means absent, anything else must be
- * a positive whole number.
+ * Parse an optional numeric field against the constraints its own schema
+ * declared.
+ *
+ * The rules come from the serialized `number` node, not from this function: a
+ * blank answer means absent, a value must clear `min` when one is declared, and
+ * a declared `step` (measured from `min`, or from zero when no floor exists)
+ * must divide the value exactly. Nothing here assumes a positive integer — a
+ * schema that allows zero, or a fractional step, is honored as written, and a
+ * schema with no `step` accepts any finite number rather than inventing one.
  * @param raw - the typed text, or undefined when the field was not answered.
- * @returns the parsed count, or the refusal reason.
+ * @param rules - the schema-declared bounds for this field.
+ * @returns the parsed number, or the refusal reason.
  */
-export function parseCapacity(raw: string | undefined): { ok: true; value: number | undefined } | { ok: false; reason: string } {
+export function parseCapacity(
+  raw: string | undefined,
+  rules: NumericRules,
+): { ok: true; value: number | undefined } | { ok: false; reason: string } {
   const trimmed = raw?.trim() ?? ''
   if (trimmed === '') return { ok: true, value: undefined }
   const value = Number(trimmed)
-  if (!Number.isInteger(value) || value <= 0) return { ok: false, reason: 'must be a positive whole number' }
+  if (!Number.isFinite(value)) return { ok: false, reason: 'must be a number' }
+  if (rules.min !== undefined && value < rules.min) return { ok: false, reason: `must be at least ${String(rules.min)}` }
+  if (rules.step !== undefined && rules.step > 0) {
+    const steps = (value - (rules.min ?? 0)) / rules.step
+    if (Math.abs(steps - Math.round(steps)) > 1e-9) {
+      const from = rules.min === undefined ? 'zero' : String(rules.min)
+      return { ok: false, reason: `must be a multiple of ${String(rules.step)} from ${from}` }
+    }
+  }
   return { ok: true, value }
 }
 
@@ -250,6 +315,9 @@ export function sameModelSet(left: readonly ModelDraftEntry[], right: readonly M
 
 /**
  * One override value as it would be written, unknown fields intact.
+ *
+ * Used only for an id's first appearance in a draft, where there is no stored
+ * sibling to preserve; an existing override is written field by field.
  * @param entry - the draft entry.
  * @returns the `modelOverrides.<id>` value.
  */
@@ -272,7 +340,8 @@ export function toRawOverrides(entries: readonly ModelDraftEntry[]): Record<stri
  * Compared as written values rather than as entry objects, for the same reason
  * {@link sameModelSet} compares rows: an edited field that lands on the value
  * already stored is not a change. Order is not compared because a dict has
- * none.
+ * none. Used by the menu to decide whether the draft differs at all, never to
+ * build a write.
  * @param left - one draft.
  * @param right - the other draft.
  * @returns true when both write the same id set with the same fields.

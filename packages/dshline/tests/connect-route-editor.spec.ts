@@ -1112,7 +1112,7 @@ function capabilityDescriptor(
 describe('editing a model capability on an inherited catalog route', () => {
   const OVERRIDE = { compat: { supportsStore: false } }
 
-  it('writes one modelOverrides.<id> op, preserving unrendered fields and never a models array', async () => {
+  it('writes only the edited field path of one override, leaving an unrendered sibling and models alone', async () => {
     const { ctx, press } = slots()
     const fixture = seamsFor({
       descriptor: capabilityDescriptor(
@@ -1145,8 +1145,8 @@ describe('editing a model capability on an inherited catalog route', () => {
       ns: 'llm-pi-ai',
       ops: [{
         op: 'set',
-        path: ['providers', 'local-llama', 'modelOverrides', 'gpt'],
-        value: { compat: { supportsStore: false }, input: ['text', 'image'] },
+        path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'input'],
+        value: ['text', 'image'],
       }],
       revision: 9,
     }])
@@ -1176,12 +1176,12 @@ describe('editing a model capability on an inherited catalog route', () => {
     expect(result?.kind).toBe('done')
     expect(fixture.mutateCalls[0]?.ops).toEqual([{
       op: 'set',
-      path: ['providers', 'local-llama', 'modelOverrides', 'gpt'],
-      value: { compat: { supportsStore: false }, reasoningEfforts: false },
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'reasoningEfforts'],
+      value: false,
     }])
   })
 
-  it('builds a custom level mapping with off sending nothing', async () => {
+  it('builds a custom level mapping, a level other than off sending no wire value', async () => {
     const { ctx, type, press } = slots()
     const fixture = seamsFor({
       descriptor: capabilityDescriptor(
@@ -1201,8 +1201,9 @@ describe('editing a model capability on an inherited catalog route', () => {
     // off actions: not-offered(0), send-nothing(1), wire(2), back(3).
     await press(DOWN, ENTER) // send nothing
     await press(DOWN, ENTER) // low
-    // low actions: not-offered(0), wire(1), back(2).
-    await press(DOWN, ENTER) // wire
+    // low actions: not-offered(0), send-no-value(1), wire(2), back(3) — the
+    // schema's leaf accepts null for every level, not only one named `off`.
+    await press(DOWN, DOWN, ENTER) // wire
     await type('low')
     await press(ENTER)
     await press(DOWN, DOWN, ENTER) // done
@@ -1214,8 +1215,8 @@ describe('editing a model capability on an inherited catalog route', () => {
     expect(result?.kind).toBe('done')
     expect(fixture.mutateCalls[0]?.ops).toEqual([{
       op: 'set',
-      path: ['providers', 'local-llama', 'modelOverrides', 'gpt'],
-      value: { compat: { supportsStore: false }, reasoningEfforts: { off: null, low: 'low' } },
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'reasoningEfforts'],
+      value: { off: null, low: 'low' },
     }])
   })
 
@@ -1330,5 +1331,260 @@ describe('a rejected save keeps the draft and never retries on its own', () => {
     await press(UP, ENTER) // discard
     expect(await outcome).toBeUndefined()
     expect(fixture.mutateCalls).toHaveLength(1)
+  })
+})
+
+/** `CAPABILITY_SCHEMA` with the reasoning dict's value leaf (node 21) replaced. */
+function capabilitySchemaWithWire(wire: unknown): unknown {
+  const schema = structuredClone(CAPABILITY_SCHEMA) as { uid: number; refs: Record<string, unknown> }
+  schema.refs['21'] = wire
+  return schema
+}
+
+/** `CAPABILITY_SCHEMA` with the reasoning level vocabulary (nodes 22/23) replaced. */
+function capabilitySchemaWithLevels(first: string, second: string): unknown {
+  const schema = structuredClone(CAPABILITY_SCHEMA) as { uid: number; refs: Record<string, unknown> }
+  schema.refs['22'] = { type: 'const', meta: { required: true }, value: first }
+  schema.refs['23'] = { type: 'const', meta: { required: true }, value: second }
+  return schema
+}
+
+/** A descriptor over an arbitrary schema fixture. */
+function descriptorWithSchema(
+  schema: unknown,
+  profile: Record<string, unknown>,
+  user?: Record<string, unknown>,
+): SettingsDescriptorRead {
+  return {
+    ns: 'llm-pi-ai',
+    schema,
+    value: { providers: { 'local-llama': profile } },
+    ...user === undefined ? {} : { user: { providers: { 'local-llama': user } } },
+    revision: 9,
+  }
+}
+
+/** A structural settings conflict, the way the seam reports a lost revision race. */
+const SETTINGS_CONFLICT = Object.assign(
+  new Error('settings namespace "llm-pi-ai" changed since it was read'),
+  { code: 'SETTINGS_CONFLICT' },
+)
+
+describe('schema-derived reasoning leaves', () => {
+  const OVERRIDE = { compat: { supportsStore: false } }
+  const profile = { baseURL: 'http://x/v1', api: 'openai-completions', modelOverrides: { gpt: OVERRIDE } }
+  const user = { modelOverrides: { gpt: OVERRIDE } }
+
+  it('assigns null to a level whose name the frontend has never seen', async () => {
+    const { ctx, press } = slots()
+    const fixture = seamsFor({
+      descriptor: descriptorWithSchema(capabilitySchemaWithLevels('tiny', 'huge'), profile, user),
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, DOWN, DOWN, ENTER) // advanced
+    await press(DOWN, ENTER) // reasoning
+    await press(DOWN, DOWN, ENTER) // mapping
+    await press(ENTER) // tiny
+    await press(DOWN, ENTER) // send no wire value
+    await press(DOWN, DOWN, ENTER) // done
+    await press(DOWN, DOWN, ENTER) // back out of advanced
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // save
+    expect((await outcome)?.kind).toBe('done')
+    expect(fixture.mutateCalls[0]?.ops).toEqual([{
+      op: 'set',
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'reasoningEfforts'],
+      value: { tiny: null },
+    }])
+  })
+
+  it('offers no null action for a level literally named off when the leaf is string-only', async () => {
+    const { ctx, type, press } = slots()
+    const fixture = seamsFor({
+      descriptor: descriptorWithSchema(capabilitySchemaWithWire({ type: 'string', meta: {} }), profile, user),
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, DOWN, DOWN, ENTER) // advanced
+    await press(DOWN, ENTER) // reasoning
+    await press(DOWN, DOWN, ENTER) // mapping
+    await press(ENTER) // off
+    // A string-only leaf: not-offered(0), wire(1), back(2). A special case on
+    // the name `off` would insert a null action and land this on the wrong row.
+    await press(DOWN, ENTER) // wire
+    await type('sent')
+    await press(ENTER)
+    await press(DOWN, DOWN, ENTER) // done
+    await press(DOWN, DOWN, ENTER) // back out of advanced
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // save
+    expect((await outcome)?.kind).toBe('done')
+    expect(fixture.mutateCalls[0]?.ops).toEqual([{
+      op: 'set',
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'reasoningEfforts'],
+      value: { off: 'sent' },
+    }])
+  })
+
+  it('hides the mapping editor when the value leaf is a shape it cannot render', async () => {
+    const { ctx, press, text } = slots()
+    const fixture = seamsFor({
+      descriptor: descriptorWithSchema(
+        capabilitySchemaWithWire({ type: 'object', meta: {}, dict: {} }),
+        profile,
+        user,
+      ),
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, DOWN, DOWN, ENTER) // advanced
+    await press(DOWN, ENTER) // reasoning
+    expect(text()).toContain('Reasoning capability')
+    expect(text()).not.toContain('Custom mapping')
+    await press(UP, ENTER) // back out of reasoning, the last item
+    await press(UP, ENTER) // back out of advanced
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(UP, ENTER) // discard the route
+    expect(await outcome).toBeUndefined()
+    expect(fixture.mutateCalls).toEqual([])
+  })
+})
+
+describe('conflict-safe override writes', () => {
+  it('reapplies only the edited field after a conflict, leaving a concurrently changed sibling', async () => {
+    const { ctx, press, text } = slots()
+    const at = (supportsStore: boolean, revision: number): SettingsDescriptorRead => capabilityDescriptor(
+      { baseURL: 'http://x/v1', api: 'openai-completions', modelOverrides: { gpt: { compat: { supportsStore } } } },
+      { modelOverrides: { gpt: { compat: { supportsStore } } } },
+      revision,
+    )
+    const fixture = seamsFor({
+      descriptors: [at(false, 9), at(true, 10)],
+      directory: [{ provider: 'local-llama' }],
+      mutateRejections: [SETTINGS_CONFLICT],
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, DOWN, DOWN, ENTER) // advanced
+    await press(ENTER) // input
+    await press(ENTER) // toggle text
+    await press(DOWN, DOWN, DOWN, ENTER) // done
+    await press(DOWN, DOWN, ENTER) // back out of advanced
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // save
+    expect(fixture.mutateCalls).toHaveLength(1)
+    expect(text()).toContain('changed elsewhere')
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // the reader's second Save
+    expect((await outcome)?.kind).toBe('done')
+    expect(fixture.mutateCalls).toHaveLength(2)
+    expect(fixture.mutateCalls[1]?.ops).toEqual([{
+      op: 'set',
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'input'],
+      value: ['text'],
+    }])
+    expect(JSON.stringify(fixture.mutateCalls[1]?.ops)).not.toContain('compat')
+  })
+
+  it('does not carry a concurrently changed name when only reasoning was edited', async () => {
+    const { ctx, press } = slots()
+    const at = (name: string, revision: number): SettingsDescriptorRead => capabilityDescriptor(
+      { baseURL: 'http://x/v1', api: 'openai-completions', modelOverrides: { gpt: { name } } },
+      { modelOverrides: { gpt: { name } } },
+      revision,
+    )
+    const fixture = seamsFor({
+      descriptors: [at('Old', 9), at('Web', 10)],
+      directory: [{ provider: 'local-llama' }],
+      mutateRejections: [SETTINGS_CONFLICT],
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, DOWN, DOWN, ENTER) // advanced
+    await press(DOWN, ENTER) // reasoning
+    await press(DOWN, ENTER) // disabled
+    await press(DOWN, DOWN, ENTER) // back out of advanced
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // save
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // the reader's second Save
+    expect((await outcome)?.kind).toBe('done')
+    const ops = fixture.mutateCalls[1]?.ops
+    expect(ops).toEqual([{
+      op: 'set',
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'reasoningEfforts'],
+      value: false,
+    }])
+    expect(JSON.stringify(ops)).not.toContain('name')
+  })
+
+  it('does not carry a concurrently changed reasoning mapping when only the capacity was edited', async () => {
+    const { ctx, type, press } = slots()
+    const at = (wire: string, revision: number): SettingsDescriptorRead => capabilityDescriptor(
+      { baseURL: 'http://x/v1', api: 'openai-completions', modelOverrides: { gpt: { reasoningEfforts: { off: wire } } } },
+      { modelOverrides: { gpt: { reasoningEfforts: { off: wire } } } },
+      revision,
+    )
+    const fixture = seamsFor({
+      descriptors: [at('old', 9), at('web', 10)],
+      directory: [{ provider: 'local-llama' }],
+      mutateRejections: [SETTINGS_CONFLICT],
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(DOWN, ENTER) // context window
+    await type('9000')
+    await press(ENTER)
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // save
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // the reader's second Save
+    expect((await outcome)?.kind).toBe('done')
+    expect(fixture.mutateCalls[1]?.ops).toEqual([{
+      op: 'set',
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'contextWindow'],
+      value: 9000,
+    }])
+  })
+
+  it('unsets exactly the cleared field rather than rewriting the override', async () => {
+    const { ctx, press } = slots()
+    const fixture = seamsFor({
+      descriptor: capabilityDescriptor(
+        { baseURL: 'http://x/v1', api: 'openai-completions', modelOverrides: { gpt: { name: 'Old', compat: { supportsStore: false } } } },
+        { modelOverrides: { gpt: { name: 'Old', compat: { supportsStore: false } } } },
+      ),
+    })
+    const outcome = runRouteEditor(ctx, fixture.seams, declaredRow())
+    await press(DOWN, DOWN, DOWN, ENTER) // models
+    await press(DOWN, DOWN, ENTER) // gpt
+    await press(DOWN, ENTER) // edit
+    await press(ENTER) // display name
+    await press(CTRL_U) // clear it
+    await press(ENTER)
+    await press(UP, ENTER) // back out of fields
+    await press(UP, ENTER) // done with models
+    await press(DOWN, DOWN, DOWN, DOWN, ENTER) // save
+    expect((await outcome)?.kind).toBe('done')
+    expect(fixture.mutateCalls[0]?.ops).toEqual([{
+      op: 'unset',
+      path: ['providers', 'local-llama', 'modelOverrides', 'gpt', 'name'],
+    }])
   })
 })

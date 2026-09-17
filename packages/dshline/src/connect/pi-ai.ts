@@ -79,13 +79,14 @@ import {
   fieldNode,
   innerNode,
   isStringDict,
+  leafAcceptance,
   numberConstraints,
   profileNode,
   resolveSchemaNode,
   unionConstStrings,
   unionHasConst,
 } from './schema.ts'
-import type { LocatedProfile, SchemaEnvelope, SchemaNode } from './schema.ts'
+import type { LeafAcceptance, LocatedProfile, SchemaEnvelope, SchemaNode } from './schema.ts'
 
 /** The one namespace this module knows how to present curated fields for. */
 export const PI_AI_NAMESPACE = 'llm-pi-ai'
@@ -117,7 +118,9 @@ export function isPiAiNamespace(settingsNs: string): boolean {
 /**
  * One model entry's `reasoningEfforts` exactly as `llm-pi-ai` accepts it:
  * `false` disables reasoning, and a dict maps each offered level to its wire
- * spelling (or `null` for "supported, send nothing", legal only for `off`).
+ * spelling (or `null` for "supported, send no wire value"). WHICH levels may
+ * carry `null` is the namespace owner's semantic rule, not this module's — the
+ * schema's leaf shape is the only thing read here.
  */
 export type ReasoningEffortsValue = false | Record<string, string | null>
 
@@ -131,6 +134,54 @@ export interface CuratedModelFields {
   readonly input: readonly string[] | undefined
   /** The declared reasoning capability, or undefined to inherit the installed catalog's. */
   readonly reasoningEfforts: ReasoningEffortsValue | undefined
+}
+
+/**
+ * One per-model field this pass curates, named by its profile key.
+ *
+ * The union is the write vocabulary: a `modelOverrides.<id>` edit addresses
+ * exactly one of these paths, so the type is what keeps an override edit from
+ * becoming a whole-object rewrite that could carry a stale sibling back.
+ */
+export type ModelCuratedField =
+  | typeof NAME_FIELD
+  | typeof CONTEXT_WINDOW_FIELD
+  | typeof MAX_TOKENS_FIELD
+  | typeof INPUT_FIELD
+  | typeof REASONING_EFFORTS_FIELD
+
+/** Every curated model field, in the order a form writes them. */
+export const CURATED_MODEL_FIELDS: readonly ModelCuratedField[] = [
+  NAME_FIELD,
+  CONTEXT_WINDOW_FIELD,
+  MAX_TOKENS_FIELD,
+  INPUT_FIELD,
+  REASONING_EFFORTS_FIELD,
+]
+
+/**
+ * One curated field's current value, read off a curated view.
+ *
+ * The single place the field-name union meets the value object, so a caller
+ * diffing or writing fields never re-enumerates them. An absent value stays
+ * `undefined`, which is the "inherit/unset" spelling a path op uses.
+ * @param fields - the curated view of an entry or override.
+ * @param field - the field to read.
+ * @returns the field's JSON-compatible value, or undefined when unset.
+ */
+export function curatedFieldValue(fields: CuratedModelFields, field: ModelCuratedField): unknown {
+  switch (field) {
+    case NAME_FIELD:
+      return fields.name
+    case CONTEXT_WINDOW_FIELD:
+      return fields.contextWindow
+    case MAX_TOKENS_FIELD:
+      return fields.maxTokens
+    case INPUT_FIELD:
+      return fields.input === undefined ? undefined : [...fields.input]
+    case REASONING_EFFORTS_FIELD:
+      return fields.reasoningEfforts
+  }
 }
 
 /**
@@ -289,6 +340,13 @@ export interface ModelEntrySchema {
   readonly reasoningLevels: readonly string[]
   /** Whether the schema still offers `reasoningEfforts: false`. */
   readonly reasoningCanDisable: boolean
+  /**
+   * What one level's mapping VALUE accepts, derived from the dict's element
+   * schema. `undefined` means the leaf is not a primitive (`union` of them)
+   * this form can render, so the mapping editor fails closed rather than
+   * guessing; an all-false record means the leaf accepts nothing.
+   */
+  readonly reasoningWire: LeafAcceptance | undefined
 }
 
 /** Which model-catalog shapes one route's schema still describes. */
@@ -350,13 +408,15 @@ function entryObjectNode(located: LocatedProfile, field: string): SchemaNode | u
 function entrySchema(node: SchemaNode, envelope: SchemaEnvelope): ModelEntrySchema {
   const located: LocatedProfile = { node, envelope }
   const reasoning = fieldNode(located, REASONING_EFFORTS_FIELD)
+  const mapping = dictMember(reasoning, envelope)
   return {
     name: fieldNode(located, NAME_FIELD)?.type === 'string',
     contextWindow: numberConstraints(fieldNode(located, CONTEXT_WINDOW_FIELD)),
     maxTokens: numberConstraints(fieldNode(located, MAX_TOKENS_FIELD)),
     input: unionConstStrings(innerNode(fieldNode(located, INPUT_FIELD), envelope), envelope),
-    reasoningLevels: dictKeyStrings(dictMember(reasoning, envelope), envelope),
+    reasoningLevels: dictKeyStrings(mapping, envelope),
     reasoningCanDisable: unionHasConst(reasoning, envelope, false),
+    reasoningWire: leafAcceptance(innerNode(mapping, envelope), envelope),
   }
 }
 
@@ -564,22 +624,49 @@ export function unsetModelsOp(routePath: readonly string[]): SettingsPathOp {
 }
 
 /**
- * One op setting a single installed-catalog model's override.
+ * One op creating a whole `modelOverrides.<id>` that did NOT exist at open.
  *
- * A per-id path, never the whole `modelOverrides` dict: a sibling override
- * this edit did not render is then untouched by construction, and a route that
- * inherited thirty-seven models keeps the thirty-six the reader never opened.
+ * Deliberately not the general edit path. An override the route already
+ * carried is edited field by field through {@link setOverrideFieldOp}, because
+ * only the fields a reader actually touched may be written — a whole-object
+ * `set` would carry the open-time copy of every field it never rendered back
+ * over a concurrent edit. There is no sibling to preserve on the id's first
+ * appearance, so one whole-value `set` is the honest spelling for it.
  * @param routePath - the route's `settingsPath`.
  * @param id - the installed model id, which is the dict key.
  * @param value - the override value, already merged by {@link mergeOverrideEntry}.
  * @returns the op.
  */
-export function setOverrideOp(
+export function setNewOverrideOp(
   routePath: readonly string[],
   id: string,
   value: Record<string, unknown>,
 ): SettingsPathOp {
   return { op: 'set', path: [...routePath, MODEL_OVERRIDES_FIELD, id], value }
+}
+
+/**
+ * One op addressing exactly one curated field of an existing override.
+ *
+ * The narrowest owned path the settings seam can express, so a conflict-time
+ * second save reapplies only what the reader edited and leaves every other
+ * field — curated or unknown — at whatever the current revision holds. An
+ * undefined value unsets the key, which is how a field is returned to
+ * inheritance rather than stored as `null`.
+ * @param routePath - the route's `settingsPath`.
+ * @param id - the installed model id.
+ * @param field - the curated field to write.
+ * @param value - the field's value, or undefined to unset it.
+ * @returns the op.
+ */
+export function setOverrideFieldOp(
+  routePath: readonly string[],
+  id: string,
+  field: ModelCuratedField,
+  value: unknown,
+): SettingsPathOp {
+  const path = [...routePath, MODEL_OVERRIDES_FIELD, id, field]
+  return value === undefined ? { op: 'unset', path } : { op: 'set', path, value }
 }
 
 /**
@@ -594,18 +681,6 @@ export function setOverrideOp(
  */
 export function unsetOverrideOp(routePath: readonly string[], id: string): SettingsPathOp {
   return { op: 'unset', path: [...routePath, MODEL_OVERRIDES_FIELD, id] }
-}
-
-/**
- * Whether a schema-derived model form has nothing left to offer.
- * @param schema - what {@link routeModelSchema} read.
- * @returns true when neither the entry fields nor the vocabularies are readable.
- */
-export function modelSchemaIsOfferable(schema: RouteModelSchema): boolean {
-  const entry = schema.entry
-  if (entry === undefined) return false
-  return entry.name || entry.contextWindow !== undefined || entry.maxTokens !== undefined
-    || entry.input.length > 0 || entry.reasoningLevels.length > 0
 }
 
 /** Every curated field a brand-new route's profile may set. */

@@ -939,13 +939,31 @@ profile carries an explicit `models` list writes that whole array back, with
 every uncurated field (including `compat`) carried through each entry. A route
 that serves no list — which is what an absent `models` key and `models: []`
 both mean to `llm-pi-ai`; the schema materializes the former as the latter —
-writes one `modelOverrides.<id>` path op per customized model, so correcting
-one model leaves the rest of the catalog serving untouched. The two are never
-written into one profile, and an override never carries an `id`, because the
-adapter refuses both. The mode is read from the EFFECTIVE resolved profile,
-while which overrides belong to the user layer is read field-presence-wise from
-`descriptor.user` — the resolved value has schema defaults applied, so it
-cannot tell a stored key from a materialized one.
+writes only the exact `modelOverrides.<id>.<field>` paths the reader actually
+edited, so correcting one model leaves the rest of the catalog serving
+untouched and leaves every field of that model the reader never opened at
+whatever the current revision holds. The draft tracks that intent as a
+per-entry set of changed fields, not as a diff of whole values: a field shown
+but not touched is not a write, and a second save after a revision race
+reapplies exactly the touched paths rather than a stale snapshot. An id the
+reader removed is one whole-id `unset`; an id appearing for the first time is
+one whole-value `set`, because it has no stored sibling yet. The two catalogs
+are never written into one profile, and an override never carries an `id`,
+because the adapter refuses both. The mode is read from the EFFECTIVE resolved
+profile, while which overrides belong to the user layer is read
+field-presence-wise from `descriptor.user` — the resolved value has schema
+defaults applied, so it cannot tell a stored key from a materialized one.
+
+Numeric fields are checked against the bounds the owning schema declares
+(`min`/`step`), not against a rule written here: a schema that allows zero, or
+a fractional step, is honored as written. The reasoning mapping's vocabulary
+and its accepted value shape are read the same way — the level keys from the
+dict's key schema, and whether one level's value accepts a string and/or null
+from the dict's element schema. A leaf shape this walk cannot classify hides
+the mapping editor instead of guessing, and WHICH levels may carry a null
+value remains the adapter's own semantic rule: this frontend offers the shape
+the schema publishes and shows Harness's refusal when a mapping it built is
+not one the owner accepts. It keeps no second copy of that rule.
 
 A rejected save keeps its draft. `connect/route-editor.ts` recognizes the
 settings seam's `SETTINGS_CONFLICT` code structurally — no runtime import of
@@ -955,9 +973,9 @@ there is no automatic retry, because a retry would apply an intent formed
 against a state the reader never saw. A route deleted underneath the editor is
 not resurrected: the draft stays on screen for inspection and the reader is
 told to back out and add it again. What Harness refuses for a semantic reason —
-a reasoning mapping that offers nothing beyond `off`, an override on a model
-the installed catalog does not describe — is shown verbatim and leaves the
-draft intact; this frontend holds no second copy of that validator.
+a reasoning mapping the owner will not accept, an override on a model the
+installed catalog does not describe — is shown verbatim and leaves the draft
+intact; this frontend holds no second copy of that validator.
 
 Three things that look similar are deliberately separate. A model's
 `reasoningEfforts` is a DEPLOYMENT capability and wire mapping, written by
