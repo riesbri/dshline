@@ -21,7 +21,7 @@
  *   `settingsPath`, `declared`);
  * - `discoverModels()` answers a draft interrogation with the candidate fields
  *   `connect/model-editor.ts` folds (`id`, `name`, `contextWindow`,
- *   `maxTokens`).
+ *   `maxTokens`, and `inputModalities`).
  *
  * The adapter streams nothing: no dshline code path dispatches a model call —
  * the agent loop owns that — so `stream` is refused like the methods
@@ -144,15 +144,17 @@ describe('capability: llm', () => {
       ctx.llm.registerModelDiscovery(SETTINGS_NS, async (request: LlmModelDiscoveryRequest) => {
         expect(request.baseURL).toBe('http://localhost:9/probe')
         return [
-          { id: 'gw-small', name: 'Gateway Small', contextWindow: 32_768, maxTokens: 8_192 },
-          { id: 'gw-large', name: 'Gateway Large', contextWindow: 131_072, maxTokens: 32_768 },
+          { id: 'gw-small', name: 'Gateway Small', contextWindow: 32_768, maxTokens: 8_192, inputModalities: ['text'] },
+          { id: 'gw-large', name: 'Gateway Large', contextWindow: 131_072, maxTokens: 32_768, inputModalities: ['text', 'image'] },
         ] satisfies LlmDiscoveredModel[]
       })
       const discovered = await ctx.llm.discoverModels(SETTINGS_NS, { baseURL: 'http://localhost:9/probe' })
-      // The draft fold reads exactly these four fields; nothing more is claimed.
+      // The draft fold reads exactly these five fields; the modality list is the
+      // adopted generation's own discovery metadata and must survive the runtime
+      // rather than being dropped at the seam.
       expect(discovered).toEqual([
-        { id: 'gw-small', name: 'Gateway Small', contextWindow: 32_768, maxTokens: 8_192 },
-        { id: 'gw-large', name: 'Gateway Large', contextWindow: 131_072, maxTokens: 32_768 },
+        { id: 'gw-small', name: 'Gateway Small', contextWindow: 32_768, maxTokens: 8_192, inputModalities: ['text'] },
+        { id: 'gw-large', name: 'Gateway Large', contextWindow: 131_072, maxTokens: 32_768, inputModalities: ['text', 'image'] },
       ])
     } finally {
       await ctx.fiber.dispose()

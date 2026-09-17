@@ -15,14 +15,16 @@
  * and one honest sentence about restarting. It writes no manifest, resolves no
  * package, and installs nothing itself.
  *
- * The restart boundary is the fact this browser exists to make visible. A
- * Host's composition is applied once, at boot; installing a bundle changes
- * what the NEXT boot composes and reaches nothing in this process. So a
- * landed operation on the CURRENT profile says restart required, one on any
- * other profile says which command picks it up, and switching profiles is not
- * offered at all — there is no seam that re-links a running Host's bundle
- * layers, and building one would be the competing lifecycle this frontend
- * refuses to own.
+ * The restart boundary is what this browser exists to make visible. Harness may
+ * change a mounted composition at runtime (the adopted generation's HMR service
+ * and plugin manager), so a process's startup state is not proof that the files
+ * on disk still match it; and replacing an installed package's module
+ * generation still needs a fresh process. dshline drives `dsh plugin` in a
+ * subprocess and observes none of that, so it states the scope of the operation
+ * it ran: a landed operation on the CURRENT profile says restart required, one
+ * on any other profile says which command picks it up, and switching profiles
+ * is not offered at all — this browser re-links no layers itself, and building
+ * that would be the competing lifecycle it refuses to own.
  * @module dshline/profiles
  */
 

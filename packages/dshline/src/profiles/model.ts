@@ -2,25 +2,22 @@
  * What `/profiles` knows, as rows and decisions a terminal can draw.
  *
  * The one judgement this module makes that the filesystem does not is about
- * RESTART. A profile's composition is applied once, at boot: the launcher
- * stacks its bundle patches, mounts the tree, and the Host that results is
- * what the process is. Installing a bundle writes a package and a manifest
- * line; it does not reach into a composed tree and add rows to it. So every
- * mutation here is a change to what the NEXT Host will compose, and saying so
- * is not a caveat — it is the operation's actual scope.
- *
- * There is one deliberate exception, and it belongs to the layer below: the
- * profile's own `cordis.patch.yml` IS hot-reloaded by the launcher
- * (`watchUserPatches`). Bundle membership is not, which is exactly why this
- * module distinguishes them rather than reporting one restart rule for
- * "profiles".
+ * RESTART. A profile's bundle layers are composed when a Host boots; Harness
+ * may re-apply a profile or bundle patch to a running Host at runtime (the
+ * adopted generation's HMR service), while replacing an installed package's
+ * module generation still needs a fresh process. This module owns no part of
+ * that lifecycle: it drives `dsh plugin` in a subprocess and observes no
+ * reload. What it knows is the scope of the operation it ran — a landed
+ * mutation changes what the NEXT Host composes those files into — so it reports
+ * each profile's restart claim from that scope rather than asserting what the
+ * running process did or did not pick up.
  *
  * Switching profiles is not offered at all. A profile is chosen by the
- * launcher before any of this exists, the composed tree is the process, and
- * `recompose`-style re-linking has no analogue here — there is no seam that
- * swaps a Host's bundle layers under a running agent, and inventing one would
- * be exactly the competing lifecycle this frontend does not build. Another
- * profile is presented, and the command that boots it is named.
+ * launcher before any of this exists, and the composed tree that results is
+ * what the running process serves; dshline builds no re-linking of its own on
+ * top of whatever Harness reloads, which would be exactly the competing
+ * lifecycle this frontend does not build. Another profile is presented, and the
+ * command that boots it is named.
  * @module dshline/profiles/model
  */
 

@@ -41,5 +41,7 @@
 # A subagent backend forwards a delegated child process's stderr straight to
 # file descriptor 2 for the life of the run, which on an interactive launch is
 # the terminal the live region is drawn on. Read the module header before
-# touching this record.
-shim packages/dshline/src/stderr.ts 0.1.6-alpha.1
+# touching this record. Reconfirmed against 0.1.6-alpha.2 at
+# subagent-codex/src/run.ts (`writeFileSync(process.stderr.fd, bytes)`);
+# alpha.2 still publishes no Host-owned diagnostic seam to route it through.
+shim packages/dshline/src/stderr.ts 0.1.6-alpha.2

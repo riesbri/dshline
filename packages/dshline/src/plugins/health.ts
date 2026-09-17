@@ -94,9 +94,10 @@ export interface HostCapabilities {
  * Read the Host's capability registries once per catalog pass.
  *
  * Read per pass rather than held, matching every other reading in this domain:
- * a provider registers when its row activates, and a Bundle installed mid-run
- * does not appear until the Host restarts — but a browser that cached the list
- * would also fail to notice a provider that arrived while it was open.
+ * a provider registers when its row activates, and Harness may change the
+ * mounted capability set at runtime (the adopted generation's HMR service and
+ * plugin manager), so a browser that cached the list could miss a provider that
+ * just arrived or keep reporting one that is already gone.
  * @param ctx - context carrying (or not carrying) the registries.
  * @returns what each registry currently reports.
  */

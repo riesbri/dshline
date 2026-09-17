@@ -18,9 +18,9 @@
  * commit that follows.
  *
  * dshline enforces that rule for its own code. It cannot enforce it for a
- * plugin writing to file descriptor 2 directly, and a subagent backend in the
- * generation named by `HARNESS_TARGET` does exactly that for the whole life of
- * a delegation:
+ * plugin writing to file descriptor 2 directly, and the subagent backend the
+ * generation named by `HARNESS_TARGET` ships does exactly that for the whole
+ * life of a delegation:
  *
  * ```ts
  * const onStderr = (chunk: Buffer | string): void => {
@@ -41,6 +41,16 @@
  * composer frame — which is why the duplicate appears the moment a subagent is
  * spawned. Nothing here branches on a provider either: what is contained is a
  * WRITE SHAPE, not a vendor.
+ *
+ * Reconfirmed against `0.1.6-alpha.2`, the adopted generation:
+ * `subagent-codex/src/run.ts` still calls `writeFileSync(process.stderr.fd,
+ * bytes)` and `subagent-codex` changed only its `package.json` between
+ * `0.1.6-alpha.1` and `0.1.6-alpha.2`. That generation adds no
+ * diagnostics/subprocess/Host seam a consumer could route a delegated child's
+ * stderr through, so the containment below is still the narrowest one the
+ * public architecture allows. This is a defect workaround for the ONE current
+ * generation, not support for `0.1.6-alpha.1`; the record in `HARNESS_COMPAT`
+ * forces the question to be asked again at the next adoption.
  *
  * ## Why the descriptor and not the stream
  *

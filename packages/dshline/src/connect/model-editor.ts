@@ -110,9 +110,10 @@ export function entriesFromOverrides(raw: Record<string, unknown>): ModelDraftEn
  *
  * A candidate whose id the draft already knows is dropped rather than merged:
  * the draft's own fields — possibly hand-corrected — are the more trustworthy
- * source for that id, and an endpoint listing seldom reports more than an id
- * anyway. A new id is added unchecked, so adopting it is still a deliberate
- * toggle rather than something this call did on the reader's behalf.
+ * source for that id, and an endpoint listing reports an id, at best a name,
+ * two capacities, and (at the adopted generation) the modalities the installed
+ * catalog records. A new id is added unchecked, so adopting it is still a
+ * deliberate toggle rather than something this call did on the reader's behalf.
  * @param entries - the draft before the fetch.
  * @param candidates - what the endpoint reported.
  * @param storage - which field a later write addresses, matching the draft.
@@ -128,12 +129,20 @@ export function addCandidates(
   for (const candidate of candidates) {
     if (known.has(candidate.id)) continue
     known.add(candidate.id)
+    // `inputModalities` is the adopted generation's own discovery metadata, so a
+    // non-empty list is carried exactly like the name and capacities above. An
+    // absent list means "unknown", and an empty one is not a declaration this
+    // config layer can express: `dsh-llm-pi-ai`'s `declaredInput` returns
+    // `undefined` for both absent and empty, and its schema materializes `[]`
+    // for an absent array, so both map to the draft's "inherit" — the same shape
+    // `entriesFromRaw` gives a stored empty `input`.
+    const modalities = candidate.inputModalities
     added.push({
       id: candidate.id,
       name: candidate.name,
       contextWindow: candidate.contextWindow,
       maxTokens: candidate.maxTokens,
-      input: undefined,
+      input: modalities === undefined || modalities.length === 0 ? undefined : [...modalities],
       reasoningEfforts: undefined,
       retained: undefined,
       included: false,
