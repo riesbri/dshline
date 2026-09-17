@@ -29,10 +29,12 @@
  * header, a signed proxy token, a routing tag a corporate egress requires — is
  * otherwise unreachable from the terminal, and the route has to be finished by
  * hand in `settings.yaml`. The per-model capabilities earn theirs for the
- * complementary reason: they are what a deployment MUST state when nothing can
- * infer it, because no endpoint listing reports a model's modalities or its
- * reasoning-level wire spellings. `compat`, `retryPolicy`, and the operational
- * budgets still stay out.
+ * complementary reason: they are what a deployment must be able to STATE, and
+ * no listing states all of them. At the adopted generation discovery reports a
+ * model's input modalities when the installed catalog knows them, but an
+ * endpoint-interrogated route reports none and no listing reports a model's
+ * reasoning-level wire spellings, so both fields stay editable. `compat`,
+ * `retryPolicy`, and the operational budgets still stay out.
  *
  * Which of those fields exist, and every CHOICE or VOCABULARY one offers, comes
  * from the namespace's own serialized schema rather than a list written here —

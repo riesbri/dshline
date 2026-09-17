@@ -98,6 +98,28 @@ describe('folding discovery candidates into a draft', () => {
   it('carries the draft storage onto every candidate', () => {
     expect(addCandidates([], CANDIDATES, 'override').every(entry => entry.storage === 'override')).toBe(true)
   })
+
+  it('carries the discovered input modalities the adopted catalog reports', () => {
+    // At the adopted generation a listing from the installed catalog reports
+    // `inputModalities`; the draft records the declared list exactly, image
+    // capability included, just as it records the name and capacities above.
+    const after = addCandidates([], [
+      { id: 'vision', inputModalities: ['text', 'image'] },
+      { id: 'text-only', inputModalities: ['text'] },
+      { id: 'empty', inputModalities: [] },
+      { id: 'silent' },
+    ], 'models')
+    expect(after.find(entry => entry.id === 'vision')?.input).toEqual(['text', 'image'])
+    // An explicit text-only list is a negative capability for image and must
+    // survive as such rather than being widened to some catalog default.
+    expect(after.find(entry => entry.id === 'text-only')?.input).toEqual(['text'])
+    // Neither an absent list ("unknown") nor an empty one is a declaration the
+    // pi-ai config layer can represent — `declaredInput` collapses both to
+    // "inherit" — so the draft leaves them undeclared rather than inventing a
+    // text-only list the listing never reported.
+    expect(after.find(entry => entry.id === 'empty')?.input).toBeUndefined()
+    expect(after.find(entry => entry.id === 'silent')?.input).toBeUndefined()
+  })
 })
 
 describe('toggling and removing entries', () => {

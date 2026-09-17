@@ -143,7 +143,7 @@ describe('what the profile says about this package', () => {
     // Harness dependency resolver.
     const manifest = `${JSON.stringify({
       name: 'dsh-profile-dshline',
-      dependencies: { '@dshline/dshline': '0.19.0', '@deepseek-ai/dsh-base': '0.1.6-alpha.1' },
+      dependencies: { '@dshline/dshline': '0.19.0', '@deepseek-ai/dsh-base': '0.1.6-alpha.2' },
     })}\n`
     expect(profileState(await profileWith(manifest))).toEqual({ kind: 'registry', spec: '0.19.0', version: '0.19.0' })
   })
