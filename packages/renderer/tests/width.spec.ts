@@ -208,6 +208,38 @@ describe('codePointWidth()', () => {
     expect(codePointWidth(0x1b)).toBe(0)
     expect(codePointWidth(0x7f)).toBe(0)
   })
+
+  it('pins every boundary of the printable-ASCII fast path', () => {
+    // Printable ASCII is answered as one column before the Unicode tables are
+    // consulted. An off-by-one bound (`<= 0x7f` or `< 0x80`) would measure DEL
+    // or a C1 control as one column and shift every row after it, so each edge
+    // is pinned by name.
+    for (const [code, width] of [
+      [0x00, 0], [0x09, 0], [0x0a, 0], [0x1f, 0],
+      [0x20, 1], [0x21, 1], [0x7e, 1],
+      [0x7f, 0], [0x80, 0], [0x9f, 0], [0xa0, 1],
+    ] as const) {
+      expect(codePointWidth(code), `U+${code.toString(16)}`).toBe(width)
+    }
+  })
+
+  it('measures every printable ASCII code point as one column', () => {
+    // The fast path's whole domain: space through `~`, covering letters, digits,
+    // and punctuation.
+    for (let code = 0x20; code <= 0x7e; code += 1) {
+      expect(codePointWidth(code), `U+${code.toString(16)}`).toBe(1)
+    }
+  })
+
+  it('keeps its fallback for out-of-range and surrogate code points', () => {
+    // The primitive is exported and accepts any number; the fast path must not
+    // change what it did with values no Unicode character has.
+    expect(codePointWidth(-1)).toBe(0)
+    expect(codePointWidth(0x110000)).toBe(1)
+    expect(codePointWidth(0xd800)).toBe(1)
+    expect(codePointWidth(0xdc00)).toBe(1)
+    expect(displayWidth('\ud800')).toBe(1)
+  })
 })
 
 describe('the generated wide table', () => {

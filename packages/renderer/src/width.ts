@@ -49,6 +49,13 @@ export function codePointWidth(code: number): number {
   // escape them first, so a stray one is measured as invisible rather than
   // silently shifting the line it appears in.
   if (code < 0x20 || (code >= 0x7f && code < 0xa0)) return 0
+  // Printable ASCII occupies one column and appears in neither table, so answer
+  // it before the two binary searches. Most text is ASCII, and each character
+  // otherwise pays about fourteen failing probes to learn what this line already
+  // knows. The explicit bounds keep the branch correct on its own: DEL and C1
+  // were already taken above, and a control that somehow reached here would fall
+  // through rather than be measured one.
+  if (code >= 0x20 && code < 0x7f) return 1
   if (inRanges(ZERO_WIDTH_RANGES, code)) return 0
   if (inRanges(WIDE_RANGES, code)) return 2
   return 1
