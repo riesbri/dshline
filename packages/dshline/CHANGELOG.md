@@ -1,5 +1,466 @@
 # dshline
 
+## 0.23.0
+
+### Minor Changes
+
+- 42f5d1b: Open a bounded read-only goal inspector on a bare `/goal`.
+  
+  `/goal` previously did nothing visible on its own; `/goal <objective>` went
+  straight to the Harness command. A semantically bare `/goal` — no argument, and
+  no staged attachments — now opens a live inspection instead: the durable phase,
+  the round count against the cap, the revision, the created and updated
+  timestamps, the full objective, and the blocker while one is set. It reports
+  whether this process will continue the goal as its own row, so a resumed
+  session reads `Phase active` and `Continuation disarmed` as the two separate
+  facts they are. Everything durable comes from the `goal` projection and only
+  activation comes from `ctx.goals`, both re-read on every paint; a goal edit, a
+  block, a clear, and a process-local disarm all repaint an open inspector.
+  
+  The report is read-only: opening it executes no command, appends no
+  `command/run`, `command/done`, goal, or session event, and mutates nothing. A
+  long objective scrolls with `↑`/`↓`, and `esc` or `ctrl-c` closes it. Every
+  argument-bearing form — an objective, `edit`, `pause`, `resume`, `clear` — and
+  a bare line carrying staged images go to the registered Harness command
+  unchanged, and an agent-scoped shadow that declares a different definition id is
+  left for the registry to resolve rather than being intercepted.
+- 178dd61: `/connect` can now edit the high-value `llm-pi-ai` model capabilities from the
+  terminal. A route's model menu becomes a staged editor — Name, Context window,
+  Max output tokens, and an Advanced submenu holding Input modalities and
+  Reasoning capability — and writes nothing until an explicit Save. Input
+  modalities, reasoning levels, and each reasoning level's accepted value shape
+  (string and/or no value) are read from the namespace's own serialized schema
+  rather than a vocabulary baked into dshline, so a future modality or thinking
+  level needs no change here. Numeric fields honor the `min`/`step` their schema
+  declares instead of a fixed positive-integer rule.
+  
+  A route that serves no explicit `models` list inherits the installed catalog,
+  and editing one of its models writes only the exact
+  `modelOverrides.<id>.<field>` paths the reader changed: correcting one model
+  leaves the rest of the catalog untouched, and a second Save after a conflict
+  does not carry back a stale copy of a field nobody opened. An override never
+  carries an `id` or arrives beside a `models` list, both of which the adapter
+  refuses. A route with an explicit `models` list still writes that whole array
+  back with every uncurated field, including `compat`, carried through each
+  entry.
+  
+  A rejected save no longer closes the editor. The draft is kept on screen, the
+  descriptor and provider directory are re-read, and a second explicit Save
+  reapplies exactly the fields the draft changed against the fresh revision;
+  there is no automatic retry. A route deleted underneath the editor is never
+  resurrected. Harness's own refusal is shown verbatim — this frontend holds no
+  copy of the reasoning validator — and `compat`, retry policy, timeouts, image
+  budgets, and transport remain `settings.yaml` work.
+- 86c27e2: Adopt DeepSeek Harness `0.1.5-rc.2`.
+- 97cf07b: Adopt DeepSeek Harness `0.1.6-alpha.1`, natively.
+  
+  The generation moves two things dshline consumes, and each one is migrated
+  forward rather than shimmed:
+  
+  - **Permission is two authorities, not one.** `PermissionSelect` is gone.
+    `PermissionCatalog` is live, process-level selectable state read through
+    `permissionPresets.catalog()`; `PermissionSelection` is the durable current
+    value the `permissions` session projection now carries alone. The terminal
+    picker joins them at the moment it opens and keeps neither, so the catalog is
+    re-read per interaction instead of cached — dshline holds no catalog state and
+    subscribes to no catalog change. Mutation stays on the `/permission <preset>`
+    command seam, so an option withdrawn while a picker was open is refused by
+    Harness rather than filtered by dshline. `custom` is reported as a current
+    value and offered as nothing, because Harness derives it and lists it in no
+    catalog. Picker-originated Full Access keeps its confirmation, and the live
+    `auto` review preset gains the same one: Harness publishes no per-option risk
+    metadata, so this stays a small explicit frontend policy matching Harness
+    Web's human-control model.
+  - **`agent/session-start` is gone.** `agent/created` absorbs its role and is
+    now agent-scoped, serial, awaited, and part of publication. dshline
+    subscribes to no agent lifecycle event in production, so this is a probe
+    migration, and both probes now go through the registry's own publication
+    seam: the Goal probe enters the agent with `enter()`, arranges the session's
+    goal, then publishes it exactly once with an awaited
+    `announce(agent, 'resume')` and watches that serial edge disarm it; the
+    agents probe awaits `announce(agent, source)` with the source each factory
+    path actually reports — under the new contract a detach requested while that
+    dispatch is in flight is deferred until it settles.
+  
+  The stderr containment shim in `HARNESS_COMPAT` was reconfirmed against this
+  generation rather than advanced blindly: upstream's
+  `subagent-codex/src/run.ts` is byte-for-byte unchanged, so the direct
+  descriptor-2 write it contains is still there.
+  
+  No compatibility with `0.1.5-rc.2` is retained.
+- 8903dd4: Adopt DeepSeek Harness `0.1.6-alpha.2`, natively.
+  
+  This generation changes little of what dshline consumes, and each change is
+  migrated forward rather than shimmed:
+  
+  - **Model discovery reports input modalities.** `LlmDiscoveredModel` gained
+    `inputModalities`, and `@deepseek-ai/dsh-llm-pi-ai` now surfaces the installed
+    catalog's `Model.input` through `discoverModels()`. `/connect`'s staged model
+    editor carries that authoritative list into a fetched candidate's declared
+    input — image capability included, and an explicit text-only list preserved as
+    a negative image capability — instead of leaving every fetched model looking
+    modality-less. An absent or empty list is left undeclared: pi-ai's
+    `declaredInput` collapses both to "inherit", so dshline invents no text-only
+    declaration the listing never made.
+  - **A continuable child's capacity is Harness policy.** `SubagentRuntime` now
+    installs a `subagent` settings section (`maxActiveSubagents`, `maxDepth`) and
+    rejects a cold resume past its live-child cap with
+    `subagent/delivery-unavailable`. dshline already maps the seam's typed refusal
+    to a failed outcome, so it adds no cap of its own, names no provider, and
+    keeps the continuation manager, inbox, and lifecycle Harness's.
+  - **Runtime plugin resolution and reload live in new Harness services.**
+    `@deepseek-ai/dsh-hmr` (`ctx.hmr`) and `@deepseek-ai/dsh-plugin-manager`
+    (`ctx.pluginManager`) own reload and profile management at this generation,
+    and `app-boot`'s `watchUserPatches`/`patchReload` are gone. dshline consumes
+    none of that lifecycle; the stale references to the removed internals are
+    corrected so it does not treat a Host's startup composition as permanent.
+  
+  The stderr containment shim in `HARNESS_COMPAT` was reconfirmed against this
+  generation rather than advanced blindly: `subagent-codex/src/run.ts` is
+  byte-for-byte unchanged between the two revisions and still writes a delegated
+  child's diagnostics straight to `process.stderr.fd`, and alpha.2 publishes no
+  Host-owned diagnostic seam through which a consumer could route them. The shim
+  remains a workaround for THIS generation's defect, not support for
+  `0.1.6-alpha.1`.
+  
+  No compatibility with `0.1.6-alpha.1` is retained.
+- c8cb3cc: `ctrl-k` on the bare `/model` picker now opens a Subagent models editor that
+  reads and writes Harness's own `subagent-model-selection` setting through the
+  generic settings document: an explicit allowlist of exact `provider/model`
+  routes the driving model may request for a delegated child. It is
+  authorization, not routing — a delegation that names no route still inherits
+  the parent's, and the editor never forces a child onto an allowed route. The
+  change applies to newly composed top-level Sessions; the current Session keeps
+  its recorded policy. A saved route the live catalog no longer advertises stays
+  visible, authorized, and removable. Saving writes both fields in one
+  revision-fenced mutation, a conflict keeps the draft and reports itself, and
+  `esc` discards without writing. `/model provider/model`, `/setup`, and command
+  completion are unchanged, and the bare picker's footer now advertises
+  `ctrl-k subagents`. The shared select overlay gains only a generic,
+  owner-supplied footer-help list, so it stays unaware of subagents, Harness, and
+  this key.
+- 5b68d81: Page forward through durable subagent conversations with `]`, paired with `[` for
+  older history. Both directions replace one bounded page within the index captured
+  on opening or refresh; only `r` refreshes that index and loads newly appended
+  events. The footer advertises available directions, paging preserves the new-event
+  hint, and a failed newer read keeps the current page.
+
+### Patch Changes
+
+- 08f62eb: Bounded-surface truthfulness fixes found by an audit of every overlay and the
+  status/banner chrome. A compact fallback no longer cuts a help line into a
+  fragment (`esc c`, `esc cl`) in Work and the tool-output inspector, and its one
+  row is bounded even when a phrase or notice carries a newline. Footers name
+  Enter only when the current selection has an action: the single-choice picker,
+  the subagent catalog, `/skills`, `/turns`, `/worktrees`, and the lineage
+  browser no longer advertise an action Enter refuses on an empty, diagnostic,
+  model-only, or not-yet-loaded row. `/worktrees` escapes a Harness session
+  listing failure and keeps an action refusal visible at the narrowest geometry,
+  and `/cache` escapes the recorded route id before drawing it. The committed
+  banner escapes the workspace path and model id; the multiselect compact
+  fallback cuts its row to the terminal; and the idle status line drops the whole
+  context reading instead of cutting it to a different number.
+  
+  `/connect`, `/plugins`, and `/profiles` also derive the row a gesture acts on
+  from the current reading and query instead of keeping the previous frame's
+  filtered array as an authority. Invalidation is coalesced, so a query typed and
+  confirmed before the next repaint could previously let Enter act on a row the
+  filter had already removed.
+- 05e228d: Connect's `more below` hint now appears only when another selectable provider,
+  sign-in, or custom-provider row is actually below the viewport, rather than for
+  section chrome or selected-row detail.
+- 015bdac: Setup no longer offers an empty Connect handoff when no provider, sign-in, or
+  custom-provider entry is available, and Connect's row counter now includes its
+  `Add custom provider` entry. Both surfaces read the same unfiltered
+  selectable-row count, so setup cannot open a `/connect` browser with nothing to
+  select and the counter can no longer print an impossible total such as `3 of 2`
+  when a route is declarable.
+- 0d9c25d: Show the attached Session's effective Harness permission in the status line.
+  
+  The footer previously had no persistent indication of what the current turn was
+  allowed to do. It now carries the `permissions` projection's raw `currentValue`
+  beside the model — a deployment-defined preset id, `auto`, or the derived
+  `custom` — read from the attachment's existing shared projection snapshot. A
+  `/permission <preset>` switch, an independent `sandbox/mode` or
+  `approval/policy` change, and a change in live preset availability (an added or
+  withdrawn `auto`) all repaint it live, with no restart or reattachment, and a
+  reopened Session shows the permission restored from its own log. The segment is
+  one opaque, escaped id with no inferred risk treatment, and it is omitted
+  entirely when the deployment composes no permission capability.
+- 14d1c94: State both differentiators in the package description and README opening, before
+  the install command.
+  
+  The old description — "Terminal-native frontend for the DeepSeek Harness plugin
+  ecosystem" — named the ecosystem but neither of the two things that distinguish
+  this frontend: finished output becomes ordinary terminal scrollback and is never
+  rewritten, and dshline consumes Harness capabilities in-process rather than
+  standing up a parallel agent runtime or state layer. npm and third-party DSH
+  directories reuse this string, so it is the one line many readers see.
+  
+  Messaging and metadata only. The architecture, the Harness target, dependencies,
+  release configuration and every deeper document are unchanged; the deeper docs
+  already described the boundary correctly.
+- cd179bd: Stop startup on a confirmed Harness generation mismatch.
+  
+  dshline supports one adopted Harness generation at a time, but a Host built for
+  a different one was only warned about and then allowed to open a session. The
+  report's `⚠` already named both exact versions and the deterministic recovery
+  command, and the session that followed could still reach APIs this build
+  targets that the installed generation may not provide — `/permission` failed
+  with `ctx.get(...)?.catalog is not a function` on `0.1.5-rc.2`, because that
+  release registers `permissionPresets` without the `catalog()` the adopted
+  `0.1.6-alpha.1` API provides.
+  
+  A confirmed mismatch now prints that same report and refuses to open a session,
+  leaving `ctrl-d` as the only way out and the report's
+  `npm install -g @deepseek-ai/dsh@<adopted>` as the way forward. The gate reuses
+  the one generation comparison the report already trusts, so only a confirmed
+  `mismatch` blocks: a version that cannot be read stays the `·` diagnostic it
+  has always been. This is not compatibility with an older Harness — nothing
+  falls back, feature-detects, or widens a peer range.
+- 76ef8d8: Let a healthy `/setup` finish at `✓ Ready.` instead of opening the action
+  picker, and stop a warning with no interactive repair from forcing a one-item
+  picker. A manual `/setup` on a session that can already send now prints its
+  report and returns to the composer; a Harness generation mismatch or a profile
+  that mounts nothing to configure a provider stays in the report and closes with
+  its own line. A warning setup can repair — missing model, missing credential, no
+  active route, a provider configuration diagnostic — still opens the picker and
+  leads with that repair, and the step list no longer offers optional changes as
+  if they were repairs. `/model` and `/connect` remain the commands for optional
+  changes, and the way out reads `Continue` rather than `Start the session`,
+  because `/setup` can run mid-session.
+- 0f56091: Important live state changes such as context compaction, model or reasoning
+  changes, and permission-preset switches are now highlighted briefly in the
+  status line. The emphasis keeps the applied change visible while output
+  continues, without replacing the record it already has: compaction and
+  permission changes are Harness-backed durable events, while local model and
+  reasoning changes keep their committed scrollback acknowledgement.
+- bbb1868: Harden install, bootstrap, and profile upgrade recovery.
+  
+  An independent clean-room Windows audit walked the published install as a new
+  user and found four ways the wrapper turned a recoverable state into one nobody
+  could act on. Each is fixed where it is dshline's to fix.
+  
+  **A failed setup could leave a profile that hung every later launch.** `dsh
+  plugin` writes the profile manifest *before* it installs anything, so "the
+  manifest exists" only ever meant a setup began. The wrapper read it as "the
+  profile is ready" and handed over to a frontend that had never been installed,
+  which is a blank terminal with no message and no exit. It now reads one thing —
+  whether its own package is recorded in its own profile, and at which release —
+  and reports the two states that have no working frontend behind them instead of
+  launching into them: a profile a failed setup left *half set up*, and a profile
+  recording a *different release* from the wrapper starting it. Each is reported
+  with its cause and with `dshline --setup` as the repair, and on a terminal the
+  wrapper offers to run that repair, which is the same question first run already
+  asked. Everything else about a profile — bundle list, `node_modules`, another
+  plugin — stays the harness's judgement, so this is not a second profile health
+  checker.
+  
+  **Setup no longer starts without pnpm.** The harness installs a profile's
+  plugins with pnpm, so a machine without it created the profile and stopped with
+  `'pnpm' is not recognized`, leaving exactly the half-made profile above. pnpm is
+  now checked *before* anything is created, for `--setup` and before the first-run
+  question is even asked, so the answer is a sentence rather than a mutation. The
+  remedy names the mechanism the harness actually came from: `corepack enable
+  pnpm` for a harness checkout, which declares the pnpm version it wants in its own
+  `packageManager`, and `npm install -g pnpm` for a package install.
+  
+  **A wrapper and a profile that disagreed now say so.** `npm install -g
+  @dshline/dshline@latest` moves the global command; it does not move the frontend
+  inside the profile, which is the part that actually runs. The launch then died
+  inside the harness with `cannot get property "agent" without inject`. The
+  wrapper now compares the profile's recorded release with its own and reports the
+  mismatch in plain language, pointing at `dshline --setup` to reconcile it.
+  
+  **A profile installed from a checkout is left alone.** Its recorded spec is a
+  path, not a release, so there is nothing for it to be out of step with.
+  Subjecting it to npm-version equality would have broken source-checkout
+  development outright — the mode the comparison must not touch — so the state
+  model tells a source spec from a registry release rather than reading "not this
+  exact version" as "wrong".
+  
+  Also fixed:
+  
+  - **`dshline --help` works with no profile, no harness, and no terminal**, like
+    `--version` already did, and names `dshline` instead of leaking the harness's
+    own `Usage: dsh --profile dshline`. It documents what the wrapper owns and
+    points at `dsh --profile dshline --help` for the rest rather than restating a
+    CLI reference that would drift.
+  - **A checkout command line is split the way a shell reads it.** A `dsh` script
+    naming its interpreter in full — `"C:\Program Files\nodejs\node.exe"
+    apps/cli.ts`, the default Windows shape — was split on whitespace into
+    `C:\Program` and `Files\nodejs\node.exe`, and the launch failed with ENOENT
+    beside a checkout that worked from a shell. Both copies of the launcher policy
+    learned quoting, and a test asserts they agree.
+  - **A failed setup says what to do next.** The message keeps naming
+    `dshline --setup`, and now also says where the reason is and how to inspect the
+    profile without starting a session.
+  
+  `dshline --dump-config` is not a wrapper flag and this does not add one. The
+  harness owns the profile dump, `dsh --profile dshline --dump-config` is the one
+  canonical spelling, and the installation documentation now agrees with the issue
+  template and `CONTRIBUTING.md` instead of contradicting them.
+- 894848a: The status line now names the live selected model as `provider/model`, so two
+  provider routes advertising the same model id no longer read as one selection.
+  It reports the selected configuration only: the route a model step in progress
+  has privately captured is Harness execution state that the public selection ref
+  cannot prove, so the footer neither infers nor annotates it. The banner still
+  shows the identity it attached with. Overlay notices that declare a lifetime
+  now ask for one repaint when it ends, so a result no longer stays on an idle
+  terminal until some unrelated paint clears it.
+- abfc628: Stop re-reading every provider's model list on each `/model` argument
+  keystroke. Completion asks Harness for `/model`'s values on every edit and
+  cursor move, and each ask re-ran `listProviders()` plus one `listModels()` per
+  route. The values are now held in one window-scoped derived snapshot that a
+  single read populates and every later keystroke reuses — including across a
+  `/sessions` switch, which changes none of the snapshot's inputs. Harness-driven
+  events — `llm/adapters-updated` for a route-set change, `settings/updated` for
+  the settings an adapter's model list is built from — discard it so the next ask
+  refetches, and window teardown disposes it. The snapshot owns no model state of
+  its own: `/model`'s candidates, order, labels, and notes are unchanged, and the
+  picker still reads Harness directly. A reading in which any route failed to list
+  is partial and is not reused, so that route is retried on the next ask exactly
+  as before.
+- c4f92c7: `/model` completion now inserts the exact `provider/model` route it represents
+  while still matching bare model-id prefixes, and model catalogs from independent
+  provider routes are discovered concurrently without changing their displayed
+  order.
+- 00ddc10: Bare `/theme`, `/model`, and `/reasoning` pickers now open on the value already
+  in use, so pressing Enter confirms the current selection instead of unexpectedly
+  choosing the first row.
+- 5987b5f: Plugins and Profiles now show `more below` only when another selectable entry
+  is actually outside the viewport, instead of treating selected-row detail as
+  another choice.
+- 8cc7341: Preserve an image staged while a registered Harness command is in flight. A
+  command now consumes only the image drafts admitted as part of its own
+  submission: a successful command that received nothing no longer discards a
+  path the reader staged while it ran, and a command that did receive the staged
+  batch still consumes exactly that batch.
+- d3817b4: Remove two obsolete `cordis.patch.yml` rows.
+  
+  The adopted Harness generation's `dsh-base` no longer mounts
+  `tool-str-replace-editor` or `workflow-worker-thread`, so the disables dshline
+  carried for them matched no row and the Loader printed
+  `patch: entry "..." not found` on every load, including
+  `dsh --profile dshline --dump-config`. Both entries are deleted with the rows
+  they named; every row still present in the composition is unchanged.
+- d8d8e22: Resumed conversations now rebuild their terminal transcript directly from the
+  live Harness Session returned by `agents.resume()`, so history no longer depends
+  on the optional session-query service or performs a redundant second session
+  read.
+- ccd48ad: Dismissing the launch session browser no longer starts a new session. When you
+  launch with an explicit resume request (`--resume` or an id), pressing `esc` (or
+  `ctrl-c`) in the Sessions browser cancels the launch and exits the window
+  instead of silently creating an unnamed session in the launch directory; the
+  same applies after a failed resume. Every new session still traces to normal
+  launch or explicit `/new`, `/clear`, or `/worktrees` intent.
+- a175147: `/model` and `/reasoning` now distinguish applied selection changes from
+  rejected instructions, so invalid model or reasoning choices are shown as errors
+  instead of muted success-looking acknowledgements. Setup also no longer treats a
+  rejected model choice as a model change.
+- a85f579: Sessions compact mode now labels content-search rows as results, preserves the
+  same pagination and loading facts as the framed browser, and reports the Enter
+  action for the selected result or continuation truthfully.
+- 3d87683: Bound the ordinary `/sessions` listing to the rows it keeps. The catalog used to
+  project every authoritative record into a `SessionEntry` before slicing the
+  result to its 200-row presentation limit, so a large corpus built a second, full
+  presentation array whose length was needed only for the exact `truncated`
+  count.
+  
+  The origin-all listing (`origin === 'all'`, which may still be workspace/age
+  filtered by Harness) now works from the retained prefix alone: with no origin
+  choice there is no presentation predicate, `records.length` is already the exact
+  authoritative total, and a 10,000-session corpus materializes about 200 rows
+  instead of 10,000. An origin-filtered listing still reads every authoritative
+  header, because Harness publishes no origin predicate and the exact total must
+  count qualifying rows past the limit, but it too materializes at most the
+  retained limit. In both cases `truncated`, `newest of N`, Harness order, origin
+  classification, and the single batched title observation are unchanged. An
+  origin-only browser filter now uses the plain corpus listing rather than calling
+  `filterSessions` with an empty clause list.
+- 8499e0a: Sessions content search now keeps the selected match excerpt visible and
+  reports `more below` only when another selectable result or continuation
+  action is actually outside the viewport.
+- 015b0b1: Stop a long streamed line from slowing the reply it belongs to. The incremental
+  stream accumulator searched its entire unfinished line for the last newline on
+  every delta, which is quadratic for a minified payload, a URL, or one long code
+  line delivered in small chunks. It now searches only the delta that just
+  arrived: the unfinished line never holds a newline between deltas, so a
+  completed line can only have come in with that delta. The rows produced are
+  unchanged; the repeated scan is gone.
+- bfa59ed: Workspace names in the composer's frame label now keep far more international
+  text instead of collapsing it to `?`, and the renderer's width tables come from
+  a pinned Unicode release instead of a hand-maintained list.
+  
+  The composer draws its workspace basename inside the live region's top border,
+  where a character the terminal draws wider than `displayWidth` measures makes
+  the border wrap a physical row the redraw arithmetic never counts; the stale
+  border then survives every erase. The label was therefore projected to
+  width-stable characters, but the renderer's hand-written tables trailed Unicode
+  badly enough that the replacement was applied to code points no terminal is
+  entitled to widen: Hebrew, Arabic, and Indic letters, combining marks across
+  every script, and the non-emoji wide script blocks (Nushu, Khitan, Yijing
+  hexagrams, Tai Xuan Jing) all became `?`.
+  
+  The renderer's wide and zero-width ranges are now generated from the Unicode
+  Character Database 17.0.0 by a committed, dependency-free generator with
+  checksum-pinned inputs, so the model measures what a current terminal draws.
+  General_Category is not a terminal `wcwidth` function, so the zero-width table
+  is nonspacing and enclosing marks plus an explicit allowlist of format controls;
+  U+00AD and the prepended or spanning marks (U+0600..U+0605, U+06DD, U+070F,
+  U+0890..U+0891, U+08E2, U+110BD, U+110CD) are measured one cell, and the line
+  and paragraph separators are too. The label keeps every unambiguously narrow
+  script, wide and zero-width code points, and a precomposed Latin accent via its
+  canonical decomposition — `café` is drawn as `cafe` plus U+0301 — and composes a
+  decomposed Hangul syllable with NFC instead of projecting its Jamo. Only what a
+  terminal may draw wider than the model counts is projected: an East Asian
+  Ambiguous character with no stable decomposition, a text-default emoji, a format
+  character outside the allowlist, and the multi-code-point sequences a
+  per-code-point rule cannot see (VS15/VS16 presentation, keycaps, regional
+  indicator flags, ZWJ sequences, and skin-tone modifiers). The committed banner
+  still prints the raw workspace name byte for byte.
+- 19ee127: `shift-enter` now starts a new line in native Windows terminals. Windows Terminal
+  1.24 and earlier, and the Windows console host itself, ignore the kitty keyboard
+  request the renderer sends; the console flattened `shift-enter` into the same
+  carriage return as `enter`, so the composer could only submit. The renderer now
+  also asks a Windows console for its own win32-input-mode and translates those key
+  records into the encodings it already reads, which restores `shift-enter` and
+  makes `ctrl-enter` distinguishable there as well. `enter` and `alt-enter` are
+  unchanged, and the mode is switched off when the interface exits.
+- 5928614: Work compact mode now preserves an owned workflow run when the jobs and
+  subagents capability seams are absent, and reports that seam absence without
+  claiming the whole Work surface is unavailable.
+- 40b464f: Work compact mode no longer counts a live workflow member again as a separate
+  subagent when Harness's childId proves both rows are the same child.
+- 8278978: `/work` now opens the selected subagent's durable conversation directly when
+  Harness discovery has published the child's complete descriptor, addressing it
+  by durable child session id rather than by the lifecycle `runId` that keys the
+  Work row. Work keeps the conversation catalog as the fallback for non-subagent
+  stages and for a child whose durable facts discovery has not supplied, so `c`
+  still reaches every durable conversation. The Work footer names the action the
+  key will actually perform (`c conversation` versus `c conversations`), and the
+  catalog footer reports `enter inspect` only when the focused row is openable
+  while distinguishing a root `/subagents` catalog (`esc close`) from one opened
+  over `/work` (`esc back`).
+- bbfc7b5: `/work` now shows a bounded, transient tail of the newest assistant text from a
+  running locally observable subagent directly in that child's detail view, so a
+  reader can see what a child is answering without leaving Work. Only streamed
+  `text-delta` chunks reach the tail; reasoning and tool-call fragments never do.
+  The tail is transient presentation owned by the existing per-child activity
+  observer and scoped to one model attempt, so a settled or retried attempt cannot
+  prefix the next one, and it is discarded on the attempt's end, the child turn's
+  end, or the child's disposal. A provider-managed child with no locally
+  observable Agent shows no tail, and the durable conversation remains available
+  through `/subagents` and the direct `c` navigation.
+- d81ba4e: Wrap long question titles in the prompt, single-select, and multi-select overlays
+  instead of truncating them. A model-authored `ask_user_question` question now
+  stays readable to its last word, and an option-less question keeps its text when
+  the terminal is too small to draw the frame.
+- Updated dependencies [e432127]
+- Updated dependencies [ccd48ad]
+- Updated dependencies [bfa59ed]
+  - @dshline/renderer@0.23.0
+
 ## 0.22.0
 
 ### Minor Changes
