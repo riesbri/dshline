@@ -68,6 +68,7 @@ async function fixture(resume: boolean | string | undefined, failure?: string) {
     pricing: pricingFrom(undefined), peakHours: [], version: 'test',
     selection: { current: undefined, assembled: undefined },
     modelInfo: { contextWindow: undefined, reasoning: undefined, inputModalities: undefined },
+    modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true, busyEnter: 'queue' },
     colorDepth: 0, pendingTask: undefined,
     draw: () => {}, paintNow: () => {}, clear,

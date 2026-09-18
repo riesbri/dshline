@@ -39,8 +39,11 @@ import type { ModelCompletionReading } from './model.ts'
 /**
  * A single-slot, Harness-invalidated cache of `/model`'s completion values.
  *
- * Constructed once per session attachment and disposed with it, so a reopened
- * session starts from Harness rather than an earlier session's routes.
+ * Constructed once per terminal WINDOW and disposed with it, so a `/sessions`
+ * switch reuses the snapshot instead of rebuilding it, and window teardown drops
+ * it. Its inputs are the Harness LLM registry and the settings its adapters
+ * read, neither of which a session switch changes; it is still a disposable
+ * projection that any invalidation event rebuilds from scratch.
  */
 export class ModelCompletionCatalog {
   /** The newest complete reading, or none before the first one lands. */
@@ -152,8 +155,8 @@ export class ModelCompletionCatalog {
  * for configuration surfaces, and credentials gate authentication on the
  * request path, not which models a route advertises.
  *
- * The subscriptions are owned by the caller's scope, so a disposed session
- * stops invalidating a catalog nobody can reach.
+ * The subscriptions are owned by the window scope, so teardown stops
+ * invalidating a catalog nobody can reach.
  * @param ctx - context carrying the registry and settings event vocabulary.
  * @param catalog - the catalog to invalidate.
  * @returns the disposer removing both subscriptions.

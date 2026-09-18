@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { Composer, stripAnsi } from '@dshline/renderer'
@@ -6,6 +8,7 @@ import type { LocalCommandChoice } from '../src/local-commands.ts'
 import { ModelCompletionCatalog, watchModelCompletion } from '../src/model-completion.ts'
 import { modelCompletionValues, readModelCompletion } from '../src/model.ts'
 import type { ModelCompletionReading } from '../src/model.ts'
+import { createModelCompletionCatalog } from '../src/window.ts'
 
 /** One candidate, for a test that does not care what it says. */
 function choice(value: string): LocalCommandChoice {
@@ -86,6 +89,7 @@ function deferredLlm(providers: readonly string[]): {
   bus: ReturnType<typeof eventBus>
   providerReads: number[]
   modelReads: string[]
+  effects: (() => void)[]
   settle: (provider: string, models: readonly { id: string; name: string }[]) => void
   fail: (provider: string, error: unknown) => void
   settleAll: (models: Record<string, readonly { id: string; name: string }[]>) => void
@@ -93,6 +97,8 @@ function deferredLlm(providers: readonly string[]): {
   const bus = eventBus()
   const providerReads: number[] = []
   const modelReads: string[] = []
+  /** Window-scope disposers the catalog factory registered through `ctx.effect`. */
+  const effects: (() => void)[] = []
   const pending: {
     provider: string
     resolve: (models: readonly { id: string; name: string }[]) => void
@@ -116,12 +122,19 @@ function deferredLlm(providers: readonly string[]): {
       },
     },
     on: bus.on,
+    // The window owner registers the catalog's subscriptions and disposal with
+    // the plugin fiber; the fake runs the callback once and keeps its disposer.
+    effect: (callback: () => (() => void) | void) => {
+      const dispose = callback()
+      if (typeof dispose === 'function') effects.push(dispose)
+    },
   } as unknown as Context
   return {
     ctx,
     bus,
     providerReads,
     modelReads,
+    effects,
     settle: (provider, models) => { take(provider)?.resolve(models) },
     fail: (provider, error) => { take(provider)?.reject(error) },
     settleAll: models => {
@@ -484,5 +497,59 @@ describe('upstream work across completion refreshes', () => {
     const direct = await render(() => modelCompletionValues(ctx))
     expect(cached).toEqual(direct)
     expect(cached.join('\n')).toContain('deepseek-official/deepseek-v4-pro')
+  })
+})
+
+describe('the window-owned completion catalog', () => {
+  it('reuses one snapshot across session attachments and refetches only on Harness invalidation', async () => {
+    const arena = deferredLlm(['deepseek-official', 'opencode'])
+    const catalog = createModelCompletionCatalog(arena.ctx)
+
+    // Session A asks for `/model`'s values: one provider enumeration.
+    const inSessionA = catalog.completions()
+    arena.settleAll(CATALOG)
+    const first = await inSessionA
+    expect(arena.providerReads).toHaveLength(1)
+    expect(arena.modelReads).toHaveLength(2)
+
+    // Session B attaches to the SAME window and asks again. The catalog is the
+    // window's, so the switch itself is not an invalidation: cached, no reads.
+    expect(await catalog.completions()).toBe(first)
+    expect(arena.providerReads).toHaveLength(1)
+    expect(arena.modelReads).toHaveLength(2)
+
+    // Only a Harness event discards the snapshot.
+    arena.bus.emit('settings/updated', 'llm-deepseek', {}, {}, 'user')
+    const afterEvent = catalog.completions()
+    expect(arena.providerReads).toHaveLength(2)
+    expect(arena.modelReads).toHaveLength(4)
+    arena.settleAll(CATALOG)
+    expect(await afterEvent).not.toBe(first)
+
+    // Window teardown removes the subscriptions and disposes the snapshot.
+    for (const dispose of arena.effects) dispose()
+    arena.bus.emit('settings/updated', 'llm-deepseek', {}, {}, 'user')
+    expect(await catalog.completions()).toEqual([])
+    expect(arena.providerReads).toHaveLength(2)
+    expect(arena.modelReads).toHaveLength(4)
+  })
+})
+
+describe('catalog ownership', () => {
+  /** Source of one module, for the structural ownership check. */
+  const source = (relative: string): string =>
+    readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
+
+  it('lives on the window and is consumed by attachments, never rebuilt per session', () => {
+    const attachment = source('../src/attachment.ts')
+    const window = source('../src/window.ts')
+    // Every attachment reads the window's one catalog and constructs none.
+    expect(attachment).toContain('w.modelCompletionValues()')
+    expect(attachment).not.toContain('new ModelCompletionCatalog')
+    expect(attachment).not.toContain('watchModelCompletion')
+    // The window constructs it, with the subscriptions and disposal it owns.
+    expect(window).toContain('createModelCompletionCatalog')
+    expect(window).toContain('new ModelCompletionCatalog')
+    expect(window).toContain('watchModelCompletion')
   })
 })

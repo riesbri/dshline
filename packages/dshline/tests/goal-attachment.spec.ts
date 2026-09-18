@@ -118,6 +118,7 @@ async function fixture(options: { resumed?: boolean; registered?: boolean; goals
     startup: { cwd: '/scratch', task: undefined, resume: undefined },
     pricing: pricingFrom(undefined), peakHours: [], version: 'test',
     selection: { current: undefined }, modelInfo: { inputModalities: ['text', 'image'] },
+    modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true, busyEnter: 'queue' },
     colorDepth: 0, palette: () => ({}), setPalette: () => {}, themeSettings: {},
     pendingTask: undefined, draw, paintNow: draw,

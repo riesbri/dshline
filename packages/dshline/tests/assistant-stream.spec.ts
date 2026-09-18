@@ -79,6 +79,7 @@ async function attach(reasoningVisible = true): Promise<Attached> {
     version: 'test',
     selection: { current: undefined },
     modelInfo: { contextWindow: undefined, reasoning: undefined },
+    modelCompletionValues: () => Promise.resolve([]),
     prefs: {
       usageMode: 'cost', timing: false, cardDetail: 'compact',
       reasoningVisible, busyEnter: 'queue',

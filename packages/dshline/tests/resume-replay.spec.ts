@@ -219,6 +219,7 @@ async function fixture(options: {
     version: 'test',
     selection: { current: undefined },
     modelInfo: { contextWindow: undefined, reasoning: undefined },
+    modelCompletionValues: () => Promise.resolve([]),
     prefs: {
       usageMode: 'cost',
       timing: false,
