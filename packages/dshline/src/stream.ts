@@ -93,7 +93,7 @@ interface ChannelState {
   /**
    * The unfinished trailing line, which has not been committed.
    *
-   * Invariant: it never contains a newline. Every commit keeps only the bytes
+   * Invariant: it never contains a newline. Every commit keeps only the text
    * after its final newline, and every other writer — settle, flush, reset, and
    * a visibility change — empties it outright. `push` depends on this: a
    * complete line can only have been introduced by the incoming delta, so it
