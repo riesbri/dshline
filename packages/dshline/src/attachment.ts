@@ -76,7 +76,8 @@ import { createHistorySearchOverlay } from './history-search-overlay.ts'
 import { applyHistorySearch, routeInputKey } from './input.ts'
 import { transcriptEvents, resumeBanner } from './resume.ts'
 import { createToolOutputOverlay } from './tool-output.ts'
-import { modelCompletionValues, pickModel } from './model.ts'
+import { pickModel, readModelCompletion } from './model.ts'
+import { ModelCompletionCatalog, watchModelCompletion } from './model-completion.ts'
 import type { PickModelOptions } from './model.ts'
 import { installQuestionProvider } from './questions.ts'
 import { LocalCommandRegistry } from './local-commands.ts'
@@ -363,6 +364,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     changed: () => { skillsChanged() },
   })
   scope.own(skills.install())
+  // `/model`'s argument vocabulary is a Harness read, and completion asks for it
+  // on every keystroke and cursor move inside a `/model` token. One reading
+  // serves that whole edit until Harness says the route set or the settings an
+  // adapter reads have changed, so the fan-out is paid once per configuration
+  // rather than once per character. Owned by THIS session's scope: a reopened
+  // session must rebuild from Harness, never inherit the previous routes.
+  const modelCompletions = new ModelCompletionCatalog(() => readModelCompletion(ctx))
+  scope.own(watchModelCompletion(ctx, modelCompletions))
+  scope.own(() => { modelCompletions.dispose() })
   // One generic observer belongs to this exact Session. Domain adapters read its
   // authoritative snapshots; it only coalesces redraws after Harness has driven.
   const projections = new SessionProjectionObserver({
@@ -734,7 +744,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // the row names, with the bare id an alias for search. Building it here
       // from a bare model list is what once let two rows insert the same
       // ambiguous argument.
-      complete: () => modelCompletionValues(ctx),
+      complete: () => modelCompletions.completions(),
       execute: async rawInput => {
         // The note is decided at this command seam, not inside the model
         // picker: the selection before/after are the only facts it needs, and
