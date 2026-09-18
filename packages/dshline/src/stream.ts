@@ -90,7 +90,15 @@ interface ChannelState {
    * fallback.
    */
   pushed: string
-  /** The unfinished trailing line, which has not been committed. */
+  /**
+   * The unfinished trailing line, which has not been committed.
+   *
+   * Invariant: it never contains a newline. Every commit keeps only the text
+   * after its final newline, and every other writer — settle, flush, reset, and
+   * a visibility change — empties it outright. `push` depends on this: a
+   * complete line can only have been introduced by the incoming delta, so it
+   * searches that delta rather than the whole accumulated line.
+   */
   pending: string
   /** Whether this channel's gutter mark has already been written. */
   opened: boolean
@@ -204,11 +212,18 @@ export class StreamBuffer {
       if (delta !== '') this.reasoningHadHiddenContent = true
       return out
     }
-    state.pending += delta
-    const cut = state.pending.lastIndexOf('\n')
-    if (cut < 0) return out
-    const complete = state.pending.slice(0, cut)
-    state.pending = state.pending.slice(cut + 1)
+    // `pending` holds no newline between deltas (see ChannelState), so the last
+    // newline of `pending + delta` is one this delta carries. Searching the
+    // delta alone is exact, and it stops a long unterminated line — a minified
+    // payload, a URL, one long code line — from being rescanned on every one of
+    // its deltas, which is quadratic in the line's length.
+    const cut = delta.lastIndexOf('\n')
+    if (cut < 0) {
+      state.pending += delta
+      return out
+    }
+    const complete = state.pending + delta.slice(0, cut)
+    state.pending = delta.slice(cut + 1)
     out.push(...this.emit(channel, complete.split('\n'), columns))
     return out
   }
