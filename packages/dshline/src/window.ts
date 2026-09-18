@@ -37,6 +37,9 @@ import type { BusyEnter } from './delivery.ts'
 import { FALLBACK_THEME, findTheme } from './themes/builtin.ts'
 import type { DshlineSettings, PreferenceSetting } from './settings.ts'
 import type { CardDetail } from './cards.ts'
+import type { LocalCommandChoice } from './local-commands.ts'
+import { ModelCompletionCatalog, watchModelCompletion } from './model-completion.ts'
+import { readModelCompletion } from './model.ts'
 import { pluginsSeams, sessionFacts } from './plugins/harness.ts'
 import type { AgentPresetsSeam } from './plugins/harness.ts'
 import type { SetupOutcome } from './setup/index.ts'
@@ -139,6 +142,18 @@ export interface Window {
   readonly selection: ModelSelectionRef
   /** Metadata for that route, refreshed when it changes. */
   readonly modelInfo: ModelInfo
+  /**
+   * The `/model` argument's completion values.
+   *
+   * A derived snapshot of the Harness LLM registry and the settings its
+   * adapters read, so it belongs to the WINDOW: a `/sessions` switch changes
+   * neither input, and rebuilding it per attachment would re-read every
+   * provider for nothing. One catalog is created with the window and disposed
+   * with it; a Harness event discards the snapshot and the next call rebuilds
+   * it, so this is never the authority on what a route offers.
+   * @returns each route and model, in the order the picker lists them.
+   */
+  readonly modelCompletionValues: () => Promise<readonly LocalCommandChoice[]>
   /** Reader preferences that survive reopening a session. */
   readonly prefs: WindowPrefs
   /** The theme facet, for reading the current choice and storing a new one. */
@@ -276,6 +291,29 @@ export function createWindowExitRequest(
     if (handler === undefined) appExit?.(0)
     else handler()
   }
+}
+
+/**
+ * Create the window's one derived `/model` completion catalog.
+ *
+ * Owned and disposed with the WINDOW, not an attachment: its inputs are the
+ * Harness LLM registry and the settings its adapters read, and a `/sessions`
+ * switch changes neither. Registration and disposal ride the plugin fiber, so
+ * the invalidation subscriptions and the snapshot go away exactly once at
+ * window teardown. It stays reconstructible entirely from Harness.
+ * @param ctx - context carrying the llm registry and the invalidation events.
+ * @returns the catalog the window exposes to every attachment.
+ */
+export function createModelCompletionCatalog(ctx: Context): ModelCompletionCatalog {
+  const catalog = new ModelCompletionCatalog(() => readModelCompletion(ctx))
+  ctx.effect(() => {
+    const unwatch = watchModelCompletion(ctx, catalog)
+    return () => {
+      unwatch()
+      catalog.dispose()
+    }
+  }, 'dshline: model completion catalog')
+  return catalog
 }
 
 /**
@@ -435,6 +473,13 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
     redraws.now()
   }), 'dshline: redraw on resize')
 
+  // `/model`'s argument vocabulary is derived from the LLM registry and the
+  // settings its adapters read — both window-level. One snapshot serves every
+  // session attached here, so `/sessions` does not itself cost another provider
+  // fan-out; only a Harness event discards it. See
+  // {@link Window.modelCompletionValues}.
+  const modelCompletions = createModelCompletionCatalog(ctx)
+
   await ctx.get('loader')?.await()
   const selection: ModelSelectionRef = {
     current: ctx.get('agentDefaultModel')?.currentSelection(),
@@ -478,6 +523,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
     version: options.version,
     selection,
     modelInfo,
+    modelCompletionValues: () => modelCompletions.completions(),
     prefs,
     colorDepth,
     palette: () => palette,

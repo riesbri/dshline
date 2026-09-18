@@ -135,6 +135,7 @@ async function fixture(options: {
     version: 'test',
     selection: { current: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } },
     modelInfo: { contextWindow: 1_000_000, reasoning: undefined },
+    modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact' },
     colorDepth: 0,
     palette: () => ({}),

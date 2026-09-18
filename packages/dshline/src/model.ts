@@ -93,6 +93,34 @@ async function discover(ctx: Context): Promise<Discovery> {
 }
 
 /**
+ * One `/model` completion discovery: the values to offer, and whether every
+ * route answered.
+ *
+ * `complete` is false when some route could not be listed. The values are still
+ * usable — an unreachable route must not hide the ones that work — but they are
+ * partial, so a caller that cached them would keep the failed route missing
+ * until the next Harness event. The completion catalog caches only a reading it
+ * can stand behind, and retries an incomplete one on the next ask, which is what
+ * the uncached path always did.
+ */
+export interface ModelCompletionReading {
+  /** The offered values, in discovery order. */
+  readonly values: readonly LocalCommandChoice[]
+  /** Whether every advertised route answered. */
+  readonly complete: boolean
+}
+
+/**
+ * Discover `/model`'s completion values and whether the reading is complete.
+ * @param ctx - context carrying the llm registry.
+ * @returns the values, and whether any route could not be listed.
+ */
+export async function readModelCompletion(ctx: Context): Promise<ModelCompletionReading> {
+  const discovered = await discover(ctx)
+  return { values: discovered.completions, complete: discovered.failed.length === 0 }
+}
+
+/**
  * Canonical completion candidates for `/model`'s argument.
  *
  * A value is `provider/model`, the exact route the row names, and the bare model
@@ -103,7 +131,7 @@ async function discover(ctx: Context): Promise<Discovery> {
  * @returns each route and model, in the order the picker lists them.
  */
 export async function modelCompletionValues(ctx: Context): Promise<readonly LocalCommandChoice[]> {
-  return (await discover(ctx)).completions
+  return (await readModelCompletion(ctx)).values
 }
 
 /**

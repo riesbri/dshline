@@ -107,6 +107,7 @@ async function fixture(options: {
     version: 'test',
     selection: { current: undefined },
     modelInfo: { contextWindow: undefined, reasoning: undefined, inputModalities: options.inputModalities },
+    modelCompletionValues: () => Promise.resolve([]),
     prefs: {
       usageMode: 'cost', timing: false, cardDetail: 'compact',
       reasoningVisible: true, busyEnter: options.busyEnter ?? 'queue',

@@ -76,7 +76,7 @@ import { createHistorySearchOverlay } from './history-search-overlay.ts'
 import { applyHistorySearch, routeInputKey } from './input.ts'
 import { transcriptEvents, resumeBanner } from './resume.ts'
 import { createToolOutputOverlay } from './tool-output.ts'
-import { modelCompletionValues, pickModel } from './model.ts'
+import { pickModel } from './model.ts'
 import type { PickModelOptions } from './model.ts'
 import { installQuestionProvider } from './questions.ts'
 import { LocalCommandRegistry } from './local-commands.ts'
@@ -734,7 +734,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // the row names, with the bare id an alias for search. Building it here
       // from a bare model list is what once let two rows insert the same
       // ambiguous argument.
-      complete: () => modelCompletionValues(ctx),
+      complete: () => w.modelCompletionValues(),
       execute: async rawInput => {
         // The note is decided at this command seam, not inside the model
         // picker: the selection before/after are the only facts it needs, and
