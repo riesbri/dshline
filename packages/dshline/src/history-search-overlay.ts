@@ -86,9 +86,24 @@ interface Excerpt {
   readonly after: string
 }
 
-/** Rendered result rows, and where the selection sits among them. */
-interface Rendered {
-  readonly rows: readonly string[]
+/**
+ * The result list's layout, measured in RESULT ROWS without formatting every
+ * match.
+ *
+ * A result row is one unselected match, or one row of the selected block. That
+ * is the unit `RowViewport` indexes, so the follow policy and the visible slice
+ * are the ones the whole-array renderer used. `selectedRow` is the selected
+ * match's zero-based rank because every earlier unselected match contributes
+ * exactly one row, and `total` counts one row per unselected match plus the
+ * selected block. The selected block is formatted once here and reused when it
+ * is visible, so no entry is formatted twice.
+ *
+ * A result row is not promised to be one PHYSICAL row: a long line whose hit
+ * fills the budget can make `excerpt` overshoot by the ellipsis column, and the
+ * frame's own backstop still handles that exactly as it did before.
+ */
+interface ResultLayout {
+  /** First result row of the selected block, which is its zero-based rank. */
   readonly selectedRow: number
   /**
    * Rows the selection occupies, which is more than one when it expanded a
@@ -98,6 +113,12 @@ interface Rendered {
    * that must not be scrolled away while they are being read.
    */
   readonly selectedHeight: number
+  /** Result rows in the whole list. */
+  readonly total: number
+  /** The selected block's formatted rows, in order. */
+  readonly selectedBlock: readonly string[]
+  /** Display columns a result row may spend after its two-column mark. */
+  readonly budget: number
 }
 
 /**
@@ -124,15 +145,19 @@ export function createHistorySearchOverlay(spec: HistorySearchSpec): TuiOverlay 
       if (capacity <= 0 || columns < SEARCH_MIN_COLUMNS) {
         return compactFallback(spec.search, columns, terminalRows)
       }
-      const rendered = renderResults(spec.search, inner)
-      viewport.update(rendered.rows.length, capacity)
-      if (rendered.selectedRow < viewport.start) viewport.move(rendered.selectedRow - viewport.start)
+      // The list is laid out arithmetically and the viewport follows it BEFORE
+      // any off-screen match is formatted. The old whole-array renderer built
+      // every result row first, so redraw cost grew with the match count while
+      // only the visible slice could ever be drawn.
+      const layout = layoutResults(spec.search, inner)
+      viewport.update(layout.total, capacity)
+      if (layout.selectedRow < viewport.start) viewport.move(layout.selectedRow - viewport.start)
       // Follow the whole selected block, but never past its own first row: on a
       // window too short to hold an expanded result, the row that IDENTIFIES it
       // wins over the rows that explain it, as the shared picker's label wins
       // over its description.
-      const overshoot = rendered.selectedRow + rendered.selectedHeight - viewport.end
-      if (overshoot > 0) viewport.move(Math.min(overshoot, rendered.selectedRow - viewport.start))
+      const overshoot = layout.selectedRow + layout.selectedHeight - viewport.end
+      if (overshoot > 0) viewport.move(Math.min(overshoot, layout.selectedRow - viewport.start))
       const frame = [
         '',
         ...rootFrame({
@@ -141,7 +166,7 @@ export function createHistorySearchOverlay(spec: HistorySearchSpec): TuiOverlay 
           body: [
             queryRow(spec.search.query, inner),
             '',
-            ...rendered.rows.slice(viewport.start, viewport.end),
+            ...visibleResultRows(spec.search, layout, viewport.start, viewport.end),
           ],
           footer: fitFooterHelp(help(spec.search.matches.length > 0), footerBudget(columns)),
         }),
@@ -263,44 +288,112 @@ function queryRow(query: string, inner: number): string {
 }
 
 /**
- * Draw the matching entries at a known width.
+ * Measure the whole result list without formatting more than one entry.
+ *
+ * Every unselected match is exactly one result row and the selected match owns
+ * a fixed block, so the viewport's three numbers — the selected row, its height,
+ * and the list's total — follow from the selected entry alone. Only that entry
+ * is decoded here; the visible unselected rows are formatted later, once the
+ * viewport has said which they are.
  * @param search - the live search.
  * @param inner - the frame's inner width.
- * @returns the rows and where the selection sits among them.
+ * @returns the layout the viewport follows, and the selected block to reuse.
  */
-function renderResults(search: HistorySearch, inner: number): Rendered {
-  if (search.matches.length === 0) {
-    return { rows: [paint(truncateToWidth(emptyNote(search), inner), 'muted')], selectedRow: 0, selectedHeight: 1 }
-  }
-  const rows: string[] = []
-  let selectedRow = 0
-  let selectedHeight = 1
+function layoutResults(search: HistorySearch, inner: number): ResultLayout {
   const budget = Math.max(1, inner - ROW_MARK_COLUMNS)
-  search.matches.forEach((index, rank) => {
-    // By RANK, not by text: two non-adjacent submissions of the same line are
-    // two results, and the reader is aimed at exactly one of them.
-    const selected = rank === search.position - 1
-    const { lines, anchor } = previewLines(search.entry(index) ?? '', search.query)
-    if (!selected) {
-      rows.push(`  ${paintExcerpt(excerpt(lines[anchor] ?? '', search.query, budget), false)}`)
-      return
+  const matches = search.matches.length
+  if (matches === 0) {
+    return {
+      selectedRow: 0,
+      selectedHeight: 1,
+      total: 1,
+      selectedBlock: [paint(truncateToWidth(emptyNote(search), inner), 'muted')],
+      budget,
     }
-    selectedRow = rows.length
-    rows.push(`${paint(`${CURSOR} `, 'selection-mark')}${paintExcerpt(excerpt(lines[anchor] ?? '', search.query, budget), true)}`)
-    // Following logical lines only: a prompt is read downwards, and showing the
-    // lines BEFORE the anchor would push the line that actually matched off the
-    // preview the reader asked for by typing the query.
-    const shown = lines.slice(anchor + 1, anchor + SELECTED_PREVIEW_LINES)
-    for (const line of shown) {
-      rows.push(`  ${paint(truncateToWidth(`${CONTINUATION} ${line}`, budget), 'subdued')}`)
-    }
-    const remaining = lines.length - (anchor + 1 + shown.length)
-    if (remaining > 0) {
-      rows.push(`  ${paint(truncateToWidth(`${CONTINUATION} ${ELLIPSIS} ${String(remaining)} more lines`, budget), 'muted')}`)
-    }
-    selectedHeight = rows.length - selectedRow
-  })
-  return { rows, selectedRow, selectedHeight }
+  }
+  const selectedRow = search.position - 1
+  const selectedBlock = selectedRows(search, budget)
+  return {
+    selectedRow,
+    selectedHeight: selectedBlock.length,
+    total: matches + selectedBlock.length - 1,
+    selectedBlock,
+    budget,
+  }
+}
+
+/**
+ * The selected result's formatted block: its anchor row, its following preview
+ * lines, and the summary of the ones it did not show.
+ * @param search - the live search.
+ * @param budget - display columns a row may spend after its mark.
+ * @returns the block's rows, in draw order.
+ */
+function selectedRows(search: HistorySearch, budget: number): string[] {
+  const { lines, anchor } = previewLines(search.selectedText ?? '', search.query)
+  const rows = [
+    `${paint(`${CURSOR} `, 'selection-mark')}${paintExcerpt(excerpt(lines[anchor] ?? '', search.query, budget), true)}`,
+  ]
+  // Following logical lines only: a prompt is read downwards, and showing the
+  // lines BEFORE the anchor would push the line that actually matched off the
+  // preview the reader asked for by typing the query.
+  const shown = lines.slice(anchor + 1, anchor + SELECTED_PREVIEW_LINES)
+  for (const line of shown) {
+    rows.push(`  ${paint(truncateToWidth(`${CONTINUATION} ${line}`, budget), 'subdued')}`)
+  }
+  const remaining = lines.length - (anchor + 1 + shown.length)
+  if (remaining > 0) {
+    rows.push(`  ${paint(truncateToWidth(`${CONTINUATION} ${ELLIPSIS} ${String(remaining)} more lines`, budget), 'muted')}`)
+  }
+  return rows
+}
+
+/**
+ * Format only the result rows the viewport can show.
+ *
+ * Result rows map to matches arithmetically: a row before the selected block is
+ * its own zero-based rank, and a row after it is its rank shifted down by the
+ * block's extra height. Nothing walks the match list, so the work here is the
+ * visible rows, not every match.
+ * @param search - the live search.
+ * @param layout - the measured layout.
+ * @param start - the viewport's first row, inclusive.
+ * @param end - the viewport's end, exclusive.
+ * @returns the visible result rows, in draw order.
+ */
+function visibleResultRows(
+  search: HistorySearch,
+  layout: ResultLayout,
+  start: number,
+  end: number,
+): string[] {
+  const rows: string[] = []
+  for (let row = start; row < end; row += 1) {
+    const picked = resultRowAt(search, layout, row)
+    if (picked !== undefined) rows.push(picked)
+  }
+  return rows
+}
+
+/**
+ * The content of one result row.
+ * @param search - the live search.
+ * @param layout - the measured layout.
+ * @param row - the result row's index.
+ * @returns the formatted row, or undefined when the row names no result.
+ */
+function resultRowAt(search: HistorySearch, layout: ResultLayout, row: number): string | undefined {
+  const { selectedRow, selectedHeight, selectedBlock, budget } = layout
+  if (row >= selectedRow && row < selectedRow + selectedHeight) {
+    return selectedBlock[row - selectedRow]
+  }
+  // By RANK, not by text: two non-adjacent submissions of the same line are two
+  // results, and the reader is aimed at exactly one of them.
+  const rank = row < selectedRow ? row : row - (selectedHeight - 1)
+  const index = search.matches[rank]
+  if (index === undefined) return undefined
+  const { lines, anchor } = previewLines(search.entry(index) ?? '', search.query)
+  return `  ${paintExcerpt(excerpt(lines[anchor] ?? '', search.query, budget), false)}`
 }
 
 /**
