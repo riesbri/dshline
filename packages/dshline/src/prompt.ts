@@ -250,6 +250,83 @@ function fieldRow(value: string, spec: PromptSpec, inner: number): string {
 }
 
 /**
+ * The wording of a session-rename question, shared by both surfaces that ask
+ * it: the `/sessions` browser renames any listed session, and the `/session`
+ * hub renames the attached one. Only the QUESTION is shared here — authority
+ * over the mutation stays with whichever caller owns it.
+ */
+export interface SessionTitlePromptCopy {
+  /** Headline shown above the field. */
+  readonly title: string
+  /** Question naming the title being replaced, when there is one. */
+  readonly message: string
+  /** Prefill: the title being edited, or empty when there is none. */
+  readonly initial: string
+}
+
+/**
+ * Compose the one wording for renaming a session.
+ *
+ * A pure seam on purpose: what the question says is decidable without a
+ * terminal, and both the `/sessions` browser and the `/session` hub read the
+ * same answer instead of wording it twice.
+ * @param currentTitle - the title the session carries now, if any. An empty
+ *   string means the same as absent, because a folded browser row with no title
+ *   is not a title to quote.
+ * @returns the headline, message, and prefill the prompt shows.
+ */
+export function sessionTitlePrompt(currentTitle?: string): SessionTitlePromptCopy {
+  return {
+    title: 'Rename session',
+    message: currentTitle === undefined || currentTitle === ''
+      ? 'Rename this session'
+      : `Rename “${escapeControls(currentTitle)}”`,
+    initial: currentTitle ?? '',
+  }
+}
+
+/** What a caller must supply to put the shared session-rename question up. */
+export interface SessionTitlePromptSpec {
+  /**
+   * The title being edited; absent or empty means the empty-state wording.
+   *
+   * `undefined` is named explicitly because both callers hold `string |
+   * undefined` and, under `exactOptionalPropertyTypes`, a bare optional field
+   * would force each of them to spread conditionally for no gain.
+   */
+  readonly currentTitle?: string | undefined
+  /** Concise identity shown in the shared root chrome. */
+  readonly view: string
+  /** Withdraws the question without an answer, as {@link promptText} documents. */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * Ask for a session title, with the wording both rename surfaces share.
+ *
+ * Deliberately mutation-free: it returns the draft and never touches
+ * `ctx.sessionTitle`, because authority over a session belongs to the caller
+ * that holds it. The `/sessions` browser renames a listed session through its
+ * own `renameTitle`, and the attached-session hub renames its own Session.
+ * @param ctx - context carrying the slot registry.
+ * @param spec - the current title, the view label, and an optional signal.
+ * @returns the draft title, or undefined when the reader cancelled or the
+ *   question was withdrawn.
+ */
+export async function promptSessionTitle(
+  ctx: Context,
+  spec: SessionTitlePromptSpec,
+): Promise<string | undefined> {
+  const copy = sessionTitlePrompt(spec.currentTitle)
+  return promptText(ctx, {
+    ...copy,
+    kind: 'text',
+    view: spec.view,
+    ...(spec.signal === undefined ? {} : { signal: spec.signal }),
+  })
+}
+
+/**
  * Ask for one line of text and wait for the answer.
  *
  * The twin of {@link promptSelect}: same push-await-dismiss dance, same

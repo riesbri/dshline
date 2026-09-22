@@ -18,8 +18,7 @@ import { homedir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
-import { escapeControls } from '@dshline/renderer'
-import { promptText } from '../prompt.ts'
+import { promptSessionTitle } from '../prompt.ts'
 import { SessionCatalog } from './catalog.ts'
 import { workspaceScope } from './filters.ts'
 import { createSessionsOverlay, type RenameDraftOutcome } from './overlay.ts'
@@ -122,15 +121,11 @@ export async function browseSessions(spec: BrowseSpec): Promise<SessionId | unde
   const renameDraft = async (focusedTitle: string | undefined): Promise<RenameDraftOutcome> => {
     // The focused row's title is the prefill: when the current session was
     // found through content search, the bounded base listing may not contain
-    // it, and the row already carries the authoritative folded title.
-    const entryTitle = focusedTitle ?? ''
-    const draft = await promptText(ctx, {
-      title: 'Rename session',
-      message: entryTitle === ''
-        ? 'Rename this session'
-        : `Rename “${escapeControls(entryTitle)}”`,
-      kind: 'text',
-      initial: entryTitle,
+    // it, and the row already carries the authoritative folded title. The
+    // wording comes from the shared helper so both rename surfaces ask the
+    // same question; the mutation below stays this caller's alone.
+    const draft = await promptSessionTitle(ctx, {
+      currentTitle: focusedTitle,
       view: 'Sessions · rename',
     })
     if (draft === undefined) return { kind: 'cancelled' }

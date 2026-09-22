@@ -94,7 +94,7 @@ import { createTimingView, TurnTimer } from './timing.ts'
 import { planModeAfter } from './modes.ts'
 import { commandEcho, commandLines, projectEvent } from './transcript.ts'
 import { promptSelect } from './select.ts'
-import { promptText } from './prompt.ts'
+import { promptSessionTitle } from './prompt.ts'
 import { confirmPermissionSelection, permissionPicker } from './permission.ts'
 import {
   cacheReadShare,
@@ -113,9 +113,9 @@ import { contextReading, ContextSurveyor, contextPressureTokens } from './contex
 import { createContextPresenter } from './context/presenter.ts'
 import { createTurnsPresenter } from './turns/presenter.ts'
 import { turnReading } from './turns/model.ts'
+import { currentSessionReading } from './session/model.ts'
 import { createCurrentSessionHubPresenter } from './session/presenter.ts'
 import { observedTitleTraits, SessionNavigator } from './sessions/navigator.ts'
-import { relativeAge, shortWorkspace } from './sessions/model.ts'
 import { compactionNote } from './context/compaction.ts'
 import { bannerLines, composerGutter, composerInner, createComposerView, createStatusView } from './views.ts'
 import type { Window } from './window.ts'
@@ -677,23 +677,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   })
   if (sessionNavigator !== undefined) scope.own(() => { sessionNavigator.dispose() })
   const sessionHub = createCurrentSessionHubPresenter({
-    reading: () => {
-      const header = agent.session.header
-      const stats = projections.snapshot()?.values.sessionStats
-      const title = ctx.get('sessionTitle')?.get(agent.session)?.title
-      return {
-        sessionId: agent.session.id,
-        ...(title === undefined ? {} : { title }),
-        facts: [
-          ...(header.cwd === undefined ? [] : [{ label: 'Workspace', value: shortWorkspace(header.cwd, homedir()) ?? header.cwd }]),
-          { label: 'Created', value: relativeAge(header.createdAt, Date.now()) },
-          ...(header.agentPreset === undefined ? [] : [{ label: 'Preset', value: header.agentPreset }]),
-          ...(stats === undefined ? [] : [{ label: 'Activity', value: `${String(stats.turns)} turns · ${String(stats.steps)} steps` }]),
-          ...(header.parentSession === undefined ? [] : [{ label: 'Parent', value: String(header.parentSession) }]),
-          { label: 'Session', value: String(agent.session.id) },
-        ],
-      }
-    },
+    // The attachment supplies only already-resolved authoritative values; the
+    // pure model decides their presentation order and omission rules.
+    reading: () => currentSessionReading({
+      session: agent.session,
+      title: ctx.get('sessionTitle')?.get(agent.session)?.title,
+      stats: projections.snapshot()?.values.sessionStats,
+      home: homedir(),
+      now: Date.now(),
+    }),
     capabilities: () => ({
       findConversation: sessionNavigator !== undefined,
       turns: (() => {
@@ -719,13 +711,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     rename: async () => {
       const service = ctx.get('sessionTitle')
       if (service === undefined) return { kind: 'failed', message: 'This profile mounts no session-title service.' }
-      const currentTitle = service.get(agent.session)?.title
-      const draft = await promptText(ctx, {
-        title: 'Rename session',
+      // The QUESTION is shared with `/sessions`; the mutation stays here, on the
+      // exact attached Session, and the prompt is withdrawn with the attachment.
+      const draft = await promptSessionTitle(ctx, {
+        currentTitle: service.get(agent.session)?.title,
         view: 'Session',
-        message: 'Give this conversation a title.',
-        kind: 'text',
-        ...(currentTitle === undefined ? {} : { initial: currentTitle }),
         signal: attachmentAbort.signal,
       })
       if (draft === undefined) return { kind: 'cancelled' }

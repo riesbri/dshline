@@ -432,10 +432,13 @@ describe('/session actions', () => {
     expect(body).not.toContain('t turns')
   })
 
-  it('lets the local /session own the name even when Harness registers one', async () => {
-    // Local dispatch precedes `ctx.commands`, so a frontend command name is a
-    // deliberate shadow. The test pins that decision: the hub opens and the
-    // registered Harness command is never executed.
+  it('resolves the local /session before a registered command under current precedence', async () => {
+    // The adopted Harness generation registers no `/session`; this synthetic
+    // registration pins only today's LocalCommandRegistry precedence — a local
+    // name is resolved first and `ctx.commands.execute` is never reached. It is
+    // not a promise that dshline shadows a future upstream `/session` forever:
+    // an upstream command of the same name must trigger a deliberate review of
+    // the collision, not be silently absorbed by this test.
     const f = await fixture({ harnessSession: true })
     await flush()
     submit(f.dispatch(), '/session')
