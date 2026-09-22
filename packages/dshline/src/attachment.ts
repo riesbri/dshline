@@ -94,6 +94,7 @@ import { createTimingView, TurnTimer } from './timing.ts'
 import { planModeAfter } from './modes.ts'
 import { commandEcho, commandLines, projectEvent } from './transcript.ts'
 import { promptSelect } from './select.ts'
+import { promptSessionTitle } from './prompt.ts'
 import { confirmPermissionSelection, permissionPicker } from './permission.ts'
 import {
   cacheReadShare,
@@ -111,6 +112,10 @@ import { createCachePresenter } from './cache/presenter.ts'
 import { contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
 import { createContextPresenter } from './context/presenter.ts'
 import { createTurnsPresenter } from './turns/presenter.ts'
+import { turnReading } from './turns/model.ts'
+import { currentSessionReading } from './session/model.ts'
+import { createCurrentSessionHubPresenter } from './session/presenter.ts'
+import { observedTitleTraits, SessionNavigator } from './sessions/navigator.ts'
 import { compactionNote } from './context/compaction.ts'
 import { bannerLines, composerGutter, composerInner, createComposerView, createStatusView } from './views.ts'
 import type { Window } from './window.ts'
@@ -660,6 +665,71 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     snapshot: () => projections.snapshot(),
     invalidate: () => { ctx.tuiSlots.invalidate() },
   })
+  const sessionNavigator = sessionQuery === undefined ? undefined : new SessionNavigator({
+    query: sessionQuery,
+    invalidate: () => { ctx.tuiSlots.invalidate() },
+    // Same batched corpus observation `/sessions` uses for lineage titles,
+    // through the one shared settlement fold; it runs only inside
+    // `requestLineage`, so opening the hub reads nothing.
+    observeTitles: async (sessionIds, signal) => observedTitleTraits(
+      await sessionQuery.readTitleSnapshots(sessionIds, signal),
+    ),
+  })
+  if (sessionNavigator !== undefined) scope.own(() => { sessionNavigator.dispose() })
+  const sessionHub = createCurrentSessionHubPresenter({
+    // The attachment supplies only already-resolved authoritative values; the
+    // pure model decides their presentation order and omission rules.
+    reading: () => currentSessionReading({
+      session: agent.session,
+      title: ctx.get('sessionTitle')?.get(agent.session)?.title,
+      stats: projections.snapshot()?.values.sessionStats,
+      home: homedir(),
+      now: Date.now(),
+    }),
+    capabilities: () => ({
+      findConversation: sessionNavigator !== undefined,
+      turns: (() => {
+        const reading = turnReading(projections.snapshot())
+        return reading.kind === 'list' || reading.kind === 'none'
+      })(),
+      lineage: sessionNavigator !== undefined,
+      rename: ctx.get('sessionTitle') !== undefined,
+    }),
+    ...(sessionNavigator === undefined ? {} : {
+      navigator: {
+        events: () => sessionNavigator.events(),
+        searchEvents: (sessionId, query) => { sessionNavigator.searchEvents(sessionId, query) },
+        loadMoreEvents: () => { sessionNavigator.loadMoreEvents() },
+        requestEventContext: (sessionId, seq) => { sessionNavigator.requestEventContext(sessionId, seq) },
+        eventContext: (sessionId, seq) => sessionNavigator.eventContext(sessionId, seq),
+        lineage: sessionId => sessionNavigator.lineage(sessionId),
+        requestLineage: sessionId => { sessionNavigator.requestLineage(sessionId) },
+        cancel: () => { sessionNavigator.abort() },
+      },
+    }),
+    openTurns: () => { turnsPresenter.open() },
+    rename: async () => {
+      const service = ctx.get('sessionTitle')
+      if (service === undefined) return { kind: 'failed', message: 'This profile mounts no session-title service.' }
+      // The QUESTION is shared with `/sessions`; the mutation stays here, on the
+      // exact attached Session, and the prompt is withdrawn with the attachment.
+      const draft = await promptSessionTitle(ctx, {
+        currentTitle: service.get(agent.session)?.title,
+        view: 'Session',
+        signal: attachmentAbort.signal,
+      })
+      if (draft === undefined) return { kind: 'cancelled' }
+      try {
+        return { kind: 'renamed', title: service.rename(agent.session, draft).title }
+      } catch (error: unknown) {
+        return { kind: 'failed', message: error instanceof Error ? error.message : String(error) }
+      }
+    },
+    home: homedir(),
+    now: () => Date.now(),
+    push: overlay => ctx.tuiSlots.pushOverlay(overlay),
+    invalidate: () => { ctx.tuiSlots.invalidate() },
+  })
 
   const localCommands = new LocalCommandRegistry([
     {
@@ -1108,6 +1178,23 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // boot that may never invoke it.
         const { openProfiles } = await import('./profiles/index.ts')
         await openProfiles({ ctx, commit })
+        draw()
+      },
+    },
+    {
+      // Deliberately local: this is terminal presentation over the attached
+      // Session, not a process-wide Harness command. If Harness later ships
+      // `/session`, resolve that name collision deliberately rather than making
+      // a shared command accidentally select one frontend's view.
+      name: 'session',
+      description: 'Inspect this Harness session and its session-scoped actions',
+      execute: rawInput => {
+        if (rawInput.trim() !== '') {
+          commit([paint('✗ usage: /session', 'error')])
+          draw()
+          return
+        }
+        sessionHub.open()
         draw()
       },
     },
