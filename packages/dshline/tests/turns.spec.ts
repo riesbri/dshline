@@ -582,6 +582,25 @@ describe('the turns presenter', () => {
     expect(stripAnsi(top()?.render(80, 24).join('\n') ?? '')).toContain('Turn 2')
   })
 
+  it('opens directly and routes the command through the same pre-filtered outline', () => {
+    const { slots, top, closeTop } = stackSlots()
+    const presenter = createTurnsPresenter({
+      slots,
+      snapshot: () => cut({ turnOutline: [entry(1, 10, 'alpha'), entry(2, 20, 'beta')] }),
+      invalidate: () => {},
+    })
+    presenter.open('beta')
+    let outline = stripAnsi(top()?.render(80, 24).join('\n') ?? '')
+    expect(outline).toContain('beta')
+    expect(outline).not.toContain('alpha')
+
+    closeTop()
+    void presenter.command.execute(' beta ')
+    outline = stripAnsi(top()?.render(80, 24).join('\n') ?? '')
+    expect(outline).toContain('beta')
+    expect(outline).not.toContain('alpha')
+  })
+
   it('reports capability absence honestly instead of folding a fallback', () => {
     const absent = stackSlots()
     const noRegistry = createTurnsPresenter({ slots: absent.slots, snapshot: () => undefined, invalidate: () => {} })

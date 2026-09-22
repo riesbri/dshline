@@ -121,7 +121,7 @@ The search covers this session's input only: your prompts and slash commands, th
 
 A long or multiline prompt is previewed around the line that matched, rather than by its first line, so you can see why a result is in the list. Pressing `ctrl-r` while a session is still being reopened is fine: the search says the history is still loading, and whatever you have typed resolves against it the moment it lands.
 
-Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/sessions`, `/worktrees`, `/work`, `/subagents`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
+Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/session`, `/sessions`, `/worktrees`, `/work`, `/subagents`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
 
 ### Queue or steer
 
@@ -206,6 +206,7 @@ Type `/` to see the commands your agent actually has. They come from two places.
 | `/new` | Start a fresh session in the current workspace; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/clear` | Wipe the screen and start a fresh session in the current workspace, as `/new` does; the previous one remains reopenable when the active Harness profile provides session persistence |
 | `/sessions` | Browse, search, and reopen past sessions without leaving the window |
+| `/session` | Inspect the conversation attached to this terminal and open its available actions |
 | `/worktrees` | Choose a working directory your Harness session history represents, then a conversation there or a new one |
 | `/todos` | Open a bounded read-only view of the current Harness Todo list |
 | `/turns` | Open a bounded index of this session's turns; inspect one, and filter by turn number or preview text. `/turns <text>` opens pre-filtered |
@@ -866,6 +867,36 @@ If reopening fails anyway — an unreadable log, an incompatible format version,
 persistence backend — the window prints the reason and opens the browser again so
 you can pick something else. Closing the browser with `esc` ends the opening
 instead: the window exits, and no session is started that you did not ask for.
+
+### Session
+
+`/session` is the terminal-local hub for the conversation already attached to this
+window. The four related views answer different questions:
+
+| Command | Question |
+| --- | --- |
+| `/worktrees` | Where should I work? |
+| `/sessions` | Which conversation should I open? |
+| `/session` | What is true of this conversation? |
+| `/turns` | Which turn do I mean? |
+
+Its summary comes from the attached agent's `Session` and immutable header: title,
+workspace, id, and the available projection statistics. It does not look the
+conversation up in the session corpus just to paint the hub. The action list opens
+existing presentation where the mounted capability supports it:
+
+| Action | Opens |
+| --- | --- |
+| `Find in conversation` | The one-session search and its bounded hit context |
+| `Turns` | This session's turn outline |
+| `Lineage` | The known parent and child conversation graph |
+| `Rename` | The title editor for this attached session |
+
+Unavailable actions are omitted: Find and Lineage need the corresponding session
+query capability, Turns needs the turn-outline projection, and Rename needs
+`ctx.sessionTitle`. Find does not search until you submit its query, and it reads
+surrounding event context only after you select a hit. Lineage does not query until
+you activate that action.
 
 ### Worktrees
 

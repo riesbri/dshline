@@ -540,6 +540,27 @@ presents them, so opening it is what pays for them. Filters answer a question
 about the corpus rather than about a row, so they are a browser-level `ctrl-f`
 — a ctrl gesture because every printable character here is already search input.
 
+### `/session`: the attached conversation, not a catalog row
+
+The terminal-local `/session` hub completes the navigation hierarchy:
+`/worktrees` asks where, `/sessions` asks which conversation, `/session` asks
+about the one attached here, and `/turns` asks which turn. It reads the attached
+agent's live `Session` and immutable header directly, along with `ctx.sessionTitle`
+and the optional `sessionStats` / `turnOutline` projection values. It does not
+round-trip through `ctx.sessionQuery` merely to identify the current session or
+build its summary.
+
+The hub is only a router to established presentation: Find in conversation uses
+the one-session query and bounded event-context reader, Turns uses the existing
+turn outline, Lineage uses `traceSession`, and Rename uses `ctx.sessionTitle` on
+the attached live Session. Each row is omitted when its owning capability is not
+mounted; absence is not replaced with a local fold or a disabled promise.
+
+Query cost follows the action boundary. Find submits `searchEvents` only after its
+query is submitted and reads event context only when a result is selected; Lineage
+calls `traceSession` only when that action is activated. Opening the hub, moving
+among its rows, and reading its attached-session facts make neither query call.
+
 Archive is Harness's, and dshline does not present it. `ctx.workspaceRegistry`
 owns a durable registry-global archive set and `archiveSession()` adds to it,
 but upstream records that archiving is one-way and no unarchive operation exists

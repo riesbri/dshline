@@ -36,8 +36,13 @@ export interface TurnsPresenterDeps {
   readonly invalidate: () => void
 }
 
-/** The Turns capability as one local command. */
+/** The Turns capability's internal entry point and local command. */
 export interface TurnsPresenter {
+  /**
+   * Open the session outline directly, optionally pre-filtered.
+   * @param initialQuery - an optional initial filter query.
+   */
+  readonly open: (initialQuery?: string) => void
   /** `/turns` — browse the session's turns and inspect one read-only. */
   readonly command: LocalCommand
 }
@@ -45,7 +50,7 @@ export interface TurnsPresenter {
 /**
  * Build the Turns presenter.
  * @param deps - the slot registry, the projection cut reader, and redraw request.
- * @returns the presenter's local command.
+ * @returns the presenter entry point and local command.
  */
 export function createTurnsPresenter(deps: TurnsPresenterDeps): TurnsPresenter {
   /**
@@ -64,19 +69,21 @@ export function createTurnsPresenter(deps: TurnsPresenterDeps): TurnsPresenter {
       close,
     }))
   }
+  const open = (initialQuery?: string): void => {
+    openSurface(deps.slots, close => createTurnsOverlay({
+      reading: () => turnReading(deps.snapshot()),
+      ...initialQuery === undefined ? {} : { initialQuery },
+      inspect: openInspection,
+      invalidate: deps.invalidate,
+      close,
+    }))
+  }
   return {
+    open,
     command: {
       name: 'turns',
       description: "Browse this session's turns and inspect one",
-      execute: rawInput => {
-        openSurface(deps.slots, close => createTurnsOverlay({
-          reading: () => turnReading(deps.snapshot()),
-          ...(rawInput.trim() === '' ? {} : { initialQuery: rawInput.trim() }),
-          inspect: openInspection,
-          invalidate: deps.invalidate,
-          close,
-        }))
-      },
+      execute: rawInput => { open(rawInput.trim() === '' ? undefined : rawInput.trim()) },
     },
   }
 }

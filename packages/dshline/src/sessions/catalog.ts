@@ -10,12 +10,7 @@
 
 import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type {
-  SessionEventReadRequest,
   SessionEventRecord,
-  SessionEventSearchPage,
-  SessionEventSearchRequest,
-  SessionEventWindow,
-  SessionLineageTrace,
   SessionQueryErrorCode,
   SessionRecord,
   SessionResultFilter,
@@ -36,14 +31,19 @@ import {
   type SessionFiltersValue,
   type SessionWorkspace,
 } from './filters.ts'
-import { flattenLineage } from './lineage.ts'
+import {
+  CONTENT_SEARCH_LIMIT,
+  observedTitleTraits,
+  SessionNavigator,
+  type SessionNavigationReads,
+  type SessionObservedTitle,
+} from './navigator.ts'
+export { CONTENT_SEARCH_LIMIT, EVENT_CONTEXT_AFTER, EVENT_CONTEXT_BEFORE } from './navigator.ts'
 import type {
   CatalogState,
   ContentState,
   EventContextState,
-  EventHitEntry,
   EventSearchState,
-  LineageRow,
   LineageState,
   SessionDetail,
   SessionEntry,
@@ -53,7 +53,7 @@ import type {
 /**
  * The exact `ctx.sessionQuery` read surface consumed by the Sessions catalog.
  */
-export interface SessionQueryReads {
+export interface SessionQueryReads extends SessionNavigationReads {
   /** The complete logical corpus, newest first. */
   listSessions(signal?: AbortSignal): Promise<SessionRecord[]>
   /** The complete matching logical corpus in Harness order. */
@@ -73,21 +73,6 @@ export interface SessionQueryReads {
     request: SessionSearchRequest,
     exec?: SessionSearchExecContext,
   ): Promise<SessionSearchPage<SessionSearchHit>>
-  /** Full-text search within one session; an abstract backend surface. */
-  searchEvents(
-    request: SessionEventSearchRequest,
-    exec?: SessionSearchExecContext,
-  ): Promise<SessionEventSearchPage>
-  /**
-   * One exact event plus a bounded raw-log window around it.
-   *
-   * The concrete read behind explicit disclosure: it is the only method here
-   * that returns full event bodies, and it is called for one hit at a time,
-   * never while search results are merely being listed or navigated.
-   */
-  readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise<SessionEventWindow>
-  /** Concrete ancestry and descendant tracing over the logical corpus. */
-  traceSession(sessionId: SessionId, signal?: AbortSignal): Promise<SessionLineageTrace>
 }
 
 /** What the catalog needs from its owner. */
@@ -121,25 +106,6 @@ export interface SessionCatalogSpec {
 /** Maximum rows retained from the authoritative listing corpus. */
 export const CATALOG_LIMIT = 200
 
-/** Full-text results requested from either search service per page. */
-export const CONTENT_SEARCH_LIMIT = 50
-
-/**
- * Raw events read on each side of one disclosed search hit.
- *
- * A typical turn spends about six to ten raw events on structure and content
- * (`turn/start`, `step/start`, `assistant/attempt`, the user and assistant
- * messages, tool calls and results, `step/end`, `turn/end`), so eight on each
- * side spans roughly the surrounding turn without pulling the whole session.
- * It is comfortably inside Harness's own `SESSION_QUERY_READ_WINDOW_MAX` of 50,
- * which the engine validates on every request — a larger window here would fail
- * the read rather than silently degrade.
- */
-export const EVENT_CONTEXT_BEFORE = 8
-
-/** Raw events read after one disclosed search hit; see {@link EVENT_CONTEXT_BEFORE}. */
-export const EVENT_CONTEXT_AFTER = 8
-
 /** Typed capability code for a deployment without either full-text surface. */
 const SEARCH_DISABLED: SessionQueryErrorCode = 'SESSION_QUERY_SEARCH_DISABLED'
 /** Typed cancellation code used by query backends. */
@@ -157,15 +123,6 @@ interface ContentChain {
   readonly query: string
   entries: readonly SessionEntry[]
   returned: number
-  nextCursor: SessionSearchCursor | undefined
-}
-
-interface EventChain {
-  readonly chain: number
-  readonly request: SessionEventSearchRequest
-  readonly sessionId: SessionId
-  readonly query: string
-  hits: readonly EventHitEntry[]
   nextCursor: SessionSearchCursor | undefined
 }
 
@@ -190,7 +147,7 @@ function reason(error: unknown): string {
 }
 
 /** One settled title observation's presentation traits. */
-interface ObservedTraits {
+interface ObservedTraits extends SessionObservedTitle {
   /** Folded title, present when the log carried a non-empty one. */
   readonly title?: string
   /**
@@ -307,53 +264,33 @@ function retainListing(
 /**
  * Fold a batch title observation into per-session presentation traits.
  *
- * Every fulfilled settlement stores an entry, even one with no title and no
- * origin: fulfilment means an authoritative observed header exists, which the
- * caller must be able to tell apart from a rejected or missing observation.
- * A rejected member is dropped rather than propagated: the batch isolates
- * per-session failures on purpose, and a session whose title could not be read
- * is still listable and still resumable — showing it untitled is the honest
- * reading, where dropping the row would hide a session that exists.
+ * The title half is {@link observedTitleTraits}, shared with the attached-session
+ * hub so the two cannot drift. This adds only the origin metadata the corpus
+ * listing needs, and keeps the settlement policy in one place: every fulfilled
+ * settlement stores an entry (even one with no title and no origin), because
+ * fulfilment means an authoritative observed header exists which the caller
+ * must be able to tell apart from a rejected or missing observation. A rejected
+ * member is dropped rather than propagated: the batch isolates per-session
+ * failures on purpose, and a session whose title could not be read is still
+ * listable and still resumable — showing it untitled is the honest reading,
+ * where dropping the row would hide a session that exists.
  * @param results - the batch's ordered settlements.
  * @returns traits by session id for every fulfilled observation.
  */
 function observedTraits(results: readonly SessionTitleObservationResult[]): Map<SessionId, ObservedTraits> {
+  const titles = observedTitleTraits(results)
   const traits = new Map<SessionId, ObservedTraits>()
   for (const result of results) {
     if (result.status !== 'fulfilled') continue
-    const title = result.value.title?.title
+    const title = titles.get(result.sessionId)?.title
     traits.set(result.sessionId, {
-      ...title !== undefined && title !== '' ? { title } : {},
+      ...title === undefined ? {} : { title },
       ...(result.value.session.origin === 'subagent'
         ? { origin: result.value.session.origin }
         : {}),
     })
   }
   return traits
-}
-
-/**
- * Replace one lineage row's displayed title from an authoritative observation.
- *
- * The optional `title` property must be omitted — never set to `undefined` —
- * under `exactOptionalPropertyTypes`.
- * @param row - an ancestor, target, or descendant row.
- * @param title - the observed folded title, when the log carries one.
- * @returns the row carrying no stale title and the fresh reading.
- */
-function withObservedTitle(
-  row: Extract<LineageRow, { kind: 'ancestor' | 'target' | 'descendant' }>,
-  title: string | undefined,
-): LineageRow {
-  const rest = {
-    kind: row.kind,
-    depth: row.depth,
-    id: row.id,
-    createdAt: row.createdAt,
-    origin: row.origin,
-    ...(row.cwd === undefined ? {} : { cwd: row.cwd }),
-  }
-  return title === undefined ? rest : { ...rest, title }
 }
 
 /**
@@ -373,25 +310,11 @@ function applyObservedTitle(entry: SessionEntry, traits: ReadonlyMap<SessionId, 
   return observed === undefined ? entry : { ...entry, title: observed.title }
 }
 
-/**
- * Apply one settlement batch to a cached lineage row.
- * @param row - the displayed row.
- * @param traits - the settled batch, keyed by session id.
- * @returns the row with its title reconciled, or the same row untouched.
- */
-function applyObservedLineageTitle(row: LineageRow, traits: ReadonlyMap<SessionId, ObservedTraits>): LineageRow {
-  if (row.kind === 'pruned') return row
-  const observed = traits.get(row.id)
-  return observed === undefined ? row : withObservedTitle(row, observed.title)
-}
-
 /** The generation-safe data source behind the Sessions browser. */
 export class SessionCatalog {
   private base: CatalogState
   private contentState: ContentState = { kind: 'idle' }
-  private eventState: EventSearchState = { kind: 'idle' }
-  private eventContextState: EventContextState = { kind: 'idle' }
-  private lineageState: LineageState = { kind: 'idle' }
+  private readonly navigator: SessionNavigator
   private filterValue: SessionFiltersValue = NO_FILTERS
   /**
    * The application-time anchor for the current filter's age windows.
@@ -409,17 +332,10 @@ export class SessionCatalog {
   private titleGeneration = 0
   private filterGeneration = 0
   private searchGeneration = 0
-  private eventGeneration = 0
-  private eventContextGeneration = 0
-  private lineageGeneration = 0
   private listingAbort: AbortController | undefined
   private titleAbort: AbortController | undefined
   private searchAbort: AbortController | undefined
-  private eventAbort: AbortController | undefined
-  private eventContextAbort: AbortController | undefined
-  private lineageAbort: AbortController | undefined
   private contentChain: ContentChain | undefined
-  private eventChain: EventChain | undefined
   /**
    * Settled-page counter for the full-text scopes.
    *
@@ -439,6 +355,13 @@ export class SessionCatalog {
   constructor(private readonly spec: SessionCatalogSpec) {
     this.limit = listingLimit(spec.limit ?? CATALOG_LIMIT)
     this.base = spec.query === undefined ? { kind: 'unavailable' } : { kind: 'loading' }
+    this.navigator = new SessionNavigator({
+      query: spec.query,
+      invalidate: spec.invalidate,
+      observeTitles: async (sessionIds, signal) => observedTraits(
+        await spec.query?.readTitleSnapshots(sessionIds, signal) ?? [],
+      ),
+    })
   }
 
   /** The current listing state. */
@@ -458,34 +381,24 @@ export class SessionCatalog {
 
   /** The within-session event search's current state. */
   events(): EventSearchState {
-    return this.eventState
+    return this.navigator.events()
   }
 
   /**
-   * The disclosed context for one exact search hit.
-   *
-   * A stored context belongs to exactly one `(sessionId, seq)` pair. Asking for
-   * any other hit reports `idle` rather than the previous reading, so a stale
-   * window can never be drawn under the wrong row.
    * @param sessionId - the hit's owning session.
    * @param seq - the hit's event sequence number.
-   * @returns its context state, or idle when the stored context is another hit's.
+   * @returns context only when it belongs to that exact hit.
    */
-  eventContext(sessionId: SessionId, seq: SessionSeq): EventContextState {
-    if (this.eventContextState.kind === 'idle') return this.eventContextState
-    return this.eventContextState.sessionId === sessionId && this.eventContextState.seq === seq
-      ? this.eventContextState
-      : { kind: 'idle' }
+  eventContext(sessionId: SessionId, seq: SessionSeq) {
+    return this.navigator.eventContext(sessionId, seq)
   }
 
   /**
-   * The lineage state for one selected session.
    * @param sessionId - the currently selected session.
-   * @returns its state, or idle when the stored trace belongs to another row.
+   * @returns lineage only when it belongs to that selected session.
    */
-  lineage(sessionId: SessionId): LineageState {
-    if (this.lineageState.kind === 'idle') return this.lineageState
-    return this.lineageState.sessionId === sessionId ? this.lineageState : { kind: 'idle' }
+  lineage(sessionId: SessionId) {
+    return this.navigator.lineage(sessionId)
   }
 
   /**
@@ -544,7 +457,7 @@ export class SessionCatalog {
     const listing = this.base
     const listingGeneration = this.listingGeneration
     const contentChain = this.contentChain
-    const lineage = this.lineageState
+    const lineage = this.navigator.lineageSnapshot()
     const ids = new Set<SessionId>()
     if (listing.kind === 'ready') for (const entry of listing.entries) ids.add(entry.id)
     if (contentChain !== undefined) for (const entry of contentChain.entries) ids.add(entry.id)
@@ -584,13 +497,7 @@ export class SessionCatalog {
           }
           changed = true
         }
-        if (lineage.kind === 'ready' && this.lineageState === lineage) {
-          this.lineageState = {
-            ...lineage,
-            rows: lineage.rows.map(row => applyObservedLineageTitle(row, traits)),
-          }
-          changed = true
-        }
+        if (this.navigator.reconcileLineageTitles(lineage, traits)) changed = true
         if (changed) this.spec.invalidate()
       } catch (error: unknown) {
         if (this.stale(generation, this.titleGeneration)) return
@@ -657,132 +564,31 @@ export class SessionCatalog {
   }
 
   /**
-   * Start a fresh cursorless event search within one session.
    * @param sessionId - the selected session.
-   * @param text - the query, interpreted by the backend as data.
+   * @param text - the backend-interpreted query text.
    */
   searchEvents(sessionId: SessionId, text: string): void {
-    const query = this.spec.query
-    if (query === undefined) return
-    const trimmed = text.trim()
-    const generation = (this.eventGeneration += 1)
-    this.eventAbort?.abort()
-    this.eventAbort = undefined
-    if (trimmed === '') {
-      this.eventChain = undefined
-      this.eventState = { kind: 'idle' }
-      this.spec.invalidate()
-      return
-    }
-    const request: SessionEventSearchRequest = {
-      sessionId,
-      query: trimmed,
-      limit: CONTENT_SEARCH_LIMIT,
-    }
-    const chain: EventChain = {
-      chain: generation,
-      request,
-      sessionId,
-      query: trimmed,
-      hits: [],
-      nextCursor: undefined,
-    }
-    this.eventChain = chain
-    this.eventState = { kind: 'searching', sessionId, query: trimmed }
-    this.spec.invalidate()
-    this.requestEventPage(query, chain, undefined)
+    this.navigator.searchEvents(sessionId, text)
   }
 
   /** Append the next within-session event page. */
   loadMoreEvents(): void {
-    const query = this.spec.query
-    const chain = this.eventChain
-    const state = this.eventState
-    if (query === undefined || chain === undefined || state.kind !== 'ready') return
-    if (state.loadingMore || state.restart || !state.more || chain.nextCursor === undefined) return
-    this.eventState = { ...state, loadingMore: true }
-    this.spec.invalidate()
-    this.requestEventPage(query, chain, chain.nextCursor)
+    this.navigator.loadMoreEvents()
   }
 
   /**
-   * Read one disclosed hit's exact target event plus its bounded raw-log window.
-   *
-   * The single full-event read the browser performs, and the reason nothing
-   * else may call it: it is requested only when a person activates a hit, so
-   * discovery (`searchEvents()`), pagination, rendering, and cursor movement
-   * stay cheap. A newer request supersedes and aborts the previous one, and the
-   * generation guard keeps a read that settles late from painting under a hit
-   * the reader has already left.
    * @param sessionId - the hit's owning session.
    * @param seq - the hit's event sequence number.
    */
   requestEventContext(sessionId: SessionId, seq: SessionSeq): void {
-    const query = this.spec.query
-    if (query === undefined) return
-    const generation = (this.eventContextGeneration += 1)
-    this.eventContextAbort?.abort()
-    const abort = new AbortController()
-    this.eventContextAbort = abort
-    this.eventContextState = { kind: 'loading', sessionId, seq }
-    this.spec.invalidate()
-    void (async (): Promise<void> => {
-      try {
-        const request: SessionEventReadRequest = {
-          sessionId,
-          seq,
-          before: EVENT_CONTEXT_BEFORE,
-          after: EVENT_CONTEXT_AFTER,
-        }
-        const window = await query.readEvent(request, abort.signal)
-        if (this.stale(generation, this.eventContextGeneration)) return
-        this.eventContextState = { kind: 'ready', sessionId, seq, window }
-      } catch (error: unknown) {
-        if (this.stale(generation, this.eventContextGeneration)) return
-        if (errorCode(error) === SEARCH_ABORTED) return
-        this.eventContextState = { kind: 'failed', sessionId, seq, message: reason(error) }
-      }
-      this.spec.invalidate()
-    })()
+    this.navigator.requestEventContext(sessionId, seq)
   }
 
   /**
-   * Request and flatten the selected session's lineage.
    * @param sessionId - the selected session.
    */
   requestLineage(sessionId: SessionId): void {
-    const query = this.spec.query
-    if (query === undefined) return
-    const generation = (this.lineageGeneration += 1)
-    this.lineageAbort?.abort()
-    const abort = new AbortController()
-    this.lineageAbort = abort
-    this.lineageState = { kind: 'loading', sessionId }
-    this.spec.invalidate()
-    void (async (): Promise<void> => {
-      try {
-        const trace = await query.traceSession(sessionId, abort.signal)
-        const rows = flattenLineage(trace)
-        const ids = rows.flatMap(row => row.kind === 'pruned' ? [] : [row.id])
-        const traits = observedTraits(await query.readTitleSnapshots(ids, abort.signal))
-        if (this.stale(generation, this.lineageGeneration)) return
-        const titledRows = rows.map(row => this.titleLineageRow(row, traits))
-        const targetRow = titledRows.findIndex(row => row.kind === 'target')
-        this.lineageState = {
-          kind: 'ready',
-          sessionId,
-          rows: titledRows,
-          targetRow,
-          complete: trace.complete,
-          ...trace.complete ? {} : { unresolvedParentId: trace.unresolvedParentId },
-        }
-      } catch (error: unknown) {
-        if (this.stale(generation, this.lineageGeneration)) return
-        if (errorCode(error) === SEARCH_ABORTED) return
-        this.lineageState = { kind: 'failed', sessionId, message: reason(error) }
-      }
-      this.spec.invalidate()
-    })()
+    this.navigator.requestLineage(sessionId)
   }
 
   /**
@@ -818,21 +624,13 @@ export class SessionCatalog {
     this.titleGeneration += 1
     this.filterGeneration += 1
     this.searchGeneration += 1
-    this.eventGeneration += 1
-    this.eventContextGeneration += 1
-    this.lineageGeneration += 1
     this.listingAbort?.abort()
     this.titleAbort?.abort()
     this.searchAbort?.abort()
-    this.eventAbort?.abort()
-    this.eventContextAbort?.abort()
-    this.lineageAbort?.abort()
     this.listingAbort = undefined
     this.titleAbort = undefined
     this.searchAbort = undefined
-    this.eventAbort = undefined
-    this.eventContextAbort = undefined
-    this.lineageAbort = undefined
+    this.navigator.dispose()
   }
 
   /**
@@ -952,78 +750,10 @@ export class SessionCatalog {
     })()
   }
 
-  private requestEventPage(
-    query: SessionQueryReads,
-    chain: EventChain,
-    cursor: SessionSearchCursor | undefined,
-  ): void {
-    const abort = new AbortController()
-    this.eventAbort = abort
-    void (async (): Promise<void> => {
-      try {
-        const request = cursor === undefined ? chain.request : { ...chain.request, cursor }
-        const page = await query.searchEvents(request, { signal: abort.signal })
-        if (!this.currentEventChain(chain) || page.session.id !== chain.sessionId) return
-        chain.hits = [...chain.hits, ...page.items.map(hit => ({
-          sessionId: hit.sessionId,
-          seq: hit.seq,
-          type: hit.type,
-          time: hit.time,
-          snippet: hit.snippet,
-        }))]
-        chain.nextCursor = page.nextCursor
-        this.pageRevision += 1
-        this.eventState = {
-          kind: 'ready',
-          sessionId: chain.sessionId,
-          query: chain.query,
-          hits: chain.hits,
-          more: page.nextCursor !== undefined,
-          loadingMore: false,
-          restart: false,
-          revision: this.pageRevision,
-        }
-      } catch (error: unknown) {
-        if (!this.currentEventChain(chain)) return
-        const code = errorCode(error)
-        if (code === SEARCH_ABORTED) return
-        if (code === SEARCH_DISABLED) {
-          this.eventState = { kind: 'unsupported' }
-        } else if (CURSOR_RESTART_CODES.includes(code as SessionQueryErrorCode)) {
-          this.pageRevision += 1
-          this.eventState = {
-            kind: 'ready',
-            sessionId: chain.sessionId,
-            query: chain.query,
-            hits: chain.hits,
-            more: false,
-            loadingMore: false,
-            restart: true,
-            revision: this.pageRevision,
-          }
-        } else {
-          this.eventState = { kind: 'failed', message: reason(error) }
-        }
-      }
-      this.spec.invalidate()
-    })()
-  }
-
   private currentContentChain(chain: ContentChain): boolean {
     return !this.stale(chain.chain, this.searchGeneration)
       && this.contentChain === chain
       && chain.filterGeneration === this.filterGeneration
-  }
-
-  private currentEventChain(chain: EventChain): boolean {
-    return !this.stale(chain.chain, this.eventGeneration)
-      && this.eventChain === chain
-  }
-
-  private titleLineageRow(row: LineageRow, traits: ReadonlyMap<SessionId, ObservedTraits>): LineageRow {
-    if (row.kind === 'pruned') return row
-    const title = traits.get(row.id)?.title
-    return title === undefined ? row : { ...row, title }
   }
 
   private now(): number {
