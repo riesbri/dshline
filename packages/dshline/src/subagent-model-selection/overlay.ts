@@ -35,8 +35,16 @@ import type { SubagentModelEntry, SubagentModelReading } from './model.ts'
 /** Narrowest terminal that can hold the framed editor rather than the bare answer. */
 const SUBAGENT_MIN_COLUMNS = BOX_CHROME_COLUMNS + 20
 
-/** What the editor says about the setting it edits. */
-const DESCRIPTION = 'Allow the driving model to choose these routes for delegated subagents.'
+/**
+ * What the editor says about the setting it edits.
+ *
+ * The second sentence names the adopted Harness generation's limitation: the
+ * Session authorization covers explicit route choices made through the subagent
+ * delegation tool, while explicit route choices made inside the `workflow` tool
+ * are outside it. Remove that sentence when `HARNESS_TARGET` advances to a
+ * released generation whose Session authorization governs those too.
+ */
+const DESCRIPTION = 'Selection controls which routes the model may explicitly choose through the subagent tool. In this Harness version, explicit workflow child-route choices are outside this list.'
 
 /**
  * The one sentence the editor must not derive from the settings descriptor.
@@ -47,6 +55,32 @@ const DESCRIPTION = 'Allow the driving model to choose these routes for delegate
  * so the truth is written out rather than inferred.
  */
 const SESSION_NOTE = 'Applies to new sessions; the current session keeps its recorded policy.'
+
+/**
+ * The suffix that marks a retained route list as not currently in force.
+ *
+ * Harness deliberately permits `enabled: false` with saved routes, so the row
+ * must not read as if those routes were authorized now.
+ */
+const INACTIVE_SUFFIX = ' \u00b7 inactive'
+
+/**
+ * The `Allowed` row, worded by whether the routes are currently in force.
+ *
+ * A disabled setting keeps its saved routes for later; rendering them as
+ * authorized would claim a permission the Session does not have.
+ * @param count - routes selected in the draft.
+ * @param enabled - whether the staged setting would be on.
+ * @returns the heading row text.
+ */
+function allowedRow(count: number, enabled: boolean): string {
+  if (!enabled) {
+    return count === 0
+      ? 'Allowed     no saved models'
+      : `Allowed     ${String(count)} saved ${count === 1 ? 'model' : 'models'}${INACTIVE_SUFFIX}`
+  }
+  return `Allowed     ${String(count)} authorized ${count === 1 ? 'model' : 'models'}`
+}
 
 /** What the overlay needs from its owner. */
 export interface SubagentModelSelectionOverlaySpec {
@@ -288,7 +322,7 @@ function headingRows(
   if (reading.kind === 'ready') {
     const count = reading.draft.selected.size
     rows.push(truncateToWidth(`Selection   ${reading.draft.enabled ? 'on' : 'off'}`, inner))
-    rows.push(truncateToWidth(`Allowed     ${String(count)} ${count === 1 ? 'model' : 'models'}`, inner))
+    rows.push(truncateToWidth(allowedRow(count, reading.draft.enabled), inner))
     for (const line of wrapToWidth(escapeControls(SESSION_NOTE), inner)) rows.push(paint(line, 'subdued'))
     if (reading.failedProviders.length > 0) {
       // Partial failure is information, not a refusal: the routes that could
