@@ -104,9 +104,18 @@ describe('what the editor shows', () => {
     const shown = view.text()
     expect(shown).toContain('Applies to new sessions; the current session keeps its recorded policy.')
     expect(shown).toContain('Selection   on')
-    expect(shown).toContain('Allowed     1 model')
+    expect(shown).toContain('Allowed     1 authorized model')
     expect(shown).toContain('[x] deepseek-official/deepseek-chat')
     expect(shown).toContain('[ ] opencode/kimi')
+  })
+
+  it('names the adopted generation’s workflow-route limitation in the heading', () => {
+    const shown = mount(ready()).text()
+    // The caveat stays beside the setting it qualifies; its removal condition
+    // lives next to the DESCRIPTION constant rather than in the UI.
+    expect(shown).toContain('through the subagent tool')
+    expect(shown).toContain('targeted Harness version, workflow scripts select')
+    expect(shown).toContain('independently of this list')
   })
 
   it('marks a saved route the catalog no longer advertises as unavailable', () => {
@@ -151,7 +160,15 @@ describe('keys outside search', () => {
     expect(view.flips()).toBe(1)
     const shown = view.text()
     expect(shown).toContain('Selection   off')
-    expect(shown).toContain('Allowed     1 model')
+    // Retained routes are saved, not currently authorized.
+    expect(shown).toContain('Allowed     1 saved model \u00b7 inactive')
+  })
+
+  it('reports a disabled setting with no saved routes without implying authorization', () => {
+    const view = mount(ready({ draft: draftFrom({ enabled: false, allowedModels: [] }) }))
+    const shown = view.text()
+    expect(shown).toContain('Selection   off')
+    expect(shown).toContain('Allowed     no saved models')
   })
 
   it('saves on s', () => {
@@ -268,14 +285,16 @@ describe('geometry', () => {
     // wrapped continuation line.
     expect(wide.some(row => row.includes('unavailable'))).toBe(true)
     // The same widening used to push the whole editor into its one-line
-    // backstop on a short terminal, hiding the list and every control.
+    // backstop on a short terminal, hiding the list and every control. The
+    // heading now carries the workflow-route caveat as well, so the framed
+    // path needs more rows than it did before that sentence existed.
     const narrow = stripAnsi(mount(ready({
       entries: [
         entry('gateway', long),
         entry('private-gateway', long, false),
         entry('gateway', `${long}b`),
       ],
-    })).render(40, 14).join('\n'))
+    })).render(40, 18).join('\n'))
     expect(narrow).toContain('Selection')
     expect(narrow).not.toContain('esc close')
   })

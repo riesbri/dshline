@@ -195,7 +195,9 @@ async function openEditor(
 
 /** Wait until the mounted surface is the ready editor. */
 async function readyEditor(view: Awaited<ReturnType<typeof openEditor>>): Promise<void> {
-  await vi.waitFor(() => { expect(view.text()).toContain('Selection') })
+  // `Allowed` exists only once the reading resolves; `Selection` also appears
+  // in the heading paragraph, so it cannot prove the editor is ready.
+  await vi.waitFor(() => { expect(view.text()).toContain('Allowed') })
 }
 
 /**
@@ -291,7 +293,7 @@ describe('reading the Host setting', () => {
     await readyEditor(view)
     const shown = view.text()
     expect(shown).toContain('Selection   on')
-    expect(shown).toContain('Allowed     1 model')
+    expect(shown).toContain('Allowed     1 authorized model')
     expect(shown).toContain('[x] deepseek-official/deepseek-chat')
     // A route the catalog advertises but the setting never authorized is not
     // selected without a human checking it.
@@ -376,7 +378,7 @@ describe('saving the draft', () => {
     await vi.waitFor(() => { expect(view.text()).toContain('changed elsewhere') })
     // The draft is intact and the editor is still open.
     expect(view.stack.depth()).toBe(1)
-    expect(view.text()).toContain('Allowed     1 model')
+    expect(view.text()).toContain('Allowed     1 authorized model')
     // The second, explicit save fences against the refreshed revision.
     view.stack.top()?.handleKey({ kind: 'text', text: 's' })
     await vi.waitFor(() => { expect(settings.writes).toHaveLength(2) })
@@ -392,7 +394,7 @@ describe('saving the draft', () => {
     view.stack.top()?.handleKey({ kind: 'text', text: 's' })
     await vi.waitFor(() => { expect(view.text()).toContain('requires at least one allowed model') })
     expect(view.stack.depth()).toBe(1)
-    expect(view.text()).toContain('Allowed     1 model')
+    expect(view.text()).toContain('Allowed     1 authorized model')
     view.stack.top()?.handleKey(key('escape'))
     await view.running
   })
@@ -564,7 +566,7 @@ describe('the /model seam', () => {
     expect(stripAnsi(stack.top()?.render(100, 30).join('\n') ?? '')).toContain('Subagent models')
     // Saving the authorization never touches the current selection.
     await vi.waitFor(() => {
-      expect(stripAnsi(stack.top()?.render(100, 30).join('\n') ?? '')).toContain('Selection')
+      expect(stripAnsi(stack.top()?.render(100, 30).join('\n') ?? '')).toContain('Allowed')
     })
     stack.top()?.handleKey({ kind: 'text', text: ' ' })
     stack.top()?.handleKey({ kind: 'text', text: 'e' })

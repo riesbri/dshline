@@ -1655,8 +1655,11 @@ The whole selection is stored together — route and reasoning level — because
 
 A delegated subagent normally inherits the route the driving model is already
 using. Harness can instead let the driving model choose a different route for a
-child, and it will only let it choose a route you have authorized. That
-authorization is a Harness setting, not a per-session decision:
+child it starts through the subagent tool, and for that path it will only let it
+choose a route you have authorized. In the Harness version dshline currently
+targets, a workflow script's own `agent()` route choices are outside that list
+and reach the same child routing without passing it. That authorization is a
+Harness setting, not a per-session decision:
 
 ```
 /model
@@ -1670,24 +1673,29 @@ current-Agent model picker
 press `s`; `esc` discards the draft. The editor shows:
 
 - `Selection on/off` — whether newly composed top-level sessions receive
-  model-selectable delegation at all.
-- `Allowed N models` — the exact `provider/model` routes the driving model may
-  request for a child. `space` (or `enter`) toggles the highlighted route, and
+  model-selectable delegation from the subagent tool at all.
+- `Allowed` — the exact `provider/model` routes the subagent tool's delegations
+  may request for a child. With selection on it reads `N authorized models`;
+  with selection off it reads `N saved models · inactive`, or `no saved models`
+  when none were saved. `space` (or `enter`) toggles the highlighted route, and
   `/` starts a search that filters the list as you type.
 - `unavailable` beside a saved route the live catalog does not currently
   advertise. It stays authorized and removable: catalog membership is advisory,
   and the setting is the authorization.
 
-`e` flips selection on or off, and turning it off keeps the routes for later.
+`e` flips selection on or off, and turning it off keeps the routes for later;
+the editor labels the retained list `inactive` while selection is off.
 `ctrl-r` re-reads the live catalog without disturbing the draft. Saving writes
 both fields in one revision-fenced change; if the setting moved elsewhere
 first, the editor reports the conflict, keeps your draft, and does not retry on
 its own — press `s` again to write it, or `esc` to discard.
 
-It is an allowlist for explicit delegated choices, and it does not force
-subagents onto those models: a delegation that names no route still inherits
-the parent's, whether or not that route is listed. It is not a cost router, and
-it never selects DeepSeek for you. The change applies to new sessions; the
+It is an allowlist for explicit choices made through the subagent tool, and it
+does not force subagents onto those models: a delegation that names no route
+still inherits the parent's, whether or not that route is listed. It does not
+cover the `workflow` tool, whose child routes are chosen by the script. It is
+not a cost router, and it never selects DeepSeek for you. The change applies to
+new sessions; the
 current session keeps the policy it recorded when it was composed, a session
 that was already running or resumed does not change because of this editor, and
 a child session inherits exactly its parent's recorded policy.
