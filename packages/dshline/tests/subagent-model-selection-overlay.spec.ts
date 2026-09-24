@@ -113,9 +113,9 @@ describe('what the editor shows', () => {
     const shown = mount(ready()).text()
     // The caveat stays beside the setting it qualifies; its removal condition
     // lives next to the DESCRIPTION constant rather than in the UI.
-    expect(shown).toContain('through the subagent tool')
-    expect(shown).toContain('targeted Harness version, workflow scripts select')
-    expect(shown).toContain('independently of this list')
+    expect(shown).toContain('through the subagent')
+    expect(shown).toContain('In this Harness version, explicit workflow child-route choices are outside')
+    expect(shown).toContain('this list.')
   })
 
   it('marks a saved route the catalog no longer advertises as unavailable', () => {
@@ -294,7 +294,7 @@ describe('geometry', () => {
         entry('private-gateway', long, false),
         entry('gateway', `${long}b`),
       ],
-    })).render(40, 18).join('\n'))
+    })).render(40, 17).join('\n'))
     expect(narrow).toContain('Selection')
     expect(narrow).not.toContain('esc close')
   })

@@ -1656,10 +1656,11 @@ The whole selection is stored together — route and reasoning level — because
 A delegated subagent normally inherits the route the driving model is already
 using. Harness can instead let the driving model choose a different route for a
 child it starts through the subagent tool, and for that path it will only let it
-choose a route you have authorized. In the Harness version dshline currently
-targets, a workflow script's own `agent()` route choices are outside that list
-and reach the same child routing without passing it. That authorization is a
-Harness setting, not a per-session decision:
+choose a route you have authorized. For the Harness version dshline currently
+targets, that allowlist does not cover explicit route choices made inside the
+`workflow` tool: a workflow script that names a child route reaches the same
+child routing without passing this list. That authorization is a Harness
+setting, not a per-session decision:
 
 ```
 /model
@@ -1692,13 +1693,13 @@ its own — press `s` again to write it, or `esc` to discard.
 
 It is an allowlist for explicit choices made through the subagent tool, and it
 does not force subagents onto those models: a delegation that names no route
-still inherits the parent's, whether or not that route is listed. It does not
-cover the `workflow` tool, whose child routes are chosen by the script. It is
-not a cost router, and it never selects DeepSeek for you. The change applies to
-new sessions; the
-current session keeps the policy it recorded when it was composed, a session
-that was already running or resumed does not change because of this editor, and
-a child session inherits exactly its parent's recorded policy.
+still inherits the parent's, whether or not that route is listed. For the
+Harness version dshline targets, it does not cover explicit route choices made
+inside the `workflow` tool. It is not a cost router, and it never selects
+DeepSeek for you. The change applies to new sessions; the current session keeps
+the policy it recorded when it was composed, a session that was already running
+or resumed does not change because of this editor, and a child session inherits
+exactly its parent's recorded policy.
 
 ### While a turn is running
 

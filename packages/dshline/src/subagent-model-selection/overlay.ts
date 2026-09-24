@@ -40,11 +40,11 @@ const SUBAGENT_MIN_COLUMNS = BOX_CHROME_COLUMNS + 20
  *
  * The second sentence names the adopted Harness generation's limitation: the
  * Session authorization covers explicit route choices made through the subagent
- * delegation tool, while a workflow script's own `agent()` child routes do not
- * pass through it. Remove that sentence when `HARNESS_TARGET` advances to a
- * released generation whose Session authorization governs those routes too.
+ * delegation tool, while explicit route choices made inside the `workflow` tool
+ * are outside it. Remove that sentence when `HARNESS_TARGET` advances to a
+ * released generation whose Session authorization governs those too.
  */
-const DESCRIPTION = 'Selection controls which model routes the driving model may explicitly choose through the subagent tool. In the targeted Harness version, workflow scripts select child routes independently of this list.'
+const DESCRIPTION = 'Selection controls which routes the model may explicitly choose through the subagent tool. In this Harness version, explicit workflow child-route choices are outside this list.'
 
 /**
  * The one sentence the editor must not derive from the settings descriptor.
