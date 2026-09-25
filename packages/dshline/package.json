@@ -45,7 +45,7 @@
     "@deepseek-ai/dsh-session-turn-outline": "0.1.7-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@dshline/renderer": "workspace:^",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
