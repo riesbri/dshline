@@ -14,10 +14,10 @@ import type { JobWorkItem, SubagentWorkItem, WorkInterruptResult, WorkSnapshot }
 import { activeWorkCount, workItemKey, workSummary } from '../src/work/model.ts'
 
 /** The root agent shape the capability contracts use for ownership. */
-const agent = { session: { id: 'root' } } as unknown as Agent
+const agent = { session: { id: 'root' } } as Agent
 
 /** A different exact Agent instance, proving job listeners stay owner-scoped. */
-const otherAgent = { session: { id: 'other' } } as unknown as Agent
+const otherAgent = { session: { id: 'other' } } as Agent
 
 /** Standard successful interrupt response for overlay-only tests. */
 const INTERRUPT_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Interrupt requested.' }
@@ -100,7 +100,7 @@ describe('generic Harness Work capability projection', () => {
       read: () => { readCalls += 1 },
       onJobsChanged: () => () => {},
       onJobDone: () => { throw new Error('presentation must not subscribe to completion delivery') }
-    } as unknown as JobRegistry
+    } as JobRegistry
     const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
     const running = work.snapshot().jobs[0]
     expect(running).toMatchObject({
@@ -115,7 +115,7 @@ describe('generic Harness Work capability projection', () => {
       list: () => [{ ...job(), ownerSession: undefined }],
       onJobsChanged: () => () => {},
       onJobDone: () => {},
-    } as unknown as JobRegistry
+    } as JobRegistry
     const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
     expect(work.snapshot().jobs[0]?.ownership).toBe('unowned')
     work.dispose()
@@ -128,7 +128,7 @@ describe('generic Harness Work capability projection', () => {
       list: () => [job()],
       onJobsChanged: (listener: (owner: Agent | undefined) => void) => { changed = listener; return () => {} },
       onJobDone: () => { throw new Error('onJobDone is model-delivery semantics, not presentation') }
-    } as unknown as JobRegistry
+    } as JobRegistry
     new HarnessWork({ agent, jobs, invalidate: () => { invalidated += 1 } })
     changed?.(otherAgent)
     expect(invalidated).toBe(0)
@@ -143,7 +143,7 @@ describe('generic Harness Work capability projection', () => {
     const subagents = {
       listChildren: async () => { children += 1; return [CONTINUABLE_CHILD] },
       listDescendants: () => { throw new Error('must not scan descendants') },
-    } as unknown as SubagentRuntime
+    } as SubagentRuntime
     const work = new HarnessWork({
       agent,
       subagents,
@@ -168,7 +168,7 @@ describe('generic Harness Work capability projection', () => {
     let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => [] } as unknown as SubagentRuntime,
+      subagents: { listChildren: async () => [] } as SubagentRuntime,
       onSubagentStart: listener => { started = listener as typeof started; return () => {} },
       onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
       invalidate: () => {},
@@ -191,7 +191,7 @@ describe('generic Harness Work capability projection', () => {
     const subagents = {
       listChildren: async () => [INACTIVE_CHILD],
       listDescendants: () => { throw new Error('must not scan descendants') },
-    } as unknown as SubagentRuntime
+    } as SubagentRuntime
     const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
     await settled()
     expect(work.snapshot().subagents).toEqual([])
@@ -202,7 +202,7 @@ describe('generic Harness Work capability projection', () => {
     let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => [INACTIVE_CHILD] } as unknown as SubagentRuntime,
+      subagents: { listChildren: async () => [INACTIVE_CHILD] } as SubagentRuntime,
       onSubagentStart: listener => { started = listener as typeof started; return () => {} },
       invalidate: () => {},
     })
@@ -221,7 +221,7 @@ describe('generic Harness Work capability projection', () => {
     let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => { throw new Error('projection unavailable') } } as unknown as SubagentRuntime,
+      subagents: { listChildren: async () => { throw new Error('projection unavailable') } } as SubagentRuntime,
       onSubagentStart: listener => { started = listener as typeof started; return () => {} },
       invalidate: () => {},
     })
@@ -235,7 +235,7 @@ describe('generic Harness Work capability projection', () => {
     let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => [{ ...CONTINUABLE_CHILD, mode: 'one-shot' as const }] } as unknown as SubagentRuntime,
+      subagents: { listChildren: async () => [{ ...CONTINUABLE_CHILD, mode: 'one-shot' as const }] } as SubagentRuntime,
       onSubagentStart: listener => { started = listener as typeof started; return () => {} },
       invalidate: () => {},
     })
@@ -251,7 +251,7 @@ describe('generic Harness Work capability projection', () => {
     let invalidated = 0
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: () => pending } as unknown as SubagentRuntime,
+      subagents: { listChildren: () => pending } as SubagentRuntime,
       invalidate: () => { invalidated += 1 },
     })
     work.dispose()
@@ -266,7 +266,7 @@ describe('generic Harness Work capability projection', () => {
       list: () => [job()],
       kill: () => { kills += 1; return 'requested' },
       onJobsChanged: () => () => {},
-    } as unknown as JobRegistry
+    } as JobRegistry
     const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
     const running = work.snapshot().jobs[0]
     expect(running?.interruptible).toBe(false)
@@ -281,7 +281,7 @@ describe('generic Harness Work capability projection', () => {
     const subagents = {
       listChildren: async () => [],
       interrupt: (...args: unknown[]) => { calls.push(args) },
-    } as unknown as SubagentRuntime
+    } as SubagentRuntime
     const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
     expect(work.interrupt(subagentItem({ id: 'child', interruptible: true }))).toEqual(INTERRUPT_REQUESTED)
     expect(calls).toEqual([['child', { kind: 'user', parentSessionId: 'root' }]])

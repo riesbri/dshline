@@ -10,17 +10,9 @@
  *
  * Everything a keystroke here can do is decided by `model.ts` and carried
  * out by `actions.ts`; this module only draws the state it is handed and
- * reports the intent — `pickPreset`, `makeDefault` — back to its owner
- * (`index.ts`), the same division `connect/overlay.ts` keeps between drawing
- * a row and deciding what pressing something on it means.
- *
- * The composition list is READ-ONLY in the adopted generation, and that is why
- * there is no `space`/`enter` row action left to bind. A preset is a
- * declaration in a Cordis composition and the registry "writes no
- * declarations", so there is no row here this frontend may change; the writes
- * that do exist — choosing a preset, making it the default — are the two
- * whole-composition intents that survive, and they are the only keys drawn in
- * the help line.
+ * reports the intent — `toggle`, `pickPreset`, `makeDefault` — back to its
+ * owner (`index.ts`), the same division `connect/overlay.ts` keeps between
+ * drawing a row and deciding what pressing something on it means.
  * @module dshline/plugins/overlay
  */
 
@@ -83,6 +75,8 @@ export interface PluginsOverlaySpec {
   readonly state: () => PluginsState
   /** Re-read every surface. */
   readonly refresh: () => void
+  /** Enable or disable the selected composition row. */
+  readonly toggle: (row: CompositionRow) => void
   /** Open the agent-preset picker. */
   readonly pickPreset: () => void
   /** Make the browsed preset the default for new sessions. */
@@ -185,6 +179,16 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
     viewport.first()
     spec.invalidate()
   }
+  // `space` and `enter` are the same gesture on a row. Both exist because a
+  // reader arrives with one of two habits — a checkbox list toggles with
+  // space, a menu commits with enter — and this list is honestly both. Only
+  // OUTSIDE search mode: inside it `enter` already means "done typing", and
+  // stealing that would leave no way to return to the shortcuts.
+  const act = (): void => {
+    const row = rowsFor(spec.state())[selected]
+    if (row !== undefined) spec.toggle(row)
+  }
+
   return {
     report(text, failed) {
       notice.show(text, failed)
@@ -283,6 +287,9 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
             searching = true
             spec.invalidate()
             return
+          case ' ':
+            act()
+            return
           case 'p':
             spec.pickPreset()
             return
@@ -314,6 +321,9 @@ export function createPluginsOverlay(spec: PluginsOverlaySpec): PluginsOverlay {
           selected = Math.max(0, rowsFor(spec.state()).length - 1)
           viewport.last()
           spec.invalidate()
+          return
+        case 'enter':
+          act()
           return
         case 'ctrl-r':
           spec.refresh()
@@ -508,8 +518,8 @@ function queryRow(query: string, searching: boolean, right: string, inner: numbe
   const rightWidth = Math.min(displayWidth(right), Math.max(0, inner - 4))
   const room = Math.max(1, inner - displayWidth(prompt) - rightWidth - 1)
   // The cursor block only appears while search mode is actually capturing
-  // keystrokes — its absence is how a reader tells "a key acts on a row" from
-  // "a key is about to be typed" apart at a glance.
+  // keystrokes — its absence is how a reader tells "space/enter toggles" from
+  // "space is about to be typed" apart at a glance.
   const hint = '/ to search'
   const plain = searching
     ? `${tailToWidth(escapeControls(query), Math.max(1, room - 1))}█`
@@ -551,6 +561,7 @@ function help(searching: boolean, query: string, selectable: boolean, columns: n
     : [
         ...selectable ? ['↑↓ navigate'] : [],
         '/ search',
+        ...selectable ? ['space/enter toggle'] : [],
         'p presets',
         'd default',
         query === '' ? 'esc close' : 'esc clear',
@@ -594,7 +605,7 @@ function compactFallback(
   }
   const summary = state.kind !== 'ready' || shown === 0
     ? 'Plugins · esc close'
-    : `${String(shown)} rows · esc close`
+    : `${String(shown)} rows · enter toggle · esc close`
   const candidate = [summary, 'esc close', 'esc'].find(option => displayWidth(option) <= columns)
   return candidate === undefined ? [] : [paint(candidate, 'overlay-headline')]
 }

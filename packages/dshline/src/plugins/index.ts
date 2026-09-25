@@ -3,11 +3,13 @@
  *
  * The same division of labour every other domain here keeps: Harness owns
  * the preset roster, a preset's composition, session composition and its
- * lifecycle, and the `agent-preset-registry` entry's `selectedDefault` field.
- * This module owns the rows, the keyboard, and the one prompt a keystroke here
- * can raise — the offer a locked session redirects to. There is no plugin
- * registry here, no YAML dialect invented, and no per-provider branch: a row
- * reaches this browser because `ctx.agentPresets` composed it, and a preset is
+ * lifecycle, the `agent-preset-registry` entry's `selectedDefault` field, and
+ * persistence of a composition edit. This module owns the rows, the keyboard,
+ * and the one prompt a keystroke here can raise — the offer a locked session
+ * redirects to. There is no plugin registry here, no YAML dialect invented, and
+ * no per-provider branch: a row reaches this browser because
+ * `ctx.agentPresets` composed it, a composition row is edited through the same
+ * `ctx.configEditor` Harness's own settings pages write through, and a preset is
  * switched or defaulted through the same `agentPresets.select()`/`ctx.settings`
  * seams Harness's own Web client uses.
  *
@@ -25,7 +27,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { escapeControls, paint } from '@dshline/renderer'
 import { pluginsSeams } from './harness.ts'
-import type { AgentPresetRow, AgentPresetsSeam, PluginsSettings } from './harness.ts'
+import type { AgentPresetRow, AgentPresetsSeam, ConfigEditorSeam, PluginsSettings } from './harness.ts'
 import { PluginsCatalog, messageOf } from './catalog.ts'
 import { hostCapabilities } from './health.ts'
 import type { PluginsCatalogSpec } from './catalog.ts'
@@ -37,9 +39,11 @@ import {
   presetChoiceLabel,
   presetSwitchEligibility,
   selectablePresetRows,
+  toggleEligibility,
 } from './model.ts'
+import type { CompositionRow } from './composition.ts'
 import type { PluginsActionOutcome } from './actions.ts'
-import { setDefaultPreset, switchPreset } from './actions.ts'
+import { setDefaultPreset, switchPreset, toggleRow } from './actions.ts'
 import { createPluginsOverlay } from './overlay.ts'
 import type { PluginsOverlay } from './overlay.ts'
 import { promptSelect } from '../select.ts'
@@ -48,27 +52,29 @@ export type {
   AgentPresetDocument,
   AgentPresetRow,
   AgentPresetsSeam,
+  ConfigEditorSeam,
   PluginsAgent,
   PluginsSeams,
   PluginsSessionFacts,
   PluginsSettings,
 } from './harness.ts'
 export { pluginsSeams, sessionFacts } from './harness.ts'
-export type { CompositionRow, CompositionTree, DisabledState } from './composition.ts'
-export { parseComposition } from './composition.ts'
-export type { PresetRow, PresetSwitchEligibility } from './model.ts'
+export type { CompositionRow, CompositionTree, DisabledState, RowLocator, RowLocatorStep, ToggleFailureReason, ToggleResult } from './composition.ts'
+export { parseComposition, togglePresetRow } from './composition.ts'
+export type { PresetRow, PresetSwitchEligibility, ToggleEligibility } from './model.ts'
 export {
   filterCompositionRows,
   filterPresetRows,
   presetRows,
   rowMark,
+  toggleEligibility,
 } from './model.ts'
 export type { BrowsedComposition, PluginsCapabilities, PluginsCatalogSpec, PluginsState } from './catalog.ts'
 export type { CapabilityRegistry, HostCapabilities, RowHealth, SubagentRegistrySeam } from './health.ts'
 export { CAPABILITY_LINKS, healthFacts, hostCapabilities, rowHealth, unbackedWhileEnabled } from './health.ts'
 export { PluginsCatalog } from './catalog.ts'
 export type { PluginsActionOutcome } from './actions.ts'
-export { setDefaultPreset, switchPreset } from './actions.ts'
+export { setDefaultPreset, switchPreset, toggleRow } from './actions.ts'
 export type { PluginsOverlay, PluginsOverlaySpec } from './overlay.ts'
 export { createPluginsOverlay } from './overlay.ts'
 
@@ -198,6 +204,7 @@ export async function openPlugins(spec: PluginsSpec): Promise<void> {
       overlay = createPluginsOverlay({
         state: () => catalog.state(),
         refresh: () => { catalog.refresh() },
+        toggle: row => { run(() => performToggle(spec, catalog, overlay, row)) },
         pickPreset: () => { run(() => performPickPreset(spec, seams, catalog, overlay)) },
         makeDefault: () => { run(() => performMakeDefault(spec, seams, catalog, overlay)) },
         now: spec.now ?? ((): number => Date.now()),
@@ -257,6 +264,92 @@ function land(
   overlay.report(outcome.message, outcome.kind === 'failed')
   if (browseId === undefined) catalog.refresh()
   else catalog.browse(browseId)
+}
+
+/**
+ * Handle `space` on one composition row: edit the declaration, then let a
+ * blank current session adopt the new composition.
+ *
+ * The edit itself is `actions.ts`'s, through `ctx.configEditor`. What this
+ * adds is the honest report about the CURRENT session, which is a separate
+ * fact: a saved declaration is only what future composition reads, and a
+ * session that has already started is fixed to the composition it began with.
+ * Saying "updated live" to a session that did not change would be the one
+ * genuinely misleading outcome this browser could produce.
+ * @param spec - the context, agent, and where transcript rows go.
+ * @param catalog - the catalog, for the current reading and to re-browse after.
+ * @param overlay - the overlay to report into.
+ * @param row - the selected composition row.
+ */
+async function performToggle(
+  spec: PluginsSpec,
+  catalog: PluginsCatalog,
+  overlay: PluginsOverlay,
+  row: CompositionRow,
+): Promise<void> {
+  const state = catalog.state()
+  const configEditor = spec.ctx.get('configEditor') as ConfigEditorSeam | undefined
+  if (state.kind !== 'ready' || state.browsing.kind !== 'rows' || configEditor === undefined) return
+  const presetId = state.browsing.presetId
+  const eligibility = toggleEligibility(row, state.capabilities.configEditor)
+  if (eligibility.kind === 'unavailable') {
+    overlay.report(eligibility.reason, true)
+    return
+  }
+  if (eligibility.kind === 'conditional') {
+    // The Loader still evaluates a `!!js` condition, so there is no edit here
+    // that is both a plain toggle and an honest one. Naming the expression is
+    // the useful half of the refusal.
+    overlay.report(`disabled by a condition (${eligibility.expression}); edit the declaration directly`, true)
+    return
+  }
+  const outcome = await toggleRow(configEditor, presetId, row.locator, eligibility.enable)
+  land(spec, catalog, overlay, await liveEffectNote(spec, presetId, outcome), presetId)
+}
+
+/**
+ * After a saved declaration edit, say plainly what happened to the CURRENT
+ * session, which is not the same question as what was saved.
+ *
+ * The preset id does not change here — only WHICH revision of the declaration
+ * it resolves to — so nothing records a choice, and `AgentPresetRegistry.select`
+ * is never involved: its turn-boundary rule is about choosing a DIFFERENT
+ * preset, and a blank session is re-pointed at the new generation by
+ * `recompose` instead. A session that has already started keeps the
+ * composition it began with, and saying so is the point.
+ *
+ * Both facts are read HERE, after the write, rather than taken from the reading
+ * the toggle was decided against: a turn can start across the editor's own
+ * awaits, and a captured copy taken before them would go on reporting a
+ * started session as blank.
+ * @param spec - the context and agent.
+ * @param presetId - the preset whose declaration just changed.
+ * @param outcome - the successful toggle outcome to extend.
+ * @returns the outcome, worded for what happens to the CURRENT session.
+ */
+async function liveEffectNote(
+  spec: PluginsSpec,
+  presetId: string,
+  outcome: PluginsActionOutcome,
+): Promise<PluginsActionOutcome> {
+  const agentPresets = pluginsSeams(spec.ctx).agentPresets
+  if (agentPresets === undefined) return outcome
+  if (runningPresetId(agentPresets, spec) !== presetId) {
+    return { ...outcome, message: `${outcome.message} — saved; the current session runs ${agentPresets.composedPreset(spec.agent.ctx) ?? 'another preset'}` }
+  }
+  if (factsOf(spec).started) {
+    return {
+      kind: 'done',
+      message: `${outcome.message} — saved for future sessions; the current session has already started and keeps its existing composition`,
+    }
+  }
+  try {
+    await agentPresets.recompose(spec.agent.ctx, presetId)
+  } catch (error) {
+    return { kind: 'failed', message: `${outcome.message}, but the current session could not pick it up: ${messageOf(error)}` }
+  }
+  spec.recomposed?.()
+  return { kind: 'done', message: `${outcome.message} — current session updated live` }
 }
 
 /**

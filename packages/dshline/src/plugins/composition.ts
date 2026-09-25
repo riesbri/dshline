@@ -73,6 +73,8 @@ export type EffectiveState = 'enabled' | 'disabled' | 'conditional'
 
 /** One row of a preset's composition, at whatever depth it was found. */
 export interface CompositionRow {
+  /** How to safely re-find this exact row in the declaration being edited. */
+  readonly locator: RowLocator
   /**
    * Display breadcrumb from the root row down to and including this one —
    * each ancestor's `id`, falling back to its `name` when it has none.
@@ -153,7 +155,7 @@ export function parseComposition(text: string): CompositionTree {
     const top = doc.contents
     if (!isSeq(top)) return { kind: 'broken', reason: 'composition is not a list of entries' }
     const rows: CompositionRow[] = []
-    const problem = walk(top, [], 0, 'enabled', rows)
+    const problem = walk(top, [], [], 0, 'enabled', rows)
     if (problem !== undefined) return { kind: 'broken', reason: problem }
     return { kind: 'parsed', rows }
   } catch (error) {
@@ -174,6 +176,7 @@ export function parseComposition(text: string): CompositionTree {
 function walk(
   seq: YAMLSeq,
   parentPath: readonly string[],
+  parentSteps: readonly RowLocatorStep[],
   depth: number,
   ancestorBlock: EffectiveState,
   out: CompositionRow[],
@@ -190,11 +193,13 @@ function walk(
     const id = typeof idValue === 'string' && idValue !== '' ? idValue : undefined
     const group = item.get('group') === true
     const disabled = readDisabled(item)
+    const steps = [...parentSteps, { index, name, id }]
     const path = [...parentPath, id ?? name]
     const effective: EffectiveState = group ? 'enabled' : combine(ancestorBlock, disabled)
     const configSummary = group ? undefined : summarizeConfig(item.get('config'))
     const configProvider = group ? undefined : readConfigProvider(item.get('config', true))
     out.push({
+      locator: { steps },
       path,
       id,
       name,
@@ -208,7 +213,7 @@ function walk(
     if (group) {
       const config: unknown = item.get('config')
       if (!isSeq(config)) return `group ${path.join(' > ')} must hold a list of plugin rows`
-      const problem = walk(config, path, depth + 1, combine(ancestorBlock, disabled), out)
+      const problem = walk(config, path, steps, depth + 1, combine(ancestorBlock, disabled), out)
       if (problem !== undefined) return problem
     }
   }
@@ -314,4 +319,194 @@ function isPlainScalar(value: unknown): value is string | number | boolean {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && !isJsExpr(value)
+}
+
+/**
+ * One step of a {@link RowLocator}: a row's position within its containing
+ * entry list, and the fingerprint expected there.
+ *
+ * `name` is always checked because it is the one field Harness itself requires
+ * of a row. `id` is checked only when the row had one, since its absence here
+ * does not mean a re-read may not since have grown one — only that this locator
+ * does not know to expect it.
+ */
+export interface RowLocatorStep {
+  /** Index within the immediately containing entry list. */
+  readonly index: number
+  /** The name expected at that position. */
+  readonly name: string
+  /** The id expected at that position, when this row had one. */
+  readonly id: string | undefined
+}
+
+/**
+ * How to safely re-find one row after re-reading the declaration.
+ *
+ * A declaration is a list of rows where a `group: true` row's own children live
+ * in its `config`, so a locator is a path of (index, name, id) steps from the
+ * top-level list down to one row. `id` is optional to Harness and is not
+ * guaranteed unique where present, so it is a corroborating check and never the
+ * only one — the alternative, addressing a row by name alone, would silently
+ * edit the first match in a list a person may have made ambiguous on purpose.
+ */
+export interface RowLocator {
+  /** Steps from the top-level list down to and including the target row. */
+  readonly steps: readonly RowLocatorStep[]
+}
+
+/** Why {@link togglePresetRow} could not apply the requested change. */
+export type ToggleFailureReason =
+  /** The declaration's child list is not the array of rows it should be. */
+  | 'broken'
+  /** The locator's structure (an index, or a group where one is expected) no longer exists. */
+  | 'not-found'
+  /**
+   * A row exists at the located position, but its name — or its id, when the
+   * locator recorded one — no longer matches: the declaration changed
+   * incompatibly since this locator was built, and mutating that position
+   * anyway would edit a different row than the one shown.
+   */
+  | 'changed'
+  /**
+   * The row's current `disabled` is a `!!js` expression: toggling here would
+   * silently discard host-specific behavior an operator wrote on purpose.
+   */
+  | 'conditional'
+
+/** The result of attempting one narrow `disabled` edit. */
+export type ToggleResult =
+  /** The edit applied, or nothing needed to change. */
+  | { readonly ok: true; readonly changed: boolean; readonly plugins: readonly unknown[] }
+  /** The edit was refused, or the row could not be safely re-found. */
+  | { readonly ok: false; readonly reason: ToggleFailureReason; readonly message: string }
+
+/** One child row as a preset declaration holds it, before any parsing. */
+type RawRow = Readonly<Record<string, unknown>>
+
+/** Whether a value is a `!!js` conditional, already resolved by the Loader. */
+function isRawJsExpr(value: unknown): value is { readonly __jsExpr: string } {
+  return typeof value === 'object' && value !== null && '__jsExpr' in (value as Record<string, unknown>)
+}
+
+/**
+ * Read one row's own `disabled` field from the raw declaration, without ever
+ * resolving what a `!!js` node means.
+ * @param row - the raw row.
+ * @returns the row's own disabled state.
+ */
+function rawDisabledState(row: RawRow): DisabledState {
+  const value = row['disabled']
+  if (value === undefined) return { kind: 'enabled' }
+  if (isRawJsExpr(value)) return { kind: 'conditional', expression: value.__jsExpr }
+  return { kind: Boolean(value) ? 'disabled' : 'enabled' }
+}
+
+/**
+ * Enable or disable exactly one row of a preset declaration.
+ *
+ * This operates on the STRUCTURED child list the Loader resolved, not on
+ * rendered YAML text, and it copies every row it does not touch. That is the
+ * point of the migration: a preset is a `@deepseek-ai/dsh-agent-preset` row in
+ * a composition, the composition is persisted by `ctx.configEditor` through a
+ * profile patch, and that path re-serializes the whole `config` through the
+ * owning plugin's own `Config`. A second YAML writer producing a second
+ * rendering of the same declaration would be a second authority over one file.
+ *
+ * Every step of the locator is re-verified against the list being edited, so a
+ * declaration changed since the browser read it is refused rather than
+ * mutating whatever now sits at that position. A request that changes nothing
+ * returns the input list unchanged, so a redundant write never lands a
+ * profile patch.
+ *
+ * A `!!js` `disabled` is refused outright. Overwriting one would discard
+ * host-specific behavior an operator wrote on purpose, and the adopted Loader
+ * still evaluates it, so there is no representation here that is both a toggle
+ * and an honest edit.
+ * @param plugins - the declaration's resolved child list.
+ * @param locator - the row's locator, as {@link CompositionRow.locator} reports it.
+ * @param enable - `true` to enable the row, `false` to disable it.
+ * @returns the new list, or why the edit was refused.
+ */
+export function togglePresetRow(
+  plugins: readonly unknown[],
+  locator: RowLocator,
+  enable: boolean,
+): ToggleResult {
+  if (locator.steps.length === 0) return { ok: false, reason: 'not-found', message: 'no row addressed' }
+  const label = locator.steps.map(step => step.id ?? step.name).join(' > ')
+  const next = stepInto(plugins, locator.steps, 0, label, enable)
+  if (next === undefined) return { ok: false, reason: 'not-found', message: `no row at the expected position for ${label}` }
+  if ('refused' in next) return next.refused
+  return { ok: true, changed: next.list !== plugins, plugins: next.list }
+}
+
+/**
+ * Walk one step deeper, rebuilding the list only along the path to the target.
+ * @param list - the list at this level.
+ * @param steps - the remaining locator steps.
+ * @param depth - how many steps have been consumed.
+ * @param label - the human-readable path, for a refusal message.
+ * @param enable - what the target row's `disabled` should become.
+ * @returns the rebuilt list on success, or a refusal at this level.
+ */
+function stepInto(
+  list: readonly unknown[],
+  steps: readonly RowLocatorStep[],
+  depth: number,
+  label: string,
+  enable: boolean,
+): { readonly list: readonly unknown[] } | { readonly refused: ToggleResult } | undefined {
+  const step = steps[depth]
+  if (step === undefined) return undefined
+  const row: unknown = list[step.index]
+  if (row === undefined) return undefined
+  const moved = (): { refused: ToggleResult } => ({
+    refused: { ok: false, reason: 'changed', message: `the declaration changed since this was read: ${label} moved or was replaced` },
+  })
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return moved()
+  const map = row as Record<string, unknown>
+  if (map['name'] !== step.name) return moved()
+  if (step.id !== undefined && map['id'] !== step.id) return moved()
+  const last = depth === steps.length - 1
+  if (!last) {
+    // Only a group row has children, and only in its own `config`. A row that
+    // used to nest and no longer does is a changed declaration, not a leaf.
+    const children: unknown = map['config']
+    if (!Array.isArray(children)) {
+      return {
+        refused: { ok: false, reason: 'changed', message: `the declaration changed since this was read: ${label} is no longer a group` },
+      }
+    }
+    const rebuilt = stepInto(children, steps, depth + 1, label, enable)
+    if (rebuilt === undefined) return undefined
+    if ('refused' in rebuilt) return rebuilt
+    if (rebuilt.list === children) return { list }
+    const copy = [...list]
+    copy[step.index] = { ...map, config: rebuilt.list }
+    return { list: copy }
+  }
+  const current = rawDisabledState(map)
+  if (current.kind === 'conditional') {
+    return {
+      refused: {
+        ok: false,
+        reason: 'conditional',
+        message: `${label} is disabled by a condition (${current.expression}), not a plain toggle`,
+      },
+    }
+  }
+  const already = enable ? current.kind === 'enabled' : current.kind === 'disabled'
+  if (already) return { list }
+  const copy = [...list]
+  // Dropping the field IS the enable case, for the same reason the shipped
+  // declarations omit it rather than writing `false`: a row with no `disabled`
+  // is enabled, and that is what a person reading the patch expects to see.
+  if (enable) {
+    const { disabled: _dropped, ...rest } = map
+    void _dropped
+    copy[step.index] = rest
+  } else {
+    copy[step.index] = { ...map, disabled: true }
+  }
+  return { list: copy }
 }

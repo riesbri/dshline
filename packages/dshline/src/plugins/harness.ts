@@ -12,6 +12,7 @@
  * ctx.get('settings')       the `agent-preset-registry` namespace's
  *                           `selectedDefault` field, written through the same
  *                           ns/patch contract every namespace uses
+ * ctx.get('configEditor')   persisting a declaration edit as a profile patch
  * ```
  *
  * Neither VALUE is imported from `@deepseek-ai/dsh-agent-preset-registry` or
@@ -241,12 +242,47 @@ export interface PluginsSettings {
   update(ns: string, patch: Readonly<Record<string, unknown>>, expectedRevision?: number): Promise<void>
 }
 
-/** Which of the two optional seams this deployment mounts. */
+/**
+ * The `ctx.get('configEditor')` surface this frontend consumes: persisting a
+ * plugin row's next configuration through a profile patch.
+ *
+ * This is the owner the adopted generation added, and it is the only one a
+ * preset composition can be edited through. A declaration is a
+ * `@deepseek-ai/dsh-agent-preset` row in a composition, the registry's own
+ * preset tree refuses `write()` because "only the profile configuration editor
+ * persists definitions", and this service is that editor: it takes the whole
+ * next `config`, validates it through the owning plugin's own `Config`, writes
+ * a profile-layer override under Harness's file lock, and reconciles the Loader
+ * entries — optionally serialised behind HMR, so two edits never interleave a
+ * reload.
+ *
+ * Deliberately narrow. `documentPath` and `configuration()` are not declared
+ * here: nothing in `/plugins` needs to know where a profile keeps its patch or
+ * what every other entry in it is configured with, and a wider view would be an
+ * invitation to write beside the one row this frontend owns.
+ */
+export interface ConfigEditorSeam {
+  /** Active profile rows addressable by a unique patch id. */
+  entries(): readonly { readonly options: { readonly id: string; readonly name: string; readonly config?: unknown } }[]
+  /**
+   * Persist and reconcile one entry's next configuration.
+   * @param entry - the Loader entry being edited, as `entries()` reports it.
+   * @param change - derives the next config from the current one and the layer it inherits.
+   */
+  edit(
+    entry: { readonly options: { readonly id: string; readonly name: string; readonly config?: unknown } },
+    change: (current: Record<string, unknown>, inherited: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void>
+}
+
+/** Which optional seams this deployment mounts. */
 export interface PluginsSeams {
   /** The preset roster and composition seam, when this profile mounts one. */
   readonly agentPresets: AgentPresetsSeam | undefined
-  /** The settings seam, needed only to write `agent-presets.default`. */
+  /** The settings seam, needed only to write the default preset. */
   readonly settings: PluginsSettings | undefined
+  /** The profile configuration editor, needed only to edit a composition. */
+  readonly configEditor: ConfigEditorSeam | undefined
 }
 
 /**
@@ -259,5 +295,6 @@ export function pluginsSeams(ctx: Context): PluginsSeams {
   return {
     agentPresets: ctx.get('agentPresets') as AgentPresetsSeam | undefined,
     settings: ctx.get('settings') as PluginsSettings | undefined,
+    configEditor: ctx.get('configEditor') as ConfigEditorSeam | undefined,
   }
 }

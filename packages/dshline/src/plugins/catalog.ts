@@ -29,6 +29,8 @@ export interface PluginsCapabilities {
   readonly agentPresets: boolean
   /** Whether `ctx.get('settings')` is mounted, needed to write the default. */
   readonly settings: boolean
+  /** Whether `ctx.get('configEditor')` is mounted, needed to edit a composition. */
+  readonly configEditor: boolean
 }
 
 /** One preset's composition, as the browser currently reads it. */
@@ -164,6 +166,7 @@ export class PluginsCatalog {
     const capabilities: PluginsCapabilities = {
       agentPresets: true,
       settings: settings !== undefined,
+      configEditor: this.spec.seams.configEditor !== undefined,
     }
     const opening = this.spec.session()
     const [presets, defaultId, sessionPresetId] = await Promise.all([

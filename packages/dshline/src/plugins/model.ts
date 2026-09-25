@@ -157,6 +157,49 @@ export function compositionRowFacts(row: CompositionRow): string[] {
   return facts
 }
 
+/** What pressing space on one composition row would do, before it is tried. */
+export type ToggleEligibility =
+  /** The row's own field is a plain boolean; space flips it. */
+  | { readonly kind: 'toggle'; readonly enable: boolean }
+  /** The row's `disabled` is a `!!js` condition; a plain toggle would discard it. */
+  | { readonly kind: 'conditional'; readonly expression: string }
+  /** A group row, which has no single on/off state of its own. */
+  | { readonly kind: 'unavailable'; readonly reason: string }
+
+/**
+ * What pressing space on one row would do, given what this profile can do.
+ *
+ * The conditional check runs first on purpose: a `!!js` row is not togglable no
+ * matter what else is true of it, so every other answer would send a reader
+ * through a keypress that was always going to be refused.
+ *
+ * There is no longer a trust check, and that is the migration rather than a
+ * relaxation. The previous generation's roster classified a preset as shipped
+ * or user-authored, and refused to edit anything shipped in place — so space on
+ * a system row offered a copy first. The adopted registry publishes no `trust`
+ * and no `path`, because a declaration is a row and a profile may legitimately
+ * carry an override of a shipped one: `ctx.configEditor` writes a profile-layer
+ * override and leaves the declaration in its package untouched. So there is no
+ * row here this frontend must refuse on ownership grounds, and the only two
+ * refusals left are ones about the row itself.
+ * @param row - the selected composition row.
+ * @param editable - whether this profile mounts the configuration editor.
+ * @returns the eligibility, before any write is attempted.
+ */
+export function toggleEligibility(
+  row: CompositionRow,
+  editable: boolean,
+): ToggleEligibility {
+  if (row.group) return { kind: 'unavailable', reason: 'a group row has no single on/off state to toggle' }
+  if (row.disabled.kind === 'conditional') {
+    return { kind: 'conditional', expression: row.disabled.expression }
+  }
+  if (!editable) {
+    return { kind: 'unavailable', reason: 'this profile mounts no configuration editor' }
+  }
+  return { kind: 'toggle', enable: row.disabled.kind === 'disabled' }
+}
+
 /** What selecting a preset in the `p` picker would do to the active session. */
 export type PresetSwitchEligibility =
   /** The session is blank; `select` may run and takes effect immediately. */

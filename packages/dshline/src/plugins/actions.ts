@@ -1,9 +1,12 @@
 /**
  * The writes `/plugins` performs, each through the seam that owns it.
  *
- * Two operations, each mapping onto exactly one Harness authority:
+ * Three operations, each mapping onto exactly one Harness authority:
  *
  * ```
+ * toggleRow          ctx.configEditor.edit() — the profile configuration
+ *                    editor, which is the only owner a preset declaration has
+ *                    in the adopted generation
  * switchPreset       ctx.agentPresets.select() — Harness's own whole operation:
  *                    serialize per session, re-check `turnBoundary`, refuse a
  *                    started session, recompose, then record the switch.
@@ -18,16 +21,17 @@
  * it does. The previous generation's roster was a live directory of files, so
  * `/plugins` had exactly two authoring paths into it: `agentPresets.copy()` to
  * fork a shipped preset, and a narrow lock-coordinated edit of the copy's
- * `agent.cordis.yml`. Both belonged to that ownership model and both are gone
+ * `agent.cordis.yml`. The second survives, re-owned; the first is gone
  * upstream. A preset is now an ordinary `@deepseek-ai/dsh-agent-preset` row in
- * a Cordis composition; the registry "writes no declarations", "accepts no
+ * a Cordis composition, the registry "writes no declarations" and "accepts no
  * preset paths", and its own preset tree overrides `write()` to a no-op
- * because "only the profile configuration editor persists definitions". A new
- * declaration is a bundle patch installed through `plugin_manager`, and an
- * edit to an existing one is a profile patch through `ctx.configEditor` —
- * Harness's operations, over Harness's own reconciliation, with a Loader
- * reload underneath. Rebuilding either here would be a second persistence path
- * for the same fact, which is the thing dshline must never own.
+ * because "only the profile configuration editor persists definitions". So a
+ * new declaration is a bundle patch installed through `plugin_manager` —
+ * Harness's operation, and authoring one is a plugin-management concern rather
+ * than a terminal one. What is left for a terminal is EDITING a declaration
+ * that already exists, and that is {@link toggleRow}, routed through
+ * `ctx.configEditor` rather than through a second YAML writer and a second
+ * file lock of dshline's own.
  *
  * Nothing here decides whether an action should be OFFERED; `model.ts`'s
  * `presetSwitchEligibility` does, from the same facts. These functions assume
@@ -35,7 +39,10 @@
  * @module dshline/plugins/actions
  */
 
-import type { AgentPresetsSeam, PluginsAgent, PluginsSettings } from './harness.ts'
+import { escapeControls } from '@dshline/renderer'
+import type { AgentPresetsSeam, ConfigEditorSeam, PluginsAgent, PluginsSettings } from './harness.ts'
+import type { RowLocator } from './composition.ts'
+import { togglePresetRow } from './composition.ts'
 import { messageOf } from './catalog.ts'
 
 /**
@@ -48,6 +55,17 @@ import { messageOf } from './catalog.ts'
  * entry that no longer exists, so writing to it would be a silent no-op.
  */
 const AGENT_PRESET_NAMESPACE = 'agent-preset-registry'
+
+/**
+ * The package that declares a preset. Named, not imported: the registry is
+ * reached structurally so a profile mounting neither still starts, and a
+ * literal is the same kind of agreement — the row a profile composes is this
+ * name, and a mismatch is a composition that mounts no roster at all.
+ */
+const PRESET_DECLARATION = '@deepseek-ai/dsh-agent-preset'
+
+/** Carries {@link togglePresetRow}'s own refusal out of the editor's callback. */
+class ToggleRefusedError extends Error {}
 
 /** How one write ended, in words the transcript can carry. */
 export interface PluginsActionOutcome {
@@ -63,6 +81,77 @@ function done(message: string): PluginsActionOutcome {
 
 function failed(message: string): PluginsActionOutcome {
   return { kind: 'failed', message }
+}
+
+/**
+ * Enable or disable one row of a preset declaration, as a profile override.
+ *
+ * The declaration is located through the configuration editor's own entry list
+ * rather than by a path: the registry publishes no `path`, and the editor's
+ * `entries()` is what Harness itself addresses configuration by. Exactly one
+ * `@deepseek-ai/dsh-agent-preset` row may declare that preset id, and anything
+ * else — none, or more than one — is refused rather than guessed at, because
+ * editing the wrong declaration is worse than editing nothing.
+ *
+ * The write goes through `edit()`, which takes the row's whole next `config`,
+ * validates it through that row's own `Config`, persists a profile-layer
+ * override under Harness's file lock, and reconciles the Loader. So a shipped
+ * declaration is never modified in its package: the profile carries the
+ * override, which is exactly what a bundle patch would do by hand, and the
+ * declaration keeps working unchanged for any profile that does not override
+ * it. Nothing here writes YAML, takes a lock, or reconciles anything itself.
+ * @param configEditor - the profile configuration editor.
+ * @param presetId - the declaration whose row is being toggled.
+ * @param locator - the row's locator, as `CompositionRow.locator` reports it.
+ * @param enable - `true` to enable the row, `false` to disable it.
+ * @returns what happened.
+ */
+export async function toggleRow(
+  configEditor: ConfigEditorSeam,
+  presetId: string,
+  locator: RowLocator,
+  enable: boolean,
+): Promise<PluginsActionOutcome> {
+  const matches = configEditor.entries().filter(entry => {
+    if (entry.options.name !== PRESET_DECLARATION) return false
+    const config = entry.options.config
+    return typeof config === 'object' && config !== null
+      && (config as { id?: unknown }).id === presetId
+  })
+  if (matches.length === 0) {
+    return failed(`${presetId} is not an editable declaration in this profile`)
+  }
+  if (matches.length > 1) {
+    // Two rows declaring one id is a composition that cannot say which preset a
+    // session runs, and `register()` rejects a duplicate at mount. Refusing
+    // here keeps a toggle from picking a winner by accident.
+    return failed(`${presetId} is declared more than once, so its rows cannot be edited safely`)
+  }
+  const entry = matches[0]
+  if (entry === undefined) return failed(`${presetId} is not an editable declaration in this profile`)
+  let changed = false
+  try {
+    await configEditor.edit(entry, current => {
+      const plugins: unknown = current['plugins']
+      if (!Array.isArray(plugins)) {
+        throw new Error(`${presetId} declares no composition to edit`)
+      }
+      const result = togglePresetRow(plugins, locator, enable)
+      if (!result.ok) throw new ToggleRefusedError(result.message)
+      changed = result.changed
+      // Every other key of the row's own config is carried through untouched;
+      // a partial object here would silently reset `id`, `order` or a `name`
+      // the declaration published.
+      return { ...current, plugins: result.plugins }
+    })
+  } catch (error) {
+    if (error instanceof ToggleRefusedError) return failed(error.message)
+    // Escaped before it is styled, like any other text this frontend did not
+    // compose: Harness's own refusal can quote a profile path and the schema
+    // rejection quotes the value that failed.
+    return failed(`could not write the change to ${presetId} (${escapeControls(messageOf(error))})`)
+  }
+  return done(`${presetId}: ${enable ? 'enabled' : 'disabled'}${changed ? '' : ' (already so)'}`)
 }
 
 /**
