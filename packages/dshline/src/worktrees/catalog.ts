@@ -41,7 +41,7 @@
 import type { SessionCatalogSpec, SessionQueryReads } from '../sessions/catalog.ts'
 import { SessionCatalog } from '../sessions/catalog.ts'
 import type { SessionFiltersValue } from '../sessions/filters.ts'
-import type { CatalogState } from '../sessions/model.ts'
+import type { CatalogState, SessionEntry } from '../sessions/model.ts'
 import type { WorktreeListing, WorktreeRow, WorktreeSelection } from './model.ts'
 import { worktreeRows } from './model.ts'
 
@@ -191,6 +191,18 @@ export class WorktreeCatalog {
     const sessions: CatalogState = this.sessions?.listing()
       ?? (this.spec.query === undefined ? { kind: 'unavailable' } : { kind: 'loading' })
     return { row: this.row(cwd), sessions }
+  }
+
+  /**
+   * Prioritize exact titles for the selected directory's current session rows.
+   *
+   * The second view deliberately has no title query, so this forwards only the
+   * visible/selected entries and never creates an exhaustive title pass. The
+   * nested catalog remains the sole scheduler.
+   * @param entries - the session rows currently useful to the view.
+   */
+  prioritizeTitles(entries: readonly SessionEntry[]): void {
+    this.sessions?.prioritizeTitles(entries)
   }
 
   /** Abandon every in-flight read; their results would repaint a closed view. */

@@ -131,6 +131,7 @@ export async function openWorktrees(spec: WorktreesSpec): Promise<WorktreeChoice
       const overlay = createWorktreesOverlay({
         listing: () => catalog.listing(),
         selection: () => catalog.selection(),
+        prioritizeTitles: entries => { catalog.prioritizeTitles(entries) },
         open: cwd => { catalog.select(cwd) },
         back: () => { catalog.select(undefined) },
         resume: entry => {
