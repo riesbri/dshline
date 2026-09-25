@@ -84,7 +84,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | context composition per entry | `ctx.tokenMeter` | Ask for the per-node measurement only when an inspector needs it; its own contract calls it O(surface). |
 | plan mode | committed `plan/mode` events; Harness's `plan` projection as contract evidence | Fold committed mode events with `planModeAfter()`; do not maintain a mutable second state or read `ctx.planMode` as a presentation mirror. |
 | reducing context | `ctx.commands` (`/compact`) | Dispatch the registered command; observe `compaction/*` events. Never call `ctx.compaction`. |
-| agent composition | `ctx.agentPresets` | Read the roster, one preset's composition, and which preset a session actually runs; join or switch an agent through the seam, never a private registry. |
+| agent composition | `ctx.agentPresets`, `ctx.configEditor` | Read the roster, one declaration's composition, and which declaration a session actually runs; join or switch an agent through the seam, and edit a composition as a profile override, never a private registry or a second writer. |
 | host composition | `ctx.dshHomePath`, `ctx.baseUrl`, `dsh plugin` | Read the profile roster from Harness's own home-path service and the booted profile from the Loader's base URL; mutate only by forwarding to `dsh plugin`, never by writing a profile manifest. |
 | subprocess | `ctx.subprocess` | Forward the launcher argv, environment, and timeout through the Harness runtime; do not reimplement launcher or profile policy. |
 | session title | `ctx.sessionTitle` | Rename through the live-session service; do not mutate a copied header or maintain a title store. |
@@ -1121,16 +1121,33 @@ exactly the rule every other adapter in this document follows, applied to
 "which tools does this agent have" instead of "which providers can it talk
 to."
 
-**System presets are Harness's, and stay read-only here.** A preset shipped
-with the deployment carries `system` trust; `/plugins` never edits that file.
-Customizing one is Harness's own supported path — copy it to a new, locally
-authored preset (`ctx.agentPresets.copy()`) and edit the copy — and pressing
-space on a built-in preset's row is the terminal's offer to do exactly that,
-never a shortcut around it. A user-authored copy has no narrower Harness
-mutation API than its own composition file, so toggling one row there is the
-smallest edit that touches only that field and leaves the rest of the file
-alone; Harness's own health check on that preset, not a private read of it,
-still decides whether the result is usable.
+**A preset is a declaration, and a profile may override one.** The adopted
+registry publishes neither a `path` nor a `trust`, because a declaration is not
+a file: it is an ordinary `@deepseek-ai/dsh-agent-preset` row in a Cordis
+composition, and the registry "neither scans directories nor accepts preset
+paths". So the previous split — a shipped preset read-only, a copied one
+editable — is gone with the ownership model it belonged to.
+
+Editing survives, re-owned. `ctx.configEditor` is the narrower mutation
+contract the old generation lacked: it takes a row's whole next `config`,
+validates it through that row's own `Config`, persists a **profile-layer
+override** under Harness's file lock, and reconciles the Loader entries under
+HMR. So toggling a row of a declaration this bundle ships writes an override
+into the profile and leaves the declaration in its package untouched, which is
+what a bundle patch does by hand and what keeps the shipped composition correct
+for every profile that does not override it. There is no second YAML writer and
+no second file lock: `/plugins` produces the next `config.plugins` and hands it
+over.
+
+Two refusals remain, and both are about the row rather than about ownership. A
+declaration is located through the editor's own entry list by its declared id,
+and zero or several matches is refused rather than guessed at. A `!!js`
+`disabled` is never toggled, because the Loader still evaluates it and no edit
+here is both a plain toggle and an honest one.
+
+**Authoring a new declaration is not offered.** The registry has no `copy()`,
+and a new declaration is a bundle patch installed through `plugin_manager` —
+a plugin-management concern, not a terminal one.
 
 **Session composition is a lifecycle fact, not a setting this frontend
 keeps.** A new session composes from the roster's current default. A resumed

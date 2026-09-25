@@ -4,34 +4,157 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { JobRegistry, JobSnapshot } from '@deepseek-ai/dsh-jobs'
-import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import {
+  JobId,
+  type JobEvent,
+  type JobEventFilter,
+  type JobEventListener,
+  type JobRegistry,
+  type JobView,
+} from '@deepseek-ai/dsh-jobs'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SubagentDescendantListEntry, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import { displayWidth, Screen, SPINNER_INTERVAL_MS, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { HarnessWork } from '../src/work/index.ts'
+import type { WorkCapabilities } from '../src/work/index.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { JobWorkItem, SubagentWorkItem, WorkInterruptResult, WorkSnapshot } from '../src/work/model.ts'
 import { activeWorkCount, workItemKey, workSummary } from '../src/work/model.ts'
 
-/** The root agent shape the capability contracts use for ownership. */
-const agent = { session: { id: 'root' } } as Agent
+/** The session every row in this file belongs to. */
+const ROOT = SessionId('root')
 
-/** A different exact Agent instance, proving job listeners stay owner-scoped. */
-const otherAgent = { session: { id: 'other' } } as Agent
+/** The root agent shape the capability contracts use for ownership. */
+const agent = { session: { id: ROOT } } as Agent
+
+/** The exact listener `HarnessWork` registers for a `subagent/start` edge. */
+type StartListener = Parameters<NonNullable<WorkCapabilities['onSubagentStart']>>[0]
+
+/** The exact listener `HarnessWork` registers for a `subagent/end` edge. */
+type EndListener = Parameters<NonNullable<WorkCapabilities['onSubagentEnd']>>[0]
+
+/**
+ * The edge distance `listDescendants` reports for a direct child of this
+ * session. The seam walks the whole tree, so every other depth belongs to some
+ * other parent's branch.
+ */
+const DIRECT_CHILD_DEPTH = 1
+
+/** A grandchild row: two edges away, and therefore not this session's work. */
+const GRANDCHILD_DEPTH = 2
 
 /** Standard successful interrupt response for overlay-only tests. */
 const INTERRUPT_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Interrupt requested.' }
 
-/** Make a job snapshot with only the facts Work is allowed to present. */
-function job(status: JobSnapshot['status'] = 'running', label = 'pnpm test'): JobSnapshot {
+/**
+ * Make a job projection with only the facts Work is allowed to present.
+ *
+ * `output` is present because the real `JobView` always publishes the ring's
+ * absolute coordinates, and `reported` is gone: the adopted generation replaced
+ * that model-delivery flag with the owning session itself.
+ * @param status - lifecycle state the registry is reporting.
+ * @param label - the producer's one-line label.
+ * @param owner - owning session; omitted entirely for an unowned job.
+ * @returns a fresh projection, as `list()` hands out.
+ */
+function job(
+  status: JobView['status'] = 'running',
+  label = 'pnpm test',
+  owner: SessionId | undefined = ROOT,
+): JobView {
   return {
-    id: 'bash-1' as JobSnapshot['id'],
+    id: JobId('bash-1'),
     kind: 'bash',
     label,
     status,
     startedAt: 0,
-    ownerSession: 'root' as JobSnapshot['ownerSession'],
-    reported: false,
+    // `owner` is optional upstream rather than nullable: an unowned job omits
+    // the key, and Work reads its absence as `unowned`, not as a session.
+    ...owner === undefined ? {} : { owner },
+    output: { total: 0, earliest: 0 },
+  }
+}
+
+/** A registry event announcing one committed change to a job's row. */
+function rowEvent(type: 'registered' | 'progress' | 'stopping' | 'removed'): JobEvent {
+  return { type, job: job() }
+}
+
+/** A registry event announcing that a job reached its terminal status. */
+function settledEvent(): JobEvent {
+  return { type: 'settled', job: job('completed'), cause: 'producer', awaited: false }
+}
+
+/** A registry event announcing that the output ring grew. */
+function outputEvent(): JobEvent {
+  return { type: 'output', id: JobId('bash-1'), owner: ROOT, total: 64 }
+}
+
+/** What one jobs double answers, and everything it recorded being asked. */
+interface JobsSeam {
+  /** The registry, handed to `HarnessWork`. */
+  readonly jobs: JobRegistry
+  /** Every filter `subscribe` was called with, in call order. */
+  readonly filters: () => readonly JobEventFilter[]
+  /** Every caller `list` was called with, in call order. */
+  readonly listCallers: () => readonly unknown[]
+  /** Names of the forbidden members a projection reached for. */
+  readonly forbidden: () => readonly string[]
+  /** Deliver one event to every registered listener, as the registry would. */
+  readonly emit: (event: JobEvent) => void
+  /** How many listeners are still registered. */
+  readonly live: () => number
+}
+
+/**
+ * Build a jobs double serving `views`, recording what Work asked of it.
+ *
+ * Everything upstream deleted simply has no slot here: there is no
+ * `onJobsChanged` owner-comparison feed to answer, and no `onJobDone`
+ * completion-delivery subscription left to refuse. What remains forbidden is
+ * the reading and control surface, because Work observes jobs and must never
+ * consume a producer's output cursor or cancel its work.
+ * @param views - what `list()` answers on every read.
+ * @returns the double and everything it recorded.
+ */
+function jobsSeam(views: () => JobView[]): JobsSeam {
+  const filters: JobEventFilter[] = []
+  const listeners: JobEventListener[] = []
+  const listCallers: unknown[] = []
+  const forbidden: string[] = []
+  const refuse = (member: string): never => {
+    forbidden.push(member)
+    throw new Error(`HarnessWork must never call ${member}()`)
+  }
+  return {
+    jobs: {
+      list: (caller?: SessionId) => {
+        listCallers.push(caller)
+        return views()
+      },
+      events: {
+        subscribe: (filter: JobEventFilter, listener: JobEventListener) => {
+          filters.push(filter)
+          listeners.push(listener)
+          return () => {
+            filters.splice(filters.indexOf(filter), 1)
+            listeners.splice(listeners.indexOf(listener), 1)
+          }
+        },
+      },
+      get: () => refuse('get'),
+      read: () => refuse('read'),
+      readAt: () => refuse('readAt'),
+      kill: () => refuse('kill'),
+      wait: () => refuse('wait'),
+      remove: () => refuse('remove'),
+    } as JobRegistry,
+    filters: () => filters,
+    listCallers: () => listCallers,
+    forbidden: () => forbidden,
+    emit: event => { for (const listener of [...listeners]) listener(event) },
+    live: () => listeners.length,
   }
 }
 
@@ -74,16 +197,40 @@ async function settled(): Promise<void> {
 /** A no-work projection used by overlay-focused tests. */
 const EMPTY: WorkSnapshot = { available: false, workflows: [], subagents: [], jobs: [] }
 
-/** One direct child record served by the authoritative subagent discovery seam. */
-const CONTINUABLE_CHILD = {
-  kind: 'child' as const, id: 'child', mode: 'continuable' as const,
-  label: '审查 renderer', activity: 'running' as const, hasChildren: false,
+/**
+ * One direct child row served by the authoritative descendant discovery seam.
+ *
+ * `parentId` and `depth` are what make a row attributable: the traversal walks
+ * whole catalogs, so the parent is what says which branch a row belongs to and
+ * the depth is what says how far from the requested root it sits.
+ */
+const CONTINUABLE_CHILD: SubagentDescendantListEntry = {
+  kind: 'child', id: SessionId('child'), mode: 'continuable',
+  label: '审查 renderer', activity: 'running', hasChildren: false,
+  parentId: ROOT, depth: DIRECT_CHILD_DEPTH,
 }
 
 /** A settled durable child: discoverable, but never active Work by itself. */
-const INACTIVE_CHILD = {
-  kind: 'child' as const, id: 'durable', mode: 'continuable' as const,
-  label: 'history', activity: 'inactive' as const, hasChildren: true,
+const INACTIVE_CHILD: SubagentDescendantListEntry = {
+  kind: 'child', id: SessionId('durable'), mode: 'continuable',
+  label: 'history', activity: 'inactive', hasChildren: true,
+  parentId: ROOT, depth: DIRECT_CHILD_DEPTH,
+}
+
+/** A grandchild of this session, discoverable only because the walk is recursive. */
+const GRANDCHILD: SubagentDescendantListEntry = {
+  kind: 'child', id: SessionId('grandchild'), mode: 'continuable',
+  label: 'deep reviewer', activity: 'running', hasChildren: false,
+  parentId: SessionId('child'), depth: GRANDCHILD_DEPTH,
+}
+
+/**
+ * A direct child the seam has no descriptor for: its own catalog could not be
+ * read, so the row carries the failure and nothing else.
+ */
+const CORRUPT_CHILD: SubagentDescendantListEntry = {
+  kind: 'diagnostic', id: SessionId('broken'), reason: 'corrupt',
+  parentId: ROOT, depth: DIRECT_CHILD_DEPTH,
 }
 
 describe('generic Harness Work capability projection', () => {
@@ -94,46 +241,74 @@ describe('generic Harness Work capability projection', () => {
   })
 
   it('boots with jobs only and never reads a job output cursor', () => {
-    let readCalls = 0
-    const jobs = {
-      list: () => [job()],
-      read: () => { readCalls += 1 },
-      onJobsChanged: () => () => {},
-      onJobDone: () => { throw new Error('presentation must not subscribe to completion delivery') }
-    } as JobRegistry
-    const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
     const running = work.snapshot().jobs[0]
     expect(running).toMatchObject({
       source: 'job', kind: 'bash', label: 'pnpm test', state: 'running', ownership: 'this-session',
     })
-    expect(readCalls).toBe(0)
+    // `read` and `readAt` would consume a producer's ring; the double throws.
+    expect(seam.forbidden()).toEqual([])
     work.dispose()
   })
 
   it('marks an unowned job without inventing a session association', () => {
-    const jobs = {
-      list: () => [{ ...job(), ownerSession: undefined }],
-      onJobsChanged: () => () => {},
-      onJobDone: () => {},
-    } as JobRegistry
-    const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
+    // `owner` is absent, not null: the projection publishes the key only for an
+    // owned job, and reading a missing key as a session would claim authority.
+    const seam = jobsSeam(() => [job('running', 'pnpm test', undefined)])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
     expect(work.snapshot().jobs[0]?.ownership).toBe('unowned')
     work.dispose()
   })
 
-  it('uses only the owner-scoped jobs change feed for presentation refreshes', () => {
-    let changed: ((owner: Agent | undefined) => void) | undefined
+  it('scopes the job event subscription to this session and lists by session id', () => {
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
+    work.snapshot()
+    // The `{ owner }` filter IS the owner scoping: the seam delivers that
+    // session's own jobs plus every unowned one, so no other session's change
+    // can reach this listener at all. A second, unscoped subscription would.
+    expect(seam.filters()).toEqual([{ owner: ROOT }])
+    // The registry fences reads by SESSION ID, not by the whole Agent: the
+    // argument is the id itself, so there is no object to walk back into.
+    expect(seam.listCallers()).toEqual([ROOT])
+    work.dispose()
+    expect(seam.live()).toBe(0)
+  })
+
+  it('repaints for the four row-changing job events and never for output chatter', () => {
     let invalidated = 0
-    const jobs = {
-      list: () => [job()],
-      onJobsChanged: (listener: (owner: Agent | undefined) => void) => { changed = listener; return () => {} },
-      onJobDone: () => { throw new Error('onJobDone is model-delivery semantics, not presentation') }
-    } as JobRegistry
-    new HarnessWork({ agent, jobs, invalidate: () => { invalidated += 1 } })
-    changed?.(otherAgent)
-    expect(invalidated).toBe(0)
-    changed?.(agent)
-    expect(invalidated).toBe(1)
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => { invalidated += 1 } })
+    // A registration adds a row, a stop and a settlement change what `list()`
+    // filters to, and a removal empties the section.
+    for (const type of ['registered', 'stopping', 'removed'] as const) {
+      const before = invalidated
+      seam.emit(rowEvent(type))
+      expect(invalidated, type).toBe(before + 1)
+    }
+    const afterRows = invalidated
+    seam.emit(settledEvent())
+    expect(invalidated).toBe(afterRows + 1)
+    // A progress line and a ring append are producer chatter no Work row
+    // projects, and an append lands once per chunk: repainting the live region
+    // for either would be repaint, not information.
+    const afterSettle = invalidated
+    seam.emit(rowEvent('progress'))
+    seam.emit(outputEvent())
+    expect(invalidated).toBe(afterSettle)
+    work.dispose()
+  })
+
+  it('stops repainting on job events once the projection is disposed', () => {
+    let invalidated = 0
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => { invalidated += 1 } })
+    work.dispose()
+    const afterDispose = invalidated
+    seam.emit(rowEvent('registered'))
+    seam.emit(settledEvent())
+    expect(invalidated).toBe(afterDispose)
   })
 
   it('uses direct-child discovery and generic lifecycle edges for subagents', async () => {

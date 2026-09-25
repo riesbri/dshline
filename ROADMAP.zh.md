@@ -131,13 +131,15 @@ Connect 仍在前面：
 ### 5. Agent 预设——已合并
 
 第五个通用能力适配器呈现 agent 的 COMPOSITION（组合）：运行中的 agent 实际拥有哪些工具、
-提示词分节与委派后端，通过 `ctx.agentPresets` 读取。`/plugins` 浏览名册以及某个 agent 所加入
-预设的组合，并把每一项变更交给拥有它的 seam 执行。
+提示词分节与委派后端，通过 `ctx.agentPresets` 读取。预设现在是组合中的一条 declaration，而不是
+发布目录里的一个文件。`/plugins` 浏览名册以及某个 agent 所加入声明的组合，并把每一项变更交给
+拥有它的 seam 执行——行内编辑走 `ctx.configEditor`，默认项走 `ctx.settings`，切换走 `select()`。
 
-- 通过 `list()`/`read()` 读取名册与某个预设的组合；绝不使用私有插件注册表，也绝不从工具名或
-  渲染输出推断
-- 只在本地编写的预设上切换某一行——内置预设先复制（`copy()`），绝不就地编辑——并通过 Harness
-  自己的健康检查重新校验结果，而不是私自重新解析
+- 通过 `list()` 和 `readDocument()` 读取名册与某个声明的组合；绝不使用私有插件注册表，也绝不从
+  工具名或渲染输出推断
+- 只通过 `ctx.configEditor` 编辑某一行，而它正是已采纳世代给 declaration 的拥有者：它持久化一份
+  profile 层的覆盖，因此随包发布的 declaration 绝不会被就地修改；并且由该行自己的 `Config` 重新
+  校验结果，而不是私自重新解析
 - 只通过 `mount()` 加入某个 agent 的组合，只通过 `select()` 切换它——那是 Harness 自己的完整
   操作：在它自己串行化的切换内部重新检查权威的 `turnBoundary` 投影、拒绝已开始的会话、重新
   组合，并记录这次选择。dshline 自己不执行其中任何一步；已开始的会话其预设是固定的，终端改为
@@ -302,7 +304,12 @@ Worktrees 仍待完成的部分，两者都等上游：
 - **内容搜索取决于部署。**全文会话搜索是会话查询引擎的抽象接口；未实现它的后端会让 `tab` 报告这一点，过滤仍然可用。
 - **Sessions 不感知归档。**Harness 在 Workspace 领域拥有会话归档——`ctx.workspaceRegistry.archiveSession()` 会持久地把一个会话从分组界面中隐藏——但上游明确记载归档是单向的，目前还不存在取消归档的操作。归档状态也不是会话语料库发布的事实：`SessionRecord` 不带任何归档字段，`SessionResultFilter` 没有归档谓词，而归档变更的唯一流只有 Workspace 控制器的 Remote `follow()`。因此 `/sessions` 既不提供归档——单向的隐藏不是终端应该交给阅读者的东西——也不隐藏别处已归档的会话，否则它们在唯一还能恢复它们的界面上将无法触达。
 - **已开始的会话不能实时切换预设。**Harness 在 `agentPresets.select()` 内部拒绝它；`/plugins` 读取同一个 `turnBoundary` 投影以避免提供不可能的动作，并改为提供下一个会话的默认项。
-- **`/plugins` 直接编辑预设的组合文件。**切换某一行是对 `agent.cordis.yml` 的一次窄范围、带锁协调的编辑，因为 Harness 还没有暴露更细粒度的变更约定；条件（`!!js`）行绝不被求值或切换，只被报告。
+- **`/plugins` 不提供新建预设的能力。**已采纳的注册表没有 `copy()`：declaration 就是一行，新建
+  一条是交给 `plugin_manager` 安装的 bundle patch，属于插件管理范畴而非终端范畴。编辑一条已经存在
+  的 declaration 是提供的，新建不是。
+- **`/plugins` 无法切换条件（`!!js`）行。**Loader 仍会求值这些表达式，因此这里不存在一种既是普通
+  切换、又是诚实修改的编辑；该表达式会被指明，而该行保持原样。在没有挂载 `configEditor` 的
+  profile 中，所有行同样只读。
 - **预设出现之前的会话，其组合只能近似。**在 dshline 采纳 agent 预设之前产生的会话没有记录预设，因此按随附的 `standard` 恢复——这个预设的含义正是它们当初实际运行的那套扁平工具集。在未提供可用 `standard` 的部署上，恢复回退到该部署自己的默认值，并由 transcript（文本记录）说明工具可能与这段历史产生时所用的不同。此后创建的会话自带预设，无需猜测。
 - **`/profiles` 不能切换运行中的 Host。**配置文件的 bundle 层在启动时组合一次，Harness 没有暴露能在活动进程下重新链接它们的 seam。另一个配置文件会被呈现，并指出启动它的命令；安装、更新或移除某个 bundle 报告的是它为下一个 Host 改变了什么，而不是假装能触及这一个。
 - **bundle 操作需要一个可解析的 `dsh` 启动器。**它们被转发给 `dsh plugin --profile <name> …` 而不是重新实现，启动器的查找方式与 `bin/dshline.mjs` 相同的四种（`DSH_BIN`、`DSH_HARNESS` 检出、`PATH`、已安装的 `@deepseek-ai/dsh`）。四种都解析不出时，会指出确切命令，而不是让操作静默失败。

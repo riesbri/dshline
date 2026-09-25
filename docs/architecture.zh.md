@@ -64,7 +64,7 @@ native terminal
 | 逐条目的上下文组成 | `ctx.tokenMeter` | 只在检视器需要时索取逐节点测量；其自身约定称之为 O(surface)。 |
 | 计划模式 | 已提交的 `plan/mode` 事件；Harness 的 `plan` 投影作为约定证据 | 用 `planModeAfter()` 折叠已提交的模式事件；不维护可变的第二份状态，也不把 `ctx.planMode` 作为呈现镜像来读取。 |
 | 缩减上下文 | `ctx.commands`（`/compact`） | 派发已注册的命令；观察 `compaction/*` 事件。绝不调用 `ctx.compaction`。 |
-| agent 组合 | `ctx.agentPresets` | 读取名册、某个预设的组合，以及某个会话实际运行的预设；只通过这个 seam 加入或切换一个 agent，绝不用私有注册表。 |
+| agent 组合 | `ctx.agentPresets`、`ctx.configEditor` | 读取名册、某条 declaration 的组合，以及某个会话实际运行的 declaration；只通过这些 seam 加入、切换一个 agent，或把组合作为 profile 覆盖来编辑，绝不用私有注册表或第二个写入器。 |
 | Host 组合 | `ctx.dshHomePath`、`ctx.baseUrl`、`dsh plugin` | 通过 Harness 自己的 home-path 服务读取配置文件名册，从 Loader 的 base URL 读取已启动的配置文件；变更只转发给 `dsh plugin`，绝不写入配置文件清单。 |
 | 子进程 | `ctx.subprocess` | 通过 Harness runtime 转发 launcher argv、环境与超时；不重新实现 launcher 或 profile 策略。 |
 | 会话标题 | `ctx.sessionTitle` | 通过活动会话服务重命名；不修改复制的 header，也不维护标题存储。 |
@@ -492,12 +492,24 @@ agent 的预设实际组合的那些行，并通过与官方 Web 界面所做变
 注册表、能力列表，也没有自己的提供方专用分支——正是本文档中每一个适配器都遵循的同一条规则，
 只是从"它能与哪些提供方对话"换成了"这个 agent 有哪些工具"。
 
-**系统预设属于 Harness，在这里保持只读。**随部署一同提供的预设带有 `system` 信任等级；
-`/plugins` 绝不编辑那个文件。定制其中之一走的是 Harness 自己支持的路径——把它复制为一个新的、
-本地编写的预设（`ctx.agentPresets.copy()`），然后编辑副本——在内置预设的行上按空格，正是终端
-提议去做这件事，而绝不是绕过它的捷径。用户编写的副本除了它自己的组合文件之外，没有更窄的
-Harness 变更 API，因此在那里切换一行是只触及该字段、其余部分原封不动的最小编辑；结果是否可用，
-仍由 Harness 自己对该预设的健康检查决定，而不是私自重新读取它。
+**预设是一条 declaration，而 profile 可以覆盖它。**已采纳的注册表既不发布 `path`，也不发布
+`trust`，因为 declaration 不是文件：它是 Cordis 组合里一条普通的
+`@deepseek-ai/dsh-agent-preset` 行，而注册表"既不扫描目录，也不接受 preset 路径"。因此上一代
+的划分——随包预设只读、副本可编辑——随它所属的拥有模型一起消失了。
+
+编辑能力保留下来，但换了拥有者。`ctx.configEditor` 正是上一代缺少的更细粒度变更约定：它接收
+某一行的完整下一份 `config`，通过该行自己的 `Config` 校验它，在 Harness 的文件锁下持久化一份
+**profile 层覆盖**，并在 HMR 下协调 Loader 条目。因此切换本 bundle 所发布声明中的某一行，
+是把一份覆盖写进 profile，而把声明原封不动地留在它的包里——这正是手工写 bundle patch 的做法，
+也保证了每一个不做覆盖的 profile 仍然得到正确的随包组合。这里没有第二个 YAML 写入器，也没有第二把
+文件锁：`/plugins` 只产出下一份 `config.plugins` 并交出去。
+
+剩下两处拒绝，理由都关乎那一行本身，而无关拥有权。声明通过编辑器自己的条目列表、按其声明的 id
+定位，零个或多个匹配都被拒绝，而不是猜一个。`!!js` 的 `disabled` 绝不被切换，因为 Loader 仍会
+求值它，而这里不存在一种既是普通切换、又是诚实修改的编辑。
+
+**不提供新建 declaration 的能力。**注册表没有 `copy()`，而新建一条 declaration 是交给
+`plugin_manager` 安装的 bundle patch——属于插件管理范畴，而不是终端范畴。
 
 **会话组合是生命周期事实，不是本前端保存的设置。**新会话按名册当前的默认值组合。已恢复的会话
 按它自己日志所记录的内容组合——它被创建时所用的预设，或它还空白时做出的后续切换——而绝不是
