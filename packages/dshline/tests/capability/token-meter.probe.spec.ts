@@ -21,7 +21,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -38,7 +38,7 @@ async function harness(): Promise<{ ctx: Context; session: Session }> {
 }
 
 /** One user prompt on the surface. */
-function prompt(session: Session, text: string): number {
+function prompt(session: Session, text: string): SessionSeq {
   return session.append('user/message', {
     id: `m-${String(session.seq)}`,
     role: 'user',

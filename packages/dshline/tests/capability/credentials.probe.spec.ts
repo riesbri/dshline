@@ -15,7 +15,7 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import CredentialProvider, { credentialKey } from '@deepseek-ai/dsh-credentials'
+import CredentialProvider, { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialKey, CredentialRecord, CredentialRecordEntry, CredentialRecordInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import { describe, expect, it } from 'vitest'
 
@@ -24,9 +24,9 @@ class MemoryCredentialProvider extends CredentialProvider {
   // TS-private, not `#`-private: cordis serves consumers through a traced
   // proxy whose `this` carries no private-field brand.
   /** Values behind environment-shaped references, by reference name. */
-  private readonly refs = new Map<string, string>()
+  private readonly refs = new Map<CredentialRef, string>()
   /** Plugin-owned records, by `<scope>/<id>` key. */
-  private readonly records = new Map<string, CredentialRecord>()
+  private readonly records = new Map<CredentialKey, CredentialRecord>()
 
   override async resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined> {
     const value = this.refs.get(ref)
@@ -77,7 +77,7 @@ class MemoryCredentialProvider extends CredentialProvider {
 }
 
 /** The one reference the probe's route names, in the env-shaped vocabulary. */
-const REF = 'PROBE_API_KEY'
+const REF = credentialRef('PROBE_API_KEY')
 
 /** The record address shape authorization entries hand Connect. */
 const OPENAI = credentialKey('llm-pi-ai', 'openai')

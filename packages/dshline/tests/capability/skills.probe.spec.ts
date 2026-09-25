@@ -105,7 +105,7 @@ function agentFor(cwd: string): Agent {
     steer: () => {},
     inject: () => { throw new Error('the step boundary must not use agent.inject()') },
     cancel() {},
-    runMaintenance: task => task(new AbortController().signal),
+    runMaintenance: (task: (signal: AbortSignal) => Promise<unknown>) => task(new AbortController().signal),
     whenIdle: async () => {},
   } as unknown as Agent
 }
