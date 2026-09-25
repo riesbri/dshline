@@ -23,7 +23,7 @@
     "verify-docs": "node tools/verify-translation-pairing.mjs"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.2",
+    "@changesets/cli": "^3.0.3",
     "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-agent": "0.1.7-rc.2",
     "@deepseek-ai/dsh-authorization": "0.1.7-rc.2",
@@ -40,9 +40,9 @@
     "@deepseek-ai/dsh-subprocess": "0.1.7-rc.2",
     "@deepseek-ai/dsh-subprocess-local": "0.1.7-rc.2",
     "@deepseek-ai/dsh-timeout": "0.1.7-rc.2",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.2",
     "@xterm/headless": "^6.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.1"
   }
 }
