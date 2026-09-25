@@ -1005,12 +1005,31 @@ separate Harness authorities, and dshline does not guess that two capability
 records describe the same operation. The one relationship it does show is
 published rather than guessed: a workflow member carries the `childId` of the
 subagent it started, so that child appears under its workflow instead of a
-second time in the flat Subagents section. Jobs are inspect/status only;
-cancellation remains available to the model through Harness `job_kill`. A
-workflow run has no control here at all, because `ctx.workflowEngine` hands a
-run handle only to the caller that started it. The status line's `work` segment
-counts what this overlay shows, so a child presented under its workflow is not
-also counted as a loose subagent there.
+second time in the flat Subagents section. A workflow run has no control here at
+all, because `ctx.workflowEngine` hands a run handle only to the caller that
+started it. The status line's `work` segment counts what this overlay shows, so a
+child presented under its workflow is not also counted as a loose subagent
+there.
+
+`/work` shows ACTIVE work and nothing else. A job appears while it is `running`
+or `stopping`, and the instant it settles — completed, failed, or killed — its
+row is gone, and so is its detail view if one was open. That is a product
+choice rather than a limitation: a job's output ring is a live preview, and
+`/work` is a live surface, so a settled job is not kept around to be looked at
+again. **`/work` is not a job history.** The durable record of finished work is
+the session transcript, which a resumed session replays.
+
+A running job can be stopped from its detail stage with two presses of `k`:
+the first arms that one job and the footer says `press k again to stop`, the
+second asks Harness to cancel it with the reason `cancelled by the user`. The
+arming is bound to that job's own identity, not to a row position, so navigating
+to another job, closing the view, or the job disappearing all cancel it; it also
+expires after a few seconds. A `stopping` job offers no stop, because there is
+nothing left to ask for. This is the same registry cancellation a human stop
+button in the web UI performs, and the agent that owns the job still receives the
+ordinary completion notice — dshline does not suppress it and does not speak to
+the model on your behalf. If the producer refuses to cancel, the failure is shown
+briefly in the overlay and the job keeps running.
 
 Durable subagent conversations are a separate view from active work. `/work`
 lists only open lifecycle epochs, and a continuable child's epoch ends when it
@@ -1131,8 +1150,50 @@ running and freezing where the projection last folded when it is not.
 `elapsed` is the weaker fallback — how long this lifecycle epoch has been open
 — shown for a child whose timing the profile does not project. Only ever one
 of them appears.
-A job view shows its status, kind, producer detail, elapsed time, owner, and
-job id — and no row announcing an action it does not have.
+A job view shows its status, kind, elapsed time, and owner, then the output the
+job has produced so far, then the `job id` a report needs.
+
+A job whose producer publishes a progress line shows it, on the row and in the
+view:
+
+```
+• bash pnpm test · 127/203  24s
+• bash cargo build · compiling crate_x  8s
+```
+
+That is the producer's own text, shown as written: dshline does not parse it,
+turn it into a percentage, or invent a denominator it was not given. A producer
+that publishes none simply has no progress, and the clock is shown instead. A
+narrow terminal drops whole facts rather than cutting one: `127/2` would be a
+different and smaller claim than `127/203`, so the progress line goes before the
+clock does, and the job's kind and label are what remain.
+
+Pressing `↵` on a running job reads the output it has retained. This is a
+separate read from the one the model uses: dshline asks the registry for output
+at a byte offset of its own, which never moves the model's cursor, so watching a
+job's output here cannot take a single byte from what the agent is about to be
+told. The view shows the newest part of what is retained, bounded — a very long
+job does not grow dshline's memory. Output is read only while a job's view is
+actually open, so browsing the list, moving the highlight, or leaving the view
+costs nothing.
+
+Output lines are the job's live preview, not a terminal: they are drawn inside
+the same bounded view as everything else, never committed to the scrollback
+behind it, and any control characters they contain are displayed rather than
+obeyed. `stdout`, `stderr`, and `log` are distinguished by colour rather than by
+a prefix on every line, and the order is the order the registry recorded.
+
+Where earlier output is not available, one line says so:
+
+```
+… earlier output not retained …
+```
+
+That appears when the registry's own retention dropped the head of the stream,
+when the producer reported a gap, or when dshline's own display bound evicted
+older lines. It is shown once per missing stretch, and the rest of the stream
+stays readable, because a preview that silently spliced itself together would be
+worse than one that admits a hole.
 
 A continuable subagent may offer `k interrupt`, which asks Harness to
 interrupt that child's current turn — keeping its conversation, inbox, and

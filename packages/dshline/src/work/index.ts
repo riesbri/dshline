@@ -41,6 +41,8 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { ChildActivityObserver } from './activity.ts'
 import { HarnessWorkflows } from './workflows.ts'
 import type { WorkflowCapabilities } from './workflows.ts'
+import { observeJobOutput } from './jobs.ts'
+import type { JobOutputObservation } from './jobs.ts'
 import type {
   JobWorkItem,
   SubagentActiveTiming,
@@ -59,6 +61,19 @@ const CHILD_PROJECTION_KEYS = ['subagentTiming', 'tokenUsage'] as const
  * parent; every deeper row belongs to some other parent's branch.
  */
 const DIRECT_CHILD_DEPTH = 1
+
+/**
+ * The reason dshline records when a HUMAN stops a Job from `/work`.
+ *
+ * Harness's own human-facing controller uses this exact string, and the string
+ * matters: the registry merges it into the killed Job's terminal `detail`, so
+ * it reaches the owning agent inside the ordinary completion notice as
+ * `[stopped: cancelled by the user]`. Reusing the upstream wording is what keeps
+ * one cancellation reason in the product rather than two, and it is deliberately
+ * NOT phrased as anything the model asked for — the adopted generation's whole
+ * point is that a human stop and a model stop are different acts.
+ */
+const JOB_STOP_REASON = 'cancelled by the user'
 
 /** Discovery facts retained only when the direct-child projection served them. */
 interface DiscoveredSubagent {
@@ -149,6 +164,15 @@ export class HarnessWork {
   private readonly liveSubagents = new Map<string, LiveSubagent>()
   private readonly discovered = new Map<string, DiscoveredSubagent>()
   private readonly disposers: (() => void)[] = []
+  /**
+   * Job output observations handed out and not yet disposed.
+   *
+   * The overlay owns the handle it is given and disposes it on every path out
+   * of a Job detail; this set exists so {@link dispose} can contain a
+   * still-live one. It is emptied as handles are released, so it reads as "what
+   * a teardown mistake would leak", not as a second owner.
+   */
+  private readonly jobObservations = new Set<JobOutputObservation>()
   private readonly workflows: HarnessWorkflows | undefined
   private listingGeneration = 0
 
@@ -165,19 +189,26 @@ export class HarnessWork {
       // comparison did, and no other session's change can reach this listener.
       this.disposers.push(jobs.events.subscribe({ owner: capabilities.agent.session.id }, event => {
         switch (event.type) {
-          // The four events that can add, re-state, or retire a Work row: a
-          // registration is a new row, a stop or a settlement changes what
-          // `list()` filters to, and a removal empties the section.
+          // The events that can add, re-state, or retire a Work row: a
+          // registration is a new row, a progress line re-states one, a stop or
+          // a settlement changes what `list()` filters to, and a removal empties
+          // the section.
+          //
+          // `progress` became a row change with Jobs 2.0. It was ignored while
+          // Work threw the fact away, and a fact a row can now show is a fact
+          // whose silence would leave the row lying about what the Job is doing.
           case 'registered':
+          case 'progress':
           case 'stopping':
           case 'settled':
           case 'removed':
             capabilities.invalidate()
             break
-          // A progress line and a ring append are producer chatter that no
-          // Work row projects, and an append arrives once per chunk. Repainting
-          // the live region for either would be repaint, not information.
-          case 'progress':
+          // A ring append is NOT a row change, and must stay out of this switch
+          // for the cost reason rather than an information one: it arrives once
+          // per chunk, so repainting the whole live region per chunk would be
+          // repaint. The one place output is read is the open Job detail stage,
+          // which subscribes to exactly its own Job — see `observeJob`.
           case 'output':
             break
         }
@@ -236,6 +267,13 @@ export class HarnessWork {
   dispose(): void {
     this.listingGeneration += 1
     this.workflows?.dispose()
+    // Containment, not ownership. The overlay disposes its Job observer the
+    // moment a detail stage closes, so this set is normally empty; it exists so
+    // that a teardown ORDERING mistake — a stage still open when the attachment
+    // tears down — cannot leave a live registry subscription calling
+    // `invalidate()` into the next attached session's live region.
+    for (const observation of this.jobObservations) observation.dispose()
+    this.jobObservations.clear()
     for (const run of this.liveSubagents.values()) {
       run.activity?.dispose()
       run.child = undefined
@@ -263,20 +301,21 @@ export class HarnessWork {
   }
 
   /**
-   * Interrupt work only where the owning generic seam exposes authority to do so.
+   * Interrupt a subagent only where the owning generic seam exposes authority.
    *
    * The operation is Harness `interrupt()` on a live continuable child: it
    * cancels the current turn, keeps the Activation, inbox, and descendants, and
-   * is a fire-and-return signal rather than a deletion of the durable child.
-   * @param item - selected work item.
+   * is a fire-and-return signal rather than a deletion of the durable child. A
+   * Job stop is deliberately NOT this method — see {@link stopJob} — and a
+   * workflow run has no authority here at all, because `ctx.workflowEngine`
+   * publishes `start()` alone.
+   * @param item - the selected subagent row.
+   * @returns the outcome as one short user-facing sentence.
    */
-  interrupt(item: JobWorkItem | SubagentWorkItem | WorkflowWorkItem): WorkInterruptResult {
+  interruptSubagent(item: SubagentWorkItem | WorkflowWorkItem): WorkInterruptResult {
     const { agent, subagents } = this.capabilities
-    // Job cancellation marks a record reported, changing model-delivery
-    // semantics. `/work` observes jobs but must not recreate that control path.
-    if (item.source === 'job') return { kind: 'unsupported', message: 'Jobs cannot be stopped from Work.' }
-    // `ctx.workflowEngine` publishes `start()` alone: a run handle reaches only
-    // its caller, so there is no authority here to cancel one from the terminal.
+    // A workflow run handle reaches only its caller, so there is no authority
+    // here to cancel one from the terminal.
     if (item.source === 'workflow') return { kind: 'unsupported', message: 'Workflow runs cannot be stopped from Work.' }
     try {
       // One-shot runs have no service-level interrupt operation. Pretending they
@@ -295,6 +334,99 @@ export class HarnessWork {
       const message = error instanceof Error ? error.message : String(error)
       this.capabilities.invalidate()
       return { kind: 'failed', message: `Interrupt failed: ${message}` }
+    }
+  }
+
+  /**
+   * Ask Harness to stop one running Job, on a human's behalf.
+   *
+   * This is the generic registry cancellation, and it is safe for a HUMAN to
+   * call in a way an older generation's registry was not. That generation kept
+   * a "reported" bit on the record: calling `kill()` from anywhere meant the
+   * model would never be told the Job had stopped, which is a correct
+   * optimization for the ONE caller that existed — the model's own `job_kill`,
+   * whose tool result already says what it did — and a stale world model for
+   * anyone else. The adopted generation separates the two: the registry owns
+   * cancellation, and `dsh-tool-jobs` owns a private ledger of the jobs its own
+   * tool already delivered. A human stop enters no such ledger, so Harness
+   * settlement and the completion reporter deliver the ordinary outcome to the
+   * owning agent, with the reason merged into its detail. dshline's own
+   * responsibility is therefore narrow and exactly what this method does: call
+   * the registry, with this session as the fenced caller, and claim nothing
+   * about delivery.
+   *
+   * Every Job kind the registry holds gains the control at once, because the
+   * call names an id and never a kind, a provider, or a subprocess.
+   * @param item - the inspected Job row.
+   * @returns the outcome as one short user-facing sentence.
+   */
+  stopJob(item: JobWorkItem): WorkInterruptResult {
+    const { jobs, agent } = this.capabilities
+    if (jobs === undefined) return { kind: 'unsupported', message: 'Jobs are not installed in this profile.' }
+    // A Job that is already stopping asked for this already. A second stop is
+    // not a decision, so it is not offered and saying so would only add a row.
+    if (item.state !== 'running') return { kind: 'unsupported', message: 'This job is already stopping.' }
+    try {
+      const outcome = jobs.kill(
+        item.id as Parameters<JobRegistry['kill']>[0],
+        agent.session.id,
+        JOB_STOP_REASON,
+      )
+      // Refresh in every outcome. `requested` re-states the row through the
+      // authoritative `stopping` transition, and settlement is what removes the
+      // row — the refresh is what lets both be seen, so no local state is
+      // mutated to stand in for the registry.
+      this.capabilities.invalidate()
+      if (outcome === 'already-finished') {
+        // A race, not a failure: the Job settled between the row being drawn and
+        // the press landing. The refresh above empties the section, and the row
+        // is NOT kept around to host this sentence — `/work` is active-only.
+        return { kind: 'requested', message: 'That job has already finished.' }
+      }
+      return { kind: 'requested', message: 'Stop requested.' }
+    } catch (error: unknown) {
+      // A producer `cancel()` throw propagates by the registry's own contract
+      // and leaves the Job exactly as it was, so nothing local is changed here
+      // and the next snapshot remains the truth. Authorization and unknown-job
+      // errors surface the same way rather than being swallowed.
+      const message = error instanceof Error ? error.message : String(error)
+      this.capabilities.invalidate()
+      return { kind: 'failed', message: `Stop failed: ${message}` }
+    }
+  }
+
+  /**
+   * Begin observing one Job's retained output, non-consumingly.
+   *
+   * Demand-driven by construction: nothing here runs until a Job detail stage is
+   * actually opened, the `/work` overview does exactly zero output reads, and
+   * the handle is dead the moment the stage closes. The read is `readAt`, never
+   * the consuming `read`, so a human watching a Job's output cannot take a
+   * single byte from the model's own cursor.
+   *
+   * The caller OWNS the returned handle and must dispose it. This projection
+   * keeps a containment set so {@link dispose} can catch a leaked one.
+   * @param id - the exact Job id to inspect.
+   * @returns an open observation, or undefined when the Job is not observable.
+   */
+  observeJob(id: string): JobOutputObservation | undefined {
+    const { jobs, agent } = this.capabilities
+    if (jobs === undefined) return undefined
+    const observation = observeJobOutput({
+      jobs,
+      id,
+      caller: agent.session.id,
+      invalidate: this.capabilities.invalidate,
+    })
+    if (observation === undefined) return undefined
+    this.jobObservations.add(observation)
+    const release = (): void => {
+      this.jobObservations.delete(observation)
+      observation.dispose()
+    }
+    return {
+      reading: () => observation.reading(),
+      dispose: release,
     }
   }
 
@@ -377,7 +509,15 @@ export class HarnessWork {
     })
   }
 
-  /** Convert non-terminal job views without consuming their output cursor. */
+  /**
+   * Project the ACTIVE jobs only, never consuming a producer's output cursor.
+   *
+   * The active filter is the product's own decision and is not a limitation of
+   * the seam: the registry keeps a settled record listed until its owner is
+   * disposed, precisely so a caller that collected the terminal state can still
+   * read it, and `/work` deliberately does not. A Job that settles disappears
+   * here, takes its row with it, and takes its open detail stage with it too.
+   */
   private jobItems(jobs: JobRegistry, agent: Agent): JobWorkItem[] {
     let views: JobView[]
     try {
@@ -396,11 +536,13 @@ export class HarnessWork {
         label: view.label,
         state: view.status,
         startedAt: view.startedAt,
+        // The producer's own progress line, carried verbatim. Opaque text, not
+        // a counter: the producer owns what `127/203` or `compiling crate_x`
+        // means, so inventing a denominator or a percentage from it would be
+        // dshline claiming a fact Harness never published.
+        ...view.progress === undefined ? {} : { progress: view.progress },
         ...view.detail === undefined ? {} : { detail: view.detail },
-        // `jobs.kill()` changes model-delivery (`reported`) semantics. It is a
-        // model control operation, not a human-safe Work action.
         ownership: view.owner === agent.session.id ? 'this-session' as const : 'unowned' as const,
-        interruptible: false as const,
       }))
   }
 

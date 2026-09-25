@@ -31,7 +31,19 @@
 - 把真实提供方支持当作上游约定验收测试，而不是提供方专用的 dshline 集成
 - 把已完成的 Codex 验收与未验证的 Claude Code 目标分开记录；两者都不需要提供方专用的 dshline 生产代码
 
-在 Harness 发布权威关联之前，任务与 subagent 保持分离。Codex 验收已完成；通过 `@deepseek-ai/dsh-subagent-claude-code`、`ctx.subagents` 与 `ctx.jobs` 的 Claude Code 是下一个验收目标，而不是已手动验证的集成。见 [Provider 验收](docs/provider-acceptance.md)。Work 还确立了更广的控制规则：它不暴露 `ctx.jobs.kill()`，因为该方法具有面向模型的「已报告交付」语义；可续的 subagent 只有在 `ctx.subagents` 明确建模时，才能暴露用户授权的中断。
+在 Harness 发布权威关联之前，任务与 subagent 保持分离。Codex 验收已完成；通过 `@deepseek-ai/dsh-subagent-claude-code`、`ctx.subagents` 与 `ctx.jobs` 的 Claude Code 是下一个验收目标，而不是已手动验证的集成。见 [Provider 验收](docs/provider-acceptance.md)。Work 还确立了更广的控制规则，这条规则的答案此后已经改变，而原则本身依然成立：控制出现在所属 seam 明确建模了人类权威的地方，仅仅存在一个可调用的变更永远不够。在所采用的那一代，这也包括人类停止任务，因为注册表拥有取消，而 `dsh-tool-jobs` 拥有它自己的工具已经交付过的任务账本——因此人类的 kill 会让拥有该任务的 agent 的通常完成通知继续到期。可续的 subagent 仍暴露其用户授权的中断，而工作流运行依旧得不到任何东西，因为 `ctx.workflowEngine` 只发布了 `start()`。
+
+### 2. Jobs 2.0——已合并
+
+在 Harness 发布了进度、非消费式输出读取以及人类可安全使用的任务取消之后，对 Jobs 分区做的第二遍。
+
+- 逐字投影 `JobView.progress`，不发明任何分母
+- 通过 `readAt` 读取保留的任务输出，绝不使用模型消费式的 `read`
+- 只在任务详情阶段打开时观察输出，因此概览完全不花费任何输出读取
+- 保留详情自身的保留上限，并且每一处丢失只标记一次
+- 提供经过确认的人类停止，并让模型的完成通知继续到期
+
+`/work` 仍然是活动工作界面，并且刻意不是任务历史：已结算的任务立即离开名册，并带走它打开的详情阶段，也不会被任何本地缓存保留。这是产品选择，并且是有意与 Harness Web 的已结算分区相分歧。
 
 ### 2. 会话投影与 agent 状态
 

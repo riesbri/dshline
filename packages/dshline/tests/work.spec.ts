@@ -21,6 +21,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
   JobId,
+  type JobChannel,
+  type JobChunk,
   type JobEvent,
   type JobEventFilter,
   type JobEventListener,
@@ -64,6 +66,15 @@ const GRANDCHILD_DEPTH = 2
 
 /** Standard successful interrupt response for overlay-only tests. */
 const INTERRUPT_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Interrupt requested.' }
+
+/**
+ * Standard successful Job stop response.
+ *
+ * "Requested", never "stopped": the registry only moves a Job to `stopping` and
+ * settlement is what ends it, so a claim that it stopped would be a lie about a
+ * producer nobody has watched die.
+ */
+const STOP_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Stop requested.' }
 
 /**
  * Make a job projection with only the facts Work is allowed to present.
@@ -125,6 +136,33 @@ interface JobsSeam {
   readonly listCallers: () => readonly unknown[]
   /** Names of the forbidden members a projection reached for. */
   readonly forbidden: () => readonly string[]
+  /**
+   * Every consuming `read` call, with the offset it resumed from.
+   *
+   * Recorded SEPARATELY from `readAts` on purpose: the whole point of the
+   * observation design is that one of these is empty no matter how much the
+   * other is used, and a single combined counter could not say that.
+   */
+  readonly reads: () => readonly { readonly id: string; readonly from: number }[]
+  /** Every `readAt` call, in order, with the offset it resumed from. */
+  readonly readAts: () => readonly { readonly id: string; readonly from: number; readonly caller?: SessionId }[]
+  /** Every `kill` call, with the exact three arguments the contract declares. */
+  readonly kills: () => readonly { readonly id: string; readonly caller?: SessionId; readonly reason?: string }[]
+  /** Append producer text to the ring at an absolute offset, as a producer would. */
+  readonly append: (text: string, options?: { channel?: JobChannel; gapBefore?: true }) => void
+  /** Publish a progress line, as a producer would. */
+  readonly progress: (line: string) => void
+  /** Move the ring's retained window forward, as harness-side retention would. */
+  readonly evictHead: (bytes: number) => void
+  /**
+   * Consume the ring the way the MODEL does, from the registry's own cursor.
+   *
+   * This is the strong half of the non-consuming proof: it is the member dshline
+   * must never call, so it lives on the double rather than on dshline's code, and
+   * a test can therefore show that watching `/work` first leaves the model's
+   * first read receiving exactly the bytes it would have received anyway.
+   */
+  readonly modelRead: (id?: string) => JobRead
   /** Deliver one event to every registered listener, as the registry would. */
   readonly emit: (event: JobEvent) => void
   /** How many listeners are still registered. */
@@ -134,11 +172,22 @@ interface JobsSeam {
 /**
  * Build a jobs double serving `views`, recording what Work asked of it.
  *
- * Everything upstream deleted simply has no slot here: there is no
- * `onJobsChanged` owner-comparison feed to answer, and no `onJobDone`
- * completion-delivery subscription left to refuse. What remains forbidden is
- * the reading and control surface, because Work observes jobs and must never
- * consume a producer's output cursor or cancel its work.
+ * The three members divide exactly as the real contract does, and the division
+ * is the point of this double:
+ *
+ * ```text
+ * read()    consuming — the MODEL's cursor, and the terminal result. Refused.
+ * readAt()  non-consuming observation. Supported, and the ring is real.
+ * kill()    explicit human control. Supported, and the arguments are recorded.
+ * ```
+ *
+ * The ring is faithful where faithfulness is hard: chunks carry real absolute
+ * UTF-8 byte offsets, and `readAt` returns a WHOLE chunk even when the requested
+ * offset falls inside it, so its `at` can precede `from`. A double that returned
+ * only the unseen suffix would let a `tail += chunk.text` implementation pass.
+ *
+ * Everything upstream deleted simply has no slot here, and `wait`/`remove` stay
+ * refused: both belong to a caller that collects a Job's terminal state itself.
  * @param views - what `list()` answers on every read.
  * @returns the double and everything it recorded.
  */
@@ -147,13 +196,27 @@ function jobsSeam(views: () => JobView[]): JobsSeam {
   const listeners: JobEventListener[] = []
   const listCallers: unknown[] = []
   const forbidden: string[] = []
-  // The refused members keep their REAL declared return types: a double that
-  // claimed `never` would not be a stand-in for the contract at all. The
-  // refusal is runtime, and the throw is what a test that reaches for one
-  // fails on.
+  const reads: { id: string; from: number }[] = []
+  const readAts: { id: string; from: number; caller?: SessionId }[] = []
+  const kills: { id: string; caller?: SessionId; reason?: string }[] = []
+  /** Retained chunks in offset order, the ring without its retention cap. */
+  let ring: JobChunk[] = []
+  let retained = 0
+  let earliest = 0
+  let total = 0
+  /** The model's own consuming cursor, which observation must never move. */
+  let modelCursor = 0
+  let published: JobView = job()
   const refuse = (member: string): never => {
     forbidden.push(member)
     throw new Error(`HarnessWork must never call ${member}()`)
+  }
+  /** Retained chunks overlapping `[from, total)`, whole, as the seam does. */
+  const overlapping = (from: number): JobChunk[] => ring.filter(chunk => {
+    return chunk.at + Buffer.byteLength(chunk.text, 'utf8') > from
+  })
+  const rebase = (): void => {
+    published = { ...published, output: { total, earliest } }
   }
   return {
     jobs: {
@@ -171,16 +234,82 @@ function jobsSeam(views: () => JobView[]): JobsSeam {
           }
         },
       },
-      get: (): JobView => refuse('get'),
-      read: (): JobRead => refuse('read'),
-      readAt: (): JobOutputRead => refuse('readAt'),
-      kill: (): 'requested' | 'already-finished' => refuse('kill'),
+      get: (id?: JobId): JobView => {
+        if (id !== undefined && String(id) !== 'bash-1') throw new Error(`unknown job ${String(id)}`)
+        return published
+      },
+      read: (id?: JobId, _caller?: SessionId): JobRead => {
+        const key = String(id ?? 'bash-1')
+        const from = modelCursor
+        reads.push({ id: key, from })
+        const chunks = overlapping(from)
+        modelCursor = total
+        return { chunks, lossy: from < earliest, job: { ...published, output: { total, earliest } } }
+      },
+      readAt: (id?: JobId, from = 0, caller?: SessionId): JobOutputRead => {
+        const key = String(id ?? 'bash-1')
+        readAts.push({ id: key, from, ...caller === undefined ? {} : { caller } })
+        return { chunks: overlapping(from), next: total, lossy: from < earliest }
+      },
+      kill: (id?: JobId, caller?: SessionId, reason?: string): 'requested' | 'already-finished' => {
+        const key = String(id ?? 'bash-1')
+        kills.push({ id: key, ...caller === undefined ? {} : { caller }, ...reason === undefined ? {} : { reason } })
+        if (published.status !== 'running') return 'already-finished'
+        published = { ...published, status: 'stopping' }
+        return 'requested'
+      },
       wait: (): Promise<JobView> => refuse('wait'),
       remove: (): void => refuse('remove'),
     } as never,
     filters: () => filters,
     listCallers: () => listCallers,
     forbidden: () => forbidden,
+    reads: () => reads,
+    readAts: () => readAts,
+    kills: () => kills,
+    append: (text, options) => {
+      if (text.length === 0) return
+      const bytes = Buffer.byteLength(text, 'utf8')
+      ring.push({
+        at: total,
+        text,
+        ...options?.channel === undefined ? {} : { channel: options.channel },
+        ...options?.gapBefore === undefined ? {} : { gapBefore: options.gapBefore },
+      })
+      total += bytes
+      retained += bytes
+      rebase()
+    },
+    progress: line => {
+      published = { ...published, progress: line }
+    },
+    evictHead: bytes => {
+      while (retained > bytes && ring.length > 1) {
+        const dropped = ring.shift()
+        /* v8 ignore next -- the length guard proves shift() returned a chunk. */
+        if (dropped === undefined) break
+        retained -= Buffer.byteLength(dropped.text, 'utf8')
+      }
+      // A single oversized chunk keeps only its UTF-8-safe tail, advanced to
+      // match — the ring's own rule, and the reason offsets never move once
+      // assigned.
+      if (ring.length === 1) {
+        const only = ring[0]
+        if (only !== undefined && Buffer.byteLength(only.text, 'utf8') > bytes) {
+          const raw = Buffer.from(only.text, 'utf8')
+          let start = raw.length - bytes
+          while (start < raw.length && ((raw[start] as number) & 0xC0) === 0x80) start += 1
+          const tail = raw.subarray(start)
+          only.text = tail.toString('utf8')
+          only.at += raw.length - tail.length
+          retained = tail.length
+          only.gapBefore = true
+        }
+      }
+      earliest = ring[0]?.at ?? total
+      rebase()
+    },
+    modelRead: (id = 'bash-1') => (jobs as unknown as { read: (i: JobId) => JobRead }).read(JobId(id)),
     emit: event => { for (const listener of [...listeners]) listener(event) },
     live: () => listeners.length,
   }
@@ -190,7 +319,7 @@ function jobsSeam(views: () => JobView[]): JobsSeam {
 function jobItem(overrides: Partial<JobWorkItem> = {}): JobWorkItem {
   return {
     id: 'bash-1', source: 'job', kind: 'bash', label: 'pnpm test',
-    state: 'running', startedAt: Date.now(), ownership: 'this-session', interruptible: false, ...overrides,
+    state: 'running', startedAt: Date.now(), ownership: 'this-session', ...overrides,
   }
 }
 
@@ -268,14 +397,18 @@ describe('generic Harness Work capability projection', () => {
     work.dispose()
   })
 
-  it('boots with jobs only and never reads a job output cursor', () => {
+  it('boots with jobs only and never consumes a job output cursor', () => {
     const seam = jobsSeam(() => [job()])
     const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
     const running = work.snapshot().jobs[0]
     expect(running).toMatchObject({
       source: 'job', kind: 'bash', label: 'pnpm test', state: 'running', ownership: 'this-session',
     })
-    // `read` and `readAt` would consume a producer's ring; the double throws.
+    // Building the roster touches no output member at all: the overview is a
+    // `list()` surface, and observation only exists once a detail is open.
+    expect(seam.readAts()).toEqual([])
+    expect(seam.reads()).toEqual([])
+    // `read` is still refused outright, so an accidental swap fails loudly.
     expect(seam.forbidden()).toEqual([])
     work.dispose()
   })
@@ -308,9 +441,9 @@ describe('generic Harness Work capability projection', () => {
     let invalidated = 0
     const seam = jobsSeam(() => [job()])
     const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => { invalidated += 1 } })
-    // A registration adds a row, a stop and a settlement change what `list()`
-    // filters to, and a removal empties the section.
-    for (const type of ['registered', 'stopping', 'removed'] as const) {
+    // A registration adds a row, a progress line re-states one, a stop and a
+    // settlement change what `list()` filters to, and a removal empties it.
+    for (const type of ['registered', 'progress', 'stopping', 'removed'] as const) {
       const before = invalidated
       seam.emit(rowEvent(type))
       expect(invalidated, type).toBe(before + 1)
@@ -318,13 +451,13 @@ describe('generic Harness Work capability projection', () => {
     const afterRows = invalidated
     seam.emit(settledEvent())
     expect(invalidated).toBe(afterRows + 1)
-    // A progress line and a ring append are producer chatter no Work row
-    // projects, and an append lands once per chunk: repainting the live region
-    // for either would be repaint, not information.
+    // A ring append is the one event that is not a row change, and it lands once
+    // per chunk. It must also never become an output READ on its own: a noisy
+    // producer whose detail is closed repaints nothing and costs no `readAt`.
     const afterSettle = invalidated
-    seam.emit(rowEvent('progress'))
     seam.emit(outputEvent())
     expect(invalidated).toBe(afterSettle)
+    expect(seam.readAts()).toEqual([])
     work.dispose()
   })
 
@@ -503,7 +636,7 @@ describe('generic Harness Work capability projection', () => {
     expect(row?.hasChildren).toBeUndefined()
     // Interrupt is authorized only for a PROVEN continuable child, and the
     // durable-conversation target refuses a session the catalog would not return.
-    const refused = row === undefined ? work.interrupt(subagentItem({ id: 'broken', interruptible: false })) : work.interrupt(row)
+    const refused = row === undefined ? work.interruptSubagent(subagentItem({ id: 'broken', interruptible: false })) : work.interruptSubagent(row)
     expect(refused).toEqual({ kind: 'unsupported', message: 'This subagent cannot be interrupted here.' })
     work.dispose()
   })
@@ -523,17 +656,60 @@ describe('generic Harness Work capability projection', () => {
     expect(invalidated).toBe(0)
   })
 
-  it('renders running jobs as non-interruptible and never calls jobs.kill', () => {
+  it('stops a running job through the generic registry call and nothing else', () => {
     const seam = jobsSeam(() => [job()])
     const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
     const running = work.snapshot().jobs[0]
-    expect(running?.interruptible).toBe(false)
-    expect(work.interrupt(running ?? jobItem())).toEqual({
-      kind: 'unsupported', message: 'Jobs cannot be stopped from Work.',
-    })
-    // `kill` marks a job reported for model delivery; the double throws if the
-    // overlay ever gets a control that reaches it.
+    expect(running).toBeDefined()
+    expect(work.stopJob(running!)).toEqual({ kind: 'requested', message: 'Stop requested.' })
+    // The three arguments are the whole contract: the exact id, the attached
+    // session as the fenced caller, and upstream's own human-stop reason string.
+    // dshline adds no delivery claim of its own, so the owning agent's ordinary
+    // completion notice stays due — which is why this is safe for a human to do
+    // and why the reason is worth passing verbatim.
+    expect(seam.kills()).toEqual([{ id: 'bash-1', caller: ROOT, reason: 'cancelled by the user' }])
+    // A subagent interrupt is a different operation and must never be reachable
+    // through the Job seam.
     expect(seam.forbidden()).toEqual([])
+    work.dispose()
+  })
+
+  it('refuses a second stop for a job that is already stopping', () => {
+    const seam = jobsSeam(() => [job('stopping')])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
+    const stopping = work.snapshot().jobs[0]
+    expect(stopping?.state).toBe('stopping')
+    expect(work.stopJob(stopping!)).toEqual({
+      kind: 'unsupported', message: 'This job is already stopping.',
+    })
+    expect(seam.kills()).toEqual([])
+    work.dispose()
+  })
+
+  it('reports a settled-job race as a race rather than a failure or a history', () => {
+    // The Job settled between the row being drawn and the press landing. The
+    // registry says `already-finished`, the active filter has already dropped the
+    // row, and the sentence must not claim a stop happened or imply the row is
+    // kept around to be explained.
+    const seam = jobsSeam(() => [job('completed')])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
+    expect(work.snapshot().jobs).toEqual([])
+    expect(seam.forbidden()).toEqual([])
+    work.dispose()
+  })
+
+  it('surfaces a producer cancel failure and leaves the row exactly as it was', () => {
+    // The registry deliberately propagates a throwing `cancel()` and leaves Job
+    // state unchanged, so a local `stopping` would be a lie. There is nothing to
+    // report from the double here beyond the call itself, which is the point:
+    // dshline's own failure path is proven against the overlay in the
+    // "Stop failed" test below.
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
+    const running = work.snapshot().jobs[0]
+    work.stopJob(running!)
+    expect(work.snapshot().jobs[0]?.state).toBe('running')
+    work.dispose()
   })
 
   it('interrupts continuable children with exact user parent authority and leaves one-shots unstopped', () => {
@@ -543,10 +719,10 @@ describe('generic Harness Work capability projection', () => {
       interrupt: (...args: unknown[]) => { calls.push(args) },
     } as never
     const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
-    expect(work.interrupt(subagentItem({ id: 'child', interruptible: true }))).toEqual(INTERRUPT_REQUESTED)
+    expect(work.interruptSubagent(subagentItem({ id: 'child', interruptible: true }))).toEqual(INTERRUPT_REQUESTED)
     // The authority is the exact parent SESSION, not a loose provider name.
     expect(calls).toEqual([['child', { kind: 'user', parentSessionId: ROOT }]])
-    expect(work.interrupt(subagentItem({ id: 'one-shot', interruptible: false }))).toEqual({
+    expect(work.interruptSubagent(subagentItem({ id: 'one-shot', interruptible: false }))).toEqual({
       kind: 'unsupported', message: 'This subagent cannot be interrupted here.',
     })
     expect(calls).toHaveLength(1)
@@ -596,7 +772,7 @@ describe('the Work live-region overlay', () => {
     for (const snapshot of states) {
       for (const columns of [14, 18, 24, 30]) {
         for (const rows of [7, 8, 10, 12]) {
-          const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+          const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
           const frame = overlay.render(columns, rows)
           expect(frame.flatMap(line => wrapToWidth(line, columns)).length, `${String(columns)}x${String(rows)}`)
             .toBeLessThanOrEqual(rows)
@@ -614,7 +790,7 @@ describe('the Work live-region overlay', () => {
     }
     for (const columns of [24, 40, 80]) {
       for (const rows of [7, 9, 12, 24]) {
-        const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+        const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
         overlay.handleKey({ kind: 'key', name: 'enter' })
         const frame = overlay.render(columns, rows)
         expect(frame.flatMap(line => wrapToWidth(line, columns)).length, `${String(columns)}x${String(rows)}`)
@@ -627,7 +803,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       provider: '提供者', label: '审查\u001b[2J renderer', interruptible: false,
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     const lines = overlay.render(60, 12)
     const plain = lines.map(stripAnsi).join('\n')
     expect(plain).toContain('提供者')
@@ -654,7 +830,7 @@ describe('the Work live-region overlay', () => {
       route: { provider: 'openai-codex', model: 'gpt-x' }, interruptible: false,
       startedAt: Date.now() - 18_000,
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     const at = (columns: number): string => overlay.render(columns, 12).map(stripAnsi).join('\n')
     expect(at(80)).toContain('Fix OAuth flow · reading route-editor.ts · openai-codex/gpt-x 18s')
     // The clock goes first: it is the least useful answer to "what is this doing".
@@ -676,7 +852,7 @@ describe('the Work live-region overlay', () => {
     let snapshot: WorkSnapshot = EMPTY
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => {},
       invalidate: () => {},
     })
@@ -706,7 +882,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, jobs: [jobItem()] }
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => {},
       invalidate: () => {},
     })
@@ -722,20 +898,21 @@ describe('the Work live-region overlay', () => {
   it('shows an interrupt hint only for the aimed interruptible item', () => {
     const oneShot = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: [subagentItem({ interruptible: false })] }),
-      interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {},
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {},
     })
     expect(oneShot.render(80, 12).map(stripAnsi).join('\n')).not.toContain('k interrupt')
     let jobInterrupts = 0
     const jobRow = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, jobs: [jobItem()] }),
-      interrupt: () => { jobInterrupts += 1; return INTERRUPT_REQUESTED }, close: () => {}, invalidate: () => {},
+      interruptSubagent: () => { jobInterrupts += 1; return INTERRUPT_REQUESTED },
+      stopJob: () => { jobInterrupts += 1; return STOP_REQUESTED }, close: () => {}, invalidate: () => {},
     })
     expect(jobRow.render(80, 12).map(stripAnsi).join('\n')).not.toContain('k interrupt')
     jobRow.handleKey({ kind: 'text', text: 'k' })
     expect(jobInterrupts).toBe(0)
     const continuable = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: [subagentItem()] }),
-      interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {},
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {},
     })
     expect(continuable.render(80, 12).map(stripAnsi).join('\n')).toContain('k interrupt')
     // The seam is an interrupt of one turn, never a generic "stop" claim.
@@ -746,7 +923,7 @@ describe('the Work live-region overlay', () => {
     let opened = 0
     const withCatalog = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: [subagentItem()] }),
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       conversations: () => { opened += 1 },
       close: () => {},
       invalidate: () => {},
@@ -757,7 +934,7 @@ describe('the Work live-region overlay', () => {
 
     const without = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: [subagentItem()] }),
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => {},
       invalidate: () => {},
     })
@@ -771,7 +948,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({ label: '审查 renderer', mode: 'continuable', hasChildren: true })], jobs: [] }
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => { closed += 1 },
       invalidate: () => {},
     })
@@ -798,7 +975,7 @@ describe('the Work live-region overlay', () => {
       id: 'child-1', label: 'review', mode: 'continuable', activityWord: 'reading',
       activityTitle: 'overlay.ts', busy: true, agentStatus: 'running', residency: 'resident', hasChildren: true,
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const detail = overlay.render(80, 24).map(stripAnsi).join('\n')
     // The live activity leads the view as a headline, not as a diagnostic row.
@@ -812,7 +989,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       id: 'child-1', label: 'review', outputTail: 'hello from the child',
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     // The overview list is unchanged: the tail belongs to the inspected subject.
     expect(overlay.render(80, 24).map(stripAnsi).join('\n')).not.toContain('hello from the child')
     overlay.handleKey({ kind: 'key', name: 'enter' })
@@ -823,7 +1000,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       id: 'child-1', label: 'review',
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const lines = overlay.render(80, 24).map(stripAnsi)
     expect(lines.join('\n')).not.toContain('output')
@@ -839,7 +1016,7 @@ describe('the Work live-region overlay', () => {
       const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
         label: 'review', outputTail: value,
       })], jobs: [] }
-      const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+      const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
       overlay.handleKey({ kind: 'key', name: 'enter' })
       const lines = overlay.render(80, 24).map(stripAnsi)
       expect(lines.join('\n'), JSON.stringify(value)).not.toContain('output')
@@ -853,7 +1030,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       label: 'review', outputTail: '\u0001',
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const detail = overlay.render(80, 24).map(stripAnsi).join('\n')
     expect(detail).toContain('output  ^A')
@@ -864,7 +1041,7 @@ describe('the Work live-region overlay', () => {
       const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
         label: 'review', outputTail: text,
       })], jobs: [] }
-      const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+      const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
       overlay.handleKey({ kind: 'key', name: 'enter' })
       const lines = overlay.render(60, 24)
       // Both fragments survive on the ONE row, separated rather than wrapped.
@@ -878,7 +1055,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       label: 'review', outputTail: '\u001b[31mred\u001b[0m',
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const raw = overlay.render(60, 24).join('\n')
     const visible = stripAnsi(raw)
@@ -894,7 +1071,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       label: '审查', outputTail: '你好世界'.repeat(30),
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const lines = overlay.render(columns, 24)
     expect(lines.every(line => displayWidth(line) <= columns)).toBe(true)
@@ -908,7 +1085,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       label: 'review', outputTail,
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const detail = overlay.render(40, 24).map(stripAnsi).join('\n')
     expect(detail).toContain('NEWEST')
@@ -927,7 +1104,7 @@ describe('the Work live-region overlay', () => {
     }
     for (const columns of [14, 18, 24, 30, 40, 60, 80]) {
       for (const rows of [7, 8, 10, 12, 24]) {
-        const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+        const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
         overlay.handleKey({ kind: 'key', name: 'enter' })
         const frame = overlay.render(columns, rows)
         expect(frame.flatMap(line => wrapToWidth(line, columns)).length, `${String(columns)}x${String(rows)}`)
@@ -941,7 +1118,7 @@ describe('the Work live-region overlay', () => {
       id: 'child-1', label: 'review', activityWord: 'reading', activityTitle: 'overlay.ts',
       outputTail: 'streaming the newest text',
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const detail = overlay.render(80, 24).map(stripAnsi).join('\n')
     expect(detail).toContain('reading · overlay.ts')
@@ -957,7 +1134,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       label: '审查 renderer', outputTail: '新输出\u001b[31mred\r\n继续',
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     screen.setLive(overlay.render(60, 12))
     const visible = await emulator.screen()
@@ -970,9 +1147,53 @@ describe('the Work live-region overlay', () => {
     emulator.dispose()
   })
 
+  it('draws a job’s retained output through a real terminal without leaking scrollback', async () => {
+    // The strongest statement the overlay can make about a job's output: it is
+    // drawn as ordinary bounded live-region rows in a real terminal, its control
+    // characters are DISPLAYED rather than obeyed, and not one byte of it reaches
+    // the committed history behind the overlay.
+    const emulator = createEmulator(60, 24)
+    const screen = new Screen(emulator.target)
+    screen.commit(['committed transcript row'])
+    const before = await emulator.scrollback()
+    const seam = jobsSeam(() => [job()])
+    seam.append('第一行[31m红色\n')
+    seam.append('[2Ksecond line\n')
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
+    const overlay = createWorkOverlay({
+      snapshot: () => work.snapshot(),
+      interruptSubagent: () => INTERRUPT_REQUESTED,
+      stopJob: () => STOP_REQUESTED,
+      observeJob: id => work.observeJob(id),
+      close: () => {},
+      invalidate: () => {},
+    })
+    overlay.render(60, 24)
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    screen.setLive(overlay.render(60, 24))
+    const visible = await emulator.screen()
+    // Wide glyphs and controls are on screen as text, and the erase sequence was
+    // not executed — a real terminal would have blanked the frame if it were.
+    expect(visible.join('\n')).toContain('第一行')
+    expect(visible.join('\n')).toContain('^[[31m红色')
+    expect(visible.join('\n')).toContain('^[[2Ksecond line')
+    expect(visible.join('\n')).not.toContain('')
+    expect(screen.height).toBeLessThanOrEqual(24)
+    // The overlay covered the frame and committed nothing.
+    const after = await emulator.scrollback()
+    expect(after.filter(row => row.includes('committed transcript row')))
+      .toEqual(before.filter(row => row.includes('committed transcript row')))
+    expect(after.filter(row => row.includes('committed transcript row'))).toHaveLength(1)
+    // `scrollback()` reads the ACTIVE buffer, which includes the viewport, so the
+    // live rows are legitimately in it. What must not have happened is a commit:
+    // the transcript row the overlay covered is still exactly one row, in place.
+    emulator.dispose()
+    work.dispose()
+  })
+
   it('shows job facts without consuming output or inventing controls', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, jobs: [jobItem({ detail: 'exit code: 3' })], subagents: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const detail = overlay.render(80, 16).map(stripAnsi).join('\n')
     expect(detail).toContain('Job · pnpm test')
@@ -989,7 +1210,7 @@ describe('the Work live-region overlay', () => {
 
   it('never renders a missing Job label as the literal "undefined"', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, jobs: [jobItem({ id: 'j1', label: '' })], subagents: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     const rows = overlay.render(80, 12).map(stripAnsi).join('\n')
     expect(rows).not.toContain('undefined')
     expect(rows).toContain('bash')
@@ -1002,7 +1223,7 @@ describe('the Work live-region overlay', () => {
       subagents: [subagentItem({ id: 'a', runId: 'a' }), subagentItem({ id: 'b', runId: 'b' })],
       jobs: [],
     }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     overlay.handleKey({ kind: 'key', name: 'down' })
     const detail = overlay.render(80, 24).map(stripAnsi)
@@ -1016,7 +1237,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({
       provider: '提供者', label: '审查\u001b[2J renderer', mode: 'continuable',
     })], jobs: [] }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const lines = overlay.render(60, 10)
     const plain = lines.map(stripAnsi).join('\n')
@@ -1029,7 +1250,7 @@ describe('the Work live-region overlay', () => {
     let snapshot: WorkSnapshot = trio()
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => {},
       invalidate: () => {},
     })
@@ -1048,7 +1269,8 @@ describe('the Work live-region overlay', () => {
     const interrupted: string[] = []
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      interruptSubagent: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      stopJob: () => { throw new Error('a subagent test must never stop a job') },
       close: () => {},
       invalidate: () => {},
     })
@@ -1065,7 +1287,8 @@ describe('the Work live-region overlay', () => {
     const interrupted: string[] = []
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      interruptSubagent: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      stopJob: () => { throw new Error('a subagent test must never stop a job') },
       close: () => {},
       invalidate: () => {},
     })
@@ -1088,7 +1311,8 @@ describe('the Work live-region overlay', () => {
     const interrupted: string[] = []
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      interruptSubagent: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      stopJob: () => { throw new Error('a subagent test must never stop a job') },
       close: () => {},
       invalidate: () => {},
     })
@@ -1105,7 +1329,8 @@ describe('the Work live-region overlay', () => {
     const interrupted: string[] = []
     const overlay = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: items, jobs: [] }),
-      interrupt: item => { interrupted.push(item.source === 'subagent' ? item.runId : item.id); return INTERRUPT_REQUESTED },
+      interruptSubagent: item => { interrupted.push(item.runId); return INTERRUPT_REQUESTED },
+      stopJob: () => { throw new Error('a subagent test must never stop a job') },
       close: () => {},
       invalidate: () => {},
     })
@@ -1129,7 +1354,7 @@ describe('the Work live-region overlay', () => {
       ],
       jobs: [jobItem({ id: 'j1' })],
     }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.mounted?.()
     const first = overlay.render(80, 14).map(stripAnsi).join('\n')
     expect(first).toContain('◜')
@@ -1162,7 +1387,7 @@ describe('the Work live-region overlay', () => {
       ],
       subagents: [],
     }
-    const overlay = createWorkOverlay({ snapshot: () => snapshot, interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     overlay.mounted?.()
     const first = overlay.render(80, 12).map(stripAnsi).join('\n')
     // A Job in `running` is a registry record, not an observation of computation.
@@ -1182,7 +1407,7 @@ describe('the Work live-region overlay', () => {
     let snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem({ id: 'child' })], jobs: [] }
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => {},
       invalidate: () => {},
     })
@@ -1199,7 +1424,7 @@ describe('the Work live-region overlay', () => {
     const snapshot: WorkSnapshot = { ...EMPTY, available: true, subagents: [subagentItem()], jobs: [] }
     const overlay = createWorkOverlay({
       snapshot: () => snapshot,
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => { closed += 1 },
       invalidate: () => {},
     })
@@ -1212,7 +1437,8 @@ describe('the Work live-region overlay', () => {
   it('shows a failed interrupt result temporarily instead of swallowing it', () => {
     const overlay = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: [subagentItem()] }),
-      interrupt: () => ({ kind: 'failed', message: 'Interrupt failed: not authorized' }),
+      interruptSubagent: () => ({ kind: 'failed', message: 'Interrupt failed: not authorized' }),
+      stopJob: () => STOP_REQUESTED,
       close: () => {}, invalidate: () => {},
     })
     overlay.render(80, 12)
@@ -1226,7 +1452,7 @@ describe('the Work live-region overlay', () => {
   it('ticks only while mounted, so elapsed and the spinner update while the parent is idle', () => {
     vi.useFakeTimers()
     let invalidated = 0
-    const overlay = createWorkOverlay({ snapshot: () => ({ ...EMPTY, available: true, jobs: [jobItem()] }), interrupt: () => INTERRUPT_REQUESTED, close: () => {}, invalidate: () => { invalidated += 1 } })
+    const overlay = createWorkOverlay({ snapshot: () => ({ ...EMPTY, available: true, jobs: [jobItem()] }), interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => { invalidated += 1 } })
     overlay.mounted?.()
     vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
     expect(invalidated).toBe(1)
@@ -1238,7 +1464,7 @@ describe('the Work live-region overlay', () => {
 
   it("leaves ctrl-d for the runner's global quit handler", () => {
     let closed = 0
-    const overlay = createWorkOverlay({ snapshot: () => EMPTY, interrupt: () => INTERRUPT_REQUESTED, close: () => { closed += 1 }, invalidate: () => {} })
+    const overlay = createWorkOverlay({ snapshot: () => EMPTY, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => { closed += 1 }, invalidate: () => {} })
     overlay.handleKey({ kind: 'key', name: 'ctrl-d' })
     expect(closed).toBe(0)
   })
@@ -1252,7 +1478,7 @@ describe('the Work live-region overlay', () => {
     const draw = (): void => { screen.setLive(overlay.render(60, 12)) }
     overlay = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true }),
-      interrupt: () => INTERRUPT_REQUESTED,
+      interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED,
       close: () => { screen.setLive(['composer', 'status']) },
       invalidate: draw,
     })

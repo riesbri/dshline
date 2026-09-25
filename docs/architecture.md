@@ -400,10 +400,16 @@ are not shared with it.
 
 Harness Work is the first adapter following this model. It presents `ctx.jobs`,
 `ctx.subagents`, and Harness workflow runs in separate sections through `/work`
-and an optional status summary. It reads job snapshots with `list()` and
-observes `onJobsChanged()`; it does not consume the model-facing `read()`
-cursor. It observes subagent lifecycle edges and enriches only from
-`listChildren()` facts that Harness publishes. It neither merges two authorities
+and an optional status summary. It reads job snapshots with `list()` and follows the filtered
+`jobs.events.subscribe({ owner })` change feed; it never calls the model-facing
+consuming `read()`. A running job's retained output is read only while that
+job's detail stage is open, through `readAt(id, from, caller)`, which is the
+member documented not to move the model cursor — so human inspection and model
+collection read the same bytes and never disturb each other. It observes
+subagent lifecycle edges and enriches only from `listDescendants()` facts that
+Harness publishes. Every job it projects is active: a settled job leaves the
+overlay with its row, which is a product decision rather than a seam
+limitation, and no settled record is cached locally. It neither merges two authorities
 without an authoritative correlation id nor invents labels or active runs that a
 provider did not expose.
 
@@ -1420,16 +1426,39 @@ Renaming a session is deferred for the mirror-image reason: `ctx.sessionTitle`
 models explicit `user` authority, so it will be exposed when the browser has a
 text-entry mode, not as a side effect of listing titles.
 
-`ctx.jobs.kill()` is the current counterexample: successful cancellation moves
-the job to `stopping` and marks terminal delivery reported, which is a
-model-facing control semantic. Work therefore observes jobs but does not offer
-human cancellation. `ctx.subagents.interrupt(..., { kind: 'user',
-parentSessionId })` is the contrasting case: the seam explicitly models human
-authority to stop a live continuable child. This rule applies to every future
+What a control needs is still the owning seam's explicit semantics, and this
+section previously turned on a stale fact worth recording because the
+distinction it drew was real.
+
+An earlier Harness generation made `ctx.jobs.kill()` itself claim the job's
+terminal delivery. That was a correct optimization for the one caller that
+existed — the model's own `job_kill`, whose tool result already says what it
+did — and a stale world model for anyone else, because a human pressing a stop
+button has no model-visible channel at all. Work therefore observed jobs and
+refused to cancel them.
+
+The adopted generation separates the two authorities. The registry owns
+cancellation, and `dsh-tool-jobs` owns a private ledger of the jobs its own tool
+already delivered, so a human kill enters no ledger and leaves the owning
+agent's ordinary completion notice due, with the reason merged into the job's
+terminal `detail`. dshline now calls that generic operation directly —
+`jobs.kill(id, sessionId, 'cancelled by the user')` — addressed by id so every
+registered job kind gains the control at once, from a detail stage and behind a
+two-press confirmation bound to the job's own identity. dshline claims no
+delivery, suppresses no notice, and never enters the model's tool path.
+
+`ctx.subagents.interrupt(..., { kind: 'user', parentSessionId })` remains the
+other half of this section: the seam explicitly models human authority to stop a
+live continuable child, and it still needs no confirmation because it ends a
+turn rather than a producer. A workflow run still gets no control, because
+`ctx.workflowEngine` publishes `start()` alone. The rule applies to every future
 capability, not only Work. Likewise, Work presents lifecycle and job state,
-not provider reasoning, commands, tool activity, progress, or diffs unless
-Harness exposes those facts through a generic contract; it must never scrape
-provider output.
+not provider reasoning, commands, tool activity, or diffs unless Harness
+exposes those facts through a generic contract; it must never scrape provider
+output. The one exception it now draws is progress and output, because the
+adopted generation publishes both as generic facts: `JobView.progress` is the
+producer's own line, and the output ring is read non-consumingly. Neither is
+parsed, and neither is inferred from a job's text.
 
 ## Upstream compatibility
 

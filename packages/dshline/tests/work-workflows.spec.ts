@@ -382,7 +382,7 @@ describe('the Work overview with workflows', () => {
       subagents: [subagentItem({ id: 'loose', runId: 'loose', provider: 'codex' })],
       jobs: [{
         id: 'bash-1', source: 'job', kind: 'bash', label: 'pnpm test', state: 'running',
-        startedAt: Date.now(), ownership: 'this-session', interruptible: false,
+        startedAt: Date.now(), ownership: 'this-session',
       }],
     })
     expect(text.indexOf('Workflows')).toBeLessThan(text.indexOf('Subagents'))
