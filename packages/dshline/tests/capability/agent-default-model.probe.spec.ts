@@ -27,13 +27,25 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { Fiber } from '@deepseek-ai/cordis'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import type { Config } from '@deepseek-ai/dsh-agent-default-model'
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 
+/**
+ * The raw composition entry the row is mounted with.
+ *
+ * The service's own `Config` interface is the RESOLVED shape — its fields are the
+ * `Volatile` references the row reads — while a profile composes plain values
+ * that the schema turns into exactly those references. This is the input side.
+ */
+interface Composition {
+  readonly provider?: string
+  readonly model?: string
+  readonly reasoningEffort?: string
+}
+
 /** The composition entry every case below starts from. */
-const COMPOSED = { provider: 'probe-provider', model: 'probe-model' }
+const COMPOSED: Composition = { provider: 'probe-provider', model: 'probe-model' }
 
 /**
  * Mount the concrete service over the composition entry under test.
@@ -41,7 +53,7 @@ const COMPOSED = { provider: 'probe-provider', model: 'probe-model' }
  *   seams this service would see inside a profile.
  * @returns the context, the row's fiber, and a counter of editor writes.
  */
-async function mounted(options: { seams?: boolean; composed?: Config } = {}): Promise<{
+async function mounted(options: { seams?: boolean; composed?: Composition } = {}): Promise<{
   ctx: Context
   row: Fiber
   editor: { edits: number }
@@ -100,7 +112,7 @@ describe('capability: agentDefaultModel', () => {
     }
 
     const declared = await mounted({
-      composed: { ...COMPOSED, reasoningEffort: ReasoningEffortId('high') },
+      composed: { ...COMPOSED, reasoningEffort: 'high' },
     })
     try {
       expect(declared.ctx.agentDefaultModel.currentSelection()).toEqual({
@@ -124,7 +136,7 @@ describe('capability: agentDefaultModel', () => {
     const { ctx, row } = await mounted()
     try {
       const uid = row.uid
-      row.update({ ...COMPOSED, model: 'saved-model', reasoningEffort: ReasoningEffortId('high') })
+      row.update({ ...COMPOSED, model: 'saved-model', reasoningEffort: 'high' })
       await row.await()
       expect(ctx.agentDefaultModel.currentSelection()).toEqual({
         provider: 'probe-provider',

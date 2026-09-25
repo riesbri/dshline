@@ -155,16 +155,17 @@ describe('capability: settings', () => {
   it('describes a namespace with the revision a write is checked against', async () => {
     const { ctx } = await mounted()
     try {
-      const [descriptor] = ctx.settings.describe()
-      expect(descriptor.ns).toBe(NS)
-      expect(descriptor.revision).toBe(0)
-      expect(descriptor.value).toMatchObject({ displayName: 'Shipped', baseURL: 'http://shipped.example' })
-      // Presence in `user` is what marks a field user-overridden.
-      expect(descriptor.user).toMatchObject({ displayName: 'Shipped' })
+      expect(ctx.settings.describe()).toMatchObject([{
+        ns: NS,
+        revision: 0,
+        value: { displayName: 'Shipped', baseURL: 'http://shipped.example' },
+        // Presence in `user` is what marks a field user-overridden.
+        user: { displayName: 'Shipped' },
+      }])
       // The revision advances when the RAW section changes, which is what a
       // conflict-checked write compares against.
       await ctx.settings.mutate(NS, [{ op: 'set', path: ['displayName'], value: 'Moved' }])
-      expect(ctx.settings.describe().find(d => d.ns === NS)?.revision).toBe(1)
+      expect(ctx.settings.describe().map(d => d.revision)).toStrictEqual([1])
     } finally {
       await ctx.fiber.dispose()
     }
@@ -187,12 +188,12 @@ describe('capability: settings', () => {
 
   it('applies path ops without deleting fields the caller never saw', async () => {
     const { ctx } = await mounted()
-    const [descriptor] = ctx.settings.describe()
+    const revision = ctx.settings.describe().map(d => d.revision)[0] ?? 0
     try {
       // A caller writes one nested path while the base preserves the section.
       await ctx.settings.mutate(NS, [
         { op: 'set', path: ['providers', 'gw', 'baseURL'], value: 'http://localhost:9' },
-      ], descriptor.revision)
+      ], revision)
       const after = ctx.settings.describe().find(d => d.ns === NS)
       expect(after?.user).toMatchObject({
         displayName: 'Shipped',
@@ -226,14 +227,14 @@ describe('capability: settings', () => {
 
   it('rejects a write naming a stale revision with SettingsConflictError', async () => {
     const { ctx } = await mounted()
-    const [descriptor] = ctx.settings.describe()
+    const revision = ctx.settings.describe().map(d => d.revision)[0] ?? 0
     try {
       // Something else writes between this caller's read...
       await ctx.settings.mutate(NS, [{ op: 'set', path: ['displayName'], value: 'Moved' }])
       // ...so the checked write must refuse rather than clobber it.
       await expect(ctx.settings.mutate(NS, [
         { op: 'set', path: ['displayName'], value: 'Stale' },
-      ], descriptor.revision)).rejects.toBeInstanceOf(SettingsConflictError)
+      ], revision)).rejects.toBeInstanceOf(SettingsConflictError)
       expect(ctx.settings.describe().find(d => d.ns === NS)?.value).toMatchObject({ displayName: 'Moved' })
     } finally {
       await ctx.fiber.dispose()

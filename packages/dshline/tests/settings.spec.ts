@@ -83,13 +83,13 @@ const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
  */
 function field<T>(initial: VolatileSnapshot<T>): Field<T> {
   let current: VolatileSnapshot<T> = initial
-  return {
-    reference: {
-      get: () => current,
-      [VOLATILE_WRITE]: (value: VolatileSnapshot<T>): void => { current = value },
-    },
-    write: value => { current = value },
-  }
+  const reference: Volatile<T> = { get: () => current }
+  // Attached rather than written into the literal: `Volatile` declares the
+  // reader, and the writer is the protocol's own hidden half.
+  Object.defineProperty(reference, VOLATILE_WRITE, {
+    value: (value: VolatileSnapshot<T>): void => { current = value },
+  })
+  return { reference, write: value => { current = value } }
 }
 
 /**
