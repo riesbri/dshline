@@ -43,12 +43,12 @@
     "@deepseek-ai/dsh-authorization": "0.1.7-rc.2",
     "@deepseek-ai/dsh-session-stats": "0.1.7-rc.2",
     "@deepseek-ai/dsh-session-turn-outline": "0.1.7-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.2",
+    "@deepseek-ai/schemastery": "^3.18.4",
     "@dshline/renderer": "workspace:^",
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/cordis": "^4.0.4",
     "@deepseek-ai/dsh-agent": "0.1.7-rc.2",
     "@deepseek-ai/dsh-agent-preset-registry": "0.1.7-rc.2",
     "@deepseek-ai/dsh-cmdline": "0.1.7-rc.2",
@@ -74,7 +74,7 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-agent": "0.1.7-rc.2",
     "@deepseek-ai/dsh-agent-default-model": "0.1.7-rc.2",
     "@deepseek-ai/dsh-agent-loop": "0.1.7-rc.2",

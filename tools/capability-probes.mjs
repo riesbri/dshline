@@ -173,6 +173,11 @@ export const CAPABILITY_PROBES = [
     note: 'real AgentPresetRegistry list/resolve/readDocument over a real AgentPreset declaration, structural AgentPresetsSeam assignment, the absence of the withdrawn trust/path/copy row fields, and the creation-header projection read; mount/recompose/select and selected events are outside the probe',
   },
   {
+    name: 'presetDeclarations',
+    files: ['packages/dshline/tests/capability/presets-activation.probe.spec.ts'],
+    note: 'this bundle\'s own shipped standard and minimal declarations parsed with the Loader\'s entry-list validator and mounted on the real registry, including the workflowEngine realm check whose absence the published-consumer boot caught; a real Loader tree over the full bundle patch is the consumer smoke, not this probe',
+  },
+  {
     name: 'goals',
     files: ['packages/dshline/tests/goals.spec.ts'],
     note: 'real GoalService/projection plus dshline `goalReading` adapter path, source rule, and one real awaited `announce(agent, \'resume\')` publication whose serial `agent/created` dispatch disarms the reopened session; no AgentLoop, provider, or mounted status line is exercised',

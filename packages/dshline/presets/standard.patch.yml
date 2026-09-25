@@ -1,16 +1,7 @@
-# The `standard` agent preset: one `@deepseek-ai/dsh-agent-preset` declaration
-# inserted after this bundle's main patch.
+# The `standard` agent preset declaration: one `@deepseek-ai/dsh-agent-preset`
+# row inserted after this bundle's main patch. Its `config.plugins` below is the
+# composition.
 #
-# Every row here is one this bundle DISABLES in `cordis.patch.yml` above. That
-# pairing is the whole point: `dsh-base` ships these mounted process-wide, and
-# mounting both would double-register each one, so the agent plane moves behind
-# a declaration and each session composes from the one it selects.
-#
-# A profile patch overrides this row's `config.plugins` by id — which is how
-# upstream says a declaration is edited, and the only write path the registry
-# leaves open. Nothing here is dshline's own preset design; the tool set is the
-# one a terminal session has always run, restated as the declaration the
-# adopted generation requires.
 - insert:
     - id: preset-standard
       name: '@deepseek-ai/dsh-agent-preset'
@@ -18,37 +9,111 @@
         id: standard
         order: 1
         plugins:
+          # The `standard` agent preset: the full coding agent, mounted once per process.
+          #
+          # A preset is now an ordinary `@deepseek-ai/dsh-agent-preset` declaration in a
+          # Cordis composition, and this file is its `config.plugins`. The rows are the
+          # released 0.1.7-rc.2 standard declaration
+          # (`packages/bundle/web-app/presets/standard.patch.yml` in deepseek-harness),
+          # restated for a terminal profile. Nothing here is dshline's preset design: the
+          # tool set is the one a terminal session has always run, and every row here is
+          # one this bundle DISABLES in `cordis.patch.yml` above, because `dsh-base`
+          # ships the same rows mounted process-wide and mounting both would
+          # double-register each one.
+          #
+          # A service row here MUST sit inside a group carrying an `isolate` realm. Without
+          # one it publishes into the root realm, where it is process-global — another
+          # preset publishing the same name collides, and a host reader would resolve one
+          # preset's instance for every session.
+          #
+          # Two rows are worth naming because omitting either breaks the whole composition
+          # rather than one tool:
+          #
+          #   `workflow-ptc`  provides the `workflowEngine` that `tool-workflow` below
+          #                   waits on INSIDE this group's realm. Without it the workflow
+          #                   tool stays pending forever and the preset never reaches a
+          #                   fully mounted state. The host-plane copy is disabled in
+          #                   `cordis.patch.yml` so exactly one engine exists and the preset
+          #                   owns it.
+          #   `present`       the deliverables surface `/turns` and the transcript read.
+          #
+          # The host keeps everything a preset must not own: the `tools`, `skills`,
+          # `subagents`, `tokenMeter` and `llm` registries themselves, the sandbox and
+          # approval stack, persistence, and the model route.
+
+          # ── identity ────────────────────────────────────────────────────────────────
+
+          # The preset's own persona, shadowing the deployment default for this agent.
+          # `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
               suffix: Your working directory is {{cwd}}.
               prefix: You are a coding agent powered by the {{model}} model.
+
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
               maxBytes: 65536
+
+          # ── shell ───────────────────────────────────────────────────────────────────
+
+          # `shell-env` stays in the HOST composition: a host row that injects a service
+          # is the criterion for host-plane ownership, and behind a preset realm those
+          # variables would never reach the model's shell at all. Both shell tools consume
+          # the host registry from here; their executors are host-plane too.
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
             disabled: !!js process.platform === 'win32'
+
           - id: tool-pwsh
             name: '@deepseek-ai/dsh-tool-pwsh'
             disabled: !!js process.platform !== 'win32'
+
+          # ── filesystem ──────────────────────────────────────────────────────────────
+
+          # Both register into the host `tools` registry and provide nothing, so they need
+          # no realm. The `fs` service and its policy stay in the host.
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
+
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config:
               sampleOverCapGlobResults: false
+
+          # ── background jobs ────────────────────────────────────────────────────────
+
+          # Only the model-facing controls. The task REGISTRY stays on the host plane: its
+          # producers sit outside any realm this file could put it in, and the registry is
+          # keyed by owning agent anyway, so one host instance serves every session.
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
+
+          # ── skills ──────────────────────────────────────────────────────────────────
+
+          # The skill REGISTRY lives in the host composition and is layered per scope:
+          # these rows register into THIS preset's layer of it, so they need no realm.
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
+
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
-          - id: command-goal
-            name: '@deepseek-ai/dsh-command-goal'
+
+          # ── goals ───────────────────────────────────────────────────────────────────
+
+          # The goal service and session driver stay on the host plane, where the Gateway
+          # can resolve them. Only the model-facing tool moves behind the preset; the
+          # `/goal` COMMAND stays host-plane too, which is the one deliberate deviation
+          # from the upstream web declaration — dshline owns that command's key routing
+          # against its own attachment, so it must resolve without a preset.
           - id: tool-goal
             name: '@deepseek-ai/dsh-tool-goal'
+
+          # ── plan mode ───────────────────────────────────────────────────────────────
+
+          # Plan state is per-agent by nature, so an entry-local realm is not a workaround
+          # here — it is the correct lifetime.
           - id: planning
             name: cordis:group
             group: true
@@ -70,6 +135,14 @@
                     Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
 
                     When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
+
+          # ── compaction ──────────────────────────────────────────────────────────────
+
+          # `compaction-basic` reads `toolResultPrune` through `ctx.get`, so the pruner
+          # must share this realm rather than sit outside it.
+          #
+          # `tokenMeter` is deliberately NOT in this realm: the meter stays on the HOST
+          # plane, and the rows here resolve that one instance.
           - id: compaction
             name: cordis:group
             group: true
@@ -79,14 +152,28 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+
               - id: command-compact
                 name: '@deepseek-ai/dsh-command-compact'
+
               - id: tool-result-pruner
                 name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
                 config:
                   thresholdChars: 8192
                   headChars: 4096
                   tailChars: 1024
+
+          # ── delegation and workflows ────────────────────────────────────────────────
+
+          # The `subagents` registry and its spawn/fork backends live in the HOST
+          # composition: the registry is a process singleton and a provider name may only
+          # be registered once. This preset contributes the delegation TOOLS, which
+          # resolve that host registry.
+          #
+          # `workflows` is different — nothing outside an agent reads it — so every row
+          # that reaches it shares one entry-local realm here, and a consumer left outside
+          # would resolve a host registry this preset does not populate. `workflow-ptc`
+          # below is what fills that realm.
           - id: delegation
             name: cordis:group
             group: true
@@ -95,8 +182,10 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
+
               - id: tool-subagent-list-agents
                 name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
@@ -104,28 +193,86 @@
                   toolName: subagent
                   modelSelectionSettings: true
                   backgroundMode: continuable
+
+              # Fork omits model selection so provider/model stay equal to the parent and
+              # the inherited history remains eligible for KV Cache reuse.
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
                   provider: fork
                   toolName: subagent_fork
                   backgroundMode: continuable
+
+              # Production dsh does not install these optional providers. Install the
+              # matching provider in this Profile and restart the Host, then remove
+              # `disabled` from the matching tool row — or override this declaration's
+              # `config.plugins` by row id in a profile patch. Host availability alone
+              # grants no tool.
+              - id: tool-subagent-codex
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: codex
+                  toolName: subagent_codex
+                  backgroundMode: one-shot
+                  maxDepth: provider-managed
+
+              - id: tool-subagent-claude-code
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: claude-code
+                  toolName: subagent_claude_code
+                  backgroundMode: one-shot
+                  maxDepth: provider-managed
+
+              # The provider for the realm this whole group isolates. `tool-workflow`
+              # below waits on exactly this service name, so removing this row leaves the
+              # workflow tool permanently pending.
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                config:
+                  provider: spawn
+
               - id: tool-workflow
                 name: '@deepseek-ai/dsh-tool-workflow'
+
+              # Off by default with the base row it mirrors: the tool description
+              # restricts `ralph` to runs the human explicitly asked for, and completion
+              # is a worker self-report, not an independent evaluation.
               - id: tool-ralph
                 name: '@deepseek-ai/dsh-tool-ralph'
                 disabled: true
                 config:
                   subagentProvider: spawn
                   maxRounds: 64
+
+          # ── remaining model-facing rows ─────────────────────────────────────────────
+
           - id: tool-ask-user
             name: '@deepseek-ai/dsh-tool-ask-user'
+
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
             config:
               allowParallelInProgress: true
+
+          # The `web` service and its search provider stay in the host composition; only
+          # the model-facing tool is per-session.
           - id: tool-web
             name: '@deepseek-ai/dsh-tool-web'
             config:
               fetch: true
               searchTimeoutMs: 60000
+
+          # The deliverables surface: turn-tail file cards and the delivery cards under
+          # each closing assistant message.
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+
+          # Off: installing or removing a bundle is a human action taken through
+          # `/profiles`, and a model that can rewrite its own plugin roster is a tool
+          # nobody asked for.
+          - id: tool-plugin-manager
+            name: '@deepseek-ai/dsh-plugin-manager/tools'
+            disabled: true

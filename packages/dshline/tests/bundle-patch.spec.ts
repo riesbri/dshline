@@ -81,6 +81,14 @@ const EXPECTED_DISABLED = [
   'tool-subagent',
   'tool-subagent-fork',
   'tool-workflow',
+  // The engine the preset's `delegation` group isolates. Left enabled, a second
+  // `workflowEngine` is published into the root realm beside the preset's own
+  // isolated copy, and `tool-workflow` — which waits INSIDE that realm — never
+  // resolves. This pair is the regression the published-consumer boot caught.
+  'workflow-ptc',
+  // Plugin management is a human action taken through `/profiles`, and the base
+  // mounts the model-facing tool unconditionally.
+  'tool-plugin-manager',
   'tool-ralph',
   'agent-instructions',
   'tool-todo',

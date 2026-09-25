@@ -29,7 +29,7 @@
  * @module dshline/settings
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 // Carries the Context merge naming `ctx.settings` and the `settings/document-updated`
 // change feed this row's facets republish on.
 import type {} from '@deepseek-ai/dsh-settings'
@@ -56,7 +56,23 @@ const BUSY_ENTER_KEY = 'busyEnter'
 /** The key controlling whether this frontend emits terminal BEL for live interaction. */
 const ATTENTION_BELL_KEY = 'attentionBell'
 
-/** The reader preferences this row's own configuration carries. */
+/**
+ * The reader preferences this row's own configuration carries, as Harness
+ * hands them to the row.
+ *
+ * `Volatile` references rather than values, and that is what keeps `/theme`,
+ * `/enter` and the attention bell writable without a remount: Harness commits a
+ * stored value by mutating the live reference in place, so reading through
+ * `.get()` is the whole change feed on the read side. A plain value here would
+ * freeze the preference at mount and make persistence a launch-time-only fact.
+ */
+export interface DshlinePreferences {
+  readonly theme: Volatile<string> | undefined
+  readonly busyEnter: Volatile<BusyEnter> | undefined
+  readonly attentionBell: Volatile<boolean> | undefined
+}
+
+/** One preference's resolved value set, as a consumer reads it. */
 export interface DshlineSection {
   /** The theme id currently in force. */
   readonly theme: string
@@ -117,18 +133,22 @@ export interface DshlineSettings {
 /**
  * Expose one facet per key of this row's own configuration.
  * @param ctx - the plugin context owning the registration.
- * @param entry - this row's composed config, the layer below anything stored.
+ * @param entry - this row's own live configuration references, the layer below anything stored.
  * @returns the readers and writers this frontend's consumers use.
  */
-export function installDshlineSettings(ctx: Context, entry: Partial<DshlineSection>): DshlineSettings {
+export function installDshlineSettings(ctx: Context, entry: DshlinePreferences): DshlineSettings {
   // The composed row is the answer in every profile, including one that mounts
   // no settings service at all. A stored value only exists for a row whose own
   // configuration declares the key editable, and a write to a row that does not
   // is refused by Harness rather than silently dropped here.
+  // Read through the reference every time rather than capturing a value at
+  // mount: a reference whose identity survives a `_commitVolatile` is the live
+  // channel, and a snapshot taken once would make a stored choice apply only to
+  // the NEXT window.
   const source = (): DshlineSection => ({
-    theme: entry.theme ?? FALLBACK_THEME.id,
-    busyEnter: entry.busyEnter ?? DEFAULT_BUSY_ENTER,
-    attentionBell: entry.attentionBell ?? true,
+    theme: entry.theme?.get() ?? FALLBACK_THEME.id,
+    busyEnter: entry.busyEnter?.get() ?? DEFAULT_BUSY_ENTER,
+    attentionBell: entry.attentionBell?.get() ?? true,
   })
   /**
    * Republish to one key's watchers, but only when that key's value moved.
