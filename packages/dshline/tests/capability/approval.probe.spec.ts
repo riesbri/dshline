@@ -45,7 +45,7 @@ async function mounted(): Promise<{
   ctx: Context
   session: Session
   presented: TuiOverlay[]
-  ask: (agent: Agent, signal?: AbortSignal) => Promise<ApprovalOutcome>
+  ask: (agent: Agent | undefined, signal?: AbortSignal) => Promise<ApprovalOutcome>
 }> {
   const ctx = new Context()
   await ctx.plugin(TuiSlots)

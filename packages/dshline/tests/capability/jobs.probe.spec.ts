@@ -7,7 +7,10 @@
  * `@deepseek-ai/dsh-jobs` `JobRegistry` — the same package `ctx.jobs` publishes
  * — so an upstream rename or signature change fails this file at compile time,
  * by capability name, instead of only surfacing as an unrelated typecheck error
- * somewhere else in the graph.
+ * somewhere else in the graph. This file is in
+ * `tests/tsconfig.capability.json`, which `pnpm run typecheck:capabilities`
+ * and `pnpm typecheck` run; before that project existed the claim was false and
+ * only Vitest would have noticed, after a full install and build.
  *
  * The adopted generation narrowed what this probe has to implement. Jobs are
  * projected as a `JobView` — `owner` replaces `ownerSession`, the ring's

@@ -11,8 +11,8 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import SessionStore from '@deepseek-ai/dsh-session'
-import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionSeq } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-compaction'
@@ -116,8 +116,8 @@ describe('capability: compaction', () => {
   it('says nothing for a tool-result prune, which changes no visible exchange', async () => {
     const { session } = await harness()
     const pruned = session.append('compaction/prune', {
-      shadowedRange: { start: 0, end: 0 },
-      shadowedSeqs: [0],
+      shadowedRange: { start: SessionSeq(0), end: SessionSeq(0) },
+      shadowedSeqs: [SessionSeq(0)],
       shadowedTokenCount: 4_000,
     })
     expect(compactionNote(pruned, 80).lines).toEqual([])

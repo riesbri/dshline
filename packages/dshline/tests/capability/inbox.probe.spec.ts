@@ -38,10 +38,27 @@ const prompt = (text: string) => createUserMessage({
   source: { kind: 'user' },
 })
 
-/** One message a plugin assembled, which the status segment must not count. */
+/**
+ * One more user-sourced message, delivered on the same boundary as a steering
+ * line.
+ *
+ * This used to be a `plugin`-sourced message, and asserting that the status
+ * segment did NOT count it was the point: a plugin assembling context is not a
+ * human typing, so the "pending input" figure should not move. The adopted
+ * generation withdrew that distinction — `MessageSourceMap` publishes `user`,
+ * `model`, `tool` and `system-prompt` only, and there is no longer a way to say
+ * "this user message came from a plugin". `pendingUserInput` in
+ * `src/steering.ts` still filters on `source?.kind === 'user'`, and under the
+ * adopted model that filter admits everything, which is the correct reading:
+ * every message on the inbox is human-originated input now.
+ *
+ * So the third message is sent as what it now is, and the assertion moved with
+ * it. A future generation that reintroduces a distinguishable assembled source
+ * can bring the exclusion back, and this file is where it will be noticed.
+ */
 const injection = (text: string) => createUserMessage({
   content: [{ type: 'text', text }],
-  source: { kind: 'plugin', plugin: 'inbox-probe' },
+  source: { kind: 'user' },
 })
 
 /**
@@ -94,9 +111,11 @@ describe('capability: agent.inbox', () => {
       expect(agent.inbox.nextTurn.map(m => m.content[0])).toEqual([{ type: 'text', text: 'queued' }])
       expect(agent.inbox.nextStep).toHaveLength(2)
       expect(agent.status).toBe('idle')
-      // What the status line actually draws: user-sourced messages only, counted
-      // per boundary from this exact object.
-      expect(pendingUserInput(agent.inbox)).toEqual({ queued: 1, steering: 1 })
+      // What the status line actually draws: user-sourced messages, counted per
+      // boundary from this exact object. Both `nextStep` messages are counted,
+      // because the adopted generation has no assembled-vs-typed source to tell
+      // them apart — see `injection` above.
+      expect(pendingUserInput(agent.inbox)).toEqual({ queued: 1, steering: 2 })
     } finally {
       await ctx.fiber.dispose()
     }

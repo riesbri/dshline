@@ -30,6 +30,7 @@ import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
   SaveImageAttachment,
+  StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
@@ -55,6 +56,8 @@ const LIMITS: ImageAttachmentLimits = {
 class MemoryAttachmentStore extends AttachmentStore {
   /** Members actually persisted, in commit order. */
   readonly stored: SaveImageAttachment[] = []
+  /** Bytes behind each issued reference, so `readImage` round-trips. */
+  private readonly bytes = new Map<AttachmentId, Uint8Array>()
 
   override get imageLimits(): ImageAttachmentLimits {
     return LIMITS
@@ -68,7 +71,7 @@ class MemoryAttachmentStore extends AttachmentStore {
 
   override async saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {
     this.stored.push(input)
-    return {
+    const ref: ImageAttachmentRef = {
       attachmentId: AttachmentId(`probe-${String(this.stored.length)}`),
       mediaType: input.mediaType,
       bytes: input.data.byteLength,
@@ -76,6 +79,26 @@ class MemoryAttachmentStore extends AttachmentStore {
       height: 1,
       ...input.name === undefined ? {} : { name: input.name },
     }
+    this.bytes.set(ref.attachmentId, input.data)
+    return ref
+  }
+
+  /**
+   * Echo back the bytes `saveImage` recorded, keyed by the durable id it
+   * handed out.
+   *
+   * A new abstract member upstream, and this probe is about the SAVE path, so
+   * the read is a faithful in-memory round-trip rather than a stub returning
+   * nothing: a caller that saved and then read the same attachment should get
+   * the same bytes back, which is the whole contract.
+   * @param ref - the durable reference a previous `saveImage` returned.
+   * @returns the recorded bytes behind that reference.
+   * @throws when the reference was never issued by this store.
+   */
+  override async readImage(ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
+    const data = this.bytes.get(ref.attachmentId)
+    if (data === undefined) throw new Error(`no stored attachment ${ref.attachmentId}`)
+    return { ref, data }
   }
 }
 

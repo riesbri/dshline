@@ -25,7 +25,7 @@ function createProbeProvider(): { readonly provider: SubagentProvider, settle: (
   let settle: ((result: SubagentResult) => void) | undefined
   const provider: SubagentProvider = {
     name: PROBE_PROVIDER_NAME,
-    capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+    capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
     inheritsParentContext: false,
     start: async request => {
       void request

@@ -11,7 +11,9 @@
  * - the real `AgentPresetRegistry` service is mounted with a real
  *   `AgentPreset` declaration supplying a real `plugins` list, and assigned to
  *   the structural view, so an upstream shape change fails this file at
- *   compile time;
+ *   compile time — this file is in `tests/tsconfig.capability.json`, run by
+ *   `pnpm run typecheck:capabilities` and by `pnpm typecheck`, so that claim is
+ *   enforced by `tsc` and not only by Vitest transpiling and running it;
  * - the roster reads `/plugins` browses with (`list`, `resolve`, `defaultId`)
  *   are driven against that real declaration;
  * - `readDocument()` is asserted to render the declared child list back as the

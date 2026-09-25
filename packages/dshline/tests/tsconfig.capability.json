@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "types": ["node"],
+    "rootDir": "..",
+    "outDir": null
+  },
+  "include": [
+    "setup.ts",
+    "capability/**/*.probe.spec.ts"
+  ]
+}

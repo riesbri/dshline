@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:codex": "node tools/test-codex.mjs",
     "test:consumer": "node tools/consumer-smoke.mjs",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && pnpm run typecheck:capabilities",
+    "typecheck:capabilities": "tsc -p packages/dshline/tests/tsconfig.capability.json",
     "verify-docs": "node tools/verify-translation-pairing.mjs"
   },
   "devDependencies": {
