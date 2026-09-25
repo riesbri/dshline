@@ -340,25 +340,24 @@ function testSlots(): {
 describe('durable subagent discovery vocabulary', () => {
   it('keeps a settled stored continuable child browsable and follow-up-capable', () => {
     const reading = catalogReading([child('c', 'continuable', 'inactive')])
-    const row = reading.kind === 'ready' ? reading.rows[0] : undefined
+    const row = firstRow(reading)
     expect(row).toEqual({
       kind: 'child', id: 'c', mode: 'continuable', residency: 'stored', hasChildren: false, label: 'c',
     })
-    expect(subagentRowOpenable(row!)).toBe(true)
-    expect(subagentRowFollowUp(row!, true)).toBe(true)
+    expect(subagentRowOpenable(row)).toBe(true)
+    expect(subagentRowFollowUp(row, true)).toBe(true)
   })
 
   it('offers a one-shot child inspection but no follow-up', () => {
     const reading = catalogReading([child('one', 'one-shot', 'inactive')])
-    const row = reading.kind === 'ready' ? reading.rows[0] : undefined
-    expect(subagentRowOpenable(row!)).toBe(true)
-    expect(subagentRowFollowUp(row!, true)).toBe(false)
+    const row = firstRow(reading)
+    expect(subagentRowOpenable(row)).toBe(true)
+    expect(subagentRowFollowUp(row, true)).toBe(false)
   })
 
   it('reports the absence of the prompt seam rather than a one-shot mode', () => {
     const reading = catalogReading([child('c', 'continuable', 'running')])
-    const row = reading.kind === 'ready' ? reading.rows[0] : undefined
-    expect(subagentRowFollowUp(row!, false)).toBe(false)
+    expect(subagentRowFollowUp(firstRow(reading), false)).toBe(false)
   })
 
   it('keeps diagnostics distinct and honest instead of dropping them', () => {
@@ -367,7 +366,7 @@ describe('durable subagent discovery vocabulary', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]).toEqual({ kind: 'diagnostic', id: 'broken', reason: 'corrupt' })
     expect(diagnosticReasonWord('corrupt')).not.toBe(diagnosticReasonWord('unavailable'))
-    expect(subagentRowOpenable(rows[0]!)).toBe(false)
+    expect(subagentRowOpenable(firstRow(reading))).toBe(false)
   })
 
   it('keys selection by the durable child id, stable across reordering', () => {
@@ -855,7 +854,19 @@ describe('bounded transcript paging', () => {
 })
 
 describe('subagent conversation presenter', () => {
-  function mount(overrides: Partial<SubagentsPresenterDeps> = {}) {
+  /** A seam a profile does not mount, named rather than faked. */
+  type MissingSeam = 'subagents' | 'query'
+
+  /**
+   * Mount a presenter over the fake seams.
+   * @param missing - seams this case leaves out of the deps object entirely,
+   *   which is the only way a profile without `ctx.subagents` or
+   *   `ctx.sessionQuery` is expressed: `exactOptionalPropertyTypes` makes
+   *   "absent" and "present and undefined" different objects.
+   * @param overrides - substitutions for seams that stay mounted.
+   * @returns the stack, the fakes, the presenter, and the event triggers.
+   */
+  function mount(missing: readonly MissingSeam[] = [], overrides: Partial<SubagentsPresenterDeps> = {}) {
     const slots = testSlots()
     const subagents = new FakeSubagent()
     const session = new FakeSession()
@@ -863,10 +874,10 @@ describe('subagent conversation presenter', () => {
     let sessionEvent: ((sessionId: string) => void) | undefined
     const p = createSubagentsPresenter({
       slots,
-      parentSessionId: 'parent' as never,
+      parentSessionId: PARENT as never,
       invalidate: () => {},
-      subagents,
-      query: session,
+      ...missing.includes('subagents') ? {} : { subagents },
+      ...missing.includes('query') ? {} : { query: session },
       onLifecycle: listener => { lifecycle = listener; return () => {} },
       onSessionEvent: listener => { sessionEvent = listener; return () => {} },
       ...overrides,
@@ -1019,14 +1030,14 @@ describe('subagent conversation presenter', () => {
   })
 
   it('degrades honestly when ctx.subagents is absent', async () => {
-    const { slots, p } = mount({ subagents: undefined })
+    const { slots, p } = mount(['subagents'])
     p.open()
     await flush()
     expect(stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')).toContain('not installed')
   })
 
   it('degrades honestly when ctx.sessionQuery is absent', async () => {
-    const { slots, subagents, p } = mount({ query: undefined })
+    const { slots, subagents, p } = mount(['query'])
     subagents.setDescendants([child('c', 'continuable', 'running')])
     p.open()
     await flush()
@@ -1093,15 +1104,60 @@ describe('subagent conversation presenter', () => {
     expect(plain).toContain('projection registry unavailable')
   })
 
-  it('never opens a diagnostic row and reads nothing for it', async () => {
+  it('reads discovery from the recursive seam, addressed to its own parent', async () => {
+    const { subagents, p } = mount()
+    subagents.setDescendants([child('c', 'continuable', 'running')])
+    p.open()
+    await flush()
+    // The flat parent-catalog read refuses in this fake, so reaching a catalog
+    // at all is the evidence that discovery went through the descendant walk
+    // and not back through the operation that lost residency, lineage, and
+    // branch diagnostics.
+    expect(subagents.descendantCalls).toHaveLength(1)
+    expect(subagents.descendantCalls.map(call => String(call.parentSessionId))).toEqual([PARENT])
+  })
+
+  it('lists a depth-one branch diagnostic with its reason and never opens it', async () => {
     const { slots, subagents, session, p } = mount()
+    // The reason the migration exists at all: a branch the recursive walk could
+    // not interpret is a row now, where the old flat read could not produce one.
     subagents.setDescendants([diagnostic('broken', 'corrupt')])
     p.open()
     await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')
+    expect(plain).toContain('broken')
+    expect(plain).toContain('unreadable record')
+    // No conversation exists behind a branch with no readable child catalog, so
+    // the footer drops the action Enter refuses.
+    expect(plain).not.toContain('enter inspect')
     slots.top()?.handleKey(key('enter'))
     await flush()
     expect(session.listEventsCalls).toEqual([])
     expect(slots.overlays).toHaveLength(1)
+  })
+
+  it('keeps a grandchild out of the direct-child catalog', async () => {
+    const { slots, subagents, p } = mount()
+    // `hasChildren` is the honest parent row: that child's own catalog does hold
+    // a direct child, which is the only reason the deeper rows exist.
+    subagents.setDescendants([
+      child('c', 'continuable', 'running', 'review', true),
+      deeper(child('g', 'one-shot', 'inactive', 'grandchild'), 'c', 2),
+      deeper(diagnostic('deep', 'unsupported'), 'c', 2),
+    ])
+    // The walk really does hand both deeper rows back, so what follows is the
+    // presenter's cut rather than a fixture that happened to withhold them.
+    await expect(subagents.listDescendants(PARENT as never)).resolves.toHaveLength(3)
+    p.open()
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')
+    expect(plain).toContain('review')
+    expect(plain).toContain('has children')
+    // A deeper row belongs to another parent's branch, and being a diagnostic
+    // is not a way around the cut.
+    expect(plain).not.toContain('grandchild')
+    expect(plain).not.toContain('deep')
+    expect(plain).not.toContain('unsupported record')
   })
 
   it('pops exactly one surface per escape, back to the prior catalog', async () => {
@@ -1355,7 +1411,7 @@ describe('subagent conversation presenter', () => {
   })
 
   it('opens a direct inspector read-only when sessionQuery is absent', async () => {
-    const { slots, subagents, p } = mount({ query: undefined })
+    const { slots, subagents, p } = mount(['query'])
     subagents.setDescendants([child('c', 'continuable', 'running')])
     // No bounded read surface: the direct path must still show the inspector and
     // say so, exactly as the catalog path does, rather than refusing to open.

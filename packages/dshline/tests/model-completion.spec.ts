@@ -373,7 +373,7 @@ describe('upstream work across completion refreshes', () => {
     }
   })
 
-  it('refetches after settings/updated', async () => {
+  it('refetches after settings/document-updated', async () => {
     const arena = deferredLlm(['deepseek-official'])
     const catalog = new ModelCompletionCatalog(() => readModelCompletion(arena.ctx))
     const stop = watchModelCompletion(arena.ctx, catalog)
@@ -382,11 +382,37 @@ describe('upstream work across completion refreshes', () => {
       arena.settleAll({ 'deepseek-official': [{ id: 'a', name: '' }] })
       expect(await first).toHaveLength(1)
 
-      arena.bus.emit('settings/updated', 'llm-deepseek', {}, {}, 'user')
+      arena.bus.emit('settings/document-updated', 'llm-deepseek', 1)
       const next = catalog.completions()
       expect(arena.modelReads).toHaveLength(2)
       arena.settleAll({ 'deepseek-official': [{ id: 'b', name: '' }] })
       expect((await next).map(entry => entry.value)).toEqual(['deepseek-official/b'])
+    } finally {
+      stop()
+    }
+  })
+
+  it('refetches for a settings change in any entry, not only the route’s own', async () => {
+    // `settings/updated` announced a RESOLVED-VALUE commit, so a consumer could
+    // afford to be picky; `settings/document-updated` announces a raw entry
+    // change and is not value-gated, and it does not say which entry moved
+    // anything relevant. A profile edit to a route is exactly this event, and
+    // guessing from the namespace would be a guess.
+    const arena = deferredLlm(['deepseek-official'])
+    const catalog = new ModelCompletionCatalog(() => readModelCompletion(arena.ctx))
+    const stop = watchModelCompletion(arena.ctx, catalog)
+    try {
+      const first = catalog.completions()
+      arena.settleAll({ 'deepseek-official': [{ id: 'a', name: '' }] })
+      const values = await first
+      expect(arena.modelReads).toHaveLength(1)
+
+      arena.bus.emit('settings/document-updated', 'some-other-plugin', 7)
+      const next = catalog.completions()
+      expect(arena.modelReads).toHaveLength(2)
+      arena.settleAll({ 'deepseek-official': [{ id: 'b', name: '' }] })
+      expect((await next).map(entry => entry.value)).toEqual(['deepseek-official/b'])
+      expect(await catalog.completions()).not.toBe(values)
     } finally {
       stop()
     }
@@ -401,7 +427,9 @@ describe('upstream work across completion refreshes', () => {
       arena.settleAll({ 'deepseek-official': [{ id: 'a', name: '' }] })
       const values = await first
 
-      arena.bus.emit('settings/document-updated', 'llm-deepseek', 2)
+      // Credentials gate authentication on the request path, not which models a
+      // route advertises. The settings feed is deliberately absent: it is the
+      // raw entry change the two cases above cover.
       arena.bus.emit('credentials/reference-updated', 'ref')
       arena.bus.emit('credentials/record-updated', 'key')
       expect(await catalog.completions()).toBe(values)
@@ -519,7 +547,7 @@ describe('the window-owned completion catalog', () => {
     expect(arena.modelReads).toHaveLength(2)
 
     // Only a Harness event discards the snapshot.
-    arena.bus.emit('settings/updated', 'llm-deepseek', {}, {}, 'user')
+    arena.bus.emit('settings/document-updated', 'llm-deepseek', 1)
     const afterEvent = catalog.completions()
     expect(arena.providerReads).toHaveLength(2)
     expect(arena.modelReads).toHaveLength(4)
@@ -528,7 +556,7 @@ describe('the window-owned completion catalog', () => {
 
     // Window teardown removes the subscriptions and disposes the snapshot.
     for (const dispose of arena.effects) dispose()
-    arena.bus.emit('settings/updated', 'llm-deepseek', {}, {}, 'user')
+    arena.bus.emit('settings/document-updated', 'llm-deepseek', 2)
     expect(await catalog.completions()).toEqual([])
     expect(arena.providerReads).toHaveLength(2)
     expect(arena.modelReads).toHaveLength(4)

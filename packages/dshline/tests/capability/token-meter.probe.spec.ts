@@ -91,12 +91,15 @@ describe('capability: tokenMeter', () => {
     // A replacement shadowing both nodes: exactly what a compaction commits,
     // carrying the durable checkpoint source every backend must write —
     // `compactCheckpointSource(compactionId)` in
-    // `@deepseek-ai/dsh-compaction/checkpoint`.
+    // `@deepseek-ai/dsh-compaction/checkpoint`. The adopted generation gave that
+    // source its own `kind` and removed `MessageSourceMap.plugin`, so the
+    // `{ plugin: 'compact', compactionId }` pair this file used to build is no
+    // longer a shape any consumer reads.
     const summary = session.append('user/message', {
       id: 'm-summary',
       role: 'user',
       content: [{ type: 'text', text: 'summary' }],
-      source: { kind: 'plugin', plugin: 'compact', compactionId: 'probe-compaction' },
+      source: { kind: 'compact-checkpoint', compactionId: 'probe-compaction' },
     } as never, {
       surfaceOp: { op: 'replace', startSeq: first, endSeq: second },
       sourceEventSeqs: [first, second],

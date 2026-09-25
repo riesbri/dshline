@@ -75,8 +75,16 @@ function toolCall(callId: string, name: string, args = '{}'): SessionEvent {
   } as unknown as SessionEvent
 }
 
-/** A tool result carrying its call id. */
-function toolResult(callId: string, text: string): SessionEvent {
+/**
+ * A tool result, as the adopted generation records one.
+ *
+ * The call identity and the outcome sit on the tool-role MESSAGE, not on a
+ * per-call `tool-result` content block: that block left the `ContentBlock`
+ * union entirely, so a fixture still wrapping its text in one describes an event
+ * no reader can resolve — the pairing and the preview would both come back
+ * empty rather than fail loudly.
+ */
+function toolResult(callId: string, text: string, isError = false): SessionEvent {
   return {
     type: 'tool/result',
     seq: 0,
@@ -86,13 +94,22 @@ function toolResult(callId: string, text: string): SessionEvent {
       turn: 3,
       step: 2,
       message: {
-        id: 'r', role: 'user',
-        content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text }] }],
+        id: 'r', role: 'tool', toolCallId: callId, isError,
+        content: [{ type: 'text', text }],
         source: { kind: 'tool', callId },
       },
     },
   } as unknown as SessionEvent
 }
+
+/**
+ * A compaction checkpoint's durable source: what `compactCheckpointSource` in
+ * `@deepseek-ai/dsh-compaction/checkpoint` freezes, which a consumer recognizes
+ * from the `kind` alone. The previous generation named the producing plugin and
+ * smuggled a `compactionId` past the declared type instead, so this object has
+ * no predecessor to copy.
+ */
+const CHECKPOINT = { kind: 'compact-checkpoint', compactionId: 'c-1' }
 
 /** Mark one surface event as having replaced an earlier range. */
 function replacement(event: SessionEvent): SessionEvent {
@@ -113,7 +130,9 @@ function systemMessage(text: string): SessionEvent {
       turn: 1, step: 1,
       message: {
         id: 's', role: 'system', content: [{ type: 'text', text }],
-        source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' },
+        // The system-prompt plugin now declares its own source kind rather than
+        // being identified by a plugin name under a shared `plugin` kind.
+        source: { kind: 'system-prompt' },
       },
     },
   } as unknown as SessionEvent
@@ -282,14 +301,28 @@ describe('resolving the largest context entries', () => {
     expect(entries[0]?.tool).toBeUndefined()
   })
 
+  it('reads a failed tool result off the message, where its identity and outcome now live', () => {
+    // A failure is an `isError` flag on the tool-role message rather than a
+    // wrapper block. Nothing in `/context` turns it red — the kind stays
+    // `tool-result` — but the pairing and the preview must both still come from
+    // the message, or a failed call would read as an unnamed, empty node.
+    const session = sessionOf([
+      toolCall('call-a', 'run_shell_command'),
+      toolResult('call-a', 'command not found', true),
+    ])
+    const entries = resolveEntries(session, measurement([{ seq: 1, tokens: 9 }]), 8)
+    expect(entries[0]).toMatchObject({ seq: 1, kind: 'tool-result', tool: 'run_shell_command', turn: 3, step: 2 })
+    expect(contextPreview(session, SessionSeq(1))).toEqual({
+      text: 'command not found', truncated: false, available: true,
+    })
+  })
+
   it('names each kind of surface node off an authoritative fact', () => {
     const events = [
       userMessage('typed by a human'),
-      userMessage('nested AGENTS.md', { kind: 'plugin', plugin: 'agent-instructions', form: 'instructions' }),
+      userMessage('nested AGENTS.md', { kind: 'agent-instructions', form: 'instructions' }),
       // The compaction checkpoint source every backend is required to write.
-      replacement(userMessage('the story so far', {
-        kind: 'plugin', plugin: 'compact', compactionId: 'c-1',
-      })),
+      replacement(userMessage('the story so far', CHECKPOINT)),
       assistantMessage('a reply'),
       replacement(toolResult('call-x', 'output')),
       { type: 'plugin/whatever', seq: 5, time: 1, data: {} } as unknown as SessionEvent,
@@ -316,20 +349,26 @@ describe('resolving the largest context entries', () => {
     // Harness lets ANY producer replace a surface range. A replacement is
     // therefore not evidence of a compaction, and must not be labelled as one.
     const foreign = replacement(userMessage('rewritten by something else', {
-      kind: 'plugin', plugin: 'some-other-plugin', form: 'snapshot',
+      kind: 'agent-instructions', form: 'snapshot', sections: [{ name: 'workspace', text: 'AGENTS.md' }],
     }))
-    // Even a message from a plugin literally named `compact` is not a
-    // checkpoint without the transaction identity a checkpoint carries.
-    const unmarked = replacement(userMessage('no transaction', { kind: 'plugin', plugin: 'compact' }))
+    // A summary published under another producer’s own kind is still that
+    // producer’s context. The previous generation made a message from a plugin
+    // literally named `compact` the near miss here; the adopted generation has no
+    // shared `plugin` kind left to name, and the checkpoint kind says outright
+    // what it is, so the remaining resemblance is a node whose TEXT reads as a
+    // summary while its provenance says otherwise.
+    const lookalike = replacement(userMessage('the story so far', {
+      kind: 'schedule', form: 'notice', summary: 'the story so far',
+    }))
     const human = replacement(userMessage('a replaced human turn', { kind: 'user' }))
     const entries = resolveEntries(
-      sessionOf([foreign, unmarked, human], 3),
+      sessionOf([foreign, lookalike, human], 3),
       measurement([{ seq: 0, tokens: 30 }, { seq: 1, tokens: 20 }, { seq: 2, tokens: 10 }]),
       8,
     )
     const bySeq = new Map(entries.map(entry => [entry.seq, entry]))
     expect(bySeq.get(0)).toMatchObject({ kind: 'context', form: 'snapshot', replaced: true })
-    expect(bySeq.get(1)).toMatchObject({ kind: 'context', replaced: true })
+    expect(bySeq.get(1)).toMatchObject({ kind: 'context', form: 'notice', replaced: true })
     expect(bySeq.get(2)).toMatchObject({ kind: 'user', replaced: true })
     expect(entries.some(entry => entry.kind === 'summary')).toBe(false)
   })

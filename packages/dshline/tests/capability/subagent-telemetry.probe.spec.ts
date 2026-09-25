@@ -71,7 +71,11 @@ function work(ctx: Context, child: Session, options: Agent['options'] = {}): {
   let started: ((info: SubagentRunInfo) => void) | undefined
   const projection = new HarnessWork({
     agent: parent,
-    subagents: { listChildren: async () => [], interrupt: () => {} } as never,
+    // Discovery is the recursive descendant walk at this generation; a fake
+    // naming the retired `listChildren` fails every refresh with "not a
+    // function" before a single projection fact is asserted. The answers are
+    // empty because this probe covers projection folds, not the catalog.
+    subagents: { listDescendants: async () => [], interrupt: () => {} } as never,
     agents: { get: () => childAgent },
     projections: ctx.sessionProjections,
     onSubagentStart: listener => { started = listener; return () => {} },
