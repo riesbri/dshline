@@ -10,7 +10,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentRegistry } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
-import type { JobRegistry, JobSnapshot } from '@deepseek-ai/dsh-jobs'
+import type { JobRegistry, JobView } from '@deepseek-ai/dsh-jobs'
 // The projection registry is read type-only through `ctx.get`, like every other
 // optional Harness domain here: a profile may mount no projections at all, and
 // the two units Work reads are contributed by the subagent runtime and the
@@ -32,7 +32,7 @@ import type {
   WorkflowRunInfo,
 } from '@deepseek-ai/dsh-workflow/types'
 import type {
-  SubagentListEntry,
+  SubagentDescendantListEntry,
   SubagentRunEndInfo,
   SubagentRunInfo,
   SubagentRuntime,
@@ -53,6 +53,12 @@ import type {
 
 /** The two projection units a live local child's Work row reads, and no others. */
 const CHILD_PROJECTION_KEYS = ['subagentTiming', 'tokenUsage'] as const
+
+/**
+ * The edge distance `listDescendants` reports for a child of the requested
+ * parent; every deeper row belongs to some other parent's branch.
+ */
+const DIRECT_CHILD_DEPTH = 1
 
 /** Discovery facts retained only when the direct-child projection served them. */
 interface DiscoveredSubagent {
@@ -132,8 +138,8 @@ export interface WorkCapabilities {
  * Projects optional Harness work capabilities for terminal views.
  *
  * The only retained subagent state is the open lifecycle edge. Labels, mode,
- * residency, and child presence are repeatedly read from the direct-parent
- * `listChildren()` projection, while jobs are read directly from `list()` and
+ * residency, and child presence are repeatedly read from the parent-relative
+ * `listDescendants()` catalog, while jobs are read directly from `list()` and
  * never through the consuming `read()` API. Live activity is an optional
  * enrichment: a resolved in-process child Agent is observed with the same
  * event-driven fold the main status uses, and everything disposes with the
@@ -154,8 +160,27 @@ export class HarnessWork {
     if (jobs !== undefined) {
       // This is the pure observation seam. Completion delivery has model-facing
       // reporting semantics, so the view must not subscribe to it just to redraw.
-      this.disposers.push(jobs.onJobsChanged(owner => {
-        if (owner === undefined || owner === capabilities.agent) capabilities.invalidate()
+      // `{ owner }` already selects what this session can see — its own jobs
+      // plus every unowned one — so the filter does the work the old owner
+      // comparison did, and no other session's change can reach this listener.
+      this.disposers.push(jobs.events.subscribe({ owner: capabilities.agent.session.id }, event => {
+        switch (event.type) {
+          // The four events that can add, re-state, or retire a Work row: a
+          // registration is a new row, a stop or a settlement changes what
+          // `list()` filters to, and a removal empties the section.
+          case 'registered':
+          case 'stopping':
+          case 'settled':
+          case 'removed':
+            capabilities.invalidate()
+            break
+          // A progress line and a ring append are producer chatter that no
+          // Work row projects, and an append arrives once per chunk. Repainting
+          // the live region for either would be repaint, not information.
+          case 'progress':
+          case 'output':
+            break
+        }
       }))
     }
     if (subagents !== undefined) {
@@ -296,12 +321,21 @@ export class HarnessWork {
     )
   }
 
-  /** Read labels, mode, residency, and child presence from direct-child discovery. */
+  /**
+   * Read labels, mode, residency, and child presence from direct-child discovery.
+   *
+   * The recursive catalog is the only seam that publishes those four as one
+   * row: `listChildren` answers with the flat parent catalog, which carries no
+   * session-store residency, no lineage, and no branch diagnostic, so a row
+   * built from it could never name a durable conversation to open. Depth one
+   * is this parent's direct child; the traversal reads deeper only because the
+   * seam publishes no direct-children-only form of these rows.
+   */
   private refreshSubagents(): void {
     const subagents = this.capabilities.subagents
     if (subagents === undefined) return
     const generation = ++this.listingGeneration
-    void subagents.listChildren(this.capabilities.agent.session.id)
+    void subagents.listDescendants(this.capabilities.agent.session.id)
       .then(entries => {
         if (generation !== this.listingGeneration) return
         this.discovered.clear()
@@ -320,8 +354,21 @@ export class HarnessWork {
    * not a model turn in flight — so it is mapped to residency wording rather
    * than presented as progress.
    */
-  private remember(entry: SubagentListEntry): void {
-    if (entry.kind !== 'child') return
+  private remember(entry: SubagentDescendantListEntry): void {
+    // A diagnostic is the seam reporting that it has no descriptor to give:
+    // the child's own catalog read failed (`corrupt`/`unavailable`), or the
+    // parent records a child mode this generation does not know
+    // (`unsupported`). None of the three yields a mode, a residency, or a
+    // lineage, and none is recoverable by choosing one, so the row keeps its
+    // lifecycle edge alone — which is also what keeps the two controls honest,
+    // since interrupt is authorized only for a PROVEN continuable child and
+    // the durable-conversation target refuses a session whose descriptor the
+    // catalog would not return.
+    if (entry.kind === 'diagnostic') return
+    // A deeper row is some other parent's branch. The lifecycle edges Work
+    // observes are scoped to the direct delegating parent, so a grandchild has
+    // no row here for a deeper row to enrich.
+    if (entry.depth !== DIRECT_CHILD_DEPTH) return
     this.discovered.set(String(entry.id), {
       mode: entry.mode,
       residency: entry.activity === 'running' ? 'resident' : 'stored',
@@ -330,29 +377,29 @@ export class HarnessWork {
     })
   }
 
-  /** Convert non-terminal job snapshots without consuming their output cursor. */
+  /** Convert non-terminal job views without consuming their output cursor. */
   private jobItems(jobs: JobRegistry, agent: Agent): JobWorkItem[] {
-    let snapshots: JobSnapshot[]
+    let views: JobView[]
     try {
-      snapshots = jobs.list(agent)
+      views = jobs.list(agent.session.id)
     } catch {
       return []
     }
-    return snapshots
-      .filter((snapshot): snapshot is JobSnapshot & { status: 'running' | 'stopping' } => (
-        snapshot.status === 'running' || snapshot.status === 'stopping'
+    return views
+      .filter((view): view is JobView & { status: 'running' | 'stopping' } => (
+        view.status === 'running' || view.status === 'stopping'
       ))
-      .map(snapshot => ({
-        id: String(snapshot.id),
+      .map(view => ({
+        id: String(view.id),
         source: 'job' as const,
-        kind: snapshot.kind,
-        label: snapshot.label,
-        state: snapshot.status,
-        startedAt: snapshot.startedAt,
-        ...snapshot.detail === undefined ? {} : { detail: snapshot.detail },
+        kind: view.kind,
+        label: view.label,
+        state: view.status,
+        startedAt: view.startedAt,
+        ...view.detail === undefined ? {} : { detail: view.detail },
         // `jobs.kill()` changes model-delivery (`reported`) semantics. It is a
         // model control operation, not a human-safe Work action.
-        ownership: snapshot.ownerSession === agent.session.id ? 'this-session' as const : 'unowned' as const,
+        ownership: view.owner === agent.session.id ? 'this-session' as const : 'unowned' as const,
         interruptible: false as const,
       }))
   }

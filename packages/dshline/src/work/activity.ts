@@ -288,10 +288,10 @@ export class ChildActivityObserver {
         arguments: event.data.arguments,
       })
     } else if (event.type === 'tool/result') {
-      // The session event carries no call id; the pairing lives on the first
-      // content block, exactly as the transcript projection reads it.
-      const toolCallId = event.data.message.content[0]?.toolCallId
-      if (toolCallId !== undefined) this.pending.handleResult(String(toolCallId))
+      // The adopted generation puts the call identity on the tool-role message
+      // itself, not on a content block, so this is the same pairing the
+      // transcript projection reads and needs no first-block probe.
+      this.pending.handleResult(String(event.data.message.toolCallId))
     } else if (event.type === 'turn/end') {
       // An aborted or failed turn can close without results for its calls. The
       // main status clears its cards here; the Work fold must not keep showing

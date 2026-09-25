@@ -261,16 +261,19 @@ Still ahead for Connect:
 
 The fifth generic capability adapter presents agent COMPOSITION: which tools,
 prompt sections, and delegation backends the running agent actually has,
-through `ctx.agentPresets`. `/plugins` browses the roster and the composition
-of whichever preset an agent is joined to, and carries out every change
-through the seam that owns it.
+through `ctx.agentPresets`. A preset is a declaration in the composition, not
+a file in a shipped directory. `/plugins` browses the roster and the
+composition of whichever declaration an agent is joined to, and carries out
+every change through the seam that owns it — `ctx.configEditor` for a row,
+`ctx.settings` for the default, `select()` for the switch.
 
-- read the roster and one preset's composition through `list()`/`read()`;
-  never a private plugin registry, and never inferred from tool names or
-  rendered output
-- toggle a row only on a locally authored preset — a built-in one is
-  copied first (`copy()`), never edited in place — and re-validate the
-  result through Harness's own health check, not a private re-parse of it
+- read the roster and one declaration's composition through `list()` and
+  `readDocument()`; never a private plugin registry, and never inferred from
+  tool names or rendered output
+- edit a row only through `ctx.configEditor`, which is the owner the adopted
+  generation gives a declaration: it persists a profile-layer override, so a
+  shipped declaration is never modified in its package, and re-validates the
+  result through the owning row's own `Config` rather than a private re-parse
 - join an agent's composition only through `mount()`, and switch it only
   through `select()` — Harness's own whole operation, which re-checks the
   authoritative `turnBoundary` projection inside its own serialized switch,
@@ -578,10 +581,15 @@ does not promise is that any older prerelease generation keeps working.
   `agentPresets.select()`; `/plugins` reads the same `turnBoundary` projection
   to avoid offering the impossible, and offers the default for the next
   session instead.
-- **`/plugins` edits a preset's composition file directly.** Toggling a row is
-  a narrow, lock-coordinated edit to `agent.cordis.yml` because Harness does
-  not yet expose a finer-grained mutation contract; conditional (`!!js`) rows
-  are never evaluated or toggled, only reported.
+- **`/plugins` offers no way to author a new preset.** The adopted registry
+  has no `copy()`: a declaration is a row, and a new one is a bundle patch
+  installed through `plugin_manager`, which is a plugin-management concern
+  rather than a terminal one. Editing a declaration that already exists is
+  offered; creating one is not.
+- **`/plugins` cannot toggle a conditional (`!!js`) row.** The Loader still
+  evaluates those expressions, so there is no edit that is both a plain toggle
+  and an honest one; the expression is named and the row is left alone. The
+  row is also read-only in a profile mounting no `configEditor`.
 - **A pre-preset session's composition can only be approximated.** Sessions
   produced before dshline adopted agent presets recorded no preset, so they
   resume under the shipped `standard` — the preset built to mean exactly the

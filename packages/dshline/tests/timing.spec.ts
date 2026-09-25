@@ -30,8 +30,19 @@ const delta = (time: number, attempt: string, type: string): AssistantStreamFram
 /** A tool call opening, and the result that closes it. */
 const call = (time: number, callId: string, name: string): SessionEvent =>
   event(time, 'tool/call', { turn: 1, step: 0, callId, name, arguments: '{}' })
+/**
+ * The result closing one call.
+ *
+ * The call id rides the tool-role MESSAGE: the adopted generation deleted the
+ * per-call `tool-result` content block, so a result carrying it only inside
+ * `content` no longer identifies anything and would leave the span open.
+ */
 const result = (time: number, callId: string): SessionEvent =>
-  event(time, 'tool/result', { turn: 1, step: 0, message: { content: [{ toolCallId: callId }] } })
+  event(time, 'tool/result', {
+    turn: 1,
+    step: 0,
+    message: { id: `r-${callId}`, role: 'tool', toolCallId: callId, content: [], source: { kind: 'tool', callId } },
+  })
 
 /** The event that closes a turn. */
 const ends = (time: number, turn = 1): SessionEvent =>

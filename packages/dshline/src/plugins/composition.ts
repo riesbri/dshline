@@ -1,19 +1,18 @@
 /**
- * Reading and narrowly editing one preset's `agent.cordis.yml` text.
+ * Reading one preset declaration's composition text, for display.
  *
  * The dialect is Harness's entry-list YAML: a top-level list of plugin rows
  * (`EntryOptions`, from `@deepseek-ai/cordis-plugin-loader`), where a
  * `group: true` row's `config` is itself a nested list of rows —
  * `delegation > tool-subagent-codex` is one row inside another row's
  * `config`, not a flat entry. The ONLY thing Harness's own discovery
- * validator (`entryListProblem` in `packages/preset/agent-presets/src/
- * discovery.ts`) requires of a row is a non-empty `name`; `id` is not part of
+ * validator (`entryListProblem` in `packages/preset/agent-preset-registry/src/
+ * definition.ts`) requires of a row is a non-empty `name`; `id` is not part of
  * the minimum-valid shape — the Loader assigns a random one at mount time
  * when a row omits it (`config/tree.ts`'s `Math.random().toString(16)...`).
  * This parser follows that same shallow acceptance rather than a stricter one
  * of its own: an id-less row is valid input here, exactly as it is to
- * Harness, and is displayed and addressed by its `name` and structural
- * position instead.
+ * Harness, and is displayed by its `name` and structural position instead.
  *
  * `disabled` is not only boolean: the same dialect tags a scalar
  * `!!js <expression>` (`tag:yaml.org,2002:js` in `vendor/include`'s
@@ -25,31 +24,18 @@
  * `disabled` is a `!!js` node is modeled as `'conditional'` and its raw
  * expression text is carried through for display only.
  *
- * The mutation this module offers — {@link toggleDisabled} — is narrow on
- * purpose. Because `id` is optional and not guaranteed unique even where
- * present (Harness's own validator never checks uniqueness), a row is
- * addressed by a {@link RowLocator}: its structural position (a sequence
- * index at each nesting level) PLUS the name — and id, when the file had one
- * — expected at that position. Re-locating re-parses `text` fresh and
- * verifies every step's fingerprint still matches before touching anything,
- * so a file changed elsewhere between read and write is refused rather than
- * silently mutating whatever now happens to sit at that position. Once
- * located, and only when the row's CURRENT `disabled` is not a `!!js` node
- * (overwriting one would silently discard host-specific behavior an operator
- * wrote on purpose — proven by a concrete repro: naively `setIn`-ing over a
- * `!!js` scalar serializes as `disabled: !!js undefined`, a corrupt
- * expression the Loader would then evaluate), exactly one field is edited —
- * `setIn` to disable, `deleteIn` to enable, mirroring the shipped presets'
- * own convention of shipping some tool rows `disabled: true` with a comment
- * telling the reader to "remove `disabled` from the matching tool row" to
- * turn them on. A request that changes nothing (the row is already in the
- * requested state) returns the INPUT text verbatim rather than re-serializing
- * at all, which is the only byte-identical guarantee this module makes
- * outright; a genuine edit is scoped to that one field via `yaml`'s
- * `Document` AST, but a full byte-for-byte guarantee on every unrelated line
- * is a claim only the tests below back, not a property asserted in general —
- * see `plugins-composition.spec.ts`'s regression fixture for what is
- * actually verified against a real shipped preset.
+ * This module is now READ-ONLY, and that is a migration result rather than a
+ * choice. The previous generation's roster was a live directory of
+ * `agent.cordis.yml` files, so `/plugins` could address a row by a
+ * {@link RowLocator} and splice exactly one `disabled` field in place, and
+ * nothing about that survives: the adopted registry "accepts no preset paths",
+ * returns no path to write, and its own preset tree overrides `write()` to a
+ * no-op because "only the profile configuration editor persists definitions".
+ * A composition now changes only through Harness's own profile-patch
+ * reconciliation, and a second YAML-splicing path beside it would be a second
+ * authority over the same file. So the locator, the re-parse-and-refuse
+ * discipline, and the narrow edit are deleted, and what remains is the parse
+ * the browser draws.
  * @module dshline/plugins/composition
  */
 
@@ -85,38 +71,16 @@ export type DisabledState =
 /** Whether a row runs, once its own field and its ancestors' are combined. */
 export type EffectiveState = 'enabled' | 'disabled' | 'conditional'
 
-/**
- * One step of a {@link RowLocator}: a row's position within its containing
- * list, and the fingerprint expected there. `name` is always checked (it is
- * the one field Harness itself requires); `id` is checked only when the row
- * had one, since its absence here does not mean a re-read file may not have
- * since grown one — only that this locator does not know to expect it.
- */
-export interface RowLocatorStep {
-  /** Index within the immediately containing entry list. */
-  readonly index: number
-  /** The name expected at that position. */
-  readonly name: string
-  /** The id expected at that position, when this row had one. */
-  readonly id: string | undefined
-}
-
-/** How to safely re-find one row after re-parsing the file fresh. */
-export interface RowLocator {
-  /** Steps from the top-level list down to and including the target row. */
-  readonly steps: readonly RowLocatorStep[]
-}
-
 /** One row of a preset's composition, at whatever depth it was found. */
 export interface CompositionRow {
-  /** How to safely re-find this exact row after a fresh re-parse. */
+  /** How to safely re-find this exact row in the declaration being edited. */
   readonly locator: RowLocator
   /**
    * Display breadcrumb from the root row down to and including this one —
    * each ancestor's `id`, falling back to its `name` when it has none.
    */
   readonly path: readonly string[]
-  /** This row's own id, when the file gives it one. */
+  /** This row's own id, when the declaration gives it one. */
   readonly id: string | undefined
   /** Module specifier the row loads. */
   readonly name: string
@@ -170,16 +134,16 @@ export type CompositionTree =
 /**
  * Parse one preset's composition text into a flat, pre-order row list.
  *
- * Never throws: a file this dialect cannot make sense of is reported as
+ * Never throws: text this dialect cannot make sense of is reported as
  * {@link CompositionTree} `'broken'`, the same posture Harness's own
- * discovery takes toward an unparsable or malformed composition — and, by
- * design, no MORE strict than that posture: a row this parser cannot make
- * complete sense of but Harness's own validator accepts (an id-less row,
- * chiefly) is parsed, not rejected. This function is presentation and
- * mutation support for Harness-valid files; it does not independently decide
- * a preset's health — see `catalog.ts`, which treats the roster's own
- * `AgentPresetRow.broken` as authoritative over whatever this parser thinks.
- * @param text - the composition file's raw text, as `read(id)` returns it.
+ * registration takes toward a malformed `plugins` list — and, by design, no
+ * MORE strict than that posture: a row this parser cannot make complete sense
+ * of but Harness's own validator accepts (an id-less row, chiefly) is parsed,
+ * not rejected. This function is presentation for declarations Harness already
+ * considers valid; it does not independently decide a preset's health — see
+ * `catalog.ts`, which treats the roster's own `AgentPresetRow.broken` as
+ * authoritative over whatever this parser thinks.
+ * @param text - the declaration's rendered child list, as `readDocument()` returns it.
  * @returns the flattened rows, or why none could be read.
  */
 export function parseComposition(text: string): CompositionTree {
@@ -200,11 +164,10 @@ export function parseComposition(text: string): CompositionTree {
 }
 
 /**
- * Walk one entry list, flattening rows in pre-order and threading both the
- * display path and the locator steps down through nested groups.
+ * Walk one entry list, flattening rows in pre-order and threading the display
+ * path down through nested groups.
  * @param seq - the entry list at this level.
  * @param parentPath - display breadcrumb above this level.
- * @param parentSteps - locator steps above this level.
  * @param depth - nesting depth of this level.
  * @param ancestorBlock - the combined state every ancestor group contributes.
  * @param out - accumulator every row is pushed onto, in document order.
@@ -230,8 +193,7 @@ function walk(
     const id = typeof idValue === 'string' && idValue !== '' ? idValue : undefined
     const group = item.get('group') === true
     const disabled = readDisabled(item)
-    const step: RowLocatorStep = { index, name, id }
-    const steps = [...parentSteps, step]
+    const steps = [...parentSteps, { index, name, id }]
     const path = [...parentPath, id ?? name]
     const effective: EffectiveState = group ? 'enabled' : combine(ancestorBlock, disabled)
     const configSummary = group ? undefined : summarizeConfig(item.get('config'))
@@ -359,17 +321,50 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && !isJsExpr(value)
 }
 
-/** Why {@link toggleDisabled} could not apply the requested change. */
+/**
+ * One step of a {@link RowLocator}: a row's position within its containing
+ * entry list, and the fingerprint expected there.
+ *
+ * `name` is always checked because it is the one field Harness itself requires
+ * of a row. `id` is checked only when the row had one, since its absence here
+ * does not mean a re-read may not since have grown one — only that this locator
+ * does not know to expect it.
+ */
+export interface RowLocatorStep {
+  /** Index within the immediately containing entry list. */
+  readonly index: number
+  /** The name expected at that position. */
+  readonly name: string
+  /** The id expected at that position, when this row had one. */
+  readonly id: string | undefined
+}
+
+/**
+ * How to safely re-find one row after re-reading the declaration.
+ *
+ * A declaration is a list of rows where a `group: true` row's own children live
+ * in its `config`, so a locator is a path of (index, name, id) steps from the
+ * top-level list down to one row. `id` is optional to Harness and is not
+ * guaranteed unique where present, so it is a corroborating check and never the
+ * only one — the alternative, addressing a row by name alone, would silently
+ * edit the first match in a list a person may have made ambiguous on purpose.
+ */
+export interface RowLocator {
+  /** Steps from the top-level list down to and including the target row. */
+  readonly steps: readonly RowLocatorStep[]
+}
+
+/** Why {@link togglePresetRow} could not apply the requested change. */
 export type ToggleFailureReason =
-  /** The composition text does not parse as an entry list at all. */
+  /** The declaration's child list is not the array of rows it should be. */
   | 'broken'
   /** The locator's structure (an index, or a group where one is expected) no longer exists. */
   | 'not-found'
   /**
-   * A row exists at the located position, but its name (or id, when the
-   * locator recorded one) no longer matches: the file changed incompatibly
-   * since this locator was built, and mutating that position anyway would
-   * risk editing a different row than the one shown.
+   * A row exists at the located position, but its name — or its id, when the
+   * locator recorded one — no longer matches: the declaration changed
+   * incompatibly since this locator was built, and mutating that position
+   * anyway would edit a different row than the one shown.
    */
   | 'changed'
   /**
@@ -380,97 +375,138 @@ export type ToggleFailureReason =
 
 /** The result of attempting one narrow `disabled` edit. */
 export type ToggleResult =
-  /** The edit applied (or nothing needed to change); `text` is the whole file. */
-  | { readonly ok: true; readonly text: string }
-  /** The edit was refused or the row could not be safely re-found. */
+  /** The edit applied, or nothing needed to change. */
+  | { readonly ok: true; readonly changed: boolean; readonly plugins: readonly unknown[] }
+  /** The edit was refused, or the row could not be safely re-found. */
   | { readonly ok: false; readonly reason: ToggleFailureReason; readonly message: string }
 
-/**
- * Enable or disable exactly one row, addressed by its {@link RowLocator}.
- *
- * Re-parses `text` itself rather than trusting a path captured from an
- * earlier read, and re-verifies every step's name (and id, when recorded)
- * before touching anything, so a row moved, renamed, or removed by an edit
- * made elsewhere is refused instead of silently mutating whatever now sits
- * at that position.
- * @param text - the composition file's current text.
- * @param locator - the row's locator, as {@link CompositionRow.locator} reports it.
- * @param enable - `true` to enable the row, `false` to disable it.
- * @returns the new text, or why the edit was refused.
- */
-export function toggleDisabled(text: string, locator: RowLocator, enable: boolean): ToggleResult {
-  if (locator.steps.length === 0) return { ok: false, reason: 'not-found', message: 'no row addressed' }
-  let doc: Document
-  try {
-    doc = parseDocument(text, { customTags: [conditionalTag] })
-  } catch (error) {
-    return { ok: false, reason: 'broken', message: error instanceof Error ? error.message : String(error) }
-  }
-  if (doc.errors.length > 0) {
-    return { ok: false, reason: 'broken', message: doc.errors[0]?.message ?? 'composition did not parse as YAML' }
-  }
-  const label = locator.steps.map(step => step.id ?? step.name).join(' > ')
-  const located = locate(doc.contents, locator.steps)
-  if (located === undefined) {
-    return { ok: false, reason: 'not-found', message: `no row at the expected position for ${label}` }
-  }
-  if (located === 'changed') {
-    return { ok: false, reason: 'changed', message: `the file changed since this was read: ${label} moved or was replaced` }
-  }
-  const { row, astPath } = located
-  const current = readDisabled(row)
-  if (current.kind === 'conditional') {
-    return {
-      ok: false,
-      reason: 'conditional',
-      message: `${label} is disabled by a condition (${current.expression}), not a plain toggle`,
-    }
-  }
-  const alreadyRequested = (enable && current.kind === 'enabled') || (!enable && current.kind === 'disabled')
-  if (alreadyRequested) return { ok: true, text }
-  if (enable) doc.deleteIn(astPath)
-  else doc.setIn(astPath, true)
-  // `lineWidth: 0` disables re-wrapping: the default 80-column fold would
-  // otherwise reflow every long block scalar in the WHOLE file on every
-  // toggle, not just the one field this function touches.
-  return { ok: true, text: doc.toString({ lineWidth: 0 }) }
+/** One child row as a preset declaration holds it, before any parsing. */
+type RawRow = Readonly<Record<string, unknown>>
+
+/** Whether a value is a `!!js` conditional, already resolved by the Loader. */
+function isRawJsExpr(value: unknown): value is { readonly __jsExpr: string } {
+  return typeof value === 'object' && value !== null && '__jsExpr' in (value as Record<string, unknown>)
 }
 
 /**
- * Find one row's mapping node and the AST path to its `disabled` field,
- * verifying every step's fingerprint on the way down.
- * @param top - the document's top-level entry list.
- * @param steps - the locator steps from the root to the target row.
- * @returns the row and the path to address; `'changed'` when a step's
- * position exists but its fingerprint no longer matches; undefined when the
- * position itself no longer exists at all.
+ * Read one row's own `disabled` field from the raw declaration, without ever
+ * resolving what a `!!js` node means.
+ * @param row - the raw row.
+ * @returns the row's own disabled state.
  */
-function locate(
-  top: unknown,
+function rawDisabledState(row: RawRow): DisabledState {
+  const value = row['disabled']
+  if (value === undefined) return { kind: 'enabled' }
+  if (isRawJsExpr(value)) return { kind: 'conditional', expression: value.__jsExpr }
+  return { kind: Boolean(value) ? 'disabled' : 'enabled' }
+}
+
+/**
+ * Enable or disable exactly one row of a preset declaration.
+ *
+ * This operates on the STRUCTURED child list the Loader resolved, not on
+ * rendered YAML text, and it copies every row it does not touch. That is the
+ * point of the migration: a preset is a `@deepseek-ai/dsh-agent-preset` row in
+ * a composition, the composition is persisted by `ctx.configEditor` through a
+ * profile patch, and that path re-serializes the whole `config` through the
+ * owning plugin's own `Config`. A second YAML writer producing a second
+ * rendering of the same declaration would be a second authority over one file.
+ *
+ * Every step of the locator is re-verified against the list being edited, so a
+ * declaration changed since the browser read it is refused rather than
+ * mutating whatever now sits at that position. A request that changes nothing
+ * returns the input list unchanged, so a redundant write never lands a
+ * profile patch.
+ *
+ * A `!!js` `disabled` is refused outright. Overwriting one would discard
+ * host-specific behavior an operator wrote on purpose, and the adopted Loader
+ * still evaluates it, so there is no representation here that is both a toggle
+ * and an honest edit.
+ * @param plugins - the declaration's resolved child list.
+ * @param locator - the row's locator, as {@link CompositionRow.locator} reports it.
+ * @param enable - `true` to enable the row, `false` to disable it.
+ * @returns the new list, or why the edit was refused.
+ */
+export function togglePresetRow(
+  plugins: readonly unknown[],
+  locator: RowLocator,
+  enable: boolean,
+): ToggleResult {
+  if (locator.steps.length === 0) return { ok: false, reason: 'not-found', message: 'no row addressed' }
+  const label = locator.steps.map(step => step.id ?? step.name).join(' > ')
+  const next = stepInto(plugins, locator.steps, 0, label, enable)
+  if (next === undefined) return { ok: false, reason: 'not-found', message: `no row at the expected position for ${label}` }
+  if ('refused' in next) return next.refused
+  return { ok: true, changed: next.list !== plugins, plugins: next.list }
+}
+
+/**
+ * Walk one step deeper, rebuilding the list only along the path to the target.
+ * @param list - the list at this level.
+ * @param steps - the remaining locator steps.
+ * @param depth - how many steps have been consumed.
+ * @param label - the human-readable path, for a refusal message.
+ * @param enable - what the target row's `disabled` should become.
+ * @returns the rebuilt list on success, or a refusal at this level.
+ */
+function stepInto(
+  list: readonly unknown[],
   steps: readonly RowLocatorStep[],
-): { readonly row: YAMLMap; readonly astPath: (string | number)[] } | 'changed' | undefined {
-  if (!isSeq(top)) return undefined
-  let seq: YAMLSeq = top
-  let astPath: (string | number)[] = []
-  for (let level = 0; level < steps.length; level += 1) {
-    const step = steps[level]
-    if (step === undefined) return undefined
-    const item = seq.items[step.index]
-    if (item === undefined) return undefined
-    if (!isMap(item)) return 'changed'
-    const name = item.get('name')
-    if (name !== step.name) return 'changed'
-    if (step.id !== undefined) {
-      const idValue = item.get('id')
-      const id = typeof idValue === 'string' && idValue !== '' ? idValue : undefined
-      if (id !== step.id) return 'changed'
+  depth: number,
+  label: string,
+  enable: boolean,
+): { readonly list: readonly unknown[] } | { readonly refused: ToggleResult } | undefined {
+  const step = steps[depth]
+  if (step === undefined) return undefined
+  const row: unknown = list[step.index]
+  if (row === undefined) return undefined
+  const moved = (): { refused: ToggleResult } => ({
+    refused: { ok: false, reason: 'changed', message: `the declaration changed since this was read: ${label} moved or was replaced` },
+  })
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) return moved()
+  const map = row as Record<string, unknown>
+  if (map['name'] !== step.name) return moved()
+  if (step.id !== undefined && map['id'] !== step.id) return moved()
+  const last = depth === steps.length - 1
+  if (!last) {
+    // Only a group row has children, and only in its own `config`. A row that
+    // used to nest and no longer does is a changed declaration, not a leaf.
+    const children: unknown = map['config']
+    if (!Array.isArray(children)) {
+      return {
+        refused: { ok: false, reason: 'changed', message: `the declaration changed since this was read: ${label} is no longer a group` },
+      }
     }
-    astPath = [...astPath, step.index]
-    if (level === steps.length - 1) return { row: item, astPath: [...astPath, 'disabled'] }
-    const config: unknown = item.get('config')
-    if (!isSeq(config)) return 'changed'
-    seq = config
-    astPath = [...astPath, 'config']
+    const rebuilt = stepInto(children, steps, depth + 1, label, enable)
+    if (rebuilt === undefined) return undefined
+    if ('refused' in rebuilt) return rebuilt
+    if (rebuilt.list === children) return { list }
+    const copy = [...list]
+    copy[step.index] = { ...map, config: rebuilt.list }
+    return { list: copy }
   }
-  return undefined
+  const current = rawDisabledState(map)
+  if (current.kind === 'conditional') {
+    return {
+      refused: {
+        ok: false,
+        reason: 'conditional',
+        message: `${label} is disabled by a condition (${current.expression}), not a plain toggle`,
+      },
+    }
+  }
+  const already = enable ? current.kind === 'enabled' : current.kind === 'disabled'
+  if (already) return { list }
+  const copy = [...list]
+  // Dropping the field IS the enable case, for the same reason the shipped
+  // declarations omit it rather than writing `false`: a row with no `disabled`
+  // is enabled, and that is what a person reading the patch expects to see.
+  if (enable) {
+    const { disabled: _dropped, ...rest } = map
+    void _dropped
+    copy[step.index] = rest
+  } else {
+    copy[step.index] = { ...map, disabled: true }
+  }
+  return { list: copy }
 }

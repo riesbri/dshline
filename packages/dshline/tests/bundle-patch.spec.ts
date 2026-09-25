@@ -6,7 +6,7 @@
  * here means a fresh install gets it wrong. The check is structural, not a
  * live Cordis mount (nothing in this repo boots a real Loader tree in a
  * unit test): every row `dsh-base` mounts unconditionally that a Harness
- * preset also lists must be disabled here, `agent-presets` must be
+ * preset also lists must be disabled here, `agent-preset-registry` must be
  * inserted with a real default, and no id may be both disabled and
  * (re-)inserted by this same file — that would be dshline arguing with
  * itself about whether one row exists.
@@ -81,6 +81,14 @@ const EXPECTED_DISABLED = [
   'tool-subagent',
   'tool-subagent-fork',
   'tool-workflow',
+  // The engine the preset's `delegation` group isolates. Left enabled, a second
+  // `workflowEngine` is published into the root realm beside the preset's own
+  // isolated copy, and `tool-workflow` — which waits INSIDE that realm — never
+  // resolves. This pair is the regression the published-consumer boot caught.
+  'workflow-ptc',
+  // Plugin management is a human action taken through `/profiles`, and the base
+  // mounts the model-facing tool unconditionally.
+  'tool-plugin-manager',
   'tool-ralph',
   'agent-instructions',
   'tool-todo',
@@ -131,13 +139,15 @@ describe('cordis.patch.yml: the agent plane moves behind agent presets', () => {
     expect(disabled.has('workflow-worker-thread')).toBe(false)
   })
 
-  it('inserts the preset roster with a real default', () => {
+  it('inserts the preset registry with a real default', () => {
     const patch = loadPatch()
-    const agentPresets = patch
+    const registry = patch
       .flatMap(entry => entry.insert ?? [])
-      .find(row => row.id === 'agent-presets')
-    expect(agentPresets?.name).toBe('@deepseek-ai/dsh-agent-presets')
-    expect((agentPresets?.config as { default?: unknown } | undefined)?.default).toBe('standard')
+      .find(row => row.id === 'agent-preset-registry')
+    // The service that replaced the removed `@deepseek-ai/dsh-agent-presets`.
+    // Naming the old package here would resolve to nothing in a real profile.
+    expect(registry?.name).toBe('@deepseek-ai/dsh-agent-preset-registry')
+    expect((registry?.config as { default?: unknown } | undefined)?.default).toBe('standard')
   })
 
   it('never both disables and (re-)inserts the same row id', () => {

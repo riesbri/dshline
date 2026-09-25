@@ -9,6 +9,8 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
+import { JobId } from '@deepseek-ai/dsh-jobs'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
@@ -83,14 +85,18 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     }),
   }
   ctx.provide('commands', commands as never)
+  // The generic jobs seam, as `HarnessWork` reads it: a `JobView` list scoped
+  // by session id, plus the owner-filtered event subscription the overlay
+  // refreshes from. Neither is ever fired here — this fixture only needs one
+  // nonterminal owned Job to be visible for the idle ctrl-c guard.
   ctx.provide('jobs', {
     list: () => options.activeJob
       ? [{
-        id: 'job-1', kind: 'subagent', label: 'long child', status: 'running', startedAt: 0,
-        ownerSession: 'exit-test', reported: false,
+        id: JobId('job-1'), kind: 'subagent', label: 'long child', status: 'running',
+        startedAt: 0, owner: SessionId('exit-test'), output: { total: 0, earliest: 0 },
       }]
       : [],
-    onJobsChanged: () => () => {},
+    events: { subscribe: () => () => {} },
   } as never)
 
   const events: string[] = []

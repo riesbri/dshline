@@ -1,19 +1,50 @@
 /**
- * Parsing and narrowly editing Harness's entry-list composition YAML.
+ * Parsing Harness's entry-list composition, and the one narrow edit on it.
  *
  * The fixtures below are trimmed from the real shipped `standard` preset
  * (`apps/cli/config/agent-presets/standard/agent.cordis.yml` in
  * deepseek-harness): the `!!js` platform-conditional shell tools, and the
  * `delegation` group whose `tool-subagent-codex` child ships `disabled: true`
- * with a comment telling an operator to copy the preset and remove the field.
- * Round-tripping this exact shape — nested groups, comments, `!!js`,
- * multiline block scalars — is the point: this is what a real toggle in a
- * real preset touches.
+ * with a comment telling an operator to install the provider and remove the
+ * field. Round-tripping this exact shape — nested groups, `!!js`, multiline
+ * block scalars — is the point: this is what a real toggle in a real preset
+ * touches.
+ *
+ * The edit is no longer a splice of the rendered TEXT. A declaration is a
+ * `@deepseek-ai/dsh-agent-preset` row in a composition, the adopted registry
+ * publishes no path and "writes no declarations", and the profile
+ * configuration editor re-serializes the whole `config` through the owning
+ * plugin's own `Config`. So {@link togglePresetRow} operates on the RESOLVED
+ * child list the Loader hands that editor, copying every row it does not touch,
+ * and this suite reaches that list the way the Loader does: by parsing the very
+ * same rendered text {@link parseComposition} renders rows from, which is also
+ * what makes "the locator the browser reports is usable against the list the
+ * editor is handed" an assertion rather than a hope.
+ *
+ * Comments and block-scalar formatting are not asserted on below, and cannot
+ * be: they belong to the rendering, and the write path re-renders the whole
+ * config. What survives a toggle is the resolved rows, which is what the Loader
+ * and the browser both read.
  */
 
 import { describe, expect, it } from 'vitest'
+import { parse } from 'yaml'
 import type { CompositionRow, RowLocator } from '../src/plugins/composition.ts'
-import { parseComposition, toggleDisabled } from '../src/plugins/composition.ts'
+import { parseComposition, togglePresetRow } from '../src/plugins/composition.ts'
+
+/**
+ * The Loader's own `!!js` tag, so a conditional resolves to the raw expression
+ * the way Harness resolves it and never to a boolean.
+ *
+ * Mirrors the tag `composition.ts` reads with, rather than reusing it: that one
+ * is module-private, and a test that could not turn a rendered fixture back into
+ * the resolved list the Loader hands an editor would be asserting on a
+ * structure the real write path never receives.
+ */
+const JS_EXPR_TAG = {
+  tag: 'tag:yaml.org,2002:js',
+  resolve: (source: string): { __jsExpr: string } => ({ __jsExpr: source }),
+}
 
 /** A trimmed, realistic composition: top-level conditional rows, a multiline
  * scalar, and a nested `delegation` group with a disabled leaf. */
@@ -124,7 +155,20 @@ const REAL_STANDARD_EXCERPT = `# The \`standard\` agent preset: the full coding 
 `
 
 /**
- * Find one row's locator by its display path, for use in `toggleDisabled`.
+ * The composition as the Loader resolves it: the child list a configuration
+ * editor is handed, derived from the same text the browser's rows are parsed
+ * from so the two cannot drift apart in the assertions below.
+ * @param text - a rendered entry list.
+ * @returns the resolved child rows.
+ */
+function resolved(text: string): Record<string, unknown>[] {
+  const parsed: unknown = parse(text, { customTags: [JS_EXPR_TAG] })
+  if (!Array.isArray(parsed)) throw new Error('a composition must be a top-level list of rows')
+  return parsed.filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+}
+
+/**
+ * Find one row's locator by its display path, for use in `togglePresetRow`.
  * @param rows - the parsed rows.
  * @param path - the row's expected display path.
  * @returns the locator.
@@ -133,6 +177,17 @@ function locatorFor(rows: readonly CompositionRow[], path: readonly string[]): R
   const row = rows.find(r => r.path.length === path.length && r.path.every((segment, i) => segment === path[i]))
   if (row === undefined) throw new Error(`fixture row not found: ${path.join(' > ')}`)
   return row.locator
+}
+
+/**
+ * The parsed rows of a rendered composition, for a locator.
+ * @param text - the composition's rendered text.
+ * @returns the flattened rows.
+ */
+function rowsOf(text: string): readonly CompositionRow[] {
+  const tree = parseComposition(text)
+  if (tree.kind !== 'parsed') throw new Error('expected parsed')
+  return tree.rows
 }
 
 describe('parseComposition: recursive traversal', () => {
@@ -397,171 +452,158 @@ describe('parseComposition: broken/malformed input never throws', () => {
   })
 })
 
-describe('toggleDisabled: narrow, comment-preserving mutation', () => {
-  it('enables a disabled leaf by deleting only its disabled field', () => {
-    const parsed = parseComposition(FIXTURE)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(FIXTURE, locatorFor(parsed.rows, ['delegation', 'tool-subagent-codex']), true)
-    expect(result.ok).toBe(true)
+describe('togglePresetRow: the narrow edit, on a real composition', () => {
+  it('enables a disabled leaf by dropping only its own disabled field', () => {
+    const plugins = resolved(FIXTURE)
+    const result = togglePresetRow(plugins, locatorFor(rowsOf(FIXTURE), ['delegation', 'tool-subagent-codex']), true)
+    expect(result).toMatchObject({ ok: true, changed: true })
     if (!result.ok) return
-    expect(result.text).not.toContain('disabled: true')
-    expect(result.text).toContain("disabled: !!js process.platform === 'win32'")
-    expect(result.text).toContain('Production dsh does not install these optional providers')
-    expect(result.text).toContain('toolName: subagent_codex')
-    const reparsed = parseComposition(result.text)
-    if (reparsed.kind !== 'parsed') throw new Error('expected parsed')
-    expect(reparsed.rows.find(row => row.id === 'tool-subagent-codex')?.disabled).toEqual({ kind: 'enabled' })
+    const group = (result.plugins[4] as { config: Record<string, unknown>[] }).config
+    expect(group[1]).toEqual({
+      id: 'tool-subagent-codex',
+      name: '@deepseek-ai/dsh-tool-subagent',
+      config: { provider: 'codex', toolName: 'subagent_codex' },
+    })
+    // A `!!js` row is untouched and still carries its unresolved condition: the
+    // enable case is the ABSENCE of the field, which is how the shipped
+    // declarations themselves read, and writing `disabled: false` would say
+    // something true in a shape nobody writes by hand.
+    expect(result.plugins[1]).toEqual({
+      id: 'tool-bash',
+      name: '@deepseek-ai/dsh-tool-bash',
+      disabled: { __jsExpr: "process.platform === 'win32'" },
+    })
   })
 
-  it('disables an enabled leaf by adding disabled: true, touching only that row', () => {
-    const parsed = parseComposition(FIXTURE)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(FIXTURE, locatorFor(parsed.rows, ['tool-fs']), false)
-    expect(result.ok).toBe(true)
+  it('disables an enabled leaf, leaving the persona block and every other row alone', () => {
+    const plugins = resolved(FIXTURE)
+    const result = togglePresetRow(plugins, locatorFor(rowsOf(FIXTURE), ['tool-fs']), false)
+    expect(result).toMatchObject({ ok: true, changed: true })
     if (!result.ok) return
-    const reparsed = parseComposition(result.text)
-    if (reparsed.kind !== 'parsed') throw new Error('expected parsed')
-    expect(reparsed.rows.find(row => row.id === 'tool-fs')?.disabled).toEqual({ kind: 'disabled' })
-    expect(result.text).toContain('You are a coding agent powered by the {{model}} model')
+    expect(result.plugins[3]).toEqual({ id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs', disabled: true })
+    expect((result.plugins[0] as { config: { text: string } }).config.text)
+      .toContain('You are a coding agent powered by the {{model}} model')
   })
 
-  it('preserves the delegation group and its other child when toggling one nested row', () => {
-    const parsed = parseComposition(FIXTURE)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(FIXTURE, locatorFor(parsed.rows, ['delegation', 'tool-subagent-codex']), true)
-    expect(result.ok).toBe(true)
+  it('rebuilds only the path to a toggled nested row, leaving the group’s siblings alone', () => {
+    const plugins = resolved(FIXTURE)
+    const result = togglePresetRow(plugins, locatorFor(rowsOf(FIXTURE), ['delegation', 'tool-subagent']), false)
+    expect(result).toMatchObject({ ok: true, changed: true })
     if (!result.ok) return
-    const reparsed = parseComposition(result.text)
-    if (reparsed.kind !== 'parsed') throw new Error('expected parsed')
-    expect(reparsed.rows.map(row => row.path)).toEqual([
-      ['persona'],
-      ['tool-bash'],
-      ['tool-pwsh'],
-      ['tool-fs'],
-      ['delegation'],
-      ['delegation', 'tool-subagent'],
-      ['delegation', 'tool-subagent-codex'],
-    ])
-    expect(reparsed.rows.find(row => row.id === 'tool-subagent')?.disabled).toEqual({ kind: 'enabled' })
+    const group = (result.plugins[4] as { name: string; group: boolean; config: Record<string, unknown>[] })
+    expect(group.name).toBe('cordis:group')
+    expect(group.group).toBe(true)
+    expect(group.config).toHaveLength(2)
+    expect(group.config[0]).toEqual({
+      id: 'tool-subagent',
+      name: '@deepseek-ai/dsh-tool-subagent',
+      disabled: true,
+      config: { provider: 'spawn', toolName: 'subagent' },
+    })
+    expect(group.config[1]).toEqual({
+      id: 'tool-subagent-codex',
+      name: '@deepseek-ai/dsh-tool-subagent',
+      disabled: true,
+      config: { provider: 'codex', toolName: 'subagent_codex' },
+    })
+    // The row above the group is the same object, not a copy of itself.
+    expect(result.plugins[3]).toBe(plugins[3])
   })
 
-  it('safely toggles an id-less row, addressed by structural locator alone', () => {
+  it('toggles an id-less row, addressed by structural locator alone', () => {
     const text = `- name: '@deepseek-ai/dsh-tool-bash'
 - name: '@deepseek-ai/dsh-tool-fs'
   disabled: true
 `
-    const parsed = parseComposition(text)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const target = parsed.rows.find(row => row.name === '@deepseek-ai/dsh-tool-fs')
+    const plugins = resolved(text)
+    const target = rowsOf(text).find(row => row.name === '@deepseek-ai/dsh-tool-fs')
     if (target === undefined) throw new Error('fixture row not found')
-    const result = toggleDisabled(text, target.locator, true)
-    expect(result.ok).toBe(true)
+    const result = togglePresetRow(plugins, target.locator, true)
+    expect(result).toMatchObject({ ok: true, changed: true })
     if (!result.ok) return
-    const reparsed = parseComposition(result.text)
-    if (reparsed.kind !== 'parsed') throw new Error('expected parsed')
-    expect(reparsed.rows.find(row => row.name === '@deepseek-ai/dsh-tool-fs')?.disabled).toEqual({ kind: 'enabled' })
-    expect(reparsed.rows.find(row => row.name === '@deepseek-ai/dsh-tool-bash')?.disabled).toEqual({ kind: 'enabled' })
+    // `id` is optional to Harness and is not guaranteed unique where present, so
+    // the locator corroborates on `name` alone and the neighbouring row is left
+    // alone by position rather than by name.
+    expect(result.plugins[1]).toEqual({ name: '@deepseek-ai/dsh-tool-fs' })
+    expect(result.plugins[0]).toBe(plugins[0])
   })
 
-  it('refuses to toggle a row whose disabled is a !!js conditional', () => {
-    const parsed = parseComposition(FIXTURE)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(FIXTURE, locatorFor(parsed.rows, ['tool-bash']), true)
-    expect(result.ok).toBe(false)
+  it('refuses a !!js conditional row, naming the expression it will not discard', () => {
+    const result = togglePresetRow(resolved(FIXTURE), locatorFor(rowsOf(FIXTURE), ['tool-bash']), true)
+    expect(result).toMatchObject({ ok: false, reason: 'conditional' })
     if (result.ok) return
-    expect(result.reason).toBe('conditional')
     expect(result.message).toContain("process.platform === 'win32'")
   })
 
-  it('does not corrupt the file when a conditional toggle is refused', () => {
-    const parsed = parseComposition(FIXTURE)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(FIXTURE, locatorFor(parsed.rows, ['tool-pwsh']), false)
-    expect(result.ok).toBe(false)
-    expect(parseComposition(FIXTURE)).toEqual(parseComposition(FIXTURE))
+  it('refuses without touching the list it was handed', () => {
+    const plugins = resolved(FIXTURE)
+    const before = structuredClone(plugins)
+    const result = togglePresetRow(plugins, locatorFor(rowsOf(FIXTURE), ['tool-pwsh']), false)
+    expect(result).toMatchObject({ ok: false, reason: 'conditional' })
+    // A refusal yields no list at all and nothing about the input changed, so
+    // the editor is never handed a partial config to persist.
+    expect(plugins).toEqual(before)
   })
 
   it('reports not-found for a locator index that no longer exists', () => {
-    const badLocator = { steps: [{ index: 99, name: 'nope', id: undefined }] }
-    const result = toggleDisabled(FIXTURE, badLocator, true)
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.reason).toBe('not-found')
+    const result = togglePresetRow(resolved(FIXTURE), { steps: [{ index: 99, name: 'nope', id: undefined }] }, true)
+    expect(result).toMatchObject({ ok: false, reason: 'not-found' })
   })
 
-  it('reports changed, not a silent wrong-row edit, when the file was reordered incompatibly', () => {
-    const before = `- id: tool-fs
-  name: '@deepseek-ai/dsh-tool-fs'
-  disabled: true
-- id: tool-bash
-  name: '@deepseek-ai/dsh-tool-bash'
-`
-    const parsedBefore = parseComposition(before)
-    if (parsedBefore.kind !== 'parsed') throw new Error('expected parsed')
-    const staleLocator = locatorFor(parsedBefore.rows, ['tool-fs'])
-    // Simulate an external edit: a new row is prepended, shifting every index
-    // by one, so the locator's index-0 step no longer names tool-fs.
-    const after = `- id: tool-workflow
-  name: '@deepseek-ai/dsh-tool-workflow'
-- id: tool-fs
-  name: '@deepseek-ai/dsh-tool-fs'
-  disabled: true
-- id: tool-bash
-  name: '@deepseek-ai/dsh-tool-bash'
-`
-    const result = toggleDisabled(after, staleLocator, true)
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.reason).toBe('changed')
-    // Confirm nothing was mutated: the file toggleDisabled was given back unmodified.
-    expect(after).toContain('- id: tool-workflow')
+  it('reports changed, not a silent wrong-row edit, when the declaration was reordered', () => {
+    const plugins = resolved(FIXTURE)
+    const staleLocator = locatorFor(rowsOf(FIXTURE), ['tool-fs'])
+    // Simulate an external edit: a new row is prepended, shifting every index by
+    // one, so the locator's index-3 step no longer names tool-fs. A name match
+    // would still have found it; the index is what makes the edit refuse.
+    const shifted = [{ id: 'tool-workflow', name: '@deepseek-ai/dsh-tool-workflow' }, ...plugins]
+    const result = togglePresetRow(shifted, staleLocator, true)
+    expect(result).toMatchObject({ ok: false, reason: 'changed' })
+    expect(shifted[0]).toEqual({ id: 'tool-workflow', name: '@deepseek-ai/dsh-tool-workflow' })
   })
 
-  it('reports broken rather than throwing when the text does not parse', () => {
-    const result = toggleDisabled('- id: [unterminated\n', { steps: [{ index: 0, name: 'x', id: undefined }] }, true)
-    expect(result.ok).toBe(false)
-    if (result.ok) return
-    expect(result.reason).toBe('broken')
+  it('returns the input list itself — unserialized — when a row already holds the requested state', () => {
+    const plugins = resolved(FIXTURE)
+    const on = togglePresetRow(plugins, locatorFor(rowsOf(FIXTURE), ['tool-fs']), true)
+    expect(on).toMatchObject({ ok: true, changed: false })
+    if (on.ok) expect(on.plugins).toBe(plugins)
+    const off = togglePresetRow(plugins, locatorFor(rowsOf(FIXTURE), ['delegation', 'tool-subagent-codex']), false)
+    expect(off).toMatchObject({ ok: true, changed: false })
+    if (off.ok) expect(off.plugins).toBe(plugins)
   })
 
-  it('is idempotent-safe: enabling an already-enabled row returns the input unchanged, unserialized', () => {
-    const parsed = parseComposition(FIXTURE)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(FIXTURE, locatorFor(parsed.rows, ['tool-fs']), true)
-    expect(result.ok).toBe(true)
+  it('regression: toggling one row in the real standard excerpt leaves every unrelated row intact', () => {
+    const plugins = resolved(REAL_STANDARD_EXCERPT)
+    const result = togglePresetRow(
+      plugins,
+      locatorFor(rowsOf(REAL_STANDARD_EXCERPT), ['delegation', 'tool-subagent-codex']),
+      true,
+    )
+    expect(result).toMatchObject({ ok: true, changed: true })
     if (!result.ok) return
-    expect(result.text).toBe(FIXTURE)
-  })
-
-  it('is idempotent-safe: disabling an already-disabled row returns the input unchanged, unserialized', () => {
-    const parsed = parseComposition(FIXTURE)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(FIXTURE, locatorFor(parsed.rows, ['delegation', 'tool-subagent-codex']), false)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.text).toBe(FIXTURE)
-  })
-
-  it('regression: toggling one row in the real standard preset excerpt leaves every unrelated construct intact', () => {
-    const parsed = parseComposition(REAL_STANDARD_EXCERPT)
-    if (parsed.kind !== 'parsed') throw new Error('expected parsed')
-    const result = toggleDisabled(REAL_STANDARD_EXCERPT, locatorFor(parsed.rows, ['delegation', 'tool-subagent-codex']), true)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    // The toggled field is gone.
-    const codexBlock = result.text.slice(result.text.indexOf('tool-subagent-codex'))
-    expect(codexBlock).not.toContain('disabled: true')
-    // Unrelated !!js conditionals survive verbatim.
-    expect(result.text).toContain("disabled: !!js process.platform === 'win32'")
-    expect(result.text).toContain("disabled: !!js process.platform !== 'win32'")
-    // The persona's multiline block scalar survives.
-    expect(result.text).toContain('You are a coding agent powered by the {{model}} model')
-    // Comments elsewhere in the file survive.
-    expect(result.text).toContain('AGENT-PLANE composition')
-    expect(result.text).toContain('shadowing the deployment default for this agent')
-    // The isolate map and the untouched sibling row survive.
-    expect(result.text).toContain('workflowEngine: true')
-    expect(result.text).toContain('tool-subagent-control')
-    expect(result.text).toContain('maxBytes: 65536')
+    const delegation = result.plugins[4] as { isolate: unknown; config: Record<string, unknown>[] }
+    const codex = delegation.config[2] as { disabled?: unknown; config: Record<string, unknown> }
+    expect(codex.disabled).toBeUndefined()
+    // Unrelated `!!js` conditionals survive verbatim, as unresolved expressions.
+    expect(result.plugins[2]).toMatchObject({ id: 'tool-bash', disabled: { __jsExpr: "process.platform === 'win32'" } })
+    expect(result.plugins[3]).toMatchObject({ id: 'tool-pwsh', disabled: { __jsExpr: "process.platform !== 'win32'" } })
+    // The persona's folded block scalar survives as the one line it always was.
+    expect((result.plugins[0] as { config: { text: string } }).config.text)
+      .toContain('You are a coding agent powered by the {{model}} model')
+    // The isolate map, the untouched sibling rows, and the sibling configs the
+    // editor validates all survive.
+    expect(delegation.isolate).toEqual({ workflowEngine: true })
+    expect(delegation.config[0]).toEqual({
+      id: 'tool-subagent-control',
+      name: '@deepseek-ai/dsh-tool-subagent-control',
+    })
+    expect((result.plugins[1] as { config: { maxBytes: number } }).config.maxBytes).toBe(65536)
+    expect((delegation.config[1] as { config: Record<string, unknown> }).config.backgroundMode).toBe('continuable')
+    expect(codex.config).toEqual({
+      provider: 'codex',
+      toolName: 'subagent_codex',
+      backgroundMode: 'one-shot',
+      maxDepth: 'provider-managed',
+    })
   })
 })

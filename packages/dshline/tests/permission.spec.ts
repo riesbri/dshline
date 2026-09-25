@@ -360,6 +360,21 @@ const PRESET_OPTIONS = [
   { value: 'normal', name: 'Normal work', description: 'Work normally.' },
 ]
 
+/**
+ * The whole process-level catalog as Harness publishes it.
+ *
+ * Three fields, not one: `options` is every currently selectable preset, which
+ * grows by live contribution; `defaultOptions` and `defaultPreset` are the
+ * CONFIGURED table and its default, which a client choosing what a NEW session
+ * should open on has to read separately. Pinning all three is what makes the
+ * split a claim rather than a subset match that would pass on `options` alone.
+ */
+const PRESET_CATALOG = {
+  options: PRESET_OPTIONS,
+  defaultOptions: PRESET_OPTIONS,
+  defaultPreset: 'normal',
+}
+
 describe('real Harness permission capability', () => {
   it('splits the live selectable catalog from the durable current selection', async () => {
     // The acceptance case for the whole migration. Two authorities, two scopes:
@@ -367,7 +382,7 @@ describe('real Harness permission capability', () => {
     // projection is durable and answers only what is chosen. Neither can
     // answer the other's question, and dshline stores neither.
     const { ctx, session } = await permissionHarness(PRESETS)
-    expect(ctx.permissionPresets.catalog()).toEqual({ options: PRESET_OPTIONS })
+    expect(ctx.permissionPresets.catalog()).toEqual(PRESET_CATALOG)
     // The projection carries the selection and nothing else — in particular no
     // `options` key, which is what the previous generation folded in here.
     expect(ctx.sessionProjections.snapshot(session).values.permissions).toEqual({ currentValue: 'normal' })
@@ -391,7 +406,7 @@ describe('real Harness permission capability', () => {
     expect(ctx.sessionProjections.snapshot(session).values.permissions?.currentValue).toBe('review')
     // The mutation moved the selection and left the catalog alone: selecting is
     // not contributing.
-    expect(ctx.permissionPresets.catalog()).toEqual({ options: PRESET_OPTIONS })
+    expect(ctx.permissionPresets.catalog()).toEqual(PRESET_CATALOG)
   })
 
   it('joins the two real authorities for presentation without owning either', async () => {
@@ -565,14 +580,15 @@ describe('the status line’s current permission', () => {
     // changes what the next `permissions` snapshot derives from the same durable
     // knobs, but it publishes no projection frame and appends no Session event —
     // so the footer can only move when the catalog change is itself an
-    // invalidation signal. `danger-full-access` is the bundle Auto writes, which
-    // makes the post-withdrawal value deterministic without inventing a
-    // post-Auto preset.
+    // invalidation signal. Auto's own bundle is `danger-full-access` with `ask`
+    // (a delegated child pins `never` on its own), so a configured preset
+    // carrying that same pair is what the post-withdrawal value must land on:
+    // deterministic without inventing a post-Auto preset.
     const auto: Config = {
       presets: {
         review: { sandbox: 'read-only', approval: 'ask' },
         normal: { sandbox: 'workspace-write', approval: 'ask' },
-        'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+        'danger-full-access': { sandbox: 'danger-full-access', approval: 'ask' },
       },
       defaultPreset: 'normal',
     }

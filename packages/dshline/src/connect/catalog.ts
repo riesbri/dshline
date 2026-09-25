@@ -396,18 +396,18 @@ export function isSettingsConflict(error: unknown): boolean {
  *
  * Four feeds, because Connect joins four surfaces and each can move on its
  * own: `llm/adapters-updated` fires when a settings write activates or retires
- * a route, `settings/updated` and `settings/document-updated` fire on any
- * namespace edit — the official web Models page, a hand-edited
- * `settings.yaml`, or another terminal — and `credentials/reference-updated` /
- * `credentials/record-updated` fire when a key is stored, cleared, or a
- * sign-in completes anywhere in the process. All five are registered
+ * a route, `settings/document-updated` fires on any namespace edit — the
+ * official web Models page, a hand-edited patch, or another terminal — and
+ * `credentials/reference-updated` / `credentials/record-updated` fire when a
+ * key is stored, cleared, or a sign-in completes anywhere in the process. All
+ * five are registered
  * unconditionally: a deployment mounting none of the optional seams simply
  * never fires them, which is what keeps this function correct without asking
  * which services are present.
  *
  * One microtask coalesces a burst into a single pass. A single settings write
- * commonly fires `settings/updated` and `settings/document-updated` together,
- * and `setApiKey` writes settings and then a credential in the same action;
+ * commonly fires `settings/document-updated` alongside a credentials event, and
+ * `setApiKey` writes settings and then a credential in the same action;
  * refreshing once after the burst settles is what a reader actually wants,
  * not a rendering read per event fighting the one the action's own call
  * already scheduled.
@@ -428,7 +428,11 @@ export function watchAdapters(ctx: Context, catalog: ConnectCatalog): () => void
   }
   const disposers = [
     ctx.on('llm/adapters-updated', request),
-    ctx.on('settings/updated', request),
+    // `settings/updated` was removed in the adopted generation: it announced a
+    // RESOLVED-VALUE commit, deep-equal-gated. `settings/document-updated`
+    // announces a raw entry change and is not value-gated, so a refresh here is
+    // coarser than the old one — which costs a refetch and nothing else, since
+    // the catalog already re-reads whatever the entry currently resolves to.
     ctx.on('settings/document-updated', request),
     ctx.on('credentials/reference-updated', request),
     ctx.on('credentials/record-updated', request),

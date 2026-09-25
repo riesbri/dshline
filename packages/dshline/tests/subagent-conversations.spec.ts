@@ -2,17 +2,24 @@
  * Focused tests for the durable subagent-conversation catalog, inspector, and
  * human queue/steer path.
  *
- * The authority boundary is the point: discovery is `listChildren`, inspection
- * is a bounded `listEvents`+`readEvent` read, and a human follow-up is
- * `ctx.subagents.prompt` — never the model-authored `sendMessage`. These tests
- * fake only the Harness seams and drive the real presenter and overlays.
+ * The authority boundary is the point: discovery is the recursive
+ * `listDescendants` walk, cut at the direct-child depth its rows report;
+ * inspection is a bounded `listEvents`+`readEvent` read, and a human follow-up
+ * is `ctx.subagents.prompt` — never the model-authored `sendMessage`. These
+ * tests fake only the Harness seams and drive the real presenter and overlays.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEventReadRequest, SessionEventRecord, SessionEventWindow } from '@deepseek-ai/dsh-session-query'
-import type { SubagentListEntry, SubagentPromptReceipt, SubagentPromptRequest } from '@deepseek-ai/dsh-subagent'
+import type {
+  SubagentCatalogEntry,
+  SubagentDescendantListEntry,
+  SubagentListEntry,
+  SubagentPromptReceipt,
+  SubagentPromptRequest,
+} from '@deepseek-ai/dsh-subagent'
 import { BOX_CHROME_COLUMNS, stripAnsi } from '@dshline/renderer'
 import type { Key } from '@dshline/renderer'
 import { chromeWidth } from '../src/chrome.ts'
@@ -25,7 +32,7 @@ import {
   subagentRowKey,
   subagentRowOpenable,
 } from '../src/subagents/model.ts'
-import type { SubagentCatalogReading } from '../src/subagents/model.ts'
+import type { SubagentCatalogReading, SubagentCatalogRow } from '../src/subagents/model.ts'
 import {
   createSubagentCatalogOverlay,
   createSubagentConversationOverlay,
@@ -37,20 +44,81 @@ import type { SubagentTranscriptReading } from '../src/subagents/transcript.ts'
 import { HarnessWork } from '../src/work/index.ts'
 import { activeWorkCount } from '../src/work/model.ts'
 
-/** One durable direct-child discovery entry. */
+/** The durable parent every fixture tree hangs from, and the address the presenter is given. */
+const PARENT = 'parent'
+
+/** The edge distance `listDescendants` reports for a child of {@link PARENT}. */
+const DIRECT_CHILD_DEPTH = 1
+
+/**
+ * One durable direct child of {@link PARENT}, as the recursive seam reports it.
+ *
+ * A descendant row rather than a bare list entry, because residency, lineage,
+ * and the branch diagnostics this catalog now depends on exist only on the
+ * recursive walk — `listChildren` answers with the flat parent catalog, which
+ * carries none of the three.
+ * @param id - the durable child session id.
+ * @param mode - Harness's descriptor mode for that child.
+ * @param activity - session-store residency, not a model-turn claim.
+ * @param label - the durable creation label.
+ * @param hasChildren - whether that child's own catalog holds a direct child.
+ * @returns the depth-one descendant row.
+ */
 function child(
   id: string,
   mode: 'one-shot' | 'continuable',
   activity: 'running' | 'inactive',
   label = id,
   hasChildren = false,
-): SubagentListEntry {
-  return { kind: 'child', id: id as never, mode, activity, label, hasChildren }
+): SubagentDescendantListEntry {
+  return {
+    kind: 'child', id: id as never, parentId: PARENT as never,
+    depth: DIRECT_CHILD_DEPTH, mode, activity, label, hasChildren,
+  }
 }
 
-/** One uninterpretable discovery candidate. */
-function diagnostic(id: string, reason: 'corrupt' | 'unavailable' | 'unsupported'): SubagentListEntry {
-  return { kind: 'diagnostic', id: id as never, reason }
+/**
+ * One branch the recursive seam could not interpret, at the direct-child depth.
+ * @param id - the candidate's session id.
+ * @param reason - why Harness produced no child identity for it.
+ * @returns the depth-one diagnostic row.
+ */
+function diagnostic(id: string, reason: 'corrupt' | 'unavailable' | 'unsupported'): SubagentDescendantListEntry {
+  return { kind: 'diagnostic', id: id as never, parentId: PARENT as never, depth: DIRECT_CHILD_DEPTH, reason }
+}
+
+/**
+ * Hang one row under a deeper branch of the same tree.
+ *
+ * The seam reports edge distance, not just membership, and this catalog is the
+ * parent's DIRECT children: a grandchild is a real row the real walk returns,
+ * and the one filter that has to remove it.
+ * @param row - the row as built, positioned under {@link PARENT}.
+ * @param parentId - the direct parent this row is really catalogued under.
+ * @param depth - the edge distance from {@link PARENT}.
+ * @returns the same row, one branch deeper.
+ */
+function deeper(
+  row: SubagentDescendantListEntry,
+  parentId: string,
+  depth: number,
+): SubagentDescendantListEntry {
+  return { ...row, parentId: parentId as never, depth }
+}
+
+/**
+ * The first row of a reading, or a failure that names the reading.
+ *
+ * A non-null assertion would instead hand `undefined` to whichever function
+ * came next and fail there as a `TypeError`, which reads as a fault in that
+ * function rather than in the mapping this test is about.
+ * @param reading - the reading to take a row from.
+ * @returns the row the cursor starts on.
+ */
+function firstRow(reading: SubagentCatalogReading): SubagentCatalogRow {
+  const row = reading.kind === 'ready' ? reading.rows.at(0) : undefined
+  if (row === undefined) throw new Error(`expected a ready reading with a first row, got ${reading.kind}`)
+  return row
 }
 
 /** A semantic user-message event, enough for `extractSessionEventText`. */
@@ -78,20 +146,65 @@ function text(value: string): Key {
   return { kind: 'text', text: value }
 }
 
-/** A fake `listChildren`/`prompt` seam that records every call. */
+/** One recorded descendant-listing call, exactly as the presenter makes it. */
+interface DescendantCall {
+  readonly parentSessionId: SessionId
+  readonly signal?: AbortSignal
+}
+
+/**
+ * The rows the recursive seam answers for one root: pre-order from that root,
+ * one visit per row.
+ *
+ * A row catalogued under some other session's branch is not a descendant of
+ * this root, which is what makes the presenter's depth cut a real filter rather
+ * than a decoration — a fake that answered with every row it was given would
+ * pass a catalog that forgot the cut.
+ */
+function descendantsOf(
+  rows: readonly SubagentDescendantListEntry[],
+  root: string,
+): SubagentDescendantListEntry[] {
+  const byParent = new Map<string, SubagentDescendantListEntry[]>()
+  for (const row of rows) {
+    const parentId = String(row.parentId)
+    byParent.set(parentId, [...byParent.get(parentId) ?? [], row])
+  }
+  const reached: SubagentDescendantListEntry[] = []
+  const visited = new Set<string>()
+  const visit = (parentId: string): void => {
+    for (const row of byParent.get(parentId) ?? []) {
+      const id = String(row.id)
+      // A catalog that loops back on itself must terminate the fake as well.
+      if (visited.has(id)) continue
+      visited.add(id)
+      reached.push(row)
+      visit(id)
+    }
+  }
+  visit(root)
+  return reached
+}
+
+/** A fake `listDescendants`/`prompt` seam that records every call. */
 class FakeSubagent {
-  readonly listCalls: SessionId[] = []
+  readonly descendantCalls: DescendantCall[] = []
   readonly promptCalls: { request: SubagentPromptRequest; signal: AbortSignal }[] = []
-  private children: SubagentListEntry[] = []
+  private descendants: SubagentDescendantListEntry[] = []
   private failure: unknown
   private settle: ((receipt: SubagentPromptReceipt) => void) | undefined
   private fail: ((error: unknown) => void) | undefined
 
-  setChildren(entries: readonly SubagentListEntry[]): void {
-    this.children = [...entries]
+  /**
+   * Replace the whole tree the walk answers with, in parent-catalog pre-order.
+   * @param rows - the descendants of {@link PARENT}, direct children first.
+   */
+  setDescendants(rows: readonly SubagentDescendantListEntry[]): void {
+    this.descendants = [...rows]
   }
 
-  failList(error: unknown): void {
+  /** Make every subsequent listing reject. */
+  failDiscovery(error: unknown): void {
     this.failure = error
   }
 
@@ -99,10 +212,25 @@ class FakeSubagent {
     this.settle?.({ messageId: messageId as never })
   }
 
-  listChildren(parentSessionId: SessionId): Promise<SubagentListEntry[]> {
-    this.listCalls.push(parentSessionId)
+  listDescendants(parentSessionId: SessionId, signal?: AbortSignal): Promise<SubagentDescendantListEntry[]> {
+    this.descendantCalls.push({ parentSessionId, ...signal === undefined ? {} : { signal } })
     if (this.failure !== undefined) return Promise.reject(this.failure)
-    return Promise.resolve(this.children)
+    return Promise.resolve(descendantsOf(this.descendants, String(parentSessionId)))
+  }
+
+  /**
+   * The flat parent-catalog read, which this generation's presenter must never
+   * perform: it carries no residency, no lineage, and no branch diagnostic, so a
+   * catalog built from it would have to invent all three.
+   *
+   * The seam TYPE still names the operation because `HumanSubagentSeam` carries
+   * `prompt` beside it, so the fake has to answer for it — but answering would
+   * mean inventing `createdAt` and a mode this tree never supplied, and a fake
+   * that quietly served discovery would be the compatibility path the migration
+   * deleted. It refuses instead: any call here is that migration undone.
+   */
+  listChildren(): Promise<SubagentCatalogEntry[]> {
+    throw new Error('listChildren is not the discovery seam this generation publishes')
   }
 
   prompt(request: SubagentPromptRequest, signal: AbortSignal): Promise<SubagentPromptReceipt> {
@@ -212,25 +340,24 @@ function testSlots(): {
 describe('durable subagent discovery vocabulary', () => {
   it('keeps a settled stored continuable child browsable and follow-up-capable', () => {
     const reading = catalogReading([child('c', 'continuable', 'inactive')])
-    const row = reading.kind === 'ready' ? reading.rows[0] : undefined
+    const row = firstRow(reading)
     expect(row).toEqual({
       kind: 'child', id: 'c', mode: 'continuable', residency: 'stored', hasChildren: false, label: 'c',
     })
-    expect(subagentRowOpenable(row!)).toBe(true)
-    expect(subagentRowFollowUp(row!, true)).toBe(true)
+    expect(subagentRowOpenable(row)).toBe(true)
+    expect(subagentRowFollowUp(row, true)).toBe(true)
   })
 
   it('offers a one-shot child inspection but no follow-up', () => {
     const reading = catalogReading([child('one', 'one-shot', 'inactive')])
-    const row = reading.kind === 'ready' ? reading.rows[0] : undefined
-    expect(subagentRowOpenable(row!)).toBe(true)
-    expect(subagentRowFollowUp(row!, true)).toBe(false)
+    const row = firstRow(reading)
+    expect(subagentRowOpenable(row)).toBe(true)
+    expect(subagentRowFollowUp(row, true)).toBe(false)
   })
 
   it('reports the absence of the prompt seam rather than a one-shot mode', () => {
     const reading = catalogReading([child('c', 'continuable', 'running')])
-    const row = reading.kind === 'ready' ? reading.rows[0] : undefined
-    expect(subagentRowFollowUp(row!, false)).toBe(false)
+    expect(subagentRowFollowUp(firstRow(reading), false)).toBe(false)
   })
 
   it('keeps diagnostics distinct and honest instead of dropping them', () => {
@@ -239,7 +366,7 @@ describe('durable subagent discovery vocabulary', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0]).toEqual({ kind: 'diagnostic', id: 'broken', reason: 'corrupt' })
     expect(diagnosticReasonWord('corrupt')).not.toBe(diagnosticReasonWord('unavailable'))
-    expect(subagentRowOpenable(rows[0]!)).toBe(false)
+    expect(subagentRowOpenable(firstRow(reading))).toBe(false)
   })
 
   it('keys selection by the durable child id, stable across reordering', () => {
@@ -255,7 +382,7 @@ describe('durable subagent discovery vocabulary', () => {
 
   it('does not count a settled durable child as active work', async () => {
     const subagents = new FakeSubagent()
-    subagents.setChildren([child('settled', 'continuable', 'inactive')])
+    subagents.setDescendants([child('settled', 'continuable', 'inactive')])
     const agent = { session: { id: 'parent' } } as unknown as Agent
     const work = new HarnessWork({ agent, subagents: subagents as never, invalidate: () => {} })
     await flush()
@@ -628,7 +755,9 @@ describe('bounded transcript paging', () => {
     const ranges = [[30, 53], [6, 29], [1, 5], [6, 29], [30, 53]] as const
     for (let step = 0; step < ranges.length; step += 1) {
       if (step > 0) state = await (step <= 2 ? readTranscriptOlder : readTranscriptNewer)(session, 'c' as never, state)
-      const [start, end] = ranges[step]!
+      const range = ranges[step]
+      if (range === undefined) throw new Error(`step ${String(step)} has no expected page range`)
+      const [start, end] = range
       expect(state.events.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE)
       expect(state.events.map(event => event.seq)).toEqual(Array.from({ length: end - start + 1 }, (_, i) => start + i))
       expect(state).toMatchObject({ startSeq: start, endSeq: end, hasOlder: start > 1, hasNewer: end < 53 })
@@ -727,7 +856,19 @@ describe('bounded transcript paging', () => {
 })
 
 describe('subagent conversation presenter', () => {
-  function mount(overrides: Partial<SubagentsPresenterDeps> = {}) {
+  /** A seam a profile does not mount, named rather than faked. */
+  type MissingSeam = 'subagents' | 'query'
+
+  /**
+   * Mount a presenter over the fake seams.
+   * @param missing - seams this case leaves out of the deps object entirely,
+   *   which is the only way a profile without `ctx.subagents` or
+   *   `ctx.sessionQuery` is expressed: `exactOptionalPropertyTypes` makes
+   *   "absent" and "present and undefined" different objects.
+   * @param overrides - substitutions for seams that stay mounted.
+   * @returns the stack, the fakes, the presenter, and the event triggers.
+   */
+  function mount(missing: readonly MissingSeam[] = [], overrides: Partial<SubagentsPresenterDeps> = {}) {
     const slots = testSlots()
     const subagents = new FakeSubagent()
     const session = new FakeSession()
@@ -735,10 +876,10 @@ describe('subagent conversation presenter', () => {
     let sessionEvent: ((sessionId: string) => void) | undefined
     const p = createSubagentsPresenter({
       slots,
-      parentSessionId: 'parent' as never,
+      parentSessionId: PARENT as never,
       invalidate: () => {},
-      subagents,
-      query: session,
+      ...missing.includes('subagents') ? {} : { subagents },
+      ...missing.includes('query') ? {} : { query: session },
       onLifecycle: listener => { lifecycle = listener; return () => {} },
       onSessionEvent: listener => { sessionEvent = listener; return () => {} },
       ...overrides,
@@ -752,7 +893,7 @@ describe('subagent conversation presenter', () => {
 
   it('reads a child transcript only when the inspector opens', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello'), message(2, 'again')])
     p.open()
     await flush()
@@ -769,7 +910,7 @@ describe('subagent conversation presenter', () => {
 
   it('aborts an inspector’s in-flight read when it closes', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -784,7 +925,7 @@ describe('subagent conversation presenter', () => {
 
   it('discards a transcript read that a newer refresh superseded', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'old')])
     p.open()
     await flush()
@@ -805,10 +946,10 @@ describe('subagent conversation presenter', () => {
 
   it('keeps a settled child listed after a lifecycle edge reloads discovery', async () => {
     const { slots, subagents, p, fireLifecycle } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     p.open()
     await flush()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     fireLifecycle()
     await flush()
     expect(stripAnsi(slots.overlays[0]?.render(80, 20).join('\n') ?? '')).toContain('stored')
@@ -816,7 +957,7 @@ describe('subagent conversation presenter', () => {
 
   it('queues a follow-up through the human prompt authority with the exact address', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running', 'review')])
+    subagents.setDescendants([child('c', 'continuable', 'running', 'review')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -840,7 +981,7 @@ describe('subagent conversation presenter', () => {
 
   it('steers with delivery steer and never claims the child is running', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running', 'review')])
+    subagents.setDescendants([child('c', 'continuable', 'running', 'review')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -855,7 +996,7 @@ describe('subagent conversation presenter', () => {
 
   it('shows an accepted receipt without inserting an optimistic row', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -877,7 +1018,7 @@ describe('subagent conversation presenter', () => {
     const { slots, subagents, session, p } = mount()
     // A settled/stored continuable child is exactly the case residency cannot
     // prove a live turn for, so no interrupt affordance may appear here.
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -891,15 +1032,15 @@ describe('subagent conversation presenter', () => {
   })
 
   it('degrades honestly when ctx.subagents is absent', async () => {
-    const { slots, p } = mount({ subagents: undefined })
+    const { slots, p } = mount(['subagents'])
     p.open()
     await flush()
     expect(stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')).toContain('not installed')
   })
 
   it('degrades honestly when ctx.sessionQuery is absent', async () => {
-    const { slots, subagents, p } = mount({ query: undefined })
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    const { slots, subagents, p } = mount(['query'])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     p.open()
     await flush()
     slots.top()?.handleKey(key('enter'))
@@ -911,11 +1052,11 @@ describe('subagent conversation presenter', () => {
     vi.useFakeTimers()
     try {
       const { subagents, session, p } = mount()
-      subagents.setChildren([child('c', 'continuable', 'running')])
+      subagents.setDescendants([child('c', 'continuable', 'running')])
       session.setLog('c', [message(1, 'hello')])
       p.open()
       await vi.advanceTimersByTimeAsync(60_000)
-      expect(subagents.listCalls).toHaveLength(1)
+      expect(subagents.descendantCalls).toHaveLength(1)
       expect(session.listEventsCalls).toEqual([])
       expect(session.readEventCalls).toEqual([])
     } finally {
@@ -925,7 +1066,7 @@ describe('subagent conversation presenter', () => {
 
   it('records staleness on a selected child event without re-reading', async () => {
     const { slots, subagents, session, p, fireSessionEvent } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -942,14 +1083,14 @@ describe('subagent conversation presenter', () => {
 
   it('refreshes an open inspector’s residency facts after a discovery reload', async () => {
     const { slots, subagents, session, p, fireLifecycle } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
     slots.top()?.handleKey(key('enter'))
     await flush()
     expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('resident')
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     fireLifecycle()
     await flush()
     expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('stored')
@@ -957,7 +1098,7 @@ describe('subagent conversation presenter', () => {
 
   it('degrades honestly when discovery rejects', async () => {
     const { slots, subagents, p } = mount()
-    subagents.failList(new Error('projection registry unavailable'))
+    subagents.failDiscovery(new Error('projection registry unavailable'))
     p.open()
     await flush()
     const plain = stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')
@@ -965,20 +1106,65 @@ describe('subagent conversation presenter', () => {
     expect(plain).toContain('projection registry unavailable')
   })
 
-  it('never opens a diagnostic row and reads nothing for it', async () => {
-    const { slots, subagents, session, p } = mount()
-    subagents.setChildren([diagnostic('broken', 'corrupt')])
+  it('reads discovery from the recursive seam, addressed to its own parent', async () => {
+    const { subagents, p } = mount()
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     p.open()
     await flush()
+    // The flat parent-catalog read refuses in this fake, so reaching a catalog
+    // at all is the evidence that discovery went through the descendant walk
+    // and not back through the operation that lost residency, lineage, and
+    // branch diagnostics.
+    expect(subagents.descendantCalls).toHaveLength(1)
+    expect(subagents.descendantCalls.map(call => String(call.parentSessionId))).toEqual([PARENT])
+  })
+
+  it('lists a depth-one branch diagnostic with its reason and never opens it', async () => {
+    const { slots, subagents, session, p } = mount()
+    // The reason the migration exists at all: a branch the recursive walk could
+    // not interpret is a row now, where the old flat read could not produce one.
+    subagents.setDescendants([diagnostic('broken', 'corrupt')])
+    p.open()
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')
+    expect(plain).toContain('broken')
+    expect(plain).toContain('unreadable record')
+    // No conversation exists behind a branch with no readable child catalog, so
+    // the footer drops the action Enter refuses.
+    expect(plain).not.toContain('enter inspect')
     slots.top()?.handleKey(key('enter'))
     await flush()
     expect(session.listEventsCalls).toEqual([])
     expect(slots.overlays).toHaveLength(1)
   })
 
+  it('keeps a grandchild out of the direct-child catalog', async () => {
+    const { slots, subagents, p } = mount()
+    // `hasChildren` is the honest parent row: that child's own catalog does hold
+    // a direct child, which is the only reason the deeper rows exist.
+    subagents.setDescendants([
+      child('c', 'continuable', 'running', 'review', true),
+      deeper(child('g', 'one-shot', 'inactive', 'grandchild'), 'c', 2),
+      deeper(diagnostic('deep', 'unsupported'), 'c', 2),
+    ])
+    // The walk really does hand both deeper rows back, so what follows is the
+    // presenter's cut rather than a fixture that happened to withhold them.
+    await expect(subagents.listDescendants(PARENT as never)).resolves.toHaveLength(3)
+    p.open()
+    await flush()
+    const plain = stripAnsi(slots.top()?.render(80, 20).join('\n') ?? '')
+    expect(plain).toContain('review')
+    expect(plain).toContain('has children')
+    // A deeper row belongs to another parent's branch, and being a diagnostic
+    // is not a way around the cut.
+    expect(plain).not.toContain('grandchild')
+    expect(plain).not.toContain('deep')
+    expect(plain).not.toContain('unsupported record')
+  })
+
   it('pops exactly one surface per escape, back to the prior catalog', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -994,7 +1180,7 @@ describe('subagent conversation presenter', () => {
 
   it('offers no follow-up composer for a one-shot child', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('one', 'one-shot', 'inactive')])
+    subagents.setDescendants([child('one', 'one-shot', 'inactive')])
     session.setLog('one', [message(1, 'hello')])
     p.open()
     await flush()
@@ -1007,7 +1193,7 @@ describe('subagent conversation presenter', () => {
 
   it('marks a window stale when an event arrives during its first read', async () => {
     const { slots, subagents, session, p, fireSessionEvent } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -1025,7 +1211,7 @@ describe('subagent conversation presenter', () => {
 
   it('keeps the loaded page when the newer read rejects', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', Array.from(
       { length: TRANSCRIPT_PAGE * 2 },
       (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`),
@@ -1055,7 +1241,7 @@ describe('subagent conversation presenter', () => {
 
   it('publishes the winning read when two newer gestures race', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', Array.from(
       { length: TRANSCRIPT_PAGE * 3 },
       (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`),
@@ -1089,7 +1275,7 @@ describe('subagent conversation presenter', () => {
 
   it('discards a newer page superseded by an explicit refresh', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     const log = Array.from({ length: 75 }, (_, i) => message(i + 1, `event ${i + 1}`))
     session.setLog('c', log.slice(0, 72))
     p.open()
@@ -1116,7 +1302,7 @@ describe('subagent conversation presenter', () => {
 
   it.each(['before', 'during'] as const)('preserves stale when an event arrives %s newer navigation', async timing => {
     const { slots, subagents, session, p, fireSessionEvent } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', Array.from({ length: 72 }, (_, i) => message(i + 1, `event ${i + 1}`)))
     p.open()
     await flush()
@@ -1145,7 +1331,7 @@ describe('subagent conversation presenter', () => {
 
   it('marks a replaced older page stale when an event arrives during its read', async () => {
     const { slots, subagents, session, p, fireSessionEvent } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', Array.from({ length: TRANSCRIPT_PAGE * 2 }, (_, index) => message(index + 1, `e${index + 1}`)))
     p.open()
     await flush()
@@ -1162,7 +1348,7 @@ describe('subagent conversation presenter', () => {
 
   it('does not go stale for another child’s event', async () => {
     const { slots, subagents, session, p, fireSessionEvent } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -1174,7 +1360,7 @@ describe('subagent conversation presenter', () => {
 
   it('clears stale after a refresh with no intervening child event', async () => {
     const { slots, subagents, session, p, fireSessionEvent } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -1189,7 +1375,7 @@ describe('subagent conversation presenter', () => {
 
   it('replaces the rendered page rather than accumulating events', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     session.setLog('c', Array.from(
       { length: TRANSCRIPT_PAGE * 2 },
       (_, index) => message(index + 1, `event ${String(index + 1).padStart(3, '0')}`),
@@ -1210,7 +1396,7 @@ describe('subagent conversation presenter', () => {
 
   it('opens a durable child directly with no catalog surface underneath', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
     await flush()
@@ -1227,8 +1413,8 @@ describe('subagent conversation presenter', () => {
   })
 
   it('opens a direct inspector read-only when sessionQuery is absent', async () => {
-    const { slots, subagents, p } = mount({ query: undefined })
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    const { slots, subagents, p } = mount(['query'])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     // No bounded read surface: the direct path must still show the inspector and
     // say so, exactly as the catalog path does, rather than refusing to open.
     p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
@@ -1243,7 +1429,7 @@ describe('subagent conversation presenter', () => {
 
   it('takes follow-up authority from the directly supplied row, not the catalog', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running', 'review')])
+    subagents.setDescendants([child('c', 'continuable', 'running', 'review')])
     session.setLog('c', [message(1, 'hello')])
     p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
     await flush()
@@ -1275,7 +1461,7 @@ describe('subagent conversation presenter', () => {
 
   it('keeps a directly opened one-shot child read-only', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('one', 'one-shot', 'inactive')])
+    subagents.setDescendants([child('one', 'one-shot', 'inactive')])
     session.setLog('one', [message(1, 'hello')])
     p.openChild({ kind: 'child', id: 'one', mode: 'one-shot', residency: 'stored', hasChildren: false })
     await flush()
@@ -1289,7 +1475,7 @@ describe('subagent conversation presenter', () => {
 
   it('opens the same inspector through the catalog and pops back one level', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.open()
     await flush()
@@ -1307,12 +1493,12 @@ describe('subagent conversation presenter', () => {
 
   it('writes the truthful escape for the catalog origin, not the stack depth', async () => {
     const root = mount()
-    root.subagents.setChildren([child('c', 'continuable', 'running')])
+    root.subagents.setDescendants([child('c', 'continuable', 'running')])
     root.p.open()
     await flush()
     expect(stripAnsi(root.slots.top()?.render(80, 20).join('\n') ?? '')).toContain('esc close')
     const work = mount()
-    work.subagents.setChildren([child('c', 'continuable', 'running')])
+    work.subagents.setDescendants([child('c', 'continuable', 'running')])
     work.p.openFromWork()
     await flush()
     expect(stripAnsi(work.slots.top()?.render(80, 20).join('\n') ?? '')).toContain('esc back')
@@ -1320,7 +1506,7 @@ describe('subagent conversation presenter', () => {
 
   it('returns from a Work-nested catalog child to the catalog, then to Work', async () => {
     const { slots, subagents, session, p } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running', 'review')])
+    subagents.setDescendants([child('c', 'continuable', 'running', 'review')])
     session.setLog('c', [message(1, 'hello')])
     // Work is the surface below in the assembled app; here the stack proves the
     // nested catalog is what Esc reveals rather than the child skipping it.
@@ -1339,12 +1525,12 @@ describe('subagent conversation presenter', () => {
 
   it('refreshes a direct inspector’s residency without pushing a catalog', async () => {
     const { slots, subagents, session, p, fireLifecycle } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
     await flush()
     expect(stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')).toContain('resident')
-    subagents.setChildren([child('c', 'continuable', 'inactive')])
+    subagents.setDescendants([child('c', 'continuable', 'inactive')])
     fireLifecycle()
     await flush()
     const plain = stripAnsi(slots.top()?.render(80, 24).join('\n') ?? '')
@@ -1355,11 +1541,11 @@ describe('subagent conversation presenter', () => {
 
   it('never closes a direct inspector or opens a catalog when discovery fails', async () => {
     const { slots, subagents, session, p, fireLifecycle } = mount()
-    subagents.setChildren([child('c', 'continuable', 'running')])
+    subagents.setDescendants([child('c', 'continuable', 'running')])
     session.setLog('c', [message(1, 'hello')])
     p.openChild({ kind: 'child', id: 'c', mode: 'continuable', residency: 'resident', hasChildren: false })
     await flush()
-    subagents.failList(new Error('projection registry unavailable'))
+    subagents.failDiscovery(new Error('projection registry unavailable'))
     fireLifecycle()
     await flush()
     expect(slots.overlays).toHaveLength(1)

@@ -14,6 +14,9 @@
  *    registry — an upstream rename fails here rather than as a blank fact row;
  * 2. active time is the projection's own accumulation of post-descriptor
  *    turns, and a descriptor replayed from a fork seed does not contribute;
+ *    whether the latest closed turn COMPLETED is Harness's own flag, forwarded
+ *    verbatim, because the millisecond count alone cannot tell an interrupted
+ *    turn from a finished one;
  * 3. the four token buckets are disjoint, so the row's total is their sum;
  * 4. `tokenUsage` has NO such descriptor reset — it folds the complete log, so
  *    a fork-seeded child's projection carries its parent's usage too, and the
@@ -31,7 +34,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm'
-import type { AssistantStreamRecord, TokenUsage } from '@deepseek-ai/dsh-llm'
+import type { AssistantStreamRecord, ReasoningEffortId, TokenUsage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -39,6 +42,7 @@ import SubagentRuntime, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-su
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { HarnessWork } from '../../src/work/index.ts'
 import { activeElapsedMs, subagentDuration } from '../../src/work/model.ts'
+import type { SubagentActiveTiming, SubagentWorkItem } from '../../src/work/model.ts'
 import type { SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 
 /** A fixed origin, so every asserted duration is an exact arithmetic claim. */
@@ -71,7 +75,11 @@ function work(ctx: Context, child: Session, options: Agent['options'] = {}): {
   let started: ((info: SubagentRunInfo) => void) | undefined
   const projection = new HarnessWork({
     agent: parent,
-    subagents: { listChildren: async () => [], interrupt: () => {} } as never,
+    // Discovery is the recursive descendant walk at this generation; a fake
+    // naming the retired `listChildren` fails every refresh with "not a
+    // function" before a single projection fact is asserted. The answers are
+    // empty because this probe covers projection folds, not the catalog.
+    subagents: { listDescendants: async () => [], interrupt: () => {} } as never,
     agents: { get: () => childAgent },
     projections: ctx.sessionProjections,
     onSubagentStart: listener => { started = listener; return () => {} },
@@ -105,6 +113,32 @@ function reportUsage(session: Session, turn: number, usage: TokenUsage): void {
 /** The lifecycle edge for a local child of the exact session under test. */
 function edge(child: Session): SubagentRunInfo {
   return { runId: 'run-1' as SubagentRunInfo['runId'], provider: 'spawn', id: child.id, local: true }
+}
+
+/**
+ * The one Work row this probe drives.
+ *
+ * A named failure rather than a non-null assertion: handing `undefined` to
+ * `subagentDuration` would report a fault in the elapsed arithmetic instead of
+ * in the row that never appeared.
+ * @param projection - the Work projection under test.
+ * @returns its single subagent row.
+ */
+function onlyRow(projection: HarnessWork): SubagentWorkItem {
+  const row = projection.snapshot().subagents.at(0)
+  if (row === undefined) throw new Error('expected exactly one Work subagent row')
+  return row
+}
+
+/**
+ * The row's Harness timing figure, which the probe reads but never computes.
+ * @param projection - the Work projection under test.
+ * @returns the projected timing as published.
+ */
+function rowTiming(projection: HarnessWork): SubagentActiveTiming {
+  const timing = onlyRow(projection).timing
+  if (timing === undefined) throw new Error('expected the row to carry the subagentTiming projection')
+  return timing
 }
 
 describe('capability: subagent telemetry projections', () => {
@@ -143,9 +177,12 @@ describe('capability: subagent telemetry projections', () => {
       vi.setSystemTime(ORIGIN + 42_000)
       child.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
       // One settled turn, no open interval: the row's clock is exactly the
-      // projection's figure, with nothing added by dshline.
-      expect(projection.snapshot().subagents[0]?.timing).toEqual({ settledMs: 42_000 })
-      expect(subagentDuration(projection.snapshot().subagents[0]!, ORIGIN + 99_000))
+      // projection's figure, with nothing added by dshline — including the
+      // completion fact this generation's projection gained, which dshline
+      // forwards rather than re-deriving from its own lifecycle edges.
+      expect(rowTiming(projection))
+        .toEqual({ settledMs: 42_000, lastTurnCompleted: true })
+      expect(subagentDuration(onlyRow(projection), ORIGIN + 99_000))
         .toEqual({ ms: 42_000, kind: 'active' })
 
       vi.setSystemTime(ORIGIN + 50_000)
@@ -154,12 +191,41 @@ describe('capability: subagent telemetry projections', () => {
       // Any event inside the open turn advances the projection's own bound;
       // this one is the child entering its first model step.
       child.append('step/start', { turn: 2, step: 1 })
-      const timing = projection.snapshot().subagents[0]?.timing
+      const timing = rowTiming(projection)
       expect(timing).toEqual({ settledMs: 42_000, active: { since: ORIGIN + 50_000, through: ORIGIN + 54_000 } })
       // Running: the open turn advances with the frame clock.
-      expect(activeElapsedMs(timing!, true, ORIGIN + 60_000)).toBe(52_000)
+      expect(activeElapsedMs(timing, true, ORIGIN + 60_000)).toBe(52_000)
       // Not running: it freezes at the projection's own bound instead.
-      expect(activeElapsedMs(timing!, false, ORIGIN + 60_000)).toBe(46_000)
+      expect(activeElapsedMs(timing, false, ORIGIN + 60_000)).toBe(46_000)
+      projection.dispose()
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('carries an interrupted turn as incomplete instead of inferring completion', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(ORIGIN)
+    const { ctx, child } = await harness()
+    try {
+      const { projection, start } = work(ctx, child)
+      start(edge(child))
+      child.append('subagent/descriptor', snapshotSubagentDescriptor({
+        mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
+      }))
+      child.append('turn/start', { turn: 1 })
+      vi.setSystemTime(ORIGIN + 8_000)
+      child.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+      // The accumulated milliseconds are the same however a turn closed, so only
+      // Harness's own flag separates an interrupted turn from a finished one.
+      // Reading it from dshline's lifecycle edges instead would be a second
+      // authority disagreeing with the projection this row claims to report.
+      expect(rowTiming(projection))
+        .toEqual({ settledMs: 8_000, lastTurnCompleted: false })
+      // Opening the next turn withdraws the flag rather than leaving a stale one.
+      child.append('turn/start', { turn: 2 })
+      expect(rowTiming(projection))
+        .toEqual({ settledMs: 8_000, active: { since: ORIGIN + 8_000, through: ORIGIN + 8_000 } })
       projection.dispose()
     } finally {
       await ctx.fiber.dispose()
@@ -191,7 +257,8 @@ describe('capability: subagent telemetry projections', () => {
       vi.setSystemTime(ORIGIN + 600_000 + 5_000)
       child.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
       // Ten minutes of inherited history, five seconds of this child's work.
-      expect(projection.snapshot().subagents[0]?.timing).toEqual({ settledMs: 5_000 })
+      expect(projection.snapshot().subagents[0]?.timing)
+        .toEqual({ settledMs: 5_000, lastTurnCompleted: true })
       projection.dispose()
     } finally {
       await ctx.fiber.dispose()
@@ -261,14 +328,14 @@ describe('capability: subagent telemetry projections', () => {
       expect(ctx.sessionProjections.snapshot(child, ['tokenUsage']).values.tokenUsage).toEqual({
         uncachedInputTokens: 58_000, outputTokens: 2_000, cacheReadTokens: 0, cacheWriteTokens: 0,
       })
-      const row = projection.snapshot().subagents[0]
+      const row = onlyRow(projection)
       // THE REGRESSION: Work must not present that 60k as this worker's spend.
       // Removing the inherited-history guard fails here.
-      expect(row?.tokens).toBeUndefined()
+      expect(row.tokens).toBeUndefined()
       // The asymmetry is deliberate: `subagentTiming` DOES reset at the child's
       // own descriptor, so its active time stays honest for the same child.
-      expect(row?.timing).toEqual({ settledMs: 42_000 })
-      expect(subagentDuration(row!, ORIGIN + 99_000)).toEqual({ ms: 42_000, kind: 'active' })
+      expect(row.timing).toEqual({ settledMs: 42_000, lastTurnCompleted: true })
+      expect(subagentDuration(row, ORIGIN + 99_000)).toEqual({ ms: 42_000, kind: 'active' })
       projection.dispose()
     } finally {
       await ctx.fiber.dispose()
@@ -284,7 +351,10 @@ describe('capability: subagent telemetry projections', () => {
       expect(projection.snapshot().subagents[0]?.route)
         .toEqual({ provider: 'created-with', model: 'created-model' })
       child.append('request/header', {
-        header: { config: { provider: 'openai-codex', model: 'gpt-x', reasoningEffort: 'high' } },
+        // The effort is a branded id upstream; the brand is what keeps a typed
+        // spelling from being passed as an arbitrary string, and this log event
+        // is the one place the probe states one.
+        header: { config: { provider: 'openai-codex', model: 'gpt-x', reasoningEffort: 'high' as ReasoningEffortId } },
         reason: 'initial',
       })
       // `Session.requestHeader()` is the canonical fold of those snapshots, and

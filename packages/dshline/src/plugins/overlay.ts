@@ -75,7 +75,7 @@ export interface PluginsOverlaySpec {
   readonly state: () => PluginsState
   /** Re-read every surface. */
   readonly refresh: () => void
-  /** Enable or disable the selected row. */
+  /** Enable or disable the selected composition row. */
   readonly toggle: (row: CompositionRow) => void
   /** Open the agent-preset picker. */
   readonly pickPreset: () => void

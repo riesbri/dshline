@@ -9,9 +9,12 @@ import {
   filterPresetRows,
   matchesCompositionRow,
   matchesPresetRow,
+  presetChoiceDetail,
+  presetChoiceLabel,
   presetRows,
   presetSwitchEligibility,
   rowMark,
+  selectablePresetRows,
   toggleEligibility,
 } from '../src/plugins/model.ts'
 import type { PluginsSessionFacts } from '../src/plugins/harness.ts'
@@ -36,11 +39,15 @@ function row(overrides: Partial<CompositionRow> = {}): CompositionRow {
 }
 
 describe('presetRows', () => {
+  // No `trust` and no `path`: the adopted roster publishes neither, because a
+  // declaration is an ordinary row in a composition and a profile may carry an
+  // override of a shipped one. A fixture that re-added them would type-error,
+  // which is the point of modelling the real shape here.
   const ROSTER: AgentPresetRow[] = [
-    { id: 'standard', trust: 'system', path: '/system/standard', name: 'Standard mode', description: 'Full coding agent' },
-    { id: 'code', trust: 'system', path: '/system/code', name: 'PTC mode' },
-    { id: 'standard-custom', trust: 'user', path: '/user/standard-custom', name: 'Standard (custom)' },
-    { id: 'broken-one', trust: 'user', path: '/user/broken-one', broken: 'composition is not a list of entries' },
+    { id: 'standard', name: 'Standard mode', description: 'Full coding agent' },
+    { id: 'code', name: 'PTC mode' },
+    { id: 'standard-custom', name: 'Standard (custom)' },
+    { id: 'broken-one', broken: 'composition is not a list of entries' },
   ]
 
   it('preserves roster order without re-ranking', () => {
@@ -91,7 +98,9 @@ describe('search: composition rows', () => {
   ]
 
   it('matches by row id, case-insensitively', () => {
-    expect(matchesCompositionRow(ROWS[2]!, 'CODEX')).toBe(true)
+    const codex = ROWS[2]
+    if (codex === undefined) throw new Error('expected a codex row')
+    expect(matchesCompositionRow(codex, 'CODEX')).toBe(true)
     expect(filterCompositionRows(ROWS, 'codex').map(r => r.id)).toEqual(['tool-subagent-codex'])
   })
 
@@ -129,8 +138,8 @@ describe('search: composition rows', () => {
 describe('search: preset rows', () => {
   const ROWS = presetRows(
     [
-      { id: 'standard', trust: 'system', path: '/s', name: 'Standard mode' },
-      { id: 'cordis', trust: 'system', path: '/c', name: 'Creator mode' },
+      { id: 'standard', name: 'Standard mode' },
+      { id: 'cordis', name: 'Creator mode' },
     ],
     undefined,
     'standard',
@@ -165,53 +174,126 @@ describe('rowMark / compositionRowFacts', () => {
   })
 })
 
-describe('toggleEligibility: Harness ownership boundary', () => {
-  const SYSTEM = { trust: 'system' as const }
-  const USER = { trust: 'user' as const }
-  const WRITABLE = { canWriteUserPresets: true }
-  const NOT_WRITABLE = { canWriteUserPresets: false }
-
-  it('offers a plain toggle for a leaf row on a user preset', () => {
-    const result = toggleEligibility(row({ disabled: { kind: 'enabled' } }), USER, WRITABLE)
+describe('toggleEligibility: the configuration editor boundary', () => {
+  // The only question left is whether this profile mounts the editor at all.
+  // There is no ownership check any more: a shipped declaration is edited by
+  // writing a profile-layer override through `ctx.configEditor`, so there is no
+  // row in this roster this frontend must refuse to edit on account of where it
+  // came from.
+  it('offers a plain toggle for a leaf row where this profile can persist an edit', () => {
+    const result = toggleEligibility(row({ disabled: { kind: 'enabled' } }), true)
     expect(result).toEqual({ kind: 'toggle', enable: false })
   })
 
   it('computes enable correctly from the current disabled state', () => {
-    const result = toggleEligibility(row({ disabled: { kind: 'disabled' } }), USER, WRITABLE)
+    const result = toggleEligibility(row({ disabled: { kind: 'disabled' } }), true)
     expect(result).toEqual({ kind: 'toggle', enable: true })
   })
 
-  it('requires a copy-to-customize flow on a system preset, never toggling in place', () => {
-    const result = toggleEligibility(row({ disabled: { kind: 'enabled' } }), SYSTEM, WRITABLE)
-    expect(result).toEqual({ kind: 'requires-copy' })
+  it('offers the same toggle for a row whose own field is enabled but whose group is off', () => {
+    // The row's own field is what space flips, and the mark beside the row
+    // reports that same field; `effective` is drawn beside it as a fact. Reading
+    // the effective state here would offer a write the row's own mark contradicts.
+    const inherited = row({ disabled: { kind: 'enabled' }, effective: 'disabled' })
+    expect(toggleEligibility(inherited, true)).toEqual({ kind: 'toggle', enable: false })
   })
 
-  it('refuses to toggle a conditional row even on a user preset', () => {
-    const result = toggleEligibility(
-      row({ disabled: { kind: 'conditional', expression: 'x' } }),
-      USER,
-      WRITABLE,
-    )
-    expect(result.kind).toBe('conditional')
-  })
-
-  it('regression: a conditional row on a SYSTEM preset refuses directly, never offering copy first', () => {
+  it('refuses a conditional row, naming the expression rather than evaluating it', () => {
     const result = toggleEligibility(
       row({ disabled: { kind: 'conditional', expression: "process.platform === 'win32'" } }),
-      SYSTEM,
-      WRITABLE,
+      true,
+    )
+    expect(result).toEqual({ kind: 'conditional', expression: "process.platform === 'win32'" })
+  })
+
+  it('answers conditional even where no edit could land anyway, because that check runs first', () => {
+    // A `!!js` row is not togglable whatever else is true of it, so the ordering
+    // is what keeps a reader from being sent through a keypress that was always
+    // going to be refused — and refused for the more specific reason.
+    const result = toggleEligibility(
+      row({ disabled: { kind: 'conditional', expression: 'process.env.DELEGATION === "off"' } }),
+      false,
     )
     expect(result.kind).toBe('conditional')
   })
 
-  it('reports unavailable when there is no writable preset root', () => {
-    const result = toggleEligibility(row(), USER, NOT_WRITABLE)
-    expect(result.kind).toBe('unavailable')
+  it('reports unavailable when this profile mounts no configuration editor', () => {
+    const result = toggleEligibility(row(), false)
+    expect(result).toEqual({ kind: 'unavailable', reason: 'this profile mounts no configuration editor' })
   })
 
   it('reports unavailable for a group row, which has no single on/off state', () => {
-    const result = toggleEligibility(row({ group: true }), USER, WRITABLE)
-    expect(result.kind).toBe('unavailable')
+    expect(toggleEligibility(row({ group: true }), true)).toEqual({
+      kind: 'unavailable',
+      reason: 'a group row has no single on/off state to toggle',
+    })
+    // A group is refused even when it is itself conditional: the group answer is
+    // about the row, the conditional answer is about its field, and the first
+    // is the more fundamental of the two.
+    expect(toggleEligibility(row({ group: true, disabled: { kind: 'conditional', expression: 'x' } }), true).kind)
+      .toBe('unavailable')
+  })
+})
+
+describe('selectablePresetRows: what the picker may offer', () => {
+  const ROWS = presetRows(
+    [
+      { id: 'standard', name: 'Standard mode' },
+      { id: 'code', name: 'PTC mode' },
+      { id: 'broken-one', broken: 'composition is not a list of entries' },
+    ],
+    'standard',
+    'code',
+  )
+
+  it('drops the broken declaration and keeps the rest in roster order', () => {
+    expect(selectablePresetRows(ROWS).map(row => row.id)).toEqual(['standard', 'code'])
+  })
+
+  it('keeps a broken declaration out of what can be chosen while leaving it in the roster', () => {
+    // Two different answers on purpose: the browser still shows the broken one
+    // when it is the preset being browsed, because a declaration that cannot
+    // mount is the one a reader most needs to see in order to fix it.
+    expect(ROWS.map(row => row.id)).toContain('broken-one')
+  })
+})
+
+describe('presetChoiceLabel / presetChoiceDetail: the picker lines', () => {
+  it('names the preset, its id, and only the current/default tags', () => {
+    const [current] = presetRows([{ id: 'standard', name: 'Standard mode' }], 'standard', 'standard')
+    if (current === undefined) throw new Error('expected a row')
+    expect(presetChoiceLabel(current)).toBe('Standard mode  standard · current · default')
+  })
+
+  it('carries no built-in-vs-custom tag, because the roster reports no such distinction', () => {
+    // The previous generation classified a preset as shipped or profile
+    // authored and tagged the line with it. A shipped declaration here is
+    // exactly a row that happens to be the default, and the whole line is one
+    // exact string — which is what keeps a tag from creeping back in beside the
+    // two real ones.
+    const [shipped] = presetRows([{ id: 'standard', name: 'Standard mode' }], undefined, 'standard')
+    if (shipped === undefined) throw new Error('expected a row')
+    expect(presetChoiceLabel(shipped)).toBe('Standard mode  standard · default')
+  })
+
+  it('leaves out both tags for a preset that is neither current nor default', () => {
+    const row = presetRows([{ id: 'code', name: 'PTC mode' }], 'standard', 'standard')[0]
+    if (row === undefined) throw new Error('expected a row')
+    expect(presetChoiceLabel(row)).toBe('PTC mode  code')
+  })
+
+  it('is the description, and undefined when the declaration published none', () => {
+    const [described, undescribed] = presetRows(
+      [
+        { id: 'standard', description: 'Full coding agent' },
+        { id: 'code' },
+      ],
+      undefined,
+      'standard',
+    )
+    if (described === undefined || undescribed === undefined) throw new Error('expected two rows')
+    expect(presetChoiceDetail(described)).toBe('Full coding agent')
+    expect(presetChoiceDetail(undescribed)).toBeUndefined()
   })
 })
 

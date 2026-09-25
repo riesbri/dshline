@@ -4,16 +4,15 @@
  * One pass reads the whole browser: the roster (`list()`), the active
  * session's actual preset (from the `agentPreset` Session projection Harness
  * maintains), the default a new session would get (`defaultId`), and the
- * composition text of whichever preset is currently being BROWSED — which
- * starts as the session's own preset but can move without touching the
- * session, so a system preset's rows can be inspected and copied before
- * anything is switched. Between
+ * composition of whichever preset is currently being BROWSED — which starts as
+ * the session's own preset but can move without touching the session, so a
+ * declaration's rows can be inspected before anything is switched. Between
  * passes this class holds a rendered snapshot and nothing else, the same
- * discipline `connect/catalog.ts` keeps: no preset list, no composition
- * cache, and no session mirror to fall out of date. `list()` and `read()` are
+ * discipline `connect/catalog.ts` keeps: no preset list, no composition cache,
+ * and no session mirror to fall out of date. `list()` and `readDocument()` are
  * unmemoized on the Harness side for exactly this reason — a roster is a live
- * directory, and holding a private copy of it is how a frontend disagrees
- * with a file someone just edited outside it.
+ * set of declarations, and holding a private copy of it is how a frontend
+ * disagrees with a composition someone just edited outside it.
  * @module dshline/plugins/catalog
  */
 
@@ -30,8 +29,8 @@ export interface PluginsCapabilities {
   readonly agentPresets: boolean
   /** Whether `ctx.get('settings')` is mounted, needed to write the default. */
   readonly settings: boolean
-  /** Whether this deployment has a root locally authored presets can go to. */
-  readonly canWriteUserPresets: boolean
+  /** Whether `ctx.get('configEditor')` is mounted, needed to edit a composition. */
+  readonly configEditor: boolean
 }
 
 /** One preset's composition, as the browser currently reads it. */
@@ -167,7 +166,7 @@ export class PluginsCatalog {
     const capabilities: PluginsCapabilities = {
       agentPresets: true,
       settings: settings !== undefined,
-      canWriteUserPresets: agentPresets.authorable,
+      configEditor: this.spec.seams.configEditor !== undefined,
     }
     const opening = this.spec.session()
     const [presets, defaultId, sessionPresetId] = await Promise.all([
@@ -199,10 +198,10 @@ export class PluginsCatalog {
    *
    * The roster's own `broken` is authoritative and checked FIRST: if Harness
    * already knows this preset cannot be mounted, that reason is reported
-   * as-is, without dshline's own parser getting a vote — a file this parser
-   * happens to accept is not proof of health, only that this module can
-   * make presentational sense of it. Harness decides preset health; this
-   * only decides what a healthy file's rows look like.
+   * as-is, without dshline's own parser getting a vote — a declaration this
+   * parser happens to accept is not proof of health, only that this module can
+   * make presentational sense of it. Harness decides preset health; this only
+   * decides what a healthy declaration's rows look like.
    * @param agentPresets - the preset seam.
    * @param presetId - the preset to read.
    * @param rosterEntry - this preset's own roster row, when it is still listed.
@@ -216,13 +215,16 @@ export class PluginsCatalog {
     if (rosterEntry?.broken !== undefined) {
       return { kind: 'broken', presetId, reason: rosterEntry.broken }
     }
-    let text: string
+    let content: string
     try {
-      text = await agentPresets.read(presetId)
+      // The registry renders the declared child list back as the Loader's own
+      // entry-list YAML, `!!js` conditions included, and accepts nothing in
+      // return. That makes this a genuinely read-only view of the composition.
+      content = (await agentPresets.readDocument(presetId)).content
     } catch (error) {
       return { kind: 'broken', presetId, reason: messageOf(error) }
     }
-    const tree = parseComposition(text)
+    const tree = parseComposition(content)
     if (tree.kind === 'broken') return { kind: 'broken', presetId, reason: tree.reason }
     return { kind: 'rows', presetId, tree }
   }

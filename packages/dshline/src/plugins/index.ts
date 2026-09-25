@@ -3,22 +3,31 @@
  *
  * The same division of labour every other domain here keeps: Harness owns
  * the preset roster, a preset's composition, session composition and its
- * lifecycle, and the `agent-presets.default` setting. This module owns the
- * rows, the keyboard, and the two prompts a keystroke here can raise — a
- * copy-to-customize confirmation, and a new preset's id. There is no plugin
- * registry here, no YAML dialect invented, and no per-provider branch: a row
- * reaches this browser because `ctx.agentPresets` composed it, is toggled
- * through the one narrow adapter `actions.ts` offers for exactly that
- * reason, and a preset is switched or defaulted through the same
- * `agentPresets.select()`/`ctx.settings` seams Harness's own Web client uses.
+ * lifecycle, the `agent-preset-registry` entry's `selectedDefault` field, and
+ * persistence of a composition edit. This module owns the rows, the keyboard,
+ * and the one prompt a keystroke here can raise — the offer a locked session
+ * redirects to. There is no plugin registry here, no YAML dialect invented, and
+ * no per-provider branch: a row reaches this browser because
+ * `ctx.agentPresets` composed it, a composition row is edited through the same
+ * `ctx.configEditor` Harness's own settings pages write through, and a preset is
+ * switched or defaulted through the same `agentPresets.select()`/`ctx.settings`
+ * seams Harness's own Web client uses.
+ *
+ * What used to be here and is not: a `space` handler that spliced one
+ * `disabled` field into a preset's file, and the copy-to-customize flow behind
+ * it. Both belonged to a roster that owned its files. The adopted generation
+ * owns no files — a declaration is a row, the registry "writes no
+ * declarations" and "accepts no preset paths", and its own preset tree refuses
+ * `write()` because "only the profile configuration editor persists
+ * definitions". Composition changes are Harness's profile-patch operation now,
+ * and this browser reads what it composes.
  * @module dshline/plugins
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import { escapeControls, paint } from '@dshline/renderer'
-import type { CompositionRow } from './composition.ts'
 import { pluginsSeams } from './harness.ts'
-import type { AgentPresetRow, AgentPresetsSeam, PluginsSettings } from './harness.ts'
+import type { AgentPresetRow, AgentPresetsSeam, ConfigEditorSeam, PluginsSettings } from './harness.ts'
 import { PluginsCatalog, messageOf } from './catalog.ts'
 import { hostCapabilities } from './health.ts'
 import type { PluginsCatalogSpec } from './catalog.ts'
@@ -30,30 +39,29 @@ import {
   presetChoiceLabel,
   presetSwitchEligibility,
   selectablePresetRows,
-  suggestPresetId,
   toggleEligibility,
-  validPresetId,
 } from './model.ts'
+import type { CompositionRow } from './composition.ts'
 import type { PluginsActionOutcome } from './actions.ts'
-import { copyPreset, setDefaultPreset, switchPreset, toggleRow } from './actions.ts'
+import { setDefaultPreset, switchPreset, toggleRow } from './actions.ts'
 import { createPluginsOverlay } from './overlay.ts'
 import type { PluginsOverlay } from './overlay.ts'
 import { promptSelect } from '../select.ts'
-import { promptText } from '../prompt.ts'
 
 export type {
+  AgentPresetDocument,
   AgentPresetRow,
   AgentPresetsSeam,
+  ConfigEditorSeam,
   PluginsAgent,
   PluginsSeams,
   PluginsSessionFacts,
   PluginsSettings,
-  PresetTrust,
 } from './harness.ts'
 export { pluginsSeams, sessionFacts } from './harness.ts'
-export type { CompositionRow, CompositionTree, DisabledState, RowLocator } from './composition.ts'
-export { parseComposition, toggleDisabled } from './composition.ts'
-export type { PresetRow, ToggleEligibility, PresetSwitchEligibility } from './model.ts'
+export type { CompositionRow, CompositionTree, DisabledState, RowLocator, RowLocatorStep, ToggleFailureReason, ToggleResult } from './composition.ts'
+export { parseComposition, togglePresetRow } from './composition.ts'
+export type { PresetRow, PresetSwitchEligibility, ToggleEligibility } from './model.ts'
 export {
   filterCompositionRows,
   filterPresetRows,
@@ -66,7 +74,7 @@ export type { CapabilityRegistry, HostCapabilities, RowHealth, SubagentRegistryS
 export { CAPABILITY_LINKS, healthFacts, hostCapabilities, rowHealth, unbackedWhileEnabled } from './health.ts'
 export { PluginsCatalog } from './catalog.ts'
 export type { PluginsActionOutcome } from './actions.ts'
-export { copyPreset, setDefaultPreset, switchPreset, toggleRow } from './actions.ts'
+export { setDefaultPreset, switchPreset, toggleRow } from './actions.ts'
 export type { PluginsOverlay, PluginsOverlaySpec } from './overlay.ts'
 export { createPluginsOverlay } from './overlay.ts'
 
@@ -196,7 +204,7 @@ export async function openPlugins(spec: PluginsSpec): Promise<void> {
       overlay = createPluginsOverlay({
         state: () => catalog.state(),
         refresh: () => { catalog.refresh() },
-        toggle: row => { run(() => performToggle(spec, seams, catalog, overlay, row)) },
+        toggle: row => { run(() => performToggle(spec, catalog, overlay, row)) },
         pickPreset: () => { run(() => performPickPreset(spec, seams, catalog, overlay)) },
         makeDefault: () => { run(() => performMakeDefault(spec, seams, catalog, overlay)) },
         now: spec.now ?? ((): number => Date.now()),
@@ -259,102 +267,80 @@ function land(
 }
 
 /**
- * Handle a `space` on one composition row.
- * @param spec - the context and where transcript rows go.
- * @param seams - the Harness seams.
- * @param catalog - the catalog, for the current reading and to refresh after.
+ * Handle `space` on one composition row: edit the declaration, then let a
+ * blank current session adopt the new composition.
+ *
+ * The edit itself is `actions.ts`'s, through `ctx.configEditor`. What this
+ * adds is the honest report about the CURRENT session, which is a separate
+ * fact: a saved declaration is only what future composition reads, and a
+ * session that has already started is fixed to the composition it began with.
+ * Saying "updated live" to a session that did not change would be the one
+ * genuinely misleading outcome this browser could produce.
+ * @param spec - the context, agent, and where transcript rows go.
+ * @param catalog - the catalog, for the current reading and to re-browse after.
  * @param overlay - the overlay to report into.
- * @param row - the selected row.
+ * @param row - the selected composition row.
  */
 async function performToggle(
   spec: PluginsSpec,
-  seams: ReturnType<typeof pluginsSeams>,
   catalog: PluginsCatalog,
   overlay: PluginsOverlay,
   row: CompositionRow,
 ): Promise<void> {
   const state = catalog.state()
-  const agentPresets = seams.agentPresets
-  if (state.kind !== 'ready' || state.browsing.kind !== 'rows' || agentPresets === undefined) return
+  const configEditor = spec.ctx.get('configEditor') as ConfigEditorSeam | undefined
+  if (state.kind !== 'ready' || state.browsing.kind !== 'rows' || configEditor === undefined) return
   const presetId = state.browsing.presetId
-  const presetRow = state.presets.find(preset => preset.id === presetId)
-  if (presetRow === undefined) {
-    overlay.report(`${presetId} is no longer on the roster`, true)
-    return
-  }
-  const eligibility = toggleEligibility(row, presetRow, { canWriteUserPresets: state.capabilities.canWriteUserPresets })
-  if (eligibility.kind === 'conditional') {
-    const expression = row.disabled.kind === 'conditional' ? row.disabled.expression : ''
-    overlay.report(`disabled by a condition (${expression}); edit the preset file directly`, true)
-    return
-  }
+  const eligibility = toggleEligibility(row, state.capabilities.configEditor)
   if (eligibility.kind === 'unavailable') {
     overlay.report(eligibility.reason, true)
     return
   }
-  if (eligibility.kind === 'toggle') {
-    // Re-resolved fresh rather than trusting the roster row this pass
-    // already read: Harness's discovery is live, and the preset's trust or
-    // health may have changed in the moment between that read and this key.
-    let fresh: AgentPresetRow
-    try {
-      fresh = await agentPresets.resolve(presetId)
-    } catch (error) {
-      overlay.report(`${presetId}: ${messageOf(error)}`, true)
-      return
-    }
-    const outcome = await toggleRow(agentPresets, fresh, row.locator, eligibility.enable)
-    if (outcome.kind === 'failed') {
-      land(spec, catalog, overlay, outcome, presetId)
-      return
-    }
-    land(spec, catalog, overlay, await liveEffectNote(agentPresets, spec, presetId, outcome), presetId)
+  if (eligibility.kind === 'conditional') {
+    // The Loader still evaluates a `!!js` condition, so there is no edit here
+    // that is both a plain toggle and an honest one. Naming the expression is
+    // the useful half of the refusal.
+    overlay.report(`disabled by a condition (${eligibility.expression}); edit the declaration directly`, true)
     return
   }
-  // requires-copy: confirm, then copy, then apply the SAME toggle to the
-  // fresh copy — the happy path is one keystroke to reach a customizable,
-  // already-toggled preset, not a second Space press after the copy lands.
-  // `enable` is recomputed rather than carried on `ToggleEligibility` itself
-  // ('requires-copy' names no direction — the copy is what makes toggling
-  // possible at all, so the row's own current state is still the answer).
-  const enable = row.disabled.kind === 'disabled'
-  await performCopyThenToggle(spec, seams, catalog, overlay, presetRow, row, enable)
+  const outcome = await toggleRow(configEditor, presetId, row.locator, eligibility.enable)
+  land(spec, catalog, overlay, await liveEffectNote(spec, presetId, outcome), presetId)
 }
 
 /**
- * After a successful file edit, force a blank current session onto the new
- * generation immediately, or explain why the current session is untouched.
+ * After a saved declaration edit, say plainly what happened to the CURRENT
+ * session, which is not the same question as what was saved.
  *
- * The preset id itself never changes here — the session's log already names
- * this preset, only WHICH generation it runs did — so `recompose` is called
- * but no new `agent-preset/selected` event is appended; that event exists to
- * record a CHOICE between presets, and none was made.
+ * The preset id does not change here — only WHICH revision of the declaration
+ * it resolves to — so nothing records a choice, and `AgentPresetRegistry.select`
+ * is never involved: its turn-boundary rule is about choosing a DIFFERENT
+ * preset, and a blank session is re-pointed at the new generation by
+ * `recompose` instead. A session that has already started keeps the
+ * composition it began with, and saying so is the point.
  *
- * Both facts it gates on are read HERE, from the live projections, rather
- * than taken from the reading the toggle was decided against: that reading
- * predates the file write and the Harness re-resolve, and a turn starting
- * across those awaits would make its `blank` false while the captured copy
- * still said true. This is the module's only `recompose`, and `recompose` is
- * the raw re-link with no check of its own — `switchPreset` goes through
- * `AgentPresets.select`, which re-reads `turnBoundary` inside its own
- * serialized switch. So the check has to be made at the same instant here.
- * @param agentPresets - the preset seam.
+ * Both facts are read HERE, after the write, rather than taken from the reading
+ * the toggle was decided against: a turn can start across the editor's own
+ * awaits, and a captured copy taken before them would go on reporting a
+ * started session as blank.
  * @param spec - the context and agent.
- * @param presetId - the preset id whose file just changed.
+ * @param presetId - the preset whose declaration just changed.
  * @param outcome - the successful toggle outcome to extend.
  * @returns the outcome, worded for what happens to the CURRENT session.
  */
 async function liveEffectNote(
-  agentPresets: AgentPresetsSeam,
   spec: PluginsSpec,
   presetId: string,
   outcome: PluginsActionOutcome,
 ): Promise<PluginsActionOutcome> {
-  if (runningPresetId(agentPresets, spec) !== presetId) return outcome
+  const agentPresets = pluginsSeams(spec.ctx).agentPresets
+  if (agentPresets === undefined) return outcome
+  if (runningPresetId(agentPresets, spec) !== presetId) {
+    return { ...outcome, message: `${outcome.message} — saved; the current session runs ${agentPresets.composedPreset(spec.agent.ctx) ?? 'another preset'}` }
+  }
   if (factsOf(spec).started) {
     return {
       kind: 'done',
-      message: `${outcome.message} — saved for future sessions; the current session has already started and stays on its existing composition`,
+      message: `${outcome.message} — saved for future sessions; the current session has already started and keeps its existing composition`,
     }
   }
   try {
@@ -364,105 +350,6 @@ async function liveEffectNote(
   }
   spec.recomposed?.()
   return { kind: 'done', message: `${outcome.message} — current session updated live` }
-}
-
-/**
- * The system-preset path: confirm a copy, ask for its id, create it, and
- * apply the row's toggle to the new user preset in the same gesture.
- * @param spec - the context and where transcript rows go.
- * @param seams - the Harness seams.
- * @param catalog - the catalog, for the roster and to browse the copy after.
- * @param overlay - the overlay to report into.
- * @param preset - the system preset being copied.
- * @param row - the row the original toggle was requested on.
- * @param enable - what the original toggle would have set the row to.
- */
-async function performCopyThenToggle(
-  spec: PluginsSpec,
-  seams: ReturnType<typeof pluginsSeams>,
-  catalog: PluginsCatalog,
-  overlay: PluginsOverlay,
-  preset: PresetRow,
-  row: CompositionRow,
-  enable: boolean,
-): Promise<void> {
-  const agentPresets = seams.agentPresets
-  if (agentPresets === undefined) return
-  const confirmed = await promptSelect(spec.ctx, {
-    title: `${preset.name} is a built-in preset.`,
-    view: 'Confirm',
-    detail: 'Create a local copy to customize it?',
-    choices: [
-      { value: 'copy', label: 'Create copy' },
-      { value: 'cancel', label: 'Cancel' },
-    ],
-  })
-  if (confirmed !== 'copy') return
-  const state = catalog.state()
-  const existingIds = state.kind === 'ready' ? state.presets.map(candidate => candidate.id) : [preset.id]
-  const suggested = suggestPresetId(preset.id, existingIds)
-  const typed = await promptText(spec.ctx, {
-    title: 'New preset id',
-    view: 'New preset',
-    message: `Copy ${preset.id} as:`,
-    detail: `Enter accepts ${suggested}`,
-    kind: 'text',
-    placeholder: suggested,
-  })
-  if (typed === undefined) return
-  const id = typed.trim() === '' ? suggested : typed.trim()
-  if (!validPresetId(id)) {
-    overlay.report(`"${id}" is not a usable preset id`, true)
-    return
-  }
-  const copyOutcome = await copyPreset(agentPresets, preset.id, id)
-  if (copyOutcome.kind === 'failed') {
-    land(spec, catalog, overlay, copyOutcome)
-    return
-  }
-  let fresh: AgentPresetRow
-  try {
-    fresh = await agentPresets.resolve(id)
-  } catch {
-    // The copy itself succeeded; a resolve failing immediately after would be
-    // Harness's roster disagreeing with the write it just accepted. Report
-    // the copy as done and let the browse-triggered refresh surface whatever
-    // is actually wrong, rather than inventing a second error message for a
-    // roster it cannot itself explain here.
-    land(spec, catalog, overlay, copyOutcome, id)
-    return
-  }
-  const toggleOutcome = await toggleRow(agentPresets, fresh, row.locator, enable)
-  if (toggleOutcome.kind === 'failed') {
-    land(spec, catalog, overlay, { kind: 'failed', message: `${copyOutcome.message}; ${toggleOutcome.message}` }, id)
-    return
-  }
-  // Read from the live agent, not from the catalog: the session may have
-  // moved on while a human was answering the two prompts, and the catalog
-  // reports whichever pass settled last — which for this path is the one
-  // taken before those prompts were even raised. Only when the preset just
-  // COPIED is the one the current session actually runs, and that session is
-  // still blank, does the new copy get switched to durably (through
-  // `AgentPresets.select`, which records the choice) — every other case is a
-  // customization for later, said plainly rather than silently doing nothing.
-  // Harness re-checks the lock inside `select`, so a stale read here could
-  // never actually cross it; what it would do is word the answer as a failed
-  // switch instead of the guidance the reader needs.
-  const sourceIsCurrentBlank = runningPresetId(agentPresets, spec) === preset.id
-    && !factsOf(spec).started
-  if (!sourceIsCurrentBlank) {
-    land(spec, catalog, overlay, {
-      kind: 'done',
-      message: `${copyOutcome.message}; ${toggleOutcome.message} — saved as a future-session customization; `
-        + `press d to make ${id} the default, or p to switch an eligible session to it`,
-    }, id)
-    return
-  }
-  const switchOutcome = await switchPreset(agentPresets, spec.agent, id)
-  const combined: PluginsActionOutcome = switchOutcome.kind === 'failed'
-    ? { kind: 'failed', message: `${copyOutcome.message}; ${toggleOutcome.message}; ${switchOutcome.message}` }
-    : { kind: 'done', message: `${copyOutcome.message}; ${toggleOutcome.message}; switched the current session to ${id}` }
-  land(spec, catalog, overlay, combined, id)
 }
 
 /**

@@ -30,8 +30,17 @@ import { modelRouteKey } from '../model-catalog.ts'
  * A plain literal rather than an import from `@deepseek-ai/dsh-tool-subagent`:
  * this frontend consumes the generic `ctx.settings` document and must not take
  * a package dependency on the tool that reads it.
+ *
+ * The adopted generation changed what a namespace IS. A namespace used to be a
+ * name a plugin registered at runtime; it is now the profile ENTRY ID of the
+ * plugin whose own `static Config` declares the fields, and only volatile ones
+ * are writable. `subagent-model-selection` was such a registered name and no
+ * longer exists, so writing to it would now throw `No configurable plugin
+ * entry`. The value below is the `id` this bundle's own `cordis.patch.yml`
+ * gives the `@deepseek-ai/dsh-tool-subagent/model-selection-settings` row, which
+ * is the row that declares those volatile fields.
  */
-export const SUBAGENT_MODEL_SELECTION_NAMESPACE = 'subagent-model-selection'
+export const SUBAGENT_MODEL_SELECTION_NAMESPACE = 'subagent-model-selection-settings'
 
 /** One exact `{ provider, model }` route the Host setting authorizes. */
 export interface SubagentModelRoute {

@@ -1,9 +1,12 @@
 /**
  * `/model`'s subagent authorization editor, opened with `ctrl-k`.
  *
- * The Host setting `subagent-model-selection` is the only durable
- * authorization authority, and the generic `ctx.settings` document is the only
- * way this module reads or writes it. Nothing here reads
+ * The Host entry `subagent-model-selection-settings` — the profile row this
+ * bundle inserts for
+ * `@deepseek-ai/dsh-tool-subagent/model-selection-settings`, and therefore the
+ * namespace name under the adopted generation's entry-id rule — is the only
+ * durable authorization authority, and the generic `ctx.settings` document is
+ * the only way this module reads or writes it. Nothing here reads
  * `ctx.subagentModelSelection`, records a Session event, or routes a child:
  * Harness samples the setting for the next composed top-level Session and its
  * delegation executor enforces the recorded policy.

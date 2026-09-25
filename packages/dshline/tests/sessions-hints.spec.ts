@@ -1,4 +1,16 @@
-/** The pinned-generation adapter for optional Harness projection title hints. */
+/**
+ * Optional Harness projection title hints, over the adopted generation's
+ * header-only cache contract.
+ *
+ * The interesting case is the cold SEEDED row. It used to have no hint at all:
+ * the previous cache API demanded an exact `inheritedEventCount` that a listed
+ * `SessionRecord` does not carry, so returning nothing was the only honest
+ * answer. The adopted generation matches a cached checkpoint against the
+ * lifecycle identity a header alone witnesses — `formatVersion`, `createdAt`,
+ * `cwd`, `isSeeded` — and Harness owns that comparison. So the reader passes the
+ * header and nothing else, and a seeded row is served exactly like an unseeded
+ * one. Both tests below fail if that `isSeeded` guard is ever reintroduced.
+ */
 
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -31,23 +43,21 @@ function context(services: Readonly<Record<string, unknown>>): Context {
   return { get: (key: string) => services[key] } as unknown as Context
 }
 
-describe('pinned Harness session title hints', () => {
-  it('uses the known zero inherited cut for an unseeded cold session', () => {
+describe('Harness session title hints', () => {
+  it('reads a cold row through the header-only cache contract', () => {
     const cachedSnapshot = vi.fn(() => ({ values: { title: 'Cached title' } }))
     const hints = sessionTitleHints(context({ sessionProjectionCache: { cachedSnapshot } }))
     expect(hints?.(record('cold'))).toEqual({ title: 'Cached title' })
-    expect(cachedSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'cold' }), 0, ['title'])
+    // The header is the WHOLE argument. A second positional argument here would
+    // be a fabricated inherited cut, which this generation no longer accepts.
+    expect(cachedSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'cold' }), ['title'])
   })
 
-  it('never guesses a cold seeded session’s inherited cut or reads an unrelated cache row', () => {
-    const cachedSnapshot = vi.fn(() => ({ values: { title: 'Unsafe current row' } }))
-    const cachedPredecessorTitle = vi.fn(() => ({ values: { title: 'Unsafe predecessor row' } }))
-    const hints = sessionTitleHints(context({
-      sessionProjectionCache: { cachedSnapshot, cachedPredecessorTitle },
-    }))
-    expect(hints?.(record('fork', { isSeeded: true }))).toBeUndefined()
-    expect(cachedSnapshot).not.toHaveBeenCalled()
-    expect(cachedPredecessorTitle).not.toHaveBeenCalled()
+  it('serves a cold seeded row from the same read, with no inherited count to guess', () => {
+    const cachedSnapshot = vi.fn(() => ({ values: { title: 'Seeded cached title' } }))
+    const hints = sessionTitleHints(context({ sessionProjectionCache: { cachedSnapshot } }))
+    expect(hints?.(record('fork', { isSeeded: true }))).toEqual({ title: 'Seeded cached title' })
+    expect(cachedSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'fork' }), ['title'])
   })
 
   it('uses the attached live projection when a live record is listed', () => {

@@ -6,42 +6,44 @@
  * into what each consumer needs: what a preference is now, when it changed, and
  * a way to store the reader's choice.
  *
- * The canonical wiring for a consumer whose settings service is OPTIONAL, which
- * is exactly this one, is `SettingsProvider#installSection`: while a provider
- * exists it registers the namespace with the plugin's composition entry as the
- * `base` layer and points the source at the resolved scope, and when none is
- * mounted the source falls back to that entry, so a deployment with no settings
- * provider still runs on what it was composed with.
+ * `dshline` is the profile ENTRY ID the settings service addresses, not a
+ * section this frontend hands it. There is no registration call left to make:
+ * the service derives one form per active profile entry from that entry's own
+ * `Config`, keeps only its `.volatile()` fields editable, and addresses it by
+ * the id the bundle patch inserts. The three keys' schema therefore belongs to
+ * this row's configuration and not to this module, and the values in force are
+ * the ones Harness committed into the running row.
  *
- * Layering is therefore Harness's, not this frontend's: schema default, then the
- * `dshline` row's own config, then the user's `settings.yaml`. There is no second
- * document, no parser, and no state machine.
+ * Layering is still Harness's, not this frontend's: schema default, then this
+ * row's own composed config, then the profile patch a write lands in. There is
+ * no second document, no parser, and no state machine.
  *
- * **One installer, because `installSection` takes a whole namespace.** This
- * module began as the theme's own file and holding one key was the reason it
- * could live under `themes/`. A second `installSection('dshline', …)` call would
- * not add a key — it would register a competing section for the same namespace,
- * with two sources, two change fans, and two schemas each validating away the
- * other's key. So the namespace has exactly one installer, and consumers receive
- * narrow per-key facets rather than a settings object they could reach past.
- * That is the whole of the abstraction: no key registry, no dynamic schema, no
- * generic settings framework for two preferences.
+ * **One owner, because the row is one.** A profile entry is addressed by a
+ * single id, so its keys have a single resolved source and a single writer; a
+ * second registration would have been a competing section for the same
+ * namespace, with two sources, two change fans, and two schemas each
+ * validating away the other's key. So the row has exactly one owner here, and
+ * consumers receive narrow per-key facets rather than a settings object they
+ * could reach past. That is the whole of the abstraction: no key registry, no
+ * dynamic schema, no generic settings framework for two preferences.
  * @module dshline/settings
  */
 
-import type { Context } from '@deepseek-ai/cordis'
-import Schema from '@deepseek-ai/schemastery'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
+// Carries the Context merge naming `ctx.settings` and the `settings/document-updated`
+// change feed this row's facets republish on.
+import type {} from '@deepseek-ai/dsh-settings'
 import { escapeControls } from '@dshline/renderer'
 import type { BusyEnter } from './delivery.ts'
 import { DEFAULT_BUSY_ENTER } from './delivery.ts'
-import { FALLBACK_THEME, THEMES } from './themes/builtin.ts'
+import { FALLBACK_THEME } from './themes/builtin.ts'
 
 /**
  * The namespace this frontend owns. Matches the row id its bundle inserts.
  *
- * A plain literal: the settings service validates a namespace at the type
- * level (lowercase, hyphenated), so `'dshline'` is accepted directly and the
- * brand never has to be asserted.
+ * A plain literal: the service addresses a namespace by comparing it to
+ * `entry.options.id`, so there is no brand to assert and the row id this
+ * frontend already publishes is the only value that can be right.
  */
 const NAMESPACE = 'dshline'
 
@@ -54,35 +56,23 @@ const BUSY_ENTER_KEY = 'busyEnter'
 /** The key controlling whether this frontend emits terminal BEL for live interaction. */
 const ATTENTION_BELL_KEY = 'attentionBell'
 
-/** The two values busy `enter` may take, for the schema and for completion. */
-const BUSY_ENTER_VALUES: readonly BusyEnter[] = ['queue', 'steer']
-
 /**
- * The section's schema: closed unions, and nothing else.
+ * The reader preferences this row's own configuration carries, as Harness
+ * hands them to the row.
  *
- * A union of the accepted values rather than a free string, so an unknown value
- * is rejected by the SCHEMA — Harness then keeps the namespace's last good value
- * and warns, which is a better answer than this frontend re-validating a string
- * it was handed. It also makes a configuration UI render the real choices.
- *
- * Deliberately not the plugin's whole {@link Config}. Prices and peak hours are
- * composition-time deployment facts nobody edits from inside a session, and
- * pulling them in would turn two preferences into a settings surface for
- * everything this row can be configured with.
+ * `Volatile` references rather than values, and that is what keeps `/theme`,
+ * `/enter` and the attention bell writable without a remount: Harness commits a
+ * stored value by mutating the live reference in place, so reading through
+ * `.get()` is the whole change feed on the read side. A plain value here would
+ * freeze the preference at mount and make persistence a launch-time-only fact.
  */
-const DshlineSection = Schema.object({
-  [THEME_KEY]: Schema.union(THEMES.map(theme => Schema.const(theme.id)))
-    .default(FALLBACK_THEME.id)
-    .description('Colour palette this frontend draws with.'),
-  [BUSY_ENTER_KEY]: Schema.union(BUSY_ENTER_VALUES.map(value => Schema.const(value)))
-    .default(DEFAULT_BUSY_ENTER)
-    .description('What plain enter does while a turn is running: queue a follow-up turn, or steer the running one.'),
-  [ATTENTION_BELL_KEY]: Schema.boolean()
-    .default(true)
-    .description('Whether this frontend emits terminal BEL when live human interaction is needed.'),
-}).description('dshline')
+export interface DshlinePreferences {
+  readonly theme: Volatile<string> | undefined
+  readonly busyEnter: Volatile<BusyEnter> | undefined
+  readonly attentionBell: Volatile<boolean> | undefined
+}
 
-/** The resolved shape of that section. */
+/** One preference's resolved value set, as a consumer reads it. */
 export interface DshlineSection {
   /** The theme id currently in force. */
   readonly theme: string
@@ -141,23 +131,30 @@ export interface DshlineSettings {
 }
 
 /**
- * Register the namespace and expose one facet per key.
+ * Expose one facet per key of this row's own configuration.
  * @param ctx - the plugin context owning the registration.
- * @param entry - this row's composition config, used as the `base` layer.
+ * @param entry - this row's own live configuration references, the layer below anything stored.
  * @returns the readers and writers this frontend's consumers use.
  */
-export function installDshlineSettings(ctx: Context, entry: Partial<DshlineSection>): DshlineSettings {
-  // Until a settings service attaches, the composition entry IS the answer.
-  let source: () => DshlineSection = () => ({
-    theme: entry.theme ?? FALLBACK_THEME.id,
-    busyEnter: entry.busyEnter ?? DEFAULT_BUSY_ENTER,
-    attentionBell: entry.attentionBell ?? true,
+export function installDshlineSettings(ctx: Context, entry: DshlinePreferences): DshlineSettings {
+  // The composed row is the answer in every profile, including one that mounts
+  // no settings service at all. A stored value only exists for a row whose own
+  // configuration declares the key editable, and a write to a row that does not
+  // is refused by Harness rather than silently dropped here.
+  // Read through the reference every time rather than capturing a value at
+  // mount: a reference whose identity survives a `_commitVolatile` is the live
+  // channel, and a snapshot taken once would make a stored choice apply only to
+  // the NEXT window.
+  const source = (): DshlineSection => ({
+    theme: entry.theme?.get() ?? FALLBACK_THEME.id,
+    busyEnter: entry.busyEnter?.get() ?? DEFAULT_BUSY_ENTER,
+    attentionBell: entry.attentionBell?.get() ?? true,
   })
   /**
    * Republish to one key's watchers, but only when that key's value moved.
    *
-   * Each facet contributes one of these and a namespace change runs all of them,
-   * which is what turns Harness's one section-level notification into a
+   * Each facet contributes one of these and one row-level notification runs all
+   * of them, which is what turns Harness's single per-entry notice into a
    * per-preference feed. Comparison is by value because every key here holds a
    * scalar; a key whose value were ever a structure would need its own
    * comparison rather than a deeper default one nobody had chosen.
@@ -171,10 +168,10 @@ export function installDshlineSettings(ctx: Context, entry: Partial<DshlineSecti
    */
   const facet = <T>(read: (section: DshlineSection) => T, key: string): PreferenceSetting<T> => {
     const watchers = new Set<() => void>()
-    // What this facet has already told its watchers. Seeded from the layer in
-    // force at construction — the composition entry, since no provider has
-    // attached yet — so a provider mounting later with a different stored value
-    // is itself a change, and still reaches the window.
+    // What this facet has already told its watchers, seeded from the layer in
+    // force when the window opened, so a change Harness commits afterwards is
+    // the difference between that and the next value rather than the first
+    // value this facet ever saw.
     let published = read(source())
     publishers.push(() => {
       const next = read(source())
@@ -194,6 +191,10 @@ export function installDshlineSettings(ctx: Context, entry: Partial<DshlineSecti
         // stored when it will last exactly as long as the process.
         if (settings === undefined) return 'not saved: this profile mounts no settings provider'
         try {
+          // A path op, not a whole-section patch: the service validates a write
+          // against the row's complete `Config`, and a patch rebuilt from what
+          // this frontend read would fail that check — and silently delete any
+          // editable key a newer version added — the moment the row grows one.
           await settings.mutate(NAMESPACE, [{ op: 'set', path: [key], value }])
         } catch (error: unknown) {
           // Escaped before it is styled, like any other text this frontend did
@@ -211,29 +212,17 @@ export function installDshlineSettings(ctx: Context, entry: Partial<DshlineSecti
     busyEnter: facet(section => section.busyEnter, BUSY_ENTER_KEY),
     attentionBell: facet(section => section.attentionBell, ATTENTION_BELL_KEY),
   }
-  // Registered AFTER the facets exist, so a provider that attaches and commits
-  // straight away cannot run `onChange` against an empty publisher list.
+  // Subscribed AFTER the facets exist, so a change Harness commits in the same
+  // tick this row mounts cannot run the feed against an empty publisher list.
   //
-  // `ctx.inject` rather than a one-shot `ctx.get`, which is what gives this
-  // registration every lifecycle guarantee the frontend would otherwise have to
-  // reimplement: a provider mounting later still gets registered, a provider
-  // disappearing runs `installSection`'s own teardown effect — which is what
-  // restores the composition entry — unloading dshline's fiber tears the
-  // injected fiber down with it, and a stored section the schema already
-  // rejects fails that fiber's startup, which Cordis's plugin loader contains.
-  ctx.inject(['settings'], settingsCtx => {
-    settingsCtx.settings.installSection<typeof NAMESPACE, DshlineSection>(
-      ctx,
-      NAMESPACE,
-      DshlineSection,
-      source(),
-      {
-        setSource: current => { source = current },
-        onChange: () => {
-          for (const publish of publishers) publish()
-        },
-      },
-    )
+  // This is the row's own change feed and the only one: the service announces
+  // per entry, and an entry that never changes cannot wake a watcher for a key
+  // whose value did not move. `ctx.on` rather than `ctx.inject`, because a
+  // notification is not a registration — there is nothing to install, and
+  // nothing to tear down beyond the listener this row already owns.
+  ctx.on('settings/document-updated', ns => {
+    if (String(ns) !== NAMESPACE) return
+    for (const publish of publishers) publish()
   })
   return settings
 }

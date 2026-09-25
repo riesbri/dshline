@@ -32,12 +32,19 @@ function call(time: number, callId: string, name: string): SessionEvent {
   return event(time, 'tool/call', { turn: 1, step: 0, callId, name, arguments: '{}' })
 }
 
-/** Finish one tool call. */
+/**
+ * Finish one tool call.
+ *
+ * The call id rides the tool-role MESSAGE: the adopted generation deleted the
+ * per-call `tool-result` content block, so a result carrying it only inside
+ * `content` no longer closes the span and the panel would keep charting a tool
+ * that had already answered.
+ */
 function result(time: number, callId: string): SessionEvent {
   return event(time, 'tool/result', {
     turn: 1,
     step: 0,
-    message: { content: [{ toolCallId: callId }] },
+    message: { id: `r-${callId}`, role: 'tool', toolCallId: callId, content: [], source: { kind: 'tool', callId } },
   })
 }
 

@@ -1,37 +1,188 @@
-/** Tests for the optional generic Harness Work projection and live overlay. */
+/**
+ * Tests for the optional generic Harness Work projection and live overlay.
+ *
+ * The doubles below stand in for two Harness services, and each is written
+ * against the adopted generation's own vocabulary: `JobView` (with `owner` and
+ * the ring's coordinates, and no `reported`), the filtered `events` stream, and
+ * `listDescendants` rows discriminated on `kind` and `depth`. Where such a
+ * double is asserted, it is asserted as `never` at the single boundary where it
+ * becomes the service: `JobRegistry` and `SubagentRuntime` both descend from
+ * cordis' `Service`, whose protected members make a class type comparable only
+ * to itself and its own subclasses, so no partial object can satisfy one no
+ * matter how its shape is fixed. Every member a double DOES implement is typed
+ * against the real contract, and the service-typed field it lands in is what
+ * checks the rest.
+ * @module dshline/tests/work
+ */
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { JobRegistry, JobSnapshot } from '@deepseek-ai/dsh-jobs'
-import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import {
+  JobId,
+  type JobEvent,
+  type JobEventFilter,
+  type JobEventListener,
+  type JobOutputRead,
+  type JobRead,
+  type JobRegistry,
+  type JobView,
+} from '@deepseek-ai/dsh-jobs'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
+import type { SubagentDescendantListEntry, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import { displayWidth, Screen, SPINNER_INTERVAL_MS, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { HarnessWork } from '../src/work/index.ts'
+import type { WorkCapabilities } from '../src/work/index.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { JobWorkItem, SubagentWorkItem, WorkInterruptResult, WorkSnapshot } from '../src/work/model.ts'
 import { activeWorkCount, workItemKey, workSummary } from '../src/work/model.ts'
 
-/** The root agent shape the capability contracts use for ownership. */
-const agent = { session: { id: 'root' } } as unknown as Agent
+/** The session every row in this file belongs to. */
+const ROOT = SessionId('root')
 
-/** A different exact Agent instance, proving job listeners stay owner-scoped. */
-const otherAgent = { session: { id: 'other' } } as unknown as Agent
+/** The root agent shape the capability contracts use for ownership. */
+const agent = { session: { id: ROOT } } as Agent
+
+/** The exact listener `HarnessWork` registers for a `subagent/start` edge. */
+type StartListener = Parameters<NonNullable<WorkCapabilities['onSubagentStart']>>[0]
+
+/** The exact listener `HarnessWork` registers for a `subagent/end` edge. */
+type EndListener = Parameters<NonNullable<WorkCapabilities['onSubagentEnd']>>[0]
+
+/**
+ * The edge distance `listDescendants` reports for a direct child of this
+ * session. The seam walks the whole tree, so every other depth belongs to some
+ * other parent's branch.
+ */
+const DIRECT_CHILD_DEPTH = 1
+
+/** A grandchild row: two edges away, and therefore not this session's work. */
+const GRANDCHILD_DEPTH = 2
 
 /** Standard successful interrupt response for overlay-only tests. */
 const INTERRUPT_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Interrupt requested.' }
 
-/** Make a job snapshot with only the facts Work is allowed to present. */
-function job(status: JobSnapshot['status'] = 'running', label = 'pnpm test'): JobSnapshot {
+/**
+ * Make a job projection with only the facts Work is allowed to present.
+ *
+ * `output` is present because the real `JobView` always publishes the ring's
+ * absolute coordinates, and `reported` is gone: the adopted generation replaced
+ * that model-delivery flag with the owning session itself.
+ * @param status - lifecycle state the registry is reporting.
+ * @param label - the producer's one-line label.
+ * @returns a fresh projection, as `list()` hands out.
+ */
+function job(status: JobView['status'] = 'running', label = 'pnpm test'): JobView {
   return {
-    id: 'bash-1' as JobSnapshot['id'],
+    id: JobId('bash-1'),
     kind: 'bash',
     label,
     status,
     startedAt: 0,
-    ownerSession: 'root' as JobSnapshot['ownerSession'],
-    reported: false,
+    owner: ROOT,
+    output: { total: 0, earliest: 0 },
+  }
+}
+
+/**
+ * The same job with no owner at all.
+ *
+ * `owner` is optional upstream rather than nullable, so an unowned job omits
+ * the key; reading that absence as a session would claim an association the
+ * registry never published.
+ * @returns a projection carrying no `owner`.
+ */
+function unownedJob(): JobView {
+  const { owner, ...view } = job()
+  return view
+}
+
+/** A registry event announcing one committed change to a job's row. */
+function rowEvent(type: 'registered' | 'progress' | 'stopping' | 'removed'): JobEvent {
+  return { type, job: job() }
+}
+
+/** A registry event announcing that a job reached its terminal status. */
+function settledEvent(): JobEvent {
+  return { type: 'settled', job: job('completed'), cause: 'producer', awaited: false }
+}
+
+/** A registry event announcing that the output ring grew. */
+function outputEvent(): JobEvent {
+  return { type: 'output', id: JobId('bash-1'), owner: ROOT, total: 64 }
+}
+
+/** What one jobs double answers, and everything it recorded being asked. */
+interface JobsSeam {
+  /** The registry, handed to `HarnessWork`. */
+  readonly jobs: JobRegistry
+  /** Every filter `subscribe` was called with, in call order. */
+  readonly filters: () => readonly JobEventFilter[]
+  /** Every caller `list` was called with, in call order. */
+  readonly listCallers: () => readonly unknown[]
+  /** Names of the forbidden members a projection reached for. */
+  readonly forbidden: () => readonly string[]
+  /** Deliver one event to every registered listener, as the registry would. */
+  readonly emit: (event: JobEvent) => void
+  /** How many listeners are still registered. */
+  readonly live: () => number
+}
+
+/**
+ * Build a jobs double serving `views`, recording what Work asked of it.
+ *
+ * Everything upstream deleted simply has no slot here: there is no
+ * `onJobsChanged` owner-comparison feed to answer, and no `onJobDone`
+ * completion-delivery subscription left to refuse. What remains forbidden is
+ * the reading and control surface, because Work observes jobs and must never
+ * consume a producer's output cursor or cancel its work.
+ * @param views - what `list()` answers on every read.
+ * @returns the double and everything it recorded.
+ */
+function jobsSeam(views: () => JobView[]): JobsSeam {
+  const filters: JobEventFilter[] = []
+  const listeners: JobEventListener[] = []
+  const listCallers: unknown[] = []
+  const forbidden: string[] = []
+  // The refused members keep their REAL declared return types: a double that
+  // claimed `never` would not be a stand-in for the contract at all. The
+  // refusal is runtime, and the throw is what a test that reaches for one
+  // fails on.
+  const refuse = (member: string): never => {
+    forbidden.push(member)
+    throw new Error(`HarnessWork must never call ${member}()`)
+  }
+  return {
+    jobs: {
+      list: (caller?: SessionId): JobView[] => {
+        listCallers.push(caller)
+        return views()
+      },
+      events: {
+        subscribe: (filter: JobEventFilter, listener: JobEventListener): (() => void) => {
+          filters.push(filter)
+          listeners.push(listener)
+          return () => {
+            filters.splice(filters.indexOf(filter), 1)
+            listeners.splice(listeners.indexOf(listener), 1)
+          }
+        },
+      },
+      get: (): JobView => refuse('get'),
+      read: (): JobRead => refuse('read'),
+      readAt: (): JobOutputRead => refuse('readAt'),
+      kill: (): 'requested' | 'already-finished' => refuse('kill'),
+      wait: (): Promise<JobView> => refuse('wait'),
+      remove: (): void => refuse('remove'),
+    } as never,
+    filters: () => filters,
+    listCallers: () => listCallers,
+    forbidden: () => forbidden,
+    emit: event => { for (const listener of [...listeners]) listener(event) },
+    live: () => listeners.length,
   }
 }
 
@@ -74,16 +225,40 @@ async function settled(): Promise<void> {
 /** A no-work projection used by overlay-focused tests. */
 const EMPTY: WorkSnapshot = { available: false, workflows: [], subagents: [], jobs: [] }
 
-/** One direct child record served by the authoritative subagent discovery seam. */
-const CONTINUABLE_CHILD = {
-  kind: 'child' as const, id: 'child', mode: 'continuable' as const,
-  label: '审查 renderer', activity: 'running' as const, hasChildren: false,
+/**
+ * One direct child row served by the authoritative descendant discovery seam.
+ *
+ * `parentId` and `depth` are what make a row attributable: the traversal walks
+ * whole catalogs, so the parent is what says which branch a row belongs to and
+ * the depth is what says how far from the requested root it sits.
+ */
+const CONTINUABLE_CHILD: SubagentDescendantListEntry = {
+  kind: 'child', id: SessionId('child'), mode: 'continuable',
+  label: '审查 renderer', activity: 'running', hasChildren: false,
+  parentId: ROOT, depth: DIRECT_CHILD_DEPTH,
 }
 
 /** A settled durable child: discoverable, but never active Work by itself. */
-const INACTIVE_CHILD = {
-  kind: 'child' as const, id: 'durable', mode: 'continuable' as const,
-  label: 'history', activity: 'inactive' as const, hasChildren: true,
+const INACTIVE_CHILD: SubagentDescendantListEntry = {
+  kind: 'child', id: SessionId('durable'), mode: 'continuable',
+  label: 'history', activity: 'inactive', hasChildren: true,
+  parentId: ROOT, depth: DIRECT_CHILD_DEPTH,
+}
+
+/** A grandchild of this session, discoverable only because the walk is recursive. */
+const GRANDCHILD: SubagentDescendantListEntry = {
+  kind: 'child', id: SessionId('grandchild'), mode: 'continuable',
+  label: 'deep reviewer', activity: 'running', hasChildren: false,
+  parentId: SessionId('child'), depth: GRANDCHILD_DEPTH,
+}
+
+/**
+ * A direct child the seam has no descriptor for: its own catalog could not be
+ * read, so the row carries the failure and nothing else.
+ */
+const CORRUPT_CHILD: SubagentDescendantListEntry = {
+  kind: 'diagnostic', id: SessionId('broken'), reason: 'corrupt',
+  parentId: ROOT, depth: DIRECT_CHILD_DEPTH,
 }
 
 describe('generic Harness Work capability projection', () => {
@@ -94,92 +269,126 @@ describe('generic Harness Work capability projection', () => {
   })
 
   it('boots with jobs only and never reads a job output cursor', () => {
-    let readCalls = 0
-    const jobs = {
-      list: () => [job()],
-      read: () => { readCalls += 1 },
-      onJobsChanged: () => () => {},
-      onJobDone: () => { throw new Error('presentation must not subscribe to completion delivery') }
-    } as unknown as JobRegistry
-    const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
     const running = work.snapshot().jobs[0]
     expect(running).toMatchObject({
       source: 'job', kind: 'bash', label: 'pnpm test', state: 'running', ownership: 'this-session',
     })
-    expect(readCalls).toBe(0)
+    // `read` and `readAt` would consume a producer's ring; the double throws.
+    expect(seam.forbidden()).toEqual([])
     work.dispose()
   })
 
   it('marks an unowned job without inventing a session association', () => {
-    const jobs = {
-      list: () => [{ ...job(), ownerSession: undefined }],
-      onJobsChanged: () => () => {},
-      onJobDone: () => {},
-    } as unknown as JobRegistry
-    const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
+    // `owner` is absent, not null: the projection publishes the key only for an
+    // owned job, and reading a missing key as a session would claim authority.
+    const seam = jobsSeam(() => [unownedJob()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
     expect(work.snapshot().jobs[0]?.ownership).toBe('unowned')
     work.dispose()
   })
 
-  it('uses only the owner-scoped jobs change feed for presentation refreshes', () => {
-    let changed: ((owner: Agent | undefined) => void) | undefined
+  it('scopes the job event subscription to this session and lists by session id', () => {
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
+    work.snapshot()
+    // The `{ owner }` filter IS the owner scoping: the seam delivers that
+    // session's own jobs plus every unowned one, so no other session's change
+    // can reach this listener at all. A second, unscoped subscription would.
+    expect(seam.filters()).toEqual([{ owner: ROOT }])
+    // The registry fences reads by SESSION ID, not by the whole Agent: the
+    // argument is the id itself, so there is no object to walk back into.
+    expect(seam.listCallers()).toEqual([ROOT])
+    work.dispose()
+    expect(seam.live()).toBe(0)
+  })
+
+  it('repaints for the four row-changing job events and never for output chatter', () => {
     let invalidated = 0
-    const jobs = {
-      list: () => [job()],
-      onJobsChanged: (listener: (owner: Agent | undefined) => void) => { changed = listener; return () => {} },
-      onJobDone: () => { throw new Error('onJobDone is model-delivery semantics, not presentation') }
-    } as unknown as JobRegistry
-    new HarnessWork({ agent, jobs, invalidate: () => { invalidated += 1 } })
-    changed?.(otherAgent)
-    expect(invalidated).toBe(0)
-    changed?.(agent)
-    expect(invalidated).toBe(1)
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => { invalidated += 1 } })
+    // A registration adds a row, a stop and a settlement change what `list()`
+    // filters to, and a removal empties the section.
+    for (const type of ['registered', 'stopping', 'removed'] as const) {
+      const before = invalidated
+      seam.emit(rowEvent(type))
+      expect(invalidated, type).toBe(before + 1)
+    }
+    const afterRows = invalidated
+    seam.emit(settledEvent())
+    expect(invalidated).toBe(afterRows + 1)
+    // A progress line and a ring append are producer chatter no Work row
+    // projects, and an append lands once per chunk: repainting the live region
+    // for either would be repaint, not information.
+    const afterSettle = invalidated
+    seam.emit(rowEvent('progress'))
+    seam.emit(outputEvent())
+    expect(invalidated).toBe(afterSettle)
+    work.dispose()
+  })
+
+  it('stops repainting on job events once the projection is disposed', () => {
+    let invalidated = 0
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => { invalidated += 1 } })
+    work.dispose()
+    const afterDispose = invalidated
+    seam.emit(rowEvent('registered'))
+    seam.emit(settledEvent())
+    expect(invalidated).toBe(afterDispose)
   })
 
   it('uses direct-child discovery and generic lifecycle edges for subagents', async () => {
-    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
-    let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
-    let children = 0
+    let started: StartListener | undefined
+    let ended: EndListener | undefined
+    const scans: unknown[] = []
     const subagents = {
-      listChildren: async () => { children += 1; return [CONTINUABLE_CHILD] },
-      listDescendants: () => { throw new Error('must not scan descendants') },
-    } as unknown as SubagentRuntime
+      listDescendants: async (root: SessionId) => {
+        scans.push(root)
+        return [CONTINUABLE_CHILD]
+      },
+    } as never
     const work = new HarnessWork({
       agent,
       subagents,
-      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
-      onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+      onSubagentStart: listener => { started = listener; return () => {} },
+      onSubagentEnd: listener => { ended = listener; return () => {} },
       invalidate: () => {},
     })
     await settled()
-    started?.({ runId: 'r1', provider: 'provider-中文', id: 'child', local: false })
+    started?.({ runId: SubagentRunId('r1'), provider: 'provider-中文', id: SessionId('child'), local: false })
     await settled()
-    expect(children).toBeGreaterThanOrEqual(2)
+    // Discovery is the recursive walk, asked for THIS session each time a
+    // lifecycle edge opens — a flat parent catalog could not answer with
+    // residency, lineage, or a branch diagnostic at all.
+    expect(scans.length).toBeGreaterThanOrEqual(2)
+    expect(new Set(scans)).toEqual(new Set([ROOT]))
     expect(work.snapshot().subagents).toMatchObject([{
       provider: 'provider-中文', label: '审查 renderer', mode: 'continuable',
       residency: 'resident', hasChildren: false, interruptible: true, local: false,
     }])
-    ended?.({ runId: 'r1', provider: 'provider-中文', id: 'child', local: false, stopReason: 'completed' })
+    ended?.({ runId: SubagentRunId('r1'), provider: 'provider-中文', id: SessionId('child'), local: false, stopReason: 'completed' })
     expect(work.snapshot().subagents).toEqual([])
   })
 
   it('keeps sequential lifecycle epochs of one durable child distinct', async () => {
-    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
-    let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
+    let started: StartListener | undefined
+    let ended: EndListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => [] } as unknown as SubagentRuntime,
-      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
-      onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+      subagents: { listDescendants: async () => [] } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
+      onSubagentEnd: listener => { ended = listener; return () => {} },
       invalidate: () => {},
     })
     // A cold-resumed continuable child opens a NEW epoch under the same durable
     // session id: the first epoch must fully settle before the second begins.
-    started?.({ runId: 'epoch-1', provider: 'codex', id: 'child', local: true })
+    started?.({ runId: SubagentRunId('epoch-1'), provider: 'codex', id: SessionId('child'), local: true })
     expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['epoch-1'])
-    ended?.({ runId: 'epoch-1', provider: 'codex', id: 'child', local: true, stopReason: 'completed' })
+    ended?.({ runId: SubagentRunId('epoch-1'), provider: 'codex', id: SessionId('child'), local: true, stopReason: 'completed' })
     expect(work.snapshot().subagents).toEqual([])
-    started?.({ runId: 'epoch-2', provider: 'codex', id: 'child', local: true })
+    started?.({ runId: SubagentRunId('epoch-2'), provider: 'codex', id: SessionId('child'), local: true })
     expect(work.snapshot().subagents.map(row => row.runId)).toEqual(['epoch-2'])
     expect(work.snapshot().subagents[0]?.id).toBe('child')
     expect(workItemKey(subagentItem({ id: 'child', runId: 'epoch-1' }))).toBe('subagent:epoch-1')
@@ -188,26 +397,26 @@ describe('generic Harness Work capability projection', () => {
   })
 
   it('does not promote inactive durable children into active Work', async () => {
-    const subagents = {
-      listChildren: async () => [INACTIVE_CHILD],
-      listDescendants: () => { throw new Error('must not scan descendants') },
-    } as unknown as SubagentRuntime
-    const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
+    const work = new HarnessWork({
+      agent,
+      subagents: { listDescendants: async () => [INACTIVE_CHILD] } as never,
+      invalidate: () => {},
+    })
     await settled()
     expect(work.snapshot().subagents).toEqual([])
     work.dispose()
   })
 
   it('keeps lifecycle truth even when discovery reports the durable child as stored', async () => {
-    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    let started: StartListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => [INACTIVE_CHILD] } as unknown as SubagentRuntime,
-      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
+      subagents: { listDescendants: async () => [INACTIVE_CHILD] } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
     await settled()
-    started?.({ runId: 'r1', provider: 'codex', id: 'durable', local: true })
+    started?.({ runId: SubagentRunId('r1'), provider: 'codex', id: SessionId('durable'), local: true })
     await settled()
     // The open lifecycle edge is the active row; discovery only enriches it.
     expect(work.snapshot().subagents).toMatchObject([{
@@ -218,40 +427,94 @@ describe('generic Harness Work capability projection', () => {
   })
 
   it('keeps lifecycle truth when discovery fails', async () => {
-    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    let started: StartListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => { throw new Error('projection unavailable') } } as unknown as SubagentRuntime,
-      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
+      subagents: { listDescendants: async () => { throw new Error('projection unavailable') } } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
-    started?.({ runId: 'r1', provider: 'codex', id: 'child', local: false })
+    started?.({ runId: SubagentRunId('r1'), provider: 'codex', id: SessionId('child'), local: false })
     await settled()
     expect(work.snapshot().subagents).toMatchObject([{ id: 'child', provider: 'codex' }])
     work.dispose()
   })
 
   it('marks a discovered one-shot subagent as non-interruptible', async () => {
-    let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
+    let started: StartListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: async () => [{ ...CONTINUABLE_CHILD, mode: 'one-shot' as const }] } as unknown as SubagentRuntime,
-      onSubagentStart: listener => { started = listener as typeof started; return () => {} },
+      subagents: { listDescendants: async () => [{ ...CONTINUABLE_CHILD, mode: 'one-shot' as const }] } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
     await settled()
-    started?.({ runId: 'one', provider: 'generic', id: 'child', local: false })
+    started?.({ runId: SubagentRunId('one'), provider: 'generic', id: SessionId('child'), local: false })
     await settled()
     expect(work.snapshot().subagents[0]?.interruptible).toBe(false)
   })
 
+  it('lets a deeper descendant row enrich nothing', async () => {
+    let started: StartListener | undefined
+    const work = new HarnessWork({
+      agent,
+      // The walk returns whole catalogs, so a grandchild arrives beside the
+      // direct children. Work's lifecycle edges are scoped to THIS parent, so a
+      // deeper row belongs to some other parent's branch.
+      subagents: { listDescendants: async () => [CONTINUABLE_CHILD, GRANDCHILD] } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
+      invalidate: () => {},
+    })
+    await settled()
+    started?.({ runId: SubagentRunId('r1'), provider: 'codex', id: SessionId('child'), local: false })
+    started?.({ runId: SubagentRunId('r2'), provider: 'codex', id: SessionId('grandchild'), local: false })
+    await settled()
+    const rows = new Map(work.snapshot().subagents.map(row => [row.id, row]))
+    expect(rows.get('child')).toMatchObject({ mode: 'continuable', label: '审查 renderer', interruptible: true })
+    const grandchild = rows.get('grandchild')
+    expect(grandchild).toMatchObject({ id: 'grandchild', local: false })
+    expect(grandchild?.mode).toBeUndefined()
+    expect(grandchild?.label).toBeUndefined()
+    expect(grandchild?.residency).toBeUndefined()
+    // No proven mode means no authorized interrupt, exactly as for an unknown child.
+    expect(grandchild?.interruptible).toBe(false)
+    work.dispose()
+  })
+
+  it('keeps a diagnostic direct child as a lifecycle-only, non-interruptible row', async () => {
+    let started: StartListener | undefined
+    const work = new HarnessWork({
+      agent,
+      subagents: { listDescendants: async () => [CORRUPT_CHILD] } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
+      invalidate: () => {},
+    })
+    await settled()
+    started?.({ runId: SubagentRunId('r1'), provider: 'codex', id: SessionId('broken'), local: false })
+    await settled()
+    // A diagnostic is the seam saying it has no descriptor to give. No mode,
+    // residency, or lineage follows from it, and none is recoverable by
+    // choosing one, so the row keeps its lifecycle edge alone.
+    const row = work.snapshot().subagents[0]
+    expect(row).toMatchObject({ id: 'broken', runId: 'r1', local: false, interruptible: false })
+    expect(row?.mode).toBeUndefined()
+    expect(row?.label).toBeUndefined()
+    expect(row?.residency).toBeUndefined()
+    expect(row?.hasChildren).toBeUndefined()
+    // Interrupt is authorized only for a PROVEN continuable child, and the
+    // durable-conversation target refuses a session the catalog would not return.
+    const refused = row === undefined ? work.interrupt(subagentItem({ id: 'broken', interruptible: false })) : work.interrupt(row)
+    expect(refused).toEqual({ kind: 'unsupported', message: 'This subagent cannot be interrupted here.' })
+    work.dispose()
+  })
+
   it('does not let a disposed pending discovery mutate the projection', async () => {
-    let resolve!: (entries: readonly typeof CONTINUABLE_CHILD[]) => void
-    const pending = new Promise<readonly typeof CONTINUABLE_CHILD[]>(done => { resolve = done })
+    let resolve!: (entries: readonly SubagentDescendantListEntry[]) => void
+    const pending = new Promise<readonly SubagentDescendantListEntry[]>(done => { resolve = done })
     let invalidated = 0
     const work = new HarnessWork({
       agent,
-      subagents: { listChildren: () => pending } as unknown as SubagentRuntime,
+      subagents: { listDescendants: () => pending } as never,
       invalidate: () => { invalidated += 1 },
     })
     work.dispose()
@@ -261,30 +524,28 @@ describe('generic Harness Work capability projection', () => {
   })
 
   it('renders running jobs as non-interruptible and never calls jobs.kill', () => {
-    let kills = 0
-    const jobs = {
-      list: () => [job()],
-      kill: () => { kills += 1; return 'requested' },
-      onJobsChanged: () => () => {},
-    } as unknown as JobRegistry
-    const work = new HarnessWork({ agent, jobs, invalidate: () => {} })
+    const seam = jobsSeam(() => [job()])
+    const work = new HarnessWork({ agent, jobs: seam.jobs, invalidate: () => {} })
     const running = work.snapshot().jobs[0]
     expect(running?.interruptible).toBe(false)
     expect(work.interrupt(running ?? jobItem())).toEqual({
       kind: 'unsupported', message: 'Jobs cannot be stopped from Work.',
     })
-    expect(kills).toBe(0)
+    // `kill` marks a job reported for model delivery; the double throws if the
+    // overlay ever gets a control that reaches it.
+    expect(seam.forbidden()).toEqual([])
   })
 
   it('interrupts continuable children with exact user parent authority and leaves one-shots unstopped', () => {
     const calls: unknown[][] = []
     const subagents = {
-      listChildren: async () => [],
+      listDescendants: async () => [],
       interrupt: (...args: unknown[]) => { calls.push(args) },
-    } as unknown as SubagentRuntime
+    } as never
     const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
     expect(work.interrupt(subagentItem({ id: 'child', interruptible: true }))).toEqual(INTERRUPT_REQUESTED)
-    expect(calls).toEqual([['child', { kind: 'user', parentSessionId: 'root' }]])
+    // The authority is the exact parent SESSION, not a loose provider name.
+    expect(calls).toEqual([['child', { kind: 'user', parentSessionId: ROOT }]])
     expect(work.interrupt(subagentItem({ id: 'one-shot', interruptible: false }))).toEqual({
       kind: 'unsupported', message: 'This subagent cannot be interrupted here.',
     })
@@ -844,7 +1105,7 @@ describe('the Work live-region overlay', () => {
     const interrupted: string[] = []
     const overlay = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: items, jobs: [] }),
-      interrupt: item => { interrupted.push(item.runId); return INTERRUPT_REQUESTED },
+      interrupt: item => { interrupted.push(item.source === 'subagent' ? item.runId : item.id); return INTERRUPT_REQUESTED },
       close: () => {},
       invalidate: () => {},
     })

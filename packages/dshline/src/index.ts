@@ -32,13 +32,15 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
 // Carries the Context merge for the launcher's exit request, which the boot
 // failure path below reports through.
 import type {} from '@deepseek-ai/dsh-cmdline'
 import { attachSession } from './attachment.ts'
 import type { BusyEnter } from './delivery.ts'
+import { DEFAULT_BUSY_ENTER } from './delivery.ts'
 import { pluginsSeams } from './plugins/harness.ts'
 import type { AttachTarget } from './sessions/reopen.ts'
 import { attachTarget, newSessionFailureLines, reopenFailureLines } from './sessions/reopen.ts'
@@ -47,6 +49,7 @@ import type { DshlineSettings } from './settings.ts'
 import { TuiSlots } from './slots.ts'
 import type { ModelRates, PeakWindow, PricingTable } from './usage.ts'
 import { parsePeakWindows, pricingFrom } from './usage.ts'
+import { FALLBACK_THEME } from './themes/builtin.ts'
 import { attachOptions, chooseTarget, createWindow, offerSetup } from './window.ts'
 import type { Window } from './window.ts'
 
@@ -96,11 +99,16 @@ export interface Config {
    * The palette new windows open with, by id.
    *
    * This is the `base` layer of the `dshline` settings namespace: a deployment
-   * composes a default here, and a reader's own `settings.yaml` overrides it.
+   * composes a default here, and a reader's own stored value overrides it.
    * `/theme` writes the user layer, never this one. An id no shipped palette
-   * has is refused by that namespace’s schema, not parsed around here.
+   * has is refused by this row's own schema, not parsed around here.
+   *
+   * A `Volatile` reference, and that is the whole reason this row can be
+   * reconfigured while a terminal is open: Harness mutates the reference in
+   * place, so `/theme` takes effect without the row remounting and the live
+   * region redrawing itself underneath the reader.
    */
-  theme?: string
+  theme?: Volatile<string>
   /**
    * What plain `enter` does while a turn is running: `queue` places the line on
    * the agent's next-turn list as a follow-up of its own, `steer` hands it to
@@ -108,16 +116,55 @@ export interface Config {
    *
    * The same `base` layer as {@link Config.theme}, and `/enter` writes the user
    * layer over it. Omitted, new windows open on `queue`, matching the adopted
-   * Harness generation's own Web default.
+   * Harness generation's own Web default. Volatile for the same reason.
    */
-  busyEnter?: BusyEnter
+  busyEnter?: Volatile<BusyEnter>
   /**
    * Whether this frontend emits terminal BEL when it presents a live human
    * interaction. This is the `base` layer of the same `dshline` settings
-   * namespace as the other reader preferences; omitted, it is enabled.
+   * namespace as the other reader preferences; omitted, it is enabled. Volatile
+   * for the same reason.
    */
-  attentionBell?: boolean
+  attentionBell?: Volatile<boolean>
 }
+
+/**
+ * This row's own configuration schema.
+ *
+ * The adopted generation deleted the consumer-side settings registration: a
+ * namespace used to be a name a plugin handed the settings service at mount, and
+ * it is now the profile ENTRY ID of a plugin whose own `Config` declares its
+ * fields, of which only `.volatile()` ones are writable. So the schema that
+ * registers `dshline` as configurable lives here, on the row, and nowhere else.
+ *
+ * The split is load-bearing and not a convenience. A volatile field is mutated
+ * IN PLACE on a live reference, so a `/theme` write changes the running value
+ * without the row remounting. An ordinary field is an ordinary config change:
+ * committing one patches the fiber's config and remounts the whole row, which
+ * for a frontend that owns the terminal means the live region goes down. So
+ * `theme`, `busyEnter` and `attentionBell` are the reader's live preferences and
+ * are volatile; `pricing` and `peakHoursUtc` are composition-time facts nobody
+ * edits from inside a running session, they are read once at mount, and
+ * declaring them volatile would advertise an editing path whose only correct
+ * implementation is a remount. Marking a field volatile is therefore a claim
+ * about when it may change, not a way to make a test pass.
+ */
+export const Config = z.object({
+  // `pricing` and `peakHoursUtc` carry no validation here, and that is a
+  // considered omission rather than a shortcut. They are the two fields this
+  // row reads EXACTLY ONCE, at mount, through the dedicated parsers that own
+  // their shape (`pricingFrom` and `parsePeakWindows`) and that already report
+  // a malformed value as an absent one. A schema here would be a second parser
+  // for the same two values, disagreeing with the first about what a bad rate
+  // is — and the only thing this schema actually decides is which fields are
+  // `.volatile()`, which is a question about when a value may change, not what
+  // it may contain.
+  pricing: z.any(),
+  peakHoursUtc: z.any(),
+  theme: z.string().default(FALLBACK_THEME.id).volatile(),
+  busyEnter: z.union<BusyEnter>(['queue', 'steer']).default(DEFAULT_BUSY_ENTER).volatile(),
+  attentionBell: z.boolean().default(true).volatile(),
+})
 
 /**
  * Mount the terminal frontend.
@@ -131,10 +178,15 @@ export function apply(ctx: Context, config?: Config): void {
   const peakHours = parsePeakWindows(config?.peakHoursUtc)
   // Registered on the plugin context, so the namespace lives as long as this
   // row does. Harness owns the layering and the validation from here.
+  // The row is addressed by id, so the settings service reaches these three
+  // keys on its own; this is the base layer it layers a stored value over. The
+  // references are read through `.get()` on every access rather than captured
+  // once, which is what makes a stored `/theme` change the live value instead of
+  // only the next launch's.
   const settings = installDshlineSettings(ctx, {
-    ...config?.theme === undefined ? {} : { theme: config.theme },
-    ...config?.busyEnter === undefined ? {} : { busyEnter: config.busyEnter },
-    ...config?.attentionBell === undefined ? {} : { attentionBell: config.attentionBell },
+    theme: config?.theme,
+    busyEnter: config?.busyEnter,
+    attentionBell: config?.attentionBell,
   })
   ctx.plugin(TuiSlots)
   ctx.inject(['tuiSlots'], hostCtx => {

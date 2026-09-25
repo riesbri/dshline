@@ -288,10 +288,10 @@ export class TurnTimer {
     if (event.type === 'tool/result') {
       // Paired by call id, exactly as the tool cards pair them: several calls can
       // be open at once, so the newest result does not belong to the newest call.
-      const block = event.data.message.content[0]
-      const call = this.pending.get(block.toolCallId)
+      // The adopted generation carries that identity on the tool-role message.
+      const call = this.pending.get(event.data.message.toolCallId)
       if (call === undefined) return
-      this.pending.delete(block.toolCallId)
+      this.pending.delete(event.data.message.toolCallId)
       this.tools.set(call.name, (this.tools.get(call.name) ?? 0) + Math.max(0, event.time - call.at))
       return
     }

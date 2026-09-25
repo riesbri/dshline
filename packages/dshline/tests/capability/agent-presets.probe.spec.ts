@@ -1,24 +1,33 @@
 /**
- * Capability probe: `ctx.agentPresets`, against the real roster.
+ * Capability probe: `ctx.agentPresets`, against the real registry.
  *
  * dshline consumes this seam through the structural `AgentPresetsSeam` view in
  * `plugins/harness.ts`, deliberately WITHOUT importing the service's values —
- * a profile that mounts no roster must still start. That choice buys
+ * a profile that mounts no registry must still start. That choice buys
  * degradation at the cost of a drift risk: nothing in the production build
- * compares the structural view with the real `@deepseek-ai/dsh-agent-presets`
+ * compares the structural view with the real `@deepseek-ai/dsh-agent-preset-registry`
  * class. This probe is where that comparison lives, in both directions:
  *
- * - the real `AgentPresets` service is mounted over a real temp root with a
- *   real composition file, and assigned to the structural view, so an
- *   upstream shape change fails this file at compile time;
- * - the roster reads `/plugins` browses with (`list`, `resolve`, `read`,
- *   `defaultId`, `authorable`) are driven through the real discovery over
- *   real directories;
- * - `copy()` authors a real locally authored preset, the one authoring write
- *   `/plugins` offers;
- * - the `agentPreset` Session projection the roster registers folds the
+ * - the real `AgentPresetRegistry` service is mounted with a real
+ *   `AgentPreset` declaration supplying a real `plugins` list, and assigned to
+ *   the structural view, so an upstream shape change fails this file at
+ *   compile time;
+ * - the roster reads `/plugins` browses with (`list`, `resolve`, `defaultId`)
+ *   are driven against that real declaration;
+ * - `readDocument()` is asserted to render the declared child list back as the
+ *   Loader's own entry-list YAML, which is what `/plugins` parses and, in the
+ *   adopted generation, the ONLY composition read that exists;
+ * - the `agentPreset` Session projection the registry registers folds the
  *   creation-header case `sessionFacts()` reads through the real projection
  *   registry.
+ *
+ * The authoring assertions the previous generation carried here are gone
+ * because the architecture removed what they exercised. There is no `copy()`,
+ * no `authorable` root, and no `path` to write: a preset is an ordinary
+ * declaration row, and the registry "writes no declarations". Dropping those
+ * assertions is the point of this migration, not a gap in coverage — a probe
+ * that still expected a `copy()` would be asserting a contract this generation
+ * deliberately withdrew.
  *
  * `mount`/`recompose`/`select` need a full agent composition to evaluate, so
  * they are not exercised here; their shapes are held by the structural
@@ -26,65 +35,41 @@
  * @module
  */
 
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { tmpdir } from 'node:os'
+import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import AgentPresets from '@deepseek-ai/dsh-agent-presets'
+import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
+import AgentPreset from '@deepseek-ai/dsh-agent-preset'
 import { sessionFacts } from '../../src/plugins/harness.ts'
 import type { AgentPresetsSeam } from '../../src/plugins/harness.ts'
 
-/** Temp roots this file creates; removed after the run. */
-const homes: string[] = []
-
-afterAll(async () => {
-  await Promise.all(homes.map(async home => rm(home, { recursive: true, force: true })))
-})
-
-/** An empty agent-plane composition: valid YAML, registers nothing. */
+/** An empty agent-plane composition: valid YAML, mounts no row at all. */
 const COMPOSITION = '[]\n'
 
 /**
- * Lay out one preset under a root, the way a deployment ships or a user authors one.
- * @param root - the preset root directory.
- * @param id - the preset id; also its directory name.
- * @returns the root path.
+ * Mount the real registry with one real declaration over it.
+ *
+ * This is the whole composition model the adopted generation replaced a preset
+ * directory with: a registry service, and an ordinary `AgentPreset` row whose
+ * `plugins` list IS the composition. There is no root to point at and no file
+ * to lay out.
+ * @returns a context carrying the real services.
  */
-async function presetRoot(root: string, id: string): Promise<string> {
-  await mkdir(join(root, id), { recursive: true })
-  await writeFile(join(root, id, 'agent.cordis.yml'), COMPOSITION)
-  await writeFile(join(root, id, 'preset.yml'), `name: ${id}\ndescription: probe preset ${id}\n`)
-  return root
-}
-
-/**
- * Mount the real roster over a real temp root holding one preset.
- * @returns the context carrying the real service, and the root.
- */
-async function mounted(): Promise<{ ctx: Context; root: string }> {
-  const home = await mkdtemp(join(tmpdir(), 'dsh-probe-presets-'))
-  homes.push(home)
-  const root = await presetRoot(home, 'shipped')
+async function mounted(): Promise<{ ctx: Context }> {
   const ctx = new Context()
   await ctx.plugin(SessionProjectionRegistry)
-  // Injection precondition only: the roster declares `loader` alongside
-  // `sessionProjections`. The roster's discovery and authoring reads touch no
-  // loader surface — the stub exists so cordis applies the real plugin.
+  // Injection precondition only: the registry declares `loader` alongside
+  // `sessionProjections`, and it eagerly builds a Loader tree per declaration.
   ctx.provide('loader', {} as never)
-  // The roster resolves a composition's package names against the base URL of
-  // the composition it was loaded by; a bare test context supplies one itself.
-  ctx.baseUrl = `${pathToFileURL(home).href}/`
-  await ctx.plugin(AgentPresets, {
-    default: 'shipped',
-    roots: [{ path: root, trust: 'user' }],
-    includeShippedRoot: false,
-    includeUserRoot: false,
-  })
-  return { ctx, root }
+  // A bare test context supplies the base URL a composition resolves its
+  // package names against; upstream normally supplies the profile's own.
+  ctx.baseUrl = `${pathToFileURL(tmpdir()).href}/`
+  await ctx.plugin(AgentPresetRegistry, { default: 'shipped' })
+  await ctx.plugin(AgentPreset, { id: 'shipped', name: 'shipped', plugins: [] })
+  return { ctx }
 }
 
 describe('capability: agentPresets', () => {
@@ -103,34 +88,32 @@ describe('capability: agentPresets', () => {
     }
   })
 
-  it('discovers a real root and reads one preset\'s composition verbatim', async () => {
-    const { ctx, root } = await mounted()
+  it('lists a real declaration and resolves it, with no trust or path on the row', async () => {
+    const { ctx } = await mounted()
     try {
       const rows = await ctx.agentPresets.list()
-      expect(rows.map(row => [row.id, row.trust, row.name])).toEqual([['shipped', 'user', 'shipped']])
+      expect(rows.map(row => [row.id, row.name])).toEqual([['shipped', 'shipped']])
       expect(rows[0]?.broken).toBeUndefined()
-      expect(rows[0]?.path).toBe(join(root, 'shipped', 'agent.cordis.yml'))
+      // The two fields the previous generation's row carried and this one
+      // deliberately does not: there is no file behind a preset, so there is no
+      // path to report and nothing to classify a row as shipped or user-owned.
+      expect(rows[0]).not.toHaveProperty('trust')
+      expect(rows[0]).not.toHaveProperty('path')
       const resolved = await ctx.agentPresets.resolve('shipped')
       expect(resolved.id).toBe('shipped')
       await expect(ctx.agentPresets.resolve('missing')).rejects.toThrow()
-      // Verbatim composition text — what /plugins' row editor toggles within.
-      await expect(ctx.agentPresets.read('shipped')).resolves.toBe(COMPOSITION)
     } finally {
       await ctx.fiber.dispose()
     }
   })
 
-  it('authors a locally authored copy into a writable root', async () => {
-    const { ctx, root } = await mounted()
+  it('renders one declaration back as entry-list YAML, and accepts nothing in return', async () => {
+    const { ctx } = await mounted()
     try {
-      expect(ctx.agentPresets.authorable).toBe(true)
-      await ctx.agentPresets.copy('shipped', 'my-copy', 'My Copy')
-      const rows = await ctx.agentPresets.list()
-      expect(rows.find(row => row.id === 'my-copy')).toMatchObject({ trust: 'user', name: 'My Copy' })
-      // The copy starts as the source's whole composition, which /plugins
-      // then edits one row at a time in the copy's own file.
-      await expect(ctx.agentPresets.read('my-copy')).resolves.toBe(COMPOSITION)
-      await expect(readFile(join(root, 'my-copy', 'agent.cordis.yml'), 'utf8')).resolves.toBe(COMPOSITION)
+      const document = await ctx.agentPresets.readDocument('shipped')
+      expect(document.agentPreset).toBe('shipped')
+      expect(document.content).toBe(COMPOSITION)
+      await expect(ctx.agentPresets.readDocument('missing')).rejects.toThrow()
     } finally {
       await ctx.fiber.dispose()
     }

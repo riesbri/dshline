@@ -12,9 +12,29 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { stripAnsi } from '@dshline/renderer'
+import type { Key, KeyName } from '@dshline/renderer'
 import { pickModel } from '../src/model.ts'
 import { openSubagentModelSelection } from '../src/subagent-model-selection/index.ts'
+import { SUBAGENT_MODEL_SELECTION_NAMESPACE } from '../src/subagent-model-selection/model.ts'
 import type { TuiOverlay } from '../src/slots.ts'
+
+/**
+ * The settings namespace this editor reads and writes.
+ *
+ * A namespace in the adopted generation is the profile ENTRY ID of the plugin
+ * whose own `static Config` declares the fields — the row
+ * `packages/dshline/cordis.patch.yml` inserts for
+ * `@deepseek-ai/dsh-tool-subagent/model-selection-settings` — and not a name
+ * some plugin registered at runtime, which the previous generation used. The
+ * retired name is gone, so writing to it now throws `No configurable plugin
+ * entry`.
+ *
+ * Spelled as a literal rather than imported, on purpose: a fake that described
+ * the document with the source constant would agree with a constant that had
+ * drifted from the composed row, and the only test that can catch that drift is
+ * one holding an id the source did not choose.
+ */
+const SELECTION_NAMESPACE = 'subagent-model-selection-settings'
 
 /** Two routes, one of which the saved value does not authorize yet. */
 const CATALOG: Record<string, readonly { id: string; name: string }[]> = {
@@ -74,7 +94,7 @@ function fakeSettings(
       describe(options) {
         describeOptions.push(options)
         return [{
-          ns: 'subagent-model-selection',
+          ns: SELECTION_NAMESPACE,
           value: { enabled: value.enabled, allowedModels: value.allowedModels.map(route => ({ ...route })) },
           revision: current,
         }]
@@ -224,12 +244,27 @@ async function settlesWithin(running: Promise<void>, ms = 1_000): Promise<void> 
   }
 }
 
-/** A named key. */
-function key(name: string): { kind: 'key'; name: string } {
+/**
+ * A named key.
+ *
+ * Typed as the renderer's own key vocabulary rather than a bare string, so a
+ * gesture this editor does not handle fails to compile instead of reaching
+ * `handleKey` as a key nothing can act on.
+ * @param name - the key the reader pressed.
+ * @returns the keystroke.
+ */
+function key(name: KeyName): Key {
   return { kind: 'key', name }
 }
 
 describe('reading the Host setting', () => {
+  it('addresses the profile entry id the patch layer inserts, not a registered name', () => {
+    // The whole migration in one assertion: the retired runtime-registered name
+    // is no longer a configurable plugin entry, so writing to it throws rather
+    // than saving, and the constant has to be the row id this bundle composes.
+    expect(SUBAGENT_MODEL_SELECTION_NAMESPACE).toBe(SELECTION_NAMESPACE)
+  })
+
   it('reads the namespace through describe with secrets redacted and never through the service singleton', async () => {
     const settings = fakeSettings({ enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] })
     const requested: string[] = []
@@ -270,6 +305,9 @@ describe('reading the Host setting', () => {
       settings: { describe: () => [], mutate: async () => {} },
     })
     expect(view.text()).toContain('is not registered')
+    // The message names the namespace the reader would have to register or
+    // patch, so a wrong id here is a sentence that cannot be acted on.
+    expect(view.text()).toContain(SELECTION_NAMESPACE)
     view.stack.top()?.handleKey(key('escape'))
     await view.running
   })
@@ -277,7 +315,10 @@ describe('reading the Host setting', () => {
   it('reports a value it cannot read rather than treating it as empty', async () => {
     const settings = fakeSettings({ enabled: false, allowedModels: [] })
     const view = await openEditor(settings, {
-      settings: { describe: () => [{ ns: 'subagent-model-selection', value: { enabled: 'yes' }, revision: 1 }], mutate: async () => {} },
+      settings: {
+        describe: () => [{ ns: SELECTION_NAMESPACE, value: { enabled: 'yes' }, revision: 1 }],
+        mutate: async () => {},
+      },
     })
     expect(view.text()).toContain('could not be read')
     view.stack.top()?.handleKey(key('escape'))
@@ -316,7 +357,7 @@ describe('saving the draft', () => {
     view.stack.top()?.handleKey({ kind: 'text', text: ' ' })
     view.stack.top()?.handleKey({ kind: 'text', text: 's' })
     await vi.waitFor(() => { expect(settings.writes).toHaveLength(1) })
-    expect(settings.writes[0]?.ns).toBe('subagent-model-selection')
+    expect(settings.writes[0]?.ns).toBe(SELECTION_NAMESPACE)
     expect(settings.writes[0]?.revision).toBe(7)
     expect(settings.writes[0]?.ops).toEqual([
       { op: 'set', path: ['enabled'], value: true },
