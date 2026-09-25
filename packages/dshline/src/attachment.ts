@@ -1019,7 +1019,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // disappears on close and never rewrites the transcript it covered.
         openSurface(ctx.tuiSlots, close => createWorkOverlay({
           snapshot: () => work.snapshot(),
-          interrupt: item => work.interrupt(item),
+          // A subagent interrupt and a Job stop stay two methods. They cancel
+          // different things under different authority, and one `control(item)`
+          // would make the difference something a reader has to infer.
+          interruptSubagent: item => work.interruptSubagent(item),
+          stopJob: item => work.stopJob(item),
+          // Observation is demand-driven, so the overlay asks for it when a Job
+          // detail opens and disposes the handle when that stage closes. Mounted
+          // with the same optional seam as everything else here.
+          observeJob: id => work.observeJob(id),
           // Offered exactly while the generic subagent seam is mounted, so a
           // profile without it never advertises a drawer it cannot open.
           ...subagents === undefined ? {} : {

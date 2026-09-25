@@ -23,6 +23,15 @@ import type {
 /** Standard successful interrupt response. */
 const INTERRUPT_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Interrupt requested.' }
 
+/**
+ * Standard successful Job stop response.
+ *
+ * Wording matters even in a double: it says "requested", never "stopped",
+ * because the registry only marks a Job stopping and settlement is what
+ * actually ends it.
+ */
+const STOP_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Stop requested.' }
+
 /** A no-work projection tests extend. */
 const EMPTY: WorkSnapshot = { available: true, workflows: [], subagents: [], jobs: [] }
 
@@ -40,7 +49,7 @@ function subagentItem(overrides: Partial<SubagentWorkItem> = {}): SubagentWorkIt
 function jobItem(overrides: Partial<JobWorkItem> = {}): JobWorkItem {
   return {
     id: 'bash-1', source: 'job', kind: 'bash', label: 'pnpm test', state: 'running',
-    startedAt: Date.now(), ownership: 'this-session', detail: 'exit code pending', interruptible: false, ...overrides,
+    startedAt: Date.now(), ownership: 'this-session', detail: 'exit code pending', ...overrides,
   }
 }
 
@@ -60,6 +69,7 @@ function memberItem(overrides: Partial<WorkflowMemberItem> = {}): WorkflowMember
 /** One overlay plus a reader for the row the cursor is on. */
 function driver(snapshot: () => WorkSnapshot, options: {
   readonly interrupt?: (item: { id: string }) => WorkInterruptResult
+  readonly stop?: (item: JobWorkItem) => WorkInterruptResult
   readonly conversations?: () => void
   readonly conversation?: (target: WorkConversationTarget) => void
 } = {}): {
@@ -70,7 +80,10 @@ function driver(snapshot: () => WorkSnapshot, options: {
 } {
   const overlay = createWorkOverlay({
     snapshot,
-    interrupt: item => options.interrupt?.(item) ?? INTERRUPT_REQUESTED,
+    // A Job stop is a separate capability from a subagent interrupt, so it gets
+    // its own recorder rather than sharing one handler.
+    interruptSubagent: item => options.interrupt?.(item) ?? INTERRUPT_REQUESTED,
+    stopJob: item => options.stop?.(item) ?? STOP_REQUESTED,
     // Mirrors the owner's conditional spread: a profile without the seam mounts
     // neither callback, which is exactly the capability-absence case under test.
     ...options.conversations === undefined ? {} : { conversations: options.conversations },
@@ -353,7 +366,8 @@ describe('Work detail-row navigation', () => {
     const child = subagentItem({ id: 'child-1', runId: 'epoch-1' })
     const overlay = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, subagents: [child] }),
-      interrupt: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      interruptSubagent: item => { interrupted.push(item.id); return INTERRUPT_REQUESTED },
+      stopJob: () => STOP_REQUESTED,
       close: () => {},
       invalidate: () => {},
     })

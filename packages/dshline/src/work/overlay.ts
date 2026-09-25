@@ -55,6 +55,7 @@ import {
   workItemKey,
   workMark,
 } from './model.ts'
+import type { JobOutputLine, JobOutputObservation } from './jobs.ts'
 
 /** Rows outside the listing: leading blank, borders, counter, and spacer. */
 const WORK_FIXED_ROWS = 5
@@ -64,6 +65,19 @@ const WORK_MIN_COLUMNS = BOX_CHROME_COLUMNS + 10
 
 /** How long an interrupt result remains visible before the normal view returns. */
 const NOTICE_MS = 3_000
+
+/**
+ * How long an armed Job stop waits for its confirming press.
+ *
+ * Upstream's human kill affordance uses three seconds, and matching it is worth
+ * more than picking a number: it is long enough to notice what was armed and
+ * short enough that a stray second press is unlikely. The window is checked
+ * against the overlay's OWN clock, the same lazily-expired shape as
+ * {@link NOTICE_MS}, rather than owning a second timer — the overlay already
+ * runs one heartbeat for elapsed readings and the spinner, and a destructive
+ * action does not need a timer of its own in order to expire.
+ */
+const STOP_ARM_MS = 3_000
 
 /** Columns a row spends on its gutter mark and the space after it. */
 const GUTTER_COLUMNS = 2
@@ -75,6 +89,28 @@ const GUTTER_COLUMNS = 2
  * is also the row's stable selection identity, exactly like every other fact.
  */
 const OUTPUT_KEY = 'output'
+
+/**
+ * Focus-identity prefix for the Job output section's rows.
+ *
+ * Distinct from {@link OUTPUT_KEY} because the two never share a stage: that key
+ * belongs to a subagent's assistant-text tail, this one to a Job's retained
+ * ring, and two row families sharing a key namespace would make the cursor able
+ * to aim at a row that is no longer the one it named.
+ */
+const JOB_OUTPUT_KEY_PREFIX = 'job-output:'
+
+/**
+ * The one line that stands in for missing earlier output.
+ *
+ * Three different layers can drop bytes — the Harness ring's retention, a
+ * producer-side gap, and dshline's own presentation cap — and a reader cannot
+ * act differently on any of them from inside a 100-column frame. So the marker
+ * says exactly what is true and nothing more, and it appears once per missing
+ * region rather than once per adjacent chunk: a stream that suffered a loss and
+ * then continued has to stay readable afterwards.
+ */
+const GAP_MARKER = '… earlier output not retained …'
 
 /**
  * The glyph each non-animated mark draws.
@@ -121,8 +157,23 @@ interface StageFrame {
 export interface WorkOverlaySpec {
   /** Current read-only capability projection. */
   readonly snapshot: () => WorkSnapshot
-  /** Ask Harness to interrupt one row where it exposes that authority. */
-  readonly interrupt: (item: WorkItem) => WorkInterruptResult
+  /** Ask Harness to interrupt one subagent, which is the only interruptible kind. */
+  readonly interruptSubagent: (item: SubagentWorkItem | WorkflowWorkItem) => WorkInterruptResult
+  /**
+   * Ask Harness to stop one running Job, on a human's behalf.
+   *
+   * Separate from {@link interruptSubagent} rather than folded into one
+   * `control(item)`: a subagent interrupt cancels a turn and a Job stop cancels
+   * a producer, and a union whose meaning has to be rediscovered from `source`
+   * is how a control ends up applied to the wrong authority.
+   */
+  readonly stopJob: (item: JobWorkItem) => WorkInterruptResult
+  /**
+   * Begin observing one Job's retained output, non-consumingly. Called only
+   * when a Job detail stage actually opens, and the returned handle is disposed
+   * the moment that stage closes.
+   */
+  readonly observeJob?: (id: string) => JobOutputObservation | undefined
   /**
    * Open the durable subagent-conversation catalog, when `ctx.subagents` is
    * mounted. The catalog belongs to a separate presenter: Work hands off and
@@ -149,6 +200,23 @@ export interface WorkOverlaySpec {
 interface Notice {
   readonly text: string
   readonly failed: boolean
+  readonly expiresAt: number
+}
+
+/**
+ * A Job stop waiting for its confirming press.
+ *
+ * Armed against the EXACT Job identity, never a screen position or a row
+ * index, so navigating away and coming back to a different Job can never turn
+ * one arming into a kill of whatever now occupies the same place. The overlay
+ * also re-resolves the id against a FRESH projection before the second press,
+ * which is what makes a Job that settled or began stopping in the meantime
+ * refuse the action rather than transfer it.
+ */
+interface ArmedStop {
+  /** The exact Job id that was armed. */
+  readonly id: string
+  /** Epoch ms after which the arming is spent. */
   readonly expiresAt: number
 }
 
@@ -195,6 +263,16 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
   let ticker: NodeJS.Timeout | undefined
   let tick = 0
   let notice: Notice | undefined
+  /** A Job stop armed by the first `k`, awaiting its confirming press. */
+  let armedStop: ArmedStop | undefined
+  /**
+   * The open Job output observation, alive only while a Job detail is shown.
+   *
+   * Exactly one can exist, because exactly one Job detail stage can be on the
+   * stack. The overview holds none, so a closed or never-opened detail costs
+   * zero `readAt` calls.
+   */
+  let jobObservation: JobOutputObservation | undefined
   /** Rows of the last render, used by key handling before the next paint. */
   let rows: readonly StageRow[] = []
   // Whether the last paint was the compact fallback. That frame shows no rows
@@ -207,11 +285,54 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
   const close = (): void => {
     if (closed) return
     closed = true
+    // Closing `/work` ends every observation it started. Nothing about a Job's
+    // output outlives the view that was asked to look at it.
+    releaseJobObservation()
+    armedStop = undefined
     spec.close()
   }
   const currentNotice = (): Notice | undefined => {
     if (notice !== undefined && Date.now() >= notice.expiresAt) notice = undefined
     return notice
+  }
+  /** The arming still inside its window, expiring it lazily like the notice. */
+  const currentArmedStop = (): ArmedStop | undefined => {
+    if (armedStop !== undefined && Date.now() >= armedStop.expiresAt) armedStop = undefined
+    return armedStop
+  }
+  /**
+   * Drop the open Job output observation, if any.
+   *
+   * Synchronous and idempotent by contract, so every path out of a Job detail
+   * calls it without needing to know whether another already did.
+   */
+  const releaseJobObservation = (): void => {
+    const open = jobObservation
+    jobObservation = undefined
+    open?.dispose()
+  }
+  /**
+   * Keep exactly one Job observation alive, and only for the Job being inspected.
+   *
+   * This is what makes observation demand-driven rather than ambient: the
+   * overview, arrow movement, and a closed `/work` all hold none, so they cost
+   * zero output reads. A Job settling pops its stage, and the next `build` sees
+   * a different subject and disposes what it was reading.
+   */
+  const syncJobObservation = (): void => {
+    const stage = frame().stage
+    const wanted = stage.kind === 'job' ? stage.subject : undefined
+    if (jobObservation !== undefined && observationId === wanted) return
+    releaseJobObservation()
+    if (wanted === undefined || spec.observeJob === undefined) return
+    // The stage subject is a Work SELECTION key (`job:bash-1`), not the registry
+    // id. Resolving the row first is what keeps the two namespaces from drifting
+    // apart, and it is also the cheapest proof that the Job is still in the
+    // projection rather than only in a stale stage.
+    const item = index.get(wanted)
+    if (item === undefined || item.source !== 'job') return
+    observationId = wanted
+    jobObservation = spec.observeJob(item.id)
   }
   /**
    * Build every row of the current stage and re-align the cursor with them.
@@ -222,6 +343,8 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
    */
   /** Identity index of the last build, so one paint indexes the projection once. */
   let index: ReadonlyMap<string, WorkItem> = new Map()
+  /** The Job id `jobObservation` is reading, so a re-render never re-reads. */
+  let observationId: string | undefined
 
   const build = (snapshot: WorkSnapshot, width: number, retarget: boolean): readonly StageRow[] => {
     index = workIndex(snapshot)
@@ -231,9 +354,13 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
     while (stack.length > 1) {
       const stage = frame().stage
       if (stage.kind === 'list' || index.has(stage.subject)) break
+      // Popping a Job detail abandons the Job it was inspecting, so the arming
+      // for it cannot survive into whatever stage took its place.
+      if (stage.kind === 'job') armedStop = undefined
       stack.pop()
     }
-    const built = stageRows(frame().stage, snapshot, index, width, tick)
+    syncJobObservation()
+    const built = stageRows(frame().stage, snapshot, index, width, tick, jobObservation)
     frame().focus.update(built.flatMap(row => row.key === undefined ? [] : [row.key]), retarget)
     return built
   }
@@ -263,6 +390,10 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
     return aim === undefined ? undefined : index.get(aim)
   }
   const push = (stage: Stage): void => {
+    // Pushing a new stage abandons the previous stage's arming. An arming is
+    // consent to act on one named Job, and consent does not travel — so opening
+    // a different Job's detail cannot leave A armed behind B.
+    if (frame().stage.kind !== 'job') armedStop = undefined
     stack.push({ stage, focus: new FocusRing() })
     viewport.first()
     spec.invalidate()
@@ -273,8 +404,63 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
       return
     }
     stack.pop()
+    // Leaving a Job detail abandons both the output observation and the arming,
+    // so nothing about that Job stays actionable from another stage.
+    if (frame().stage.kind !== 'job') {
+      releaseJobObservation()
+      armedStop = undefined
+    }
     viewport.first()
     spec.invalidate()
+  }
+  /**
+   * One `k` press against a Job row: arm, or confirm an existing arming.
+   *
+   * Requires a freshly built `index` — the caller re-reads the projection before
+   * resolving the subject, which is what lets the confirming press re-validate
+   * against current authority rather than against a remembered row.
+   * @param item - the Job the press resolved to.
+   */
+  const handleJobStop = (item: JobWorkItem): void => {
+    // Stop belongs to the DETAIL stage only. A destructive operation gets an
+    // inspect step before its confirmation, and the overview is a browsing
+    // surface where a letter key should not be able to cancel anything.
+    if (frame().stage.kind !== 'job') {
+      armedStop = undefined
+      return
+    }
+    const armed = currentArmedStop()
+    if (armed === undefined || armed.id !== item.id) {
+      // FIRST press. Arm this exact id — not the row, not the position, not the
+      // kind — so a later press on a different Job re-arms rather than fires.
+      // A Job that is not stoppable is never armed at all, so the confirming
+      // press has nothing to confirm and there is no arming to expire.
+      if (item.state !== 'running') {
+        armedStop = undefined
+        return
+      }
+      armedStop = { id: item.id, expiresAt: Date.now() + STOP_ARM_MS }
+      notice = { text: 'press k again to stop', failed: false, expiresAt: Date.now() + STOP_ARM_MS }
+      return
+    }
+    // SECOND press. The arming is spent either way, so it cannot be reused even
+    // if the request below fails.
+    armedStop = undefined
+    // The ONE gate: re-resolve the exact armed Job against the projection this
+    // press just re-read, and require it to still be a live Job in this view. If
+    // it settled, was removed, or began stopping in the meantime, the action is
+    // refused outright — whatever now occupies that screen position is a
+    // different Job, and stopping it would transfer consent never given. This is
+    // deliberately the only place the decision is made, so there is no earlier
+    // guard that could quietly make the re-validation redundant.
+    const stage = frame().stage
+    const fresh = stage.kind === 'job' ? index.get(stage.subject) : undefined
+    if (fresh === undefined || fresh.source !== 'job' || fresh.state !== 'running') {
+      notice = { text: 'That job is no longer running.', failed: false, expiresAt: Date.now() + NOTICE_MS }
+      return
+    }
+    const result = spec.stopJob(fresh)
+    notice = { text: result.message, failed: result.kind === 'failed', expiresAt: Date.now() + NOTICE_MS }
   }
   const stopTicker = (): void => {
     if (ticker === undefined) return
@@ -292,7 +478,16 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
         spec.invalidate()
       }, SPINNER_INTERVAL_MS).unref()
     },
-    dispose: stopTicker,
+    dispose: () => {
+      // Overlay disposal is the last word on everything it opened, and it is
+      // the path a torn-down attachment takes. Disposing the observation here
+      // as well as in `HarnessWork.dispose()` is deliberate: the two contain
+      // each other, so a teardown ordering mistake cannot leave a registry
+      // subscription calling `invalidate()` into the next session.
+      stopTicker()
+      releaseJobObservation()
+      armedStop = undefined
+    },
     render(columns, terminalRows = 24) {
       const activeNotice = currentNotice()
       const width = chromeWidth(columns)
@@ -335,7 +530,10 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
             '',
             ...built.slice(viewport.start, viewport.end).map(row => paintRow(row, frame().focus.current)),
           ],
-          footer: fitFooterHelp(stageHelp(frame().stage, aimed, selected, conversation), footerBudget(columns)),
+          footer: fitFooterHelp(
+            stageHelp(frame().stage, aimed, selected, conversation, currentArmedStop()?.id),
+            footerBudget(columns),
+          ),
         }),
       ]
       // The root frame wraps its content, including short-state text a caller may not
@@ -365,9 +563,17 @@ export function createWorkOverlay(spec: WorkOverlaySpec): TuiOverlay {
         build(spec.snapshot(), LOGICAL_KEY_WIDTH, false)
         const item = subject()
         if (item !== undefined && item.source === 'subagent' && item.interruptible) {
-          const result = spec.interrupt(item)
+          // A subagent interrupt stays ONE press. It is a signal to a live
+          // continuable child whose turn it ends without touching its
+          // conversation, not a destructive act, and the arming below exists for
+          // the one that is.
+          const result = spec.interruptSubagent(item)
           notice = { text: result.message, failed: result.kind === 'failed', expiresAt: Date.now() + NOTICE_MS }
+          armedStop = undefined
+          spec.invalidate()
+          return
         }
+        if (item !== undefined && item.source === 'job') handleJobStop(item)
         spec.invalidate()
         return
       }
@@ -452,13 +658,23 @@ function workIndex(snapshot: WorkSnapshot): Map<string, WorkItem> {
   return index
 }
 
-/** Build the rows of one stage. */
+/**
+ * Build the rows of one stage.
+ * @param stage - the stage currently on screen.
+ * @param snapshot - the projection this build was taken from.
+ * @param index - that projection, indexed by selection identity.
+ * @param width - the inner frame width.
+ * @param tick - the shared spinner phase.
+ * @param observation - the open Job output observation, for a Job detail only.
+ * @returns the stage's rows.
+ */
 function stageRows(
   stage: Stage,
   snapshot: WorkSnapshot,
   index: ReadonlyMap<string, WorkItem>,
   width: number,
   tick: number,
+  observation?: JobOutputObservation,
 ): readonly StageRow[] {
   if (stage.kind === 'list') return overviewRows(snapshot, width, tick)
   const item = index.get(stage.subject)
@@ -467,7 +683,7 @@ function stageRows(
   if (item.source === 'subagent' && stage.kind === 'subagent') {
     return subagentRows(item, snapshot.workflows, width, tick)
   }
-  if (item.source === 'job' && stage.kind === 'job') return jobRows(item, width)
+  if (item.source === 'job' && stage.kind === 'job') return jobRows(item, observation, width)
   return [muted('No active work to inspect.', width)]
 }
 
@@ -610,13 +826,45 @@ function subagentOverviewRow(item: SubagentWorkItem, width: number, tick: number
   return itemRow(item, mark, name, segments, width, tick, { kind: 'subagent', subject: workItemKey(item) })
 }
 
+/**
+ * Drop ranks for a Job row's yieldable facts, in the order they give way.
+ *
+ * A Job row exists to answer "what is this doing", and the producer's own
+ * progress line is the only fact that answers it — so it outlives the clock and
+ * the `stopping` word. The label is not ranked at all: it is the row's NAME, and
+ * `fitSegments` never yields a name, so an over-narrow terminal degrades to
+ * `bash` plus whatever still fits rather than to an unidentifiable fragment.
+ *
+ * Crucially, a progress fact is dropped WHOLE or kept whole. A truncated
+ * `127/2` reads as a different, smaller claim than `127/203`, which is worse than
+ * showing the clock alone.
+ */
+const JOB_RANK = {
+  /** The producer's live progress line, verbatim. */
+  progress: 1,
+  /** How long the Job has been open. */
+  elapsed: 2,
+  /** That the Job is transitioning, which the mark alone would not say. */
+  stopping: 3,
+} as const
+
 /** One job row on the overview. */
 function jobOverviewRow(item: JobWorkItem, width: number): StageRow {
   const mark = workMark(item)
   const segments: RowSegment[] = []
-  if (item.label !== '') segments.push({ text: escapeControls(item.label), separator: ' ', rank: 1 })
-  segments.push({ text: formatElapsed(Math.max(0, Date.now() - item.startedAt)), separator: ' ', rank: 2 })
-  if (item.state === 'stopping') segments.push({ text: 'stopping', separator: ' ', rank: 3 })
+  if (item.label !== '') segments.push({ text: escapeControls(item.label), separator: ' ', rank: 4 })
+  // Opaque producer text, escaped whole. Never split into a numerator and a
+  // denominator: `127/203` means nothing to dshline, and a partial cut of it
+  // would be a smaller truth wearing the same clothes.
+  if (item.progress !== undefined && item.progress !== '') {
+    segments.push({ text: escapeControls(item.progress), separator: ' · ', rank: JOB_RANK.progress })
+  }
+  segments.push({
+    text: formatElapsed(Math.max(0, Date.now() - item.startedAt)),
+    separator: ' ',
+    rank: JOB_RANK.elapsed,
+  })
+  if (item.state === 'stopping') segments.push({ text: 'stopping', separator: ' ', rank: JOB_RANK.stopping })
   return itemRow(item, mark, escapeControls(item.kind), segments, width, 0, { kind: 'job', subject: workItemKey(item) })
 }
 
@@ -818,22 +1066,122 @@ function findMembership(
   return undefined
 }
 
-/** Render one job: its state, then the identity a report needs. */
-function jobRows(item: JobWorkItem, width: number): StageRow[] {
+/**
+ * Render one Job: what it is doing, what it has said, then the identity a
+ * report needs.
+ *
+ * Information first. The retained output is the reason to open this stage at
+ * all, so it gets its own section between the status facts and the low-level
+ * identities, and the `owner`/`job id` pair stays at the bottom where a report
+ * fact belongs. A Job with no `progress` gets no progress row, and a Job with
+ * no output gets one restrained line saying so — an empty section would read as
+ * a rendering fault rather than as a producer that has not spoken.
+ * @param item - the inspected Job row.
+ * @param observation - the open output observation, when one exists.
+ * @param width - the inner frame width.
+ * @returns the stage's rows.
+ */
+function jobRows(item: JobWorkItem, observation: JobOutputObservation | undefined, width: number): StageRow[] {
   const rows: StageRow[] = [
     heading(`Job · ${escapeControls(item.label === '' ? item.kind : item.label)}`),
     blank(),
     fact('status', item.state, width),
     fact('kind', item.kind, width),
   ]
+  // The producer's progress line as published. Distinct from `detail`, and never
+  // a substitute for it: one is a moving statement about work in flight, the
+  // other is the standing reason the Job exists. No progress means no row.
+  if (item.progress !== undefined) rows.push(fact('progress', item.progress, width))
   if (item.detail !== undefined) rows.push(fact('detail', item.detail, width))
   rows.push(fact('elapsed', formatElapsed(Math.max(0, Date.now() - item.startedAt)), width))
   rows.push(fact('owner', item.ownership === 'this-session' ? 'this session' : 'unowned', width))
+  rows.push(...jobOutputRows(observation, width))
   rows.push(blank())
-  // No `interrupt  not available` row: announcing the absence of an action is
-  // noise, and a control appears here only when it genuinely exists.
+  // No `stop  unavailable` row for a stopping Job: announcing the absence of an
+  // action is noise, and a control appears in this view only when it exists.
   rows.push(fact('job id', item.id, width))
   return rows
+}
+
+/**
+ * The Output section of a Job detail, or nothing when there is no observation.
+ *
+ * A Job's ring is an OBSERVATION STREAM, not an interactive terminal contract,
+ * so this is bounded Work rows inside the temporary live region: no alternate
+ * screen, no cursor emulation, no ANSI interpretation, and nothing that could
+ * reach native scrollback. Every producer byte is made safe before any styling
+ * is applied, in that order.
+ * @param observation - the open output observation, when one exists.
+ * @param width - the inner frame width.
+ * @returns the section's rows, which is empty when nothing was ever observed.
+ */
+function jobOutputRows(observation: JobOutputObservation | undefined, width: number): StageRow[] {
+  if (observation === undefined) return []
+  const lines = observation.reading().lines
+  const rows: StageRow[] = [blank(), heading('Output')]
+  if (lines.length === 0) {
+    rows.push(muted('No output yet.', width))
+    return rows
+  }
+  lines.forEach((line, position) => {
+    rows.push(jobOutputLineRow(line, position, width))
+  })
+  return rows
+}
+
+/**
+ * One line of a Job's output, as one bounded Work row.
+ *
+ * The order is load-bearing and is the same order the assistant tail uses:
+ * escape the producer's text FIRST, then cut to the display budget, then let the
+ * painter choose a role. Styling first and escaping after would strip the colour
+ * back out, and cutting before escaping would measure a control sequence as if
+ * it were visible.
+ *
+ * A line is focusable but not actionable, which is the one deliberate exception
+ * to keeping presentation rows out of the cursor. A bounded live region shows
+ * only `visible` rows, so without a focus identity there is no way to scroll a
+ * multi-kilobyte tail at all, and `end` would land on the OLDEST output line
+ * rather than the newest. It carries no `open` stage, so `↵` on it does nothing
+ * rather than inventing a destination.
+ * @param line - one retained output line.
+ * @param position - its index in the retained tail, which is its focus identity.
+ * @param width - the inner frame width.
+ * @returns the rendered row.
+ */
+function jobOutputLineRow(line: JobOutputLine, position: number, width: number): StageRow {
+  // A loss marker is this frontend's own report, not a producer stream, so it
+  // takes no channel role. It says that earlier output is missing WITHOUT
+  // claiming to know which layer dropped it: the ring's retention, a producer
+  // gap, and dshline's own presentation cap are three different failures that a
+  // reader cannot act on differently.
+  if (line.gapBefore === true) {
+    return { kind: 'line', text: truncateToWidth(GAP_MARKER, textBudget(width)), role: 'muted' }
+  }
+  const escaped = escapeControls(line.text)
+  return {
+    kind: 'row',
+    key: `${JOB_OUTPUT_KEY_PREFIX}${String(position)}`,
+    text: truncateToWidth(escaped, textBudget(width)),
+    role: jobOutputRole(line.channel),
+  }
+}
+
+/**
+ * The role one output channel is painted with.
+ *
+ * Restrained by design: a colour difference is enough to tell a failure line from
+ * ordinary output, and prefixing every line with `stderr:` would spend the
+ * reader's width restating what the colour already says. An unrecognized
+ * channel is neutral, exactly as the seam's contract requires.
+ * @param channel - the chunk's producer stream label, when it had one.
+ * @returns the palette role for that line.
+ */
+function jobOutputRole(channel: JobOutputLine['channel']): Role {
+  if (channel === 'stderr') return 'error'
+  if (channel === 'log') return 'muted'
+  // `stdout` and an absent or unrecognized label both read as ordinary output.
+  return 'subdued'
 }
 
 /** Columns a row's text may use, after its gutter and its mark. */
@@ -987,20 +1335,56 @@ function conversationAction(
   return catalog === undefined ? undefined : { kind: 'catalog' }
 }
 
-/** The help truthful for this stage, the focused row, and the current authority. */
+/**
+ * The help truthful for this stage, the focused row, and the current authority.
+ *
+ * The Job stop segment is the one place the footer reports a PENDING action, so
+ * it says which state the key is actually in: `k stop` before the first press,
+ * `k confirm stop` while that exact Job is armed. A `stopping` Job gets no
+ * segment at all, because the press would do nothing and advertising it would be
+ * a promise the code does not keep.
+ * @param stage - the stage currently on screen.
+ * @param focused - the row the cursor is on.
+ * @param item - the stage's subject, or the overview's focused row.
+ * @param conversation - what `c` would do, decided once and shared with the key.
+ * @param armedId - the Job id an unexpired stop arming names, when one exists.
+ * @returns the footer help line.
+ */
 function stageHelp(
   stage: Stage,
   focused: StageRow | undefined,
   item: WorkItem | undefined,
   conversation: ConversationAction | undefined,
+  armedId: string | undefined,
 ): string {
   const interrupt = item?.source === 'subagent' && item.interruptible ? ' · k interrupt' : ''
+  const stop = stopHelp(stage, item, armedId)
   const enter = focused?.open === undefined ? '' : ' · ↵ inspect'
   const conversationSegment = conversation === undefined
     ? ''
     : conversation.kind === 'direct' ? ' · c conversation' : ' · c conversations'
   const exit = stage.kind === 'list' ? ' · esc close' : ' · esc back'
-  return `↑↓ select${enter}${interrupt}${conversationSegment}${exit}`
+  return `↑↓ select${enter}${interrupt}${stop}${conversationSegment}${exit}`
+}
+
+/**
+ * The `k stop` / `k confirm stop` segment, or nothing at all.
+ *
+ * Stop is offered from a Job's DETAIL stage only, so a destructive operation
+ * always sits behind an inspect step. A `stopping` Job is excluded because
+ * there is no second stop to request.
+ * @param stage - the stage currently on screen.
+ * @param item - the stage's subject, or the overview's focused row.
+ * @param armedId - the Job id an unexpired arming names, when one exists.
+ * @returns the footer segment, or an empty string.
+ */
+function stopHelp(stage: Stage, item: WorkItem | undefined, armedId: string | undefined): string {
+  // The stage check is what keeps a destructive operation behind an inspect
+  // step: on the overview `item` is merely the focused row, and browsing a list
+  // should never be one keystroke away from cancelling work.
+  if (stage.kind !== 'job') return ''
+  if (item?.source !== 'job' || item.state !== 'running') return ''
+  return armedId === item.id ? ' · k confirm stop' : ' · k stop'
 }
 
 /** Count the physical terminal rows the Screen will use for candidate lines. */

@@ -64,7 +64,15 @@ interface WorkItemBase {
   readonly startedAt: number
 }
 
-/** A non-terminal background Job projected from `ctx.jobs`. */
+/**
+ * A non-terminal background Job projected from `ctx.jobs`.
+ *
+ * Active-only, deliberately. `/work` is a live operational surface, so a Job
+ * that settles is not projected here at all rather than being cached: this
+ * diverges from Harness Web's settled section on purpose, and the durable
+ * record of completed work belongs to the session transcript, not to an
+ * overlay that has to redraw on every frame.
+ */
 export interface JobWorkItem extends WorkItemBase {
   /** The capability authority that owns this record. */
   readonly source: 'job'
@@ -72,14 +80,28 @@ export interface JobWorkItem extends WorkItemBase {
   readonly kind: string
   /** Harness requires a one-line label for every Job record. */
   readonly label: string
-  /** Current Job lifecycle state. */
+  /**
+   * Current Job lifecycle state. A `running` Job is exactly the set the human
+   * stop control applies to; a `stopping` one stays inspectable until it
+   * settles and offers no stop, because a second stop is not a decision.
+   */
   readonly state: 'running' | 'stopping'
-  /** Producer-defined active detail, when the Job supplied it. */
+  /**
+   * The producer's live progress line, verbatim from `JobView.progress`.
+   *
+   * Opaque: the producer owns its meaning and its vocabulary, so this is shown
+   * as written and never parsed, split, or turned into a percentage. Absent
+   * means the producer published none, and no row is invented for it.
+   */
+  readonly progress?: string
+  /**
+   * Producer-defined active detail, when the Job supplied it. Distinct from
+   * {@link progress}: a progress line is a moving statement about the work in
+   * flight, while this is the standing reason the Job exists.
+   */
   readonly detail?: string
   /** Whether the listing proves this Job belongs to this session or is unowned. */
   readonly ownership: 'this-session' | 'unowned'
-  /** Jobs have no human Work interrupt: `jobs.kill()` changes delivery semantics. */
-  readonly interruptible: false
 }
 
 /** A currently open subagent lifecycle epoch projected from `ctx.subagents`. */
@@ -231,7 +253,15 @@ export interface WorkSnapshot {
   readonly jobs: readonly JobWorkItem[]
 }
 
-/** The outcome of asking Harness to interrupt one selected Work row. */
+/**
+ * The outcome of asking Harness to interrupt one subagent, or to stop one Job.
+ *
+ * Shared because both are one request answered with one short sentence, not
+ * because they are the same operation: a subagent interrupt cancels a turn and
+ * a Job stop cancels a producer, and the two are separate methods on this
+ * side rather than one `control(item)` whose meaning has to be rediscovered
+ * from `source`.
+ */
 export interface WorkInterruptResult {
   /** Whether Harness accepted, rejected, or cannot interrupt the request. */
   readonly kind: 'requested' | 'unsupported' | 'failed'

@@ -66,9 +66,31 @@ correlation. The Codex acceptance is complete; Claude Code through
 `@deepseek-ai/dsh-subagent-claude-code`, `ctx.subagents`, and `ctx.jobs` is the
 next acceptance target, not a manually validated integration. See [Provider
 acceptance](docs/provider-acceptance.md). Work also establishes the broader
-control rule: it does not expose `ctx.jobs.kill()` because that method has
-model-facing reported-delivery semantics; a continuable subagent can expose a
-user-authorized interrupt only where `ctx.subagents` explicitly models it.
+control rule, which its answer has since changed while the principle stands: a
+control is exposed where the owning seam explicitly models human authority, and
+merely having a callable mutation is never enough. Under the adopted generation
+that now includes a human job stop, because the registry owns cancellation
+while `dsh-tool-jobs` owns the ledger of jobs its own tool already delivered —
+so a human kill leaves the owning agent's ordinary completion notice due. A
+continuable subagent still exposes its user-authorized interrupt, and a workflow
+run still gets nothing, because `ctx.workflowEngine` publishes `start()` alone.
+
+### 2. Jobs 2.0 — merged
+
+The second pass over the Jobs section, once Harness published progress, a
+non-consuming output read, and human-safe job cancellation.
+
+- project `JobView.progress` verbatim, with no invented denominator
+- read retained job output through `readAt`, never the model's consuming `read`
+- observe output only while a job's detail stage is open, so the overview costs
+  no output reads at all
+- keep the detail's own retention bound, and mark every kind of loss once
+- offer a confirmed human stop that leaves the model's completion notice due
+
+`/work` remains an active-work surface and deliberately not a job history: a
+settled job leaves the roster immediately, takes its open detail stage with it,
+and is kept in no local cache. That is a product choice, and it diverges from
+Harness Web's settled section on purpose.
 
 ### 2. Session projections and agent state
 
