@@ -42,7 +42,13 @@ import type {
   SessionFact,
   SessionSearchMode,
 } from './model.ts'
-import { filterEntries, relativeAge, sessionFacts, sessionLabel } from './model.ts'
+import {
+  entryTitleState,
+  filterEntriesWithState,
+  relativeAge,
+  sessionFacts,
+  sessionLabel,
+} from './model.ts'
 import {
   CHILD_CLOSE_REQUESTED,
   createEventsOverlay,
@@ -94,6 +100,15 @@ export type RenameDraftOutcome =
 export interface SessionsOverlaySpec {
   /** The corpus listing. */
   readonly listing: () => CatalogState
+  /**
+   * Prioritize exact title reads for the rows currently useful to the reader.
+   *
+   * Optional so small embedders and pure presentation tests can mount the
+   * overlay without a catalog; the real Sessions owner always supplies it.
+   */
+  readonly prioritizeTitles?: (entries: readonly SessionEntry[], exhaustive?: boolean) => void
+  /** Tell the catalog when local query text changes, so queued work can be abandoned. */
+  readonly titleQueryChanged?: (query: string) => void
   /** The optional full-text pass. */
   readonly content: () => ContentState
   /** The active catalog filters. */
@@ -154,6 +169,8 @@ interface Resolved {
   readonly listed: number
   readonly corpus: number | undefined
   readonly content: Extract<ContentState, { kind: 'ready' }> | undefined
+  /** Whether local title matching is authoritative for this frame. */
+  readonly filterComplete: boolean
 }
 
 /**
@@ -216,6 +233,36 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
   const currentNotice = (): SurfaceNoticeReading | undefined => notice.read()
   const focusedEntry = (): SessionEntry | undefined => visible[selected]
   const selectableLength = (): number => visible.length + (trailing?.kind === 'more' || trailing?.kind === 'refresh' ? 1 : 0)
+  /**
+   * Ask the catalog for the title work this frame can make useful.
+   *
+   * Only the first viewport and the selected neighborhood are requested for an
+   * ordinary list. A query is different: an unresolved title can still match,
+   * so the owner is asked to complete the retained corpus before the UI claims
+   * that no session matches.
+   */
+  const prioritizeVisibleTitles = (capacity: number, exhaustive: boolean): void => {
+    if (mode !== 'filter' || spec.prioritizeTitles === undefined) return
+    if (exhaustive) {
+      spec.prioritizeTitles(visible, true)
+      return
+    }
+    if (visible.length === 0) return
+    const wanted = Math.max(1, Math.min(visible.length, capacity))
+    const priority: SessionEntry[] = []
+    const seen = new Set<SessionId>()
+    const add = (entry: SessionEntry | undefined): void => {
+      if (entry === undefined || seen.has(entry.id)) return
+      seen.add(entry.id)
+      priority.push(entry)
+    }
+    add(visible[selected])
+    for (let index = 0; index < wanted; index += 1) add(visible[index])
+    for (let index = Math.max(0, selected - 2); index <= Math.min(visible.length - 1, selected + 2); index += 1) {
+      add(visible[index])
+    }
+    spec.prioritizeTitles(priority)
+  }
   const move = (amount: number): void => {
     const length = selectableLength()
     if (length === 0) return
@@ -224,6 +271,7 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
   }
   const edit = (next: string): void => {
     query = next
+    spec.titleQueryChanged?.(next)
     // A content result answers the PREVIOUS words. Editing returns to the
     // immediate title/workspace filter so the query line never labels stale rows.
     mode = 'filter'
@@ -429,6 +477,10 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       trailing = contentTrailing(resolved, loadingFrom !== undefined)
       const length = selectableLength()
       selected = Math.min(selected, Math.max(0, length - 1))
+      prioritizeVisibleTitles(
+        Math.max(1, terminalRows - SESSIONS_FIXED_ROWS),
+        query.trim() !== '',
+      )
 
       // The framed footer and the compact fallback must agree about what Enter
       // runs for the current selection, so classify it once. A content cursor's
@@ -456,7 +508,7 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
       const inner = chromeWidth(columns) - BOX_CHROME_COLUMNS
       const capacity = terminalRows - SESSIONS_FIXED_ROWS - (active === undefined ? 0 : 1)
       if (capacity <= 0) return compactFallback(resolved, columns, terminalRows, active, enterAction)
-      const rendered = renderResolved(resolved, spec, mode, selected, trailing, inner)
+      const rendered = renderResolved(resolved, spec, mode, selected, trailing, inner, spec.now())
       viewport.update(rendered.rows.length, capacity)
       if (rendered.selectedRow < viewport.start) viewport.move(rendered.selectedRow - viewport.start)
       // Follow the selected BLOCK — an entry plus its match excerpt — rather than
@@ -611,14 +663,22 @@ function resolve(spec: SessionsOverlaySpec, mode: SessionSearchMode, query: stri
     case 'loading': return said('Reading sessions…')
     case 'failed': return said(`Harness could not list sessions: ${listing.message}`)
     case 'ready': {
-      const entries = filterEntries(listing.entries, query)
-      if (entries.length === 0) return said(query === '' ? 'No sessions yet.' : 'No session matches that.')
+      const filtered = filterEntriesWithState(listing.entries, query)
+      if (filtered.entries.length === 0) {
+        return said(
+          !filtered.complete
+            ? 'Some session titles are still loading; matches may appear.'
+            : query === '' ? 'No sessions yet.' : 'No session matches that.',
+          filtered.complete,
+        )
+      }
       return {
-        entries,
+        entries: filtered.entries,
         message: undefined,
         listed: listing.entries.length,
         ...listing.truncated > 0 ? { corpus: listing.entries.length + listing.truncated } : { corpus: undefined },
         content: undefined,
+        filterComplete: filtered.complete,
       }
     }
   }
@@ -639,6 +699,7 @@ function resolveContent(content: ContentState): Resolved {
           listed: content.entries.length,
           corpus: undefined,
           content,
+          filterComplete: true,
         }
       }
       // Zero visible rows is not automatically "nothing matched": the backend
@@ -658,14 +719,15 @@ function resolveContent(content: ContentState): Resolved {
         listed: 0,
         corpus: undefined,
         content,
+        filterComplete: true,
       }
     }
   }
 }
 
 /** Build a non-selectable resolution carrying one sentence. */
-function said(text: string): Resolved {
-  return { entries: [], message: text, listed: 0, corpus: undefined, content: undefined }
+function said(text: string, filterComplete = true): Resolved {
+  return { entries: [], message: text, listed: 0, corpus: undefined, content: undefined, filterComplete }
 }
 
 /** Decide whether a landed content result has a continuation row. */
@@ -691,6 +753,7 @@ function renderResolved(
   selected: number,
   trailing: Trailing | undefined,
   inner: number,
+  now: number,
 ): Rendered {
   if (resolved.entries.length === 0) {
     // A zero-visible-row result can still carry a selectable continuation: the
@@ -717,7 +780,7 @@ function renderResolved(
     if (active) selectedRow = rows.length
     // Every visible entry is a choice; the excerpt below the selected one is not.
     selectableRows.push(rows.length)
-    rows.push(entryRow(entry, active, spec, inner))
+    rows.push(entryRow(entry, active, spec, inner, now))
     if (active) {
       const excerpt = snippetRows(entry, mode, inner)
       rows.push(...excerpt)
@@ -735,8 +798,14 @@ function renderResolved(
 }
 
 /** Draw one session row: the title, and the age that orders the list. */
-function entryRow(entry: SessionEntry, active: boolean, spec: SessionsOverlaySpec, inner: number): string {
-  const right = rightColumn(entry, spec, inner, active)
+function entryRow(
+  entry: SessionEntry,
+  active: boolean,
+  spec: SessionsOverlaySpec,
+  inner: number,
+  now: number,
+): string {
+  const right = rightColumn(entry, spec, inner, active, now)
   const rightWidth = Math.min(displayWidth(right), Math.max(0, inner - 8))
   const label = truncateToWidth(
     escapeControls(sessionLabel(entry, spec.currentSessionId)),
@@ -745,7 +814,9 @@ function entryRow(entry: SessionEntry, active: boolean, spec: SessionsOverlaySpe
   const gap = Math.max(1, inner - 2 - displayWidth(label) - rightWidth)
   const plain = `${label}${' '.repeat(gap)}${truncateToWidth(right, rightWidth)}`
   if (active) return paint(`❯ ${plain}`, 'selection')
-  return `  ${entry.title === undefined && entry.id !== spec.currentSessionId ? paint(plain, 'subdued') : plain}`
+  return `  ${entryTitleState(entry).kind !== 'exact' || (entry.title === undefined && entry.id !== spec.currentSessionId)
+    ? paint(plain, 'subdued')
+    : plain}`
 }
 
 /**
@@ -762,8 +833,14 @@ function entryRow(entry: SessionEntry, active: boolean, spec: SessionsOverlaySpe
  * @param active - whether the row is selected, so selection colour can own it.
  * @returns the right-hand column's text.
  */
-function rightColumn(entry: SessionEntry, spec: SessionsOverlaySpec, inner: number, active: boolean): string {
-  const age = relativeAge(entry.createdAt, spec.now())
+function rightColumn(
+  entry: SessionEntry,
+  spec: SessionsOverlaySpec,
+  inner: number,
+  active: boolean,
+  now: number,
+): string {
+  const age = relativeAge(entry.createdAt, now)
   const delegated = entry.origin === 'delegated'
     ? active ? 'delegated' : paint('delegated', 'subdued')
     : undefined
@@ -939,6 +1016,7 @@ function counter(resolved: Resolved, rendered: Rendered, viewport: RowViewport):
       : `${String(shown)} of ${String(resolved.listed)}`
     if (resolved.corpus !== undefined) count += ` · newest of ${String(resolved.corpus)}`
   }
+  if (!resolved.filterComplete) count += ' · titles loading'
   // `viewport.end` is exclusive, so a choice exactly at that row is below. Only
   // recorded choices can earn the hint; a hidden excerpt or `Loading more…` row
   // is geometry, not another choice.

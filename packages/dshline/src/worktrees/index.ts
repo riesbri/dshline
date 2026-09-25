@@ -31,6 +31,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
+import { sessionTitleHints } from '../sessions/hints.ts'
 import type { SessionEntry } from '../sessions/model.ts'
 import type { NewPlan, ResumePlan } from '../sessions/plan.ts'
 import { WorktreeCatalog } from './catalog.ts'
@@ -104,9 +105,11 @@ export interface WorktreesSpec {
  */
 export async function openWorktrees(spec: WorktreesSpec): Promise<WorktreeChoice | undefined> {
   const { ctx } = spec
+  const titleHints = sessionTitleHints(ctx)
   const catalog = new WorktreeCatalog({
     query: ctx.get('sessionQuery'),
     invalidate: () => { ctx.tuiSlots.invalidate() },
+    ...(titleHints === undefined ? {} : { titleHints }),
     ...(spec.currentCwd === undefined ? {} : { currentCwd: spec.currentCwd }),
     ...(spec.now === undefined ? {} : { now: spec.now }),
   })

@@ -80,6 +80,8 @@ export interface WorktreeCatalogSpec {
   readonly currentCwd?: string
   /** Current time source, passed through to the session catalog. */
   readonly now?: () => number
+  /** Optional Harness projection title hints, passed to the nested catalog. */
+  readonly titleHints?: SessionCatalogSpec['titleHints']
 }
 
 /** The transient cwd grouping behind the `/worktrees` picker. */
@@ -139,10 +141,11 @@ export class WorktreeCatalog {
   /**
    * Open one directory's sessions, or close the one that is open.
    *
-   * Selecting starts exactly one `filterSessions` plus one batched title
-   * observation — the same two reads `/sessions` pays for its own listing.
-   * Selecting a different directory abandons the previous catalog rather than
-   * keeping both alive: its results would repaint a view that has moved on.
+   * Selecting starts one `filterSessions` listing and then uses the same
+   * demand-driven title hydration as `/sessions`; it does not open every row in
+   * the selected directory. Selecting a different directory abandons the
+   * previous catalog rather than keeping both alive: its results would repaint a
+   * view that has moved on.
    * @param cwd - the stored cwd to open, or undefined to go back.
    */
   select(cwd: string | undefined): void {
@@ -159,6 +162,7 @@ export class WorktreeCatalog {
       invalidate: this.spec.invalidate,
       workspace: { kind: 'cwd', cwd },
       ...(this.spec.now === undefined ? {} : { now: this.spec.now }),
+      ...(this.spec.titleHints === undefined ? {} : { titleHints: this.spec.titleHints }),
     }
     const catalog = new SessionCatalog(spec)
     this.sessions = catalog

@@ -76,6 +76,10 @@ interface Harness {
   now?: () => number
   /** Extra behavior chained after the recorded filter application. */
   applyFilters?: (filters: SessionFiltersValue) => void
+  /** Observe demand-driven title requests. */
+  prioritizeTitles?: (entries: readonly SessionEntry[], exhaustive?: boolean) => void
+  /** Observe local query changes for title scheduling. */
+  titleQueryChanged?: (query: string) => void
   /** Extra behavior chained after the recorded content search. */
   search?: (text: string) => void
 }
@@ -95,6 +99,10 @@ interface Mounted {
   readonly loadMoreCalls: () => number
   readonly restartCalls: () => number
   readonly invalidates: () => number
+  /** Title priority calls made by rendered frames. */
+  readonly titleRequests: ReadonlyArray<{ readonly ids: readonly SessionId[]; readonly exhaustive: boolean }>
+  /** Local query changes reported to the title scheduler. */
+  readonly titleQueries: readonly string[]
 }
 
 /**
@@ -112,10 +120,20 @@ function mount(harness: Harness = {}): Mounted {
   let renameCalls = 0
   const renamePrefills: Array<string | undefined> = []
   let invalidates = 0
+  const titleRequests: Array<{ readonly ids: readonly SessionId[]; readonly exhaustive: boolean }> = []
+  const titleQueries: string[] = []
   let closed = false
   const renameDraft = harness.renameDraft
   const spec: SessionsOverlaySpec = {
     listing: () => harness.listing ?? { kind: 'ready', entries: [entry()], truncated: 0 },
+    prioritizeTitles: (entries, exhaustive = false) => {
+      titleRequests.push({ ids: entries.map(candidate => candidate.id), exhaustive })
+      harness.prioritizeTitles?.(entries, exhaustive)
+    },
+    titleQueryChanged: query => {
+      titleQueries.push(query)
+      harness.titleQueryChanged?.(query)
+    },
     content: () => harness.content ?? { kind: 'idle' },
     filters: () => harness.filters ?? NO_FILTERS,
     applyFilters: filters => {
@@ -173,6 +191,8 @@ function mount(harness: Harness = {}): Mounted {
     loadMoreCalls: () => loadMoreCalls,
     restartCalls: () => restartCalls,
     invalidates: () => invalidates,
+    titleRequests,
+    titleQueries,
   }
 }
 
@@ -1631,5 +1651,51 @@ describe('compact content-search summaries', () => {
     // Rows, not columns: height alone forces the fallback while leaving the full
     // filter line room, so this pins the wording rather than the shortening.
     expect(screen(view, COLUMNS, 5)).toBe('2 sessions · ↵ reopen · esc close')
+  })
+})
+
+describe('demand-driven title resolution in the browser', () => {
+  it('shows pending metadata and asks only for the visible title window', () => {
+    const entries = Array.from({ length: 8 }, (_unused, index) => entry({
+      id: `pending-${String(index)}` as SessionId,
+      title: undefined,
+      titleState: { kind: 'pending' },
+    }))
+    const view = mount({ listing: { kind: 'ready', entries, truncated: 0 } })
+    const lines = screen(view, COLUMNS, ROWS)
+    expect(lines).toContain('loading title')
+    expect(view.titleRequests.at(-1)?.ids).toEqual(entries.map(candidate => candidate.id))
+    expect(view.titleRequests.at(-1)?.exhaustive).toBe(false)
+  })
+
+  it('marks an incomplete title search instead of claiming no match', () => {
+    const pending = entry({
+      id: 'pending' as SessionId,
+      title: undefined,
+      titleState: { kind: 'pending' },
+    })
+    const view = mount({ listing: { kind: 'ready', entries: [pending], truncated: 0 } })
+    view.press(...typed('later-title'))
+    const lines = screen(view, COLUMNS, ROWS)
+    expect(lines).toContain('matches may appear')
+    expect(view.titleRequests.at(-1)?.exhaustive).toBe(true)
+  })
+
+  it('reports query edits so queued exhaustive title work can be canceled', () => {
+    const view = mount({ listing: { kind: 'ready', entries: [entry()], truncated: 0 } })
+    view.press(...typed('later'))
+    view.press(key('ctrl-u'))
+    expect(view.titleQueries.at(-2)).toBe('later')
+    expect(view.titleQueries.at(-1)).toBe('')
+  })
+
+  it('marks a provisional title visibly', () => {
+    const provisional = entry({
+      id: 'cached' as SessionId,
+      title: 'cached old',
+      titleState: { kind: 'provisional', title: 'cached old' },
+    })
+    const view = mount({ listing: { kind: 'ready', entries: [provisional], truncated: 0 } })
+    expect(screen(view, COLUMNS, ROWS)).toContain('~ cached old')
   })
 })

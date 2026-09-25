@@ -30,7 +30,7 @@ import type {
 } from '@deepseek-ai/dsh-session-query'
 import type { Key } from '@dshline/renderer'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
-import { CATALOG_LIMIT, SessionCatalog } from '../src/sessions/catalog.ts'
+import { CATALOG_LIMIT, SessionCatalog, TITLE_BATCH_SIZE } from '../src/sessions/catalog.ts'
 import { NO_FILTERS } from '../src/sessions/filters.ts'
 import { createSessionsOverlay, type SessionsOverlaySpec } from '../src/sessions/overlay.ts'
 
@@ -249,14 +249,14 @@ describe('a 10,000-record ordinary listing', () => {
     expect(indexReads()).toBe(CORPUS)
   })
 
-  it('observes titles for exactly one batch of at most the retained ids, in order', async () => {
+  it('observes titles for the first visible batch, in order', async () => {
     const { records, served } = largeCorpus(CORPUS)
     const { observed } = await browse(served, c => { c.refresh() })
     expect(observed.calls.readTitleSnapshots).toBe(1)
     expect(observed.titleIds).toHaveLength(1)
     const ids = observed.titleIds[0] ?? []
-    expect(ids).toHaveLength(CATALOG_LIMIT)
-    expect(ids).toEqual(records.slice(0, CATALOG_LIMIT).map(record => record.header.id))
+    expect(ids).toHaveLength(TITLE_BATCH_SIZE)
+    expect(ids).toEqual(records.slice(0, TITLE_BATCH_SIZE).map(record => record.header.id))
   })
 
   it('keeps a row whose title observation was rejected', async () => {
@@ -339,7 +339,7 @@ describe('origin remains presentation-only at scale', () => {
     // that never invokes the filtered read.
     expect(observed.calls).toEqual({ listSessions: 1, filterSessions: 0, readTitleSnapshots: 1 })
     expect(observed.clauses).toEqual([])
-    expect(observed.titleIds[0]).toEqual(qualifying.slice(0, CATALOG_LIMIT))
+    expect(observed.titleIds[0]).toEqual(qualifying.slice(0, TITLE_BATCH_SIZE))
   })
 
   it('keeps rows on the far side of the retained bound countable but unprojected', async () => {
@@ -528,7 +528,7 @@ describe('title identity is not reused across listings', () => {
     catalog.refresh()
     await settled()
     expect(observed.calls.readTitleSnapshots).toBe(2)
-    expect(observed.titleIds[1]).toEqual(second.slice(0, CATALOG_LIMIT).map(record => record.header.id))
+    expect(observed.titleIds[1]).toEqual(second.slice(0, TITLE_BATCH_SIZE).map(record => record.header.id))
   })
 })
 

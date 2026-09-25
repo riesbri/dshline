@@ -48,7 +48,10 @@ import type {
   SessionDetail,
   SessionEntry,
   SessionOrigin,
+  SessionTitleHint,
+  SessionTitleState,
 } from './model.ts'
+import { entryTitleState } from './model.ts'
 
 /**
  * The exact `ctx.sessionQuery` read surface consumed by the Sessions catalog.
@@ -101,10 +104,36 @@ export interface SessionCatalogSpec {
   readonly workspace?: SessionWorkspace
   /** Current time source; omitted, `Date.now` applies. */
   readonly now?: () => number
+  /**
+   * Optional Harness projection title hints, keyed by the listed record.
+   *
+   * A hint is provisional by contract: it may describe a durable prefix that
+   * predates the current log. The catalog still requests exact titles for
+   * visible rows, but a hit gives the picker something useful before that
+   * request settles. A callback is used instead of a dshline-owned cache so
+   * the projection service remains Harness's authority.
+   */
+  readonly titleHints?: (record: SessionRecord) => SessionTitleHint | undefined
 }
 
 /** Maximum rows retained from the authoritative listing corpus. */
 export const CATALOG_LIMIT = 200
+
+/** Maximum exact title observations requested by one visible-row batch. */
+export const TITLE_BATCH_SIZE = 20
+
+/**
+ * Maximum exact title observations once a query makes the whole retained title
+ * set relevant.
+ *
+ * Deliberately the presentation cap rather than the visible batch: the pinned
+ * Harness title API repeats a full persistence listing inside every call, so
+ * ten small batches would add ten directory scans. The first visible batch has
+ * already opened the list before a query can arrive; one remaining bounded batch
+ * preserves exact filtering without turning a title search back into repeated
+ * full-corpus enumeration.
+ */
+export const EXHAUSTIVE_TITLE_BATCH_SIZE = CATALOG_LIMIT
 
 /** Typed capability code for a deployment without either full-text surface. */
 const SEARCH_DISABLED: SessionQueryErrorCode = 'SESSION_QUERY_SEARCH_DISABLED'
@@ -146,10 +175,10 @@ function reason(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** One settled title observation's presentation traits. */
-interface ObservedTraits extends SessionObservedTitle {
-  /** Folded title, present when the log carried a non-empty one. */
-  readonly title?: string
+/** One settled title observation's presentation traits and title state. */
+interface TitleObservation extends SessionObservedTitle {
+  /** Exact, provisional, or failed resolution state for this id. */
+  readonly state: SessionTitleState
   /**
    * Authoritative live-preferred header origin.
    *
@@ -161,6 +190,50 @@ interface ObservedTraits extends SessionObservedTitle {
 }
 
 /**
+ * Fold title observations into states without conflating absence and failure.
+ *
+ * A fulfilled result with no `session/title` event is exact absence. A rejected
+ * member is an unreadable exact observation, not an untitled session. The
+ * caller can still retain a provisional hint on a failed result.
+ * @param results - ordered per-id settlements from Harness.
+ * @returns states and origin traits keyed by session id.
+ */
+function titleObservations(
+  results: readonly SessionTitleObservationResult[],
+): Map<SessionId, TitleObservation> {
+  const observations = new Map<SessionId, TitleObservation>()
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      const title = result.value.title?.title
+      observations.set(result.sessionId, {
+        ...title === undefined ? {} : { title },
+        state: { kind: 'exact', title },
+        ...(result.value.session.origin === 'subagent'
+          ? { origin: result.value.session.origin }
+          : {}),
+      })
+      continue
+    }
+    observations.set(result.sessionId, {
+      state: { kind: 'failed', title: undefined, message: reason(result.reason) },
+    })
+  }
+  return observations
+}
+
+/** Keep only exact observations for lineage's title reconciliation. */
+function exactTitleTraits(
+  observations: ReadonlyMap<SessionId, TitleObservation>,
+): Map<SessionId, SessionObservedTitle> {
+  const traits = new Map<SessionId, SessionObservedTitle>()
+  for (const [id, observation] of observations) {
+    if (observation.state.kind !== 'exact') continue
+    traits.set(id, observation.state.title === undefined ? {} : { title: observation.state.title })
+  }
+  return traits
+}
+
+/**
  * The delegated-or-own classification of one corpus record.
  *
  * A fulfilled title observation's live-preferred source header is the
@@ -169,31 +242,42 @@ interface ObservedTraits extends SessionObservedTitle {
  * rejected or missing observation falls back to the hit's own header — which
  * may itself have omitted the field, but is then all Harness gave us.
  * @param record - the corpus or search-hit record.
- * @param trait - the settled observation, when one resolved for this session.
+ * @param observation - the settled observation, when one resolved for this session.
  * @returns the presentation origin.
  */
-function classifyOrigin(record: SessionRecord, trait: ObservedTraits | undefined): SessionOrigin {
-  const origin = trait === undefined ? record.header.origin : trait.origin
+function classifyOrigin(record: SessionRecord, observation: TitleObservation | undefined): SessionOrigin {
+  const origin = observation === undefined ? record.header.origin : observation.origin
   return origin === 'subagent' ? 'delegated' : 'own'
 }
 
 /**
  * Turn one corpus record and its observed traits into a listable entry.
  * @param record - the logical-corpus record.
- * @param trait - the settled title observation for this id, when it resolved.
+ * @param observation - the settled title observation, when one resolved.
  * @param snippet - a provider excerpt, when this is a search result.
+ * @param hint - a Harness projection hint used before exact observation.
  * @returns the entry.
  */
-function toEntry(record: SessionRecord, trait: ObservedTraits | undefined, snippet?: string): SessionEntry {
+function toEntry(
+  record: SessionRecord,
+  observation: TitleObservation | undefined,
+  snippet?: string,
+  hint?: SessionTitleHint,
+): SessionEntry {
+  const state: SessionTitleState = observation?.state
+    ?? (hint === undefined
+      ? { kind: 'pending' }
+      : { kind: 'provisional', title: hint.title })
   return {
     id: record.header.id,
-    title: trait?.title,
+    title: state.kind === 'pending' ? undefined : state.title,
+    titleState: state,
     createdAt: record.header.createdAt,
     cwd: record.header.cwd,
     live: record.live,
     persisted: record.persisted,
     parent: record.header.parentSession,
-    origin: classifyOrigin(record, trait),
+    origin: classifyOrigin(record, observation),
     ...snippet === undefined ? {} : { snippet },
   }
 }
@@ -243,12 +327,24 @@ function retainListing(
   records: readonly SessionRecord[],
   origin: OriginChoice,
   limit: number,
+  titleHints: SessionCatalogSpec['titleHints'],
 ): { readonly entries: SessionEntry[]; readonly truncated: number } {
   const entries: SessionEntry[] = []
+  const hint = (record: SessionRecord): SessionTitleHint | undefined => {
+    try {
+      return titleHints?.(record)
+    } catch {
+      // A projection hint is optional presentation. A broken hint must not
+      // turn a readable Harness corpus into a failed picker; exact hydration
+      // remains the fallback.
+      return undefined
+    }
+  }
   if (origin === 'all') {
     const retained = Math.max(0, Math.min(records.length, limit))
     for (let index = 0; index < retained; index += 1) {
-      entries.push(toEntry(records[index]!, undefined))
+      const record = records[index]!
+      entries.push(toEntry(record, undefined, undefined, hint(record)))
     }
     return { entries, truncated: records.length - retained }
   }
@@ -256,58 +352,36 @@ function retainListing(
   for (const record of records) {
     if (!originRetained(classifyOrigin(record, undefined), origin)) continue
     retained += 1
-    if (entries.length < limit) entries.push(toEntry(record, undefined))
+    if (entries.length < limit) entries.push(toEntry(record, undefined, undefined, hint(record)))
   }
   return { entries, truncated: retained - entries.length }
 }
 
 /**
- * Fold a batch title observation into per-session presentation traits.
- *
- * The title half is {@link observedTitleTraits}, shared with the attached-session
- * hub so the two cannot drift. This adds only the origin metadata the corpus
- * listing needs, and keeps the settlement policy in one place: every fulfilled
- * settlement stores an entry (even one with no title and no origin), because
- * fulfilment means an authoritative observed header exists which the caller
- * must be able to tell apart from a rejected or missing observation. A rejected
- * member is dropped rather than propagated: the batch isolates per-session
- * failures on purpose, and a session whose title could not be read is still
- * listable and still resumable — showing it untitled is the honest reading,
- * where dropping the row would hide a session that exists.
- * @param results - the batch's ordered settlements.
- * @returns traits by session id for every fulfilled observation.
- */
-function observedTraits(results: readonly SessionTitleObservationResult[]): Map<SessionId, ObservedTraits> {
-  const titles = observedTitleTraits(results)
-  const traits = new Map<SessionId, ObservedTraits>()
-  for (const result of results) {
-    if (result.status !== 'fulfilled') continue
-    const title = titles.get(result.sessionId)?.title
-    traits.set(result.sessionId, {
-      ...title === undefined ? {} : { title },
-      ...(result.value.session.origin === 'subagent'
-        ? { origin: result.value.session.origin }
-        : {}),
-    })
-  }
-  return traits
-}
-
-/**
  * Apply one settlement batch to a displayed session entry.
  *
- * The distinction is the whole point: a FULFILLED observation is authoritative
- * — a present title replaces the displayed one, and a fulfilled observation
- * with no title deliberately clears it — while a REJECTED (or otherwise
- * missing) observation obtains no new fact, so the previous displayed
- * observation is preserved exactly rather than wiped by an absent map entry.
+ * A fulfilled observation is authoritative, including exact absence. A failed
+ * observation never erases a provisional hint: it changes the state to failed
+ * while retaining the last known text as visibly non-exact.
  * @param entry - the displayed entry.
- * @param traits - the settled batch, keyed by session id.
+ * @param observations - settled states keyed by session id.
  * @returns the entry with its title reconciled, or the same entry untouched.
  */
-function applyObservedTitle(entry: SessionEntry, traits: ReadonlyMap<SessionId, ObservedTraits>): SessionEntry {
-  const observed = traits.get(entry.id)
-  return observed === undefined ? entry : { ...entry, title: observed.title }
+function applyObservedTitle(
+  entry: SessionEntry,
+  observations: ReadonlyMap<SessionId, TitleObservation>,
+): SessionEntry {
+  const observed = observations.get(entry.id)
+  if (observed === undefined) return entry
+  const prior = entryTitleState(entry)
+  const state = observed.state.kind === 'failed'
+    ? { ...observed.state, title: prior.kind === 'pending' ? undefined : prior.title }
+    : observed.state
+  return {
+    ...entry,
+    title: state.kind === 'pending' ? undefined : state.title,
+    titleState: state,
+  }
 }
 
 /** The generation-safe data source behind the Sessions browser. */
@@ -334,6 +408,16 @@ export class SessionCatalog {
   private searchGeneration = 0
   private listingAbort: AbortController | undefined
   private titleAbort: AbortController | undefined
+  /** Exact title ids waiting for a bounded demand-driven batch. */
+  private titleQueue: SessionId[] = []
+  /** Whether queued work was made relevant by a local title query. */
+  private exhaustiveTitlesQueued = false
+  /** Ids already queued or being read, so a redraw never duplicates work. */
+  private readonly titleRequested = new Set<SessionId>()
+  /** Ids in the currently running exact-title batch. */
+  private titleInFlightIds: readonly SessionId[] = []
+  /** Whether the current batch was queued by an exhaustive local query. */
+  private titleInFlightExhaustive = false
   private searchAbort: AbortController | undefined
   private contentChain: ContentChain | undefined
   /**
@@ -358,7 +442,7 @@ export class SessionCatalog {
     this.navigator = new SessionNavigator({
       query: spec.query,
       invalidate: spec.invalidate,
-      observeTitles: async (sessionIds, signal) => observedTraits(
+      observeTitles: async (sessionIds, signal) => observedTitleTraits(
         await spec.query?.readTitleSnapshots(sessionIds, signal) ?? [],
       ),
     })
@@ -408,6 +492,55 @@ export class SessionCatalog {
    */
   detail(sessionId: SessionId): SessionDetail | undefined {
     return this.details.get(sessionId)
+  }
+
+  /**
+   * Prioritize exact title observations for rows the reader can see.
+   *
+   * The overlay calls this with the current viewport and selected row. A
+   * non-empty local query asks for the whole retained corpus because an
+   * unresolved title could become a match; an empty query never causes the
+   * remaining 200 rows to be opened just because the browser exists.
+   * @param entries - visible or selected entries, in reader priority order.
+   * @param exhaustive - whether unresolved rows outside `entries` matter too.
+   */
+  prioritizeTitles(entries: readonly SessionEntry[], exhaustive = false): void {
+    if (this.disposed || this.base.kind !== 'ready') return
+    const candidates = exhaustive ? this.base.entries : entries
+    if (exhaustive) this.exhaustiveTitlesQueued = true
+    for (const entry of candidates) {
+      if (entryTitleState(entry).kind === 'exact') continue
+      if (this.titleRequested.has(entry.id)) continue
+      this.titleRequested.add(entry.id)
+      this.titleQueue.push(entry.id)
+    }
+    this.drainTitleQueue()
+  }
+
+  /**
+   * Tell the catalog that the local metadata/title query changed.
+   *
+   * A non-empty query keeps unresolved retained titles relevant, including
+   * while its text is edited. Clearing it makes queued exhaustive work no
+   * longer useful; an already-running exhaustive batch is aborted and its ids
+   * become eligible for a later visible request. A visible batch is allowed to
+   * finish because its titles remain useful to the current viewport.
+   * @param query - the new local query text.
+   */
+  titleQueryChanged(query: string): void {
+    if (query.trim() === '') {
+      const inFlight = new Set(this.titleInFlightIds)
+      for (const id of this.titleQueue) {
+        if (!inFlight.has(id)) this.titleRequested.delete(id)
+      }
+      this.titleQueue = []
+      this.exhaustiveTitlesQueued = false
+      if (!this.titleInFlightExhaustive) return
+      this.titleGeneration += 1
+      for (const id of this.titleInFlightIds) this.titleRequested.delete(id)
+      this.titleInFlightIds = []
+      this.titleAbort?.abort()
+    }
   }
 
   /** Load the unfiltered newest-first listing for backward-compatible callers. */
@@ -466,18 +599,23 @@ export class SessionCatalog {
     }
     if (ids.size === 0) return
     const generation = (this.titleGeneration += 1)
+    this.titleQueue = []
+    this.exhaustiveTitlesQueued = false
+    this.titleRequested.clear()
+    this.titleInFlightIds = []
+    this.titleInFlightExhaustive = false
     this.titleAbort?.abort()
     const abort = new AbortController()
     this.titleAbort = abort
     void (async (): Promise<void> => {
       try {
-        const traits = observedTraits(await query.readTitleSnapshots([...ids], abort.signal))
+        const observations = titleObservations(await query.readTitleSnapshots([...ids], abort.signal))
         if (this.stale(generation, this.titleGeneration) || this.disposed) return
         let changed = false
         if (this.listingGeneration === listingGeneration && this.base === listing && listing.kind === 'ready') {
           this.base = {
             ...listing,
-            entries: listing.entries.map(entry => applyObservedTitle(entry, traits)),
+            entries: listing.entries.map(entry => applyObservedTitle(entry, observations)),
           }
           changed = true
         }
@@ -489,7 +627,7 @@ export class SessionCatalog {
           // only the captured ids may be re-titled, and a trailing row keeps
           // whatever title its own page read had.
           contentChain.entries = contentChain.entries.map(entry => ids.has(entry.id)
-            ? applyObservedTitle(entry, traits)
+            ? applyObservedTitle(entry, observations)
             : entry)
           const content = this.contentState
           if (content.kind === 'ready' && content.query === contentChain.query) {
@@ -497,11 +635,16 @@ export class SessionCatalog {
           }
           changed = true
         }
-        if (this.navigator.reconcileLineageTitles(lineage, traits)) changed = true
+        if (this.navigator.reconcileLineageTitles(lineage, exactTitleTraits(observations))) changed = true
         if (changed) this.spec.invalidate()
       } catch (error: unknown) {
         if (this.stale(generation, this.titleGeneration)) return
         if (errorCode(error) === SEARCH_ABORTED) return
+      } finally {
+        if (this.titleAbort === abort) {
+          this.titleAbort = undefined
+          this.drainTitleQueue()
+        }
       }
     })()
   }
@@ -627,6 +770,11 @@ export class SessionCatalog {
     this.listingAbort?.abort()
     this.titleAbort?.abort()
     this.searchAbort?.abort()
+    this.titleQueue = []
+    this.exhaustiveTitlesQueued = false
+    this.titleRequested.clear()
+    this.titleInFlightIds = []
+    this.titleInFlightExhaustive = false
     this.listingAbort = undefined
     this.titleAbort = undefined
     this.searchAbort = undefined
@@ -652,6 +800,11 @@ export class SessionCatalog {
     this.titleGeneration += 1
     this.listingAbort?.abort()
     this.titleAbort?.abort()
+    this.titleQueue = []
+    this.exhaustiveTitlesQueued = false
+    this.titleRequested.clear()
+    this.titleInFlightIds = []
+    this.titleInFlightExhaustive = false
     const abort = new AbortController()
     this.listingAbort = abort
     this.base = { kind: 'loading' }
@@ -662,23 +815,88 @@ export class SessionCatalog {
         const records = clauses.length === 0
           ? await query.listSessions(abort.signal)
           : await query.filterSessions(clauses, abort.signal)
-        const { entries: kept, truncated } = retainListing(records, filters.origin, this.limit)
-        const traits = observedTraits(await query.readTitleSnapshots(
-          kept.map(entry => entry.id),
-          abort.signal,
-        ))
         if (this.stale(generation, this.listingGeneration)) return
-        this.base = {
-          kind: 'ready',
-          entries: kept.map(entry => ({ ...entry, title: traits.get(entry.id)?.title })),
-          truncated,
-        }
+        const { entries: kept, truncated } = retainListing(
+          records,
+          filters.origin,
+          this.limit,
+          this.spec.titleHints,
+        )
+        if (this.stale(generation, this.listingGeneration)) return
+        // Metadata is the cheap, authoritative half of the listing. Publish it
+        // before asking Harness to open any cold log; the overlay can already
+        // navigate by age/workspace/id while title work is demand-driven.
+        this.base = { kind: 'ready', entries: kept, truncated }
+        this.spec.invalidate()
+        // The first viewport is the useful default when a caller owns a catalog
+        // without an overlay yet. It is deliberately bounded; a reader who
+        // resumes immediately cannot be held behind 180 unrelated bodies.
+        this.prioritizeTitles(kept.slice(0, TITLE_BATCH_SIZE))
       } catch (error: unknown) {
         if (this.stale(generation, this.listingGeneration)) return
         if (errorCode(error) === SEARCH_ABORTED) return
         this.base = { kind: 'failed', message: reason(error) }
+        this.spec.invalidate()
       }
-      this.spec.invalidate()
+    })()
+  }
+
+  /** Start the next bounded exact-title batch, if demand has queued one. */
+  private drainTitleQueue(): void {
+    const query = this.spec.query
+    if (query === undefined || this.disposed || this.titleAbort !== undefined) return
+    if (this.base.kind !== 'ready' || this.titleQueue.length === 0) return
+    const batchSize = this.exhaustiveTitlesQueued ? EXHAUSTIVE_TITLE_BATCH_SIZE : TITLE_BATCH_SIZE
+    const ids = this.titleQueue.splice(0, batchSize)
+    const listing = this.base
+    const generation = this.titleGeneration
+    const abort = new AbortController()
+    this.titleAbort = abort
+    this.titleInFlightIds = ids
+    this.titleInFlightExhaustive = this.exhaustiveTitlesQueued
+    void (async (): Promise<void> => {
+      let changed = false
+      try {
+        const observations = titleObservations(await query.readTitleSnapshots(ids, abort.signal))
+        for (const id of ids) {
+          if (observations.has(id)) continue
+          observations.set(id, {
+            state: { kind: 'failed', title: undefined, message: 'Harness returned no title observation' },
+          })
+        }
+        if (this.stale(generation, this.titleGeneration) || this.base !== listing) return
+        this.base = {
+          ...listing,
+          entries: listing.entries.map(entry => ids.includes(entry.id)
+            ? applyObservedTitle(entry, observations)
+            : entry),
+        }
+        changed = true
+      } catch (error: unknown) {
+        if (this.stale(generation, this.titleGeneration) || errorCode(error) === SEARCH_ABORTED) return
+        if (this.base !== listing) return
+        const observations = new Map<SessionId, TitleObservation>(ids.map(id => [id, {
+          state: { kind: 'failed', title: undefined, message: reason(error) },
+        }]))
+        this.base = {
+          ...listing,
+          entries: listing.entries.map(entry => ids.includes(entry.id)
+            ? applyObservedTitle(entry, observations)
+            : entry),
+        }
+        changed = true
+      } finally {
+        if (this.titleAbort === abort) {
+          if (!this.stale(generation, this.titleGeneration) && !this.disposed && changed) {
+            this.spec.invalidate()
+          }
+          if (this.titleQueue.length === 0) this.exhaustiveTitlesQueued = false
+          this.titleAbort = undefined
+          this.titleInFlightIds = []
+          this.titleInFlightExhaustive = false
+          if (!this.disposed) this.drainTitleQueue()
+        }
+      }
     })()
   }
 
@@ -693,7 +911,7 @@ export class SessionCatalog {
       try {
         const request = cursor === undefined ? chain.request : { ...chain.request, cursor }
         const page = await query.searchSessions(request, { signal: abort.signal })
-        const traits = observedTraits(await query.readTitleSnapshots(
+        const observations = titleObservations(await query.readTitleSnapshots(
           page.items.map(hit => hit.header.id),
           abort.signal,
         ))
@@ -705,7 +923,7 @@ export class SessionCatalog {
         // hit's own header, which classifies an absent origin as `own` per the
         // header contract.
         const pageEntries = applyOrigin(
-          page.items.map(hit => toEntry(hit, traits.get(hit.header.id), hit.bestMatch.snippet)),
+          page.items.map(hit => toEntry(hit, observations.get(hit.header.id), hit.bestMatch.snippet)),
           this.filterValue.origin,
         )
         chain.entries = [...chain.entries, ...pageEntries]

@@ -161,9 +161,8 @@ which was a deletion rather than a feature:
 - an ordinary row is a title and a relative age. Workspace, origin,
   availability, lineage, event count, and session id all moved behind `→`,
   where one session is disclosed with its own facts and its own actions
-- the bounded `listEvents()` read now happens when that surface is opened and
-  never because the cursor moved, so ordinary browsing costs one listing and
-  one batched title observation
+- the bounded `listEvents()` read now happens when that surface is opened; an
+  ordinary list never reads event bodies just because the cursor moved
 - filters left the per-session menu for `ctrl-f`: they narrow the CORPUS, and
   offering them under one row's title said otherwise. A ctrl gesture rather
   than a bare `f` because every printable character is search input here
@@ -180,6 +179,23 @@ without a second index or a log scan as the cursor moves:
   is explicitly opened, so rendering or moving through results reads no log
 - `Load more…` and `Refresh` keep their existing Enter behavior, and closing the
   inspector restores the search's query, results, selection, and viewport
+
+Sessions 3.2 made the list progressive without changing the corpus authority:
+
+- metadata rows publish as soon as `listSessions()` / `filterSessions()` returns;
+  exact titles hydrate in visible-row batches rather than blocking the picker
+- every row distinguishes pending, provisional, exact title, exact absence, and
+  failed title observation; unresolved rows never masquerade as `untitled`
+- workspace and id matching work immediately, while title filtering stays
+  explicitly incomplete until the relevant retained titles settle
+- closing, filtering, or replacing the browser aborts obsolete title work
+- Harness projection-cache hints may provide provisional labels, but dshline
+  keeps no title database and still reconciles through the exact query seam
+
+The next Harness-target migration should consume a generic body-free
+`listSessionHints()` observation with explicit `sequenced` versus `cached`
+provenance. That upstream read can eliminate most cold-log title reads; the
+current dshline change deliberately uses only APIs in the pinned generation.
 
 ### 4. Connect — merged
 
