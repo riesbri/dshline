@@ -684,6 +684,86 @@ describe('missing output is reported, never silently spliced', () => {
     expect(frame.split('… earlier output not retained …')).toHaveLength(2)
   })
 
+  it('reports a loss even when the ring retains no text at all to carry it', () => {
+    // The seam permits a configuration where this happens legitimately, so it is
+    // not a corner invented for a test. `retainBytes` is validated as a positive
+    // integer and nothing forbids `1`; the ring's tail cut then starts one byte
+    // from the end of a three-byte CJK code point, finds that boundary is INSIDE
+    // the code point, and walks forward to the end of the string. What survives is
+    // a zero-length chunk at the stream's end, marked `gapBefore`.
+    //
+    // The consequence for a viewer is the whole point: output DID exist and is no
+    // longer retained. Rendering that as an empty tail — and therefore as "no
+    // output yet" — would state the opposite of the truth.
+    const fake = new FakeJobs(1)
+    fake.start('bash-1')
+    fake.append('bash-1', '审')
+    const observation = observeJobOutput({
+      jobs: fake.registry(), id: 'bash-1', caller: ROOT, invalidate: () => {},
+    })
+    // The registry's own view confirms the shape this reproduces: the ring's
+    // total and earliest have met, and nothing readable is retained.
+    expect(fake.readAts()).toEqual([{ id: 'bash-1', from: 0, caller: ROOT }])
+    expect(lines(observation!.reading())).toEqual(['GAP'])
+  })
+
+  it('carries one loss marker forward onto the next output that survives', () => {
+    // The gap has to SURVIVE the read that discovered it, because at that moment
+    // there is nothing to draw it on. It attaches to the first chunk that does
+    // carry text, and only once.
+    const fake = new FakeJobs(1)
+    fake.start('bash-1')
+    fake.append('bash-1', '审')
+    const observation = observeJobOutput({
+      jobs: fake.registry(), id: 'bash-1', caller: ROOT, invalidate: () => {},
+    })
+    expect(lines(observation!.reading())).toEqual(['GAP'])
+    // Repeated readings before any new output repeat the SAME single marker: the
+    // loss is one fact about the stream, not one fact per frame.
+    expect(lines(observation!.reading())).toEqual(['GAP'])
+    // One byte is exactly what a retention cap of 1 keeps whole, so this is the
+    // follow-up output that genuinely survives. A longer line would be trimmed
+    // back down by the same cap and prove nothing.
+    fake.append('bash-1', 'x')
+    expect(lines(observation!.reading())).toEqual(['GAP', 'x'])
+    // A further append carries no newline, so it CONTINUES that line rather than
+    // starting one — line structure comes from the producer's own newlines, not
+    // from chunk boundaries. What matters here is that the marker did not come
+    // back: one missing region, one marker, however many reads follow.
+    fake.append('bash-1', 'y')
+    expect(lines(observation!.reading())).toEqual(['GAP', 'xy'])
+    fake.append('bash-1', '\n')
+    expect(lines(observation!.reading())).toEqual(['GAP', 'xy'])
+  })
+
+  it('draws that loss in the frame instead of claiming no output yet', () => {
+    const fake = new FakeJobs(1)
+    fake.start('bash-1')
+    fake.append('bash-1', '审')
+    const { work } = harness(fake)
+    const overlay = createWorkOverlay({
+      snapshot: () => work.snapshot(),
+      interruptSubagent: () => ({ kind: 'unsupported', message: 'no' }),
+      stopJob: () => ({ kind: 'unsupported', message: 'no' }),
+      observeJob: id => work.observeJob(id),
+      close: () => {},
+      invalidate: () => {},
+    })
+    overlay.render(100, 40)
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    const frame = overlay.render(100, 40).map(stripAnsi).join('\n')
+    expect(frame).toContain('… earlier output not retained …')
+    // "No output yet" is a claim about a producer that has not spoken. This
+    // producer spoke, and its output aged out, which is a different fact.
+    expect(frame).not.toContain('No output yet')
+    // Once ordinary output follows, the marker and the text read together.
+    fake.append('bash-1', 'x')
+    const next = overlay.render(100, 40).map(stripAnsi).join('\n')
+    expect(next).toContain('… earlier output not retained …')
+    expect(next).toContain('x')
+    expect(next.split('… earlier output not retained …')).toHaveLength(2)
+  })
+
   it('marks a lossy read once, and keeps the stream readable after it', () => {
     const fake = new FakeJobs(20)
     fake.start('bash-1')

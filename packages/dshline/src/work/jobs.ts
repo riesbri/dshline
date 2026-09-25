@@ -193,6 +193,21 @@ class JobOutputObserver implements JobOutputObservation {
   private retainedBytes = 0
   /** Absolute byte offset the next `readAt` resumes from. */
   private cursor = 0
+  /**
+   * A loss boundary that is known but not yet attached to any retained text.
+   *
+   * The seam makes no promise that a lossy read yields anything displayable: the
+   * ring's own tail cut can reduce a chunk to zero bytes, and a zero-length
+   * chunk still reports the loss through `gapBefore`. Representing loss only as a
+   * property of a retained chunk therefore loses the loss exactly when there is
+   * nothing left to represent it on — and an empty tail then reads as "no output
+   * yet", which is the opposite of the truth.
+   *
+   * This flag is that missing representation. It survives reads until output
+   * arrives to carry it, and it is never cleared by rendering, so the marker is
+   * one fact about the stream rather than one per frame.
+   */
+  private unattachedGap = false
   /** True once {@link dispose} ran; a late event must reach nothing. */
   private disposed = false
   /** Unsubscribes from the registry. */
@@ -304,14 +319,30 @@ class JobOutputObserver implements JobOutputObservation {
     // the front of what we hold would be a lie unless it is marked. It rides on
     // the FIRST chunk kept rather than on every chunk, which is what keeps one
     // missing region from being reported once per chunk.
-    let gapPending = read.lossy
+    //
+    // It rides on the first chunk kept ONLY if there is one. Nothing in the
+    // contract ties `lossy` to surviving text: the ring's own tail cut can leave a
+    // zero-length chunk (a cap of one byte against a three-byte CJK code point
+    // walks the boundary forward to the end of the string), and a chunk that
+    // retains nothing can still carry a `gapBefore`. So the gap is its own state
+    // and outlives the read that discovered it, rather than a property of a chunk
+    // that may not exist. A loss with nothing to draw it on is still a loss.
+    let gapPending = read.lossy || this.unattachedGap
     for (const chunk of read.chunks) {
       const gap = gapPending || chunk.gapBefore === true
-      gapPending = false
       const text = unseenText(chunk, this.cursor)
-      if (text === '') continue
+      if (text === '') {
+        // Nothing survives to carry the marker, so it waits for output that does.
+        if (gap) gapPending = true
+        continue
+      }
       const bytes = Buffer.byteLength(text, 'utf8')
-      if (bytes === 0) continue
+      if (bytes === 0) {
+        if (gap) gapPending = true
+        continue
+      }
+      gapPending = false
+      this.unattachedGap = false
       this.chunks.push({
         at: chunk.at + Buffer.byteLength(chunk.text, 'utf8') - bytes,
         text,
@@ -321,6 +352,7 @@ class JobOutputObserver implements JobOutputObservation {
       })
       this.retainedBytes += bytes
     }
+    this.unattachedGap = gapPending
     this.trim()
   }
 
@@ -384,6 +416,15 @@ class JobOutputObserver implements JobOutputObservation {
   private lines(): JobOutputLine[] {
     const lines: JobOutputLine[] = []
     let open: { text: string; channel?: JobChannel } | undefined
+    // A loss with no retained text to sit on is reported as its own leading
+    // marker. Suppressed when the front of what IS retained already carries one,
+    // because then the two describe the same missing stretch and one marker says
+    // it better than two. Reading does not clear the flag: the next rendering
+    // must say the same thing, and the flag itself is cleared only when output
+    // arrives to carry it.
+    if (this.unattachedGap && this.chunks[0]?.gapBefore !== true) {
+      lines.push({ text: '', gapBefore: true })
+    }
     for (const chunk of this.chunks) {
       if (chunk.gapBefore === true) {
         if (open !== undefined) lines.push(open)
