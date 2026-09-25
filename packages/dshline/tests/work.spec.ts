@@ -1,4 +1,19 @@
-/** Tests for the optional generic Harness Work projection and live overlay. */
+/**
+ * Tests for the optional generic Harness Work projection and live overlay.
+ *
+ * The doubles below stand in for two Harness services, and each is written
+ * against the adopted generation's own vocabulary: `JobView` (with `owner` and
+ * the ring's coordinates, and no `reported`), the filtered `events` stream, and
+ * `listDescendants` rows discriminated on `kind` and `depth`. Where such a
+ * double is asserted, it is asserted as `never` at the single boundary where it
+ * becomes the service: `JobRegistry` and `SubagentRuntime` both descend from
+ * cordis' `Service`, whose protected members make a class type comparable only
+ * to itself and its own subclasses, so no partial object can satisfy one no
+ * matter how its shape is fixed. Every member a double DOES implement is typed
+ * against the real contract, and the service-typed field it lands in is what
+ * checks the rest.
+ * @module dshline/tests/work
+ */
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +24,8 @@ import {
   type JobEvent,
   type JobEventFilter,
   type JobEventListener,
+  type JobOutputRead,
+  type JobRead,
   type JobRegistry,
   type JobView,
 } from '@deepseek-ai/dsh-jobs'
@@ -130,18 +147,22 @@ function jobsSeam(views: () => JobView[]): JobsSeam {
   const listeners: JobEventListener[] = []
   const listCallers: unknown[] = []
   const forbidden: string[] = []
+  // The refused members keep their REAL declared return types: a double that
+  // claimed `never` would not be a stand-in for the contract at all. The
+  // refusal is runtime, and the throw is what a test that reaches for one
+  // fails on.
   const refuse = (member: string): never => {
     forbidden.push(member)
     throw new Error(`HarnessWork must never call ${member}()`)
   }
   return {
     jobs: {
-      list: (caller?: SessionId) => {
+      list: (caller?: SessionId): JobView[] => {
         listCallers.push(caller)
         return views()
       },
       events: {
-        subscribe: (filter: JobEventFilter, listener: JobEventListener) => {
+        subscribe: (filter: JobEventFilter, listener: JobEventListener): (() => void) => {
           filters.push(filter)
           listeners.push(listener)
           return () => {
@@ -150,13 +171,13 @@ function jobsSeam(views: () => JobView[]): JobsSeam {
           }
         },
       },
-      get: () => refuse('get'),
-      read: () => refuse('read'),
-      readAt: () => refuse('readAt'),
-      kill: () => refuse('kill'),
-      wait: () => refuse('wait'),
-      remove: () => refuse('remove'),
-    } as JobRegistry,
+      get: (): JobView => refuse('get'),
+      read: (): JobRead => refuse('read'),
+      readAt: (): JobOutputRead => refuse('readAt'),
+      kill: (): 'requested' | 'already-finished' => refuse('kill'),
+      wait: (): Promise<JobView> => refuse('wait'),
+      remove: (): void => refuse('remove'),
+    } as never,
     filters: () => filters,
     listCallers: () => listCallers,
     forbidden: () => forbidden,
@@ -327,7 +348,7 @@ describe('generic Harness Work capability projection', () => {
         scans.push(root)
         return [CONTINUABLE_CHILD]
       },
-    } as SubagentRuntime
+    } as never
     const work = new HarnessWork({
       agent,
       subagents,
@@ -356,7 +377,7 @@ describe('generic Harness Work capability projection', () => {
     let ended: EndListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listDescendants: async () => [] } as SubagentRuntime,
+      subagents: { listDescendants: async () => [] } as never,
       onSubagentStart: listener => { started = listener; return () => {} },
       onSubagentEnd: listener => { ended = listener; return () => {} },
       invalidate: () => {},
@@ -378,7 +399,7 @@ describe('generic Harness Work capability projection', () => {
   it('does not promote inactive durable children into active Work', async () => {
     const work = new HarnessWork({
       agent,
-      subagents: { listDescendants: async () => [INACTIVE_CHILD] } as SubagentRuntime,
+      subagents: { listDescendants: async () => [INACTIVE_CHILD] } as never,
       invalidate: () => {},
     })
     await settled()
@@ -390,7 +411,7 @@ describe('generic Harness Work capability projection', () => {
     let started: StartListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listDescendants: async () => [INACTIVE_CHILD] } as SubagentRuntime,
+      subagents: { listDescendants: async () => [INACTIVE_CHILD] } as never,
       onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
@@ -409,7 +430,7 @@ describe('generic Harness Work capability projection', () => {
     let started: StartListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listDescendants: async () => { throw new Error('projection unavailable') } } as SubagentRuntime,
+      subagents: { listDescendants: async () => { throw new Error('projection unavailable') } } as never,
       onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
@@ -423,7 +444,7 @@ describe('generic Harness Work capability projection', () => {
     let started: StartListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listDescendants: async () => [{ ...CONTINUABLE_CHILD, mode: 'one-shot' as const }] } as SubagentRuntime,
+      subagents: { listDescendants: async () => [{ ...CONTINUABLE_CHILD, mode: 'one-shot' as const }] } as never,
       onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
@@ -440,7 +461,7 @@ describe('generic Harness Work capability projection', () => {
       // The walk returns whole catalogs, so a grandchild arrives beside the
       // direct children. Work's lifecycle edges are scoped to THIS parent, so a
       // deeper row belongs to some other parent's branch.
-      subagents: { listDescendants: async () => [CONTINUABLE_CHILD, GRANDCHILD] } as SubagentRuntime,
+      subagents: { listDescendants: async () => [CONTINUABLE_CHILD, GRANDCHILD] } as never,
       onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
@@ -464,7 +485,7 @@ describe('generic Harness Work capability projection', () => {
     let started: StartListener | undefined
     const work = new HarnessWork({
       agent,
-      subagents: { listDescendants: async () => [CORRUPT_CHILD] } as SubagentRuntime,
+      subagents: { listDescendants: async () => [CORRUPT_CHILD] } as never,
       onSubagentStart: listener => { started = listener; return () => {} },
       invalidate: () => {},
     })
@@ -493,7 +514,7 @@ describe('generic Harness Work capability projection', () => {
     let invalidated = 0
     const work = new HarnessWork({
       agent,
-      subagents: { listDescendants: () => pending } as SubagentRuntime,
+      subagents: { listDescendants: () => pending } as never,
       invalidate: () => { invalidated += 1 },
     })
     work.dispose()
@@ -520,7 +541,7 @@ describe('generic Harness Work capability projection', () => {
     const subagents = {
       listDescendants: async () => [],
       interrupt: (...args: unknown[]) => { calls.push(args) },
-    } as SubagentRuntime
+    } as never
     const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
     expect(work.interrupt(subagentItem({ id: 'child', interruptible: true }))).toEqual(INTERRUPT_REQUESTED)
     // The authority is the exact parent SESSION, not a loose provider name.
@@ -1084,7 +1105,7 @@ describe('the Work live-region overlay', () => {
     const interrupted: string[] = []
     const overlay = createWorkOverlay({
       snapshot: () => ({ ...EMPTY, available: true, subagents: items, jobs: [] }),
-      interrupt: item => { interrupted.push(item.runId); return INTERRUPT_REQUESTED },
+      interrupt: item => { interrupted.push(item.source === 'subagent' ? item.runId : item.id); return INTERRUPT_REQUESTED },
       close: () => {},
       invalidate: () => {},
     })

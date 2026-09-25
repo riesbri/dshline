@@ -24,23 +24,29 @@ interface Fixture {
   presets?: AgentPresetRow[]
   defaultId?: string
   composed?: string
+  /** The rendered composition each preset's `readDocument` answers with. */
   compositions?: Record<string, string | Error>
-  authorable?: boolean
+  /** Called with every id `readDocument` is asked for, so a read can be counted. */
+  onRead?: (agentPreset: string) => void
   withoutAgentPresets?: boolean
   withoutSettings?: boolean
+  withoutConfigEditor?: boolean
 }
 
 /**
  * Build seams that answer exactly what a test asked for.
+ *
+ * The roster carries no `trust` and no `path` — the adopted registry publishes
+ * neither, and a fake that re-added them would be modelling the previous
+ * generation's fiction rather than the real service's shape.
  * @param fixture - the answers.
  * @returns the seams.
  */
 function seamsFor(fixture: Fixture): PluginsSeams {
   const agentPresets: AgentPresetsSeam = {
     get defaultId() { return fixture.defaultId ?? 'standard' },
-    authorable: fixture.authorable ?? true,
     list: async () => fixture.presets ?? [
-      { id: 'standard', trust: 'system', path: '/system/standard', name: 'Standard mode' },
+      { id: 'standard', name: 'Standard mode' },
     ],
     resolve: async (id?: string) => {
       const found = (fixture.presets ?? []).find(preset => preset.id === id)
@@ -48,18 +54,25 @@ function seamsFor(fixture: Fixture): PluginsSeams {
       return found
     },
     composedPreset: () => fixture.composed,
-    recompose: async (_agentCtx, id) => ({ id, trust: 'user', path: `/user/${id}` }),
-    read: async (id: string) => {
-      const answer = fixture.compositions?.[id] ?? STANDARD_TEXT
+    mount: async (_agentCtx, id) => ({ id: id ?? 'standard' }),
+    recompose: async (_agentCtx, id) => ({ id }),
+    select: async (_agent, id) => id,
+    // View-only by construction: the registry renders the declared child list
+    // back as entry-list YAML and accepts nothing in return, so this is the one
+    // composition read `/plugins` gets.
+    readDocument: async agentPreset => {
+      fixture.onRead?.(agentPreset)
+      const answer = fixture.compositions?.[agentPreset] ?? STANDARD_TEXT
       if (answer instanceof Error) throw answer
-      return answer
+      return { agentPreset, content: answer }
     },
-    copy: async () => {},
-    remove: async () => {},
   }
   return {
     agentPresets: fixture.withoutAgentPresets === true ? undefined : agentPresets,
-    settings: fixture.withoutSettings === true ? undefined : { mutate: async () => {} },
+    settings: fixture.withoutSettings === true ? undefined : { update: async () => {} },
+    configEditor: fixture.withoutConfigEditor === true
+      ? undefined
+      : { entries: () => [], edit: async () => {} },
   }
 }
 
@@ -106,9 +119,18 @@ describe('PluginsCatalog: a ready read', () => {
   })
 
   it('reports capabilities from what is actually mounted', async () => {
-    const state = await read({ withoutSettings: true, authorable: false })
+    const state = await read({ withoutSettings: true, withoutConfigEditor: true })
     if (state.kind !== 'ready') throw new Error('expected ready')
-    expect(state.capabilities).toEqual({ agentPresets: true, settings: false, canWriteUserPresets: false })
+    // `canWriteUserPresets` is gone with the writable preset root it stood for:
+    // what a profile can do now is mount the editor or not, and the default
+    // preset is a field of a namespace rather than a file the roster owns.
+    expect(state.capabilities).toEqual({ agentPresets: true, settings: false, configEditor: false })
+  })
+
+  it('reports the configuration editor as mounted where a read is mounted', async () => {
+    const state = await read({})
+    if (state.kind !== 'ready') throw new Error('expected ready')
+    expect(state.capabilities).toEqual({ agentPresets: true, settings: true, configEditor: true })
   })
 
   it('reports blank true when the session has produced no turn', async () => {
@@ -142,18 +164,57 @@ describe('PluginsCatalog: a ready read', () => {
   })
 })
 
-describe('PluginsCatalog: system and user presets together', () => {
-  it('lists both trusts without special-casing either', async () => {
+describe('PluginsCatalog: a read composes nothing', () => {
+  it('never calls mount, recompose, or select while gathering a pass', async () => {
+    // The adopted seam is one object with three composition-owning methods
+    // beside two read-only ones, and the adopted catalog holds none of them: a
+    // pass that reached for one would re-parent the agent's scope while merely
+    // drawing a list. Rigged to throw so the assertion is a failure by name
+    // rather than a silent equivalent.
+    const base = seamsFor({}).agentPresets
+    if (base === undefined) throw new Error('expected a preset seam')
+    const seams: PluginsSeams = {
+      agentPresets: {
+        ...base,
+        mount: () => { throw new Error('a read must not mount') },
+        recompose: () => { throw new Error('a read must not recompose') },
+        select: () => { throw new Error('a read must not select') },
+      },
+      settings: { update: async () => {} },
+      configEditor: { entries: () => [], edit: async () => {} },
+    }
+    const catalog = new PluginsCatalog({
+      seams,
+      agentCtx: {},
+      session: () => ({ presetId: undefined, started: false }),
+      host: () => NO_HOST,
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await vi.waitFor(() => { expect(catalog.state().kind).toBe('ready') })
+  })
+})
+
+describe('PluginsCatalog: every declaration is listed, broken ones included', () => {
+  it('lists the roster in order, without special-casing any of it', async () => {
+    // The previous generation tagged each row as shipped or profile-authored
+    // and had a word for each. Nothing in the adopted roster supports that
+    // distinction, so what is left to protect is the opposite: nothing is
+    // filtered, re-ranked, or re-labelled on the way to the screen.
     const state = await read({
       presets: [
-        { id: 'standard', trust: 'system', path: '/system/standard', name: 'Standard mode' },
-        { id: 'standard-custom', trust: 'user', path: '/user/standard-custom', name: 'Standard (custom)' },
+        { id: 'standard', name: 'Standard mode' },
+        { id: 'standard-custom', name: 'Standard (custom)' },
+        { id: 'minimal' },
+        { id: 'broken-one', broken: 'composition is not a list of entries' },
       ],
     })
     if (state.kind !== 'ready') throw new Error('expected ready')
-    expect(state.presets.map(row => [row.id, row.trust])).toEqual([
-      ['standard', 'system'],
-      ['standard-custom', 'user'],
+    expect(state.presets.map(row => [row.id, row.name, row.broken])).toEqual([
+      ['standard', 'Standard mode', undefined],
+      ['standard-custom', 'Standard (custom)', undefined],
+      ['minimal', 'minimal', undefined],
+      ['broken-one', 'broken-one', 'composition is not a list of entries'],
     ])
   })
 })
@@ -162,7 +223,7 @@ describe('PluginsCatalog: the roster\'s own broken is authoritative over dshline
   it('reports broken using the Harness-provided reason even when the raw file parses cleanly here', async () => {
     const state = await read({
       presets: [
-        { id: 'standard', trust: 'system', path: '/system/standard', name: 'Standard mode', broken: 'a service row escaped its isolate realm' },
+        { id: 'standard', name: 'Standard mode', broken: 'a service row escaped its isolate realm' },
       ],
       // A perfectly well-formed composition, as far as this parser is concerned.
       compositions: { standard: STANDARD_TEXT },
@@ -175,20 +236,34 @@ describe('PluginsCatalog: the roster\'s own broken is authoritative over dshline
     })
   })
 
-  it('never calls read() at all once the roster already reports broken', async () => {
-    let readCalls = 0
+  it('never calls readDocument() at all once the roster already reports broken', async () => {
+    const reads: string[] = []
     const state = await read({
       presets: [
-        { id: 'standard', trust: 'system', path: '/system/standard', name: 'Standard mode', broken: 'unmountable' },
+        { id: 'standard', name: 'Standard mode', broken: 'unmountable' },
       ],
-      compositions: new Proxy(
-        {},
-        { get: () => { readCalls += 1; return STANDARD_TEXT } },
-      ) as unknown as Record<string, string>,
+      onRead: id => { reads.push(id) },
     })
     if (state.kind !== 'ready') throw new Error('expected ready')
     expect(state.browsing.kind).toBe('broken')
-    expect(readCalls).toBe(0)
+    expect(reads).toEqual([])
+  })
+
+  it('reads exactly the browsed preset, and no other', async () => {
+    const reads: string[] = []
+    const state = await read({
+      presets: [
+        { id: 'standard', name: 'Standard mode' },
+        { id: 'minimal' },
+      ],
+      onRead: id => { reads.push(id) },
+      composed: 'minimal',
+    })
+    if (state.kind !== 'ready') throw new Error('expected ready')
+    // One composition is read per pass, and it is the one on screen — the
+    // registry renders a declaration only when it is asked for.
+    expect(reads).toEqual(['minimal'])
+    expect(state.browsing.presetId).toBe('minimal')
   })
 })
 
@@ -217,8 +292,8 @@ describe('PluginsCatalog.browse: switching what is read without touching the ses
     const catalog = new PluginsCatalog({
       seams: seamsFor({
         presets: [
-          { id: 'standard', trust: 'system', path: '/system/standard', name: 'Standard mode' },
-          { id: 'standard-custom', trust: 'user', path: '/user/standard-custom' },
+          { id: 'standard', name: 'Standard mode' },
+          { id: 'standard-custom' },
         ],
         compositions: { standard: STANDARD_TEXT, 'standard-custom': '- id: tool-fs\n  name: fs\n' },
         composed: 'standard',
@@ -247,25 +322,21 @@ describe('PluginsCatalog: generation-stamped refresh', () => {
     let resolveFirst: (() => void) | undefined
     const gate = new Promise<void>(resolve => { resolveFirst = resolve })
     let calls = 0
+    const invalidations: number[] = []
+    const base = seamsFor({}).agentPresets
+    if (base === undefined) throw new Error('expected a preset seam')
     const seams: PluginsSeams = {
       agentPresets: {
-        get defaultId() { return 'standard' },
-        authorable: true,
+        ...base,
         list: async () => {
           calls += 1
           if (calls === 1) await gate
-          return [{ id: 'standard', trust: 'system', path: '/s', name: 'Standard' }]
+          return [{ id: 'standard', name: 'Standard' }]
         },
-        resolve: async id => ({ id: id ?? 'standard', trust: 'system', path: '/s' }),
-        composedPreset: () => undefined,
-        recompose: async (_ctx, id) => ({ id, trust: 'user', path: `/u/${id}` }),
-        read: async () => STANDARD_TEXT,
-        copy: async () => {},
-        remove: async () => {},
       },
-      settings: { mutate: async () => {} },
+      settings: { update: async () => {} },
+      configEditor: { entries: () => [], edit: async () => {} },
     }
-    const invalidations: number[] = []
     const catalog = new PluginsCatalog({
       seams,
       agentCtx: {},
@@ -286,19 +357,12 @@ describe('PluginsCatalog: generation-stamped refresh', () => {
   it('drops results from passes that started before dispose()', async () => {
     let release: (() => void) | undefined
     const gate = new Promise<void>(resolve => { release = resolve })
+    const base = seamsFor({}).agentPresets
+    if (base === undefined) throw new Error('expected a preset seam')
     const seams: PluginsSeams = {
-      agentPresets: {
-        get defaultId() { return 'standard' },
-        authorable: true,
-        list: async () => { await gate; return [] },
-        resolve: async id => ({ id: id ?? 'standard', trust: 'system', path: '/s' }),
-        composedPreset: () => undefined,
-        recompose: async (_ctx, id) => ({ id, trust: 'user', path: `/u/${id}` }),
-        read: async () => STANDARD_TEXT,
-        copy: async () => {},
-        remove: async () => {},
-      },
-      settings: { mutate: async () => {} },
+      agentPresets: { ...base, list: async () => { await gate; return [] } },
+      settings: { update: async () => {} },
+      configEditor: { entries: () => [], edit: async () => {} },
     }
     const catalog = new PluginsCatalog({
       seams,

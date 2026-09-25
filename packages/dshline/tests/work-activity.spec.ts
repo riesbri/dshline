@@ -12,12 +12,15 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentOptions, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
-import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
+import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
+import type { SubagentDescendantListEntry, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { ToolCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { stripAnsi } from '@dshline/renderer'
 import { HarnessWork } from '../src/work/index.ts'
+import type { WorkCapabilities } from '../src/work/index.ts'
 import { ChildActivityObserver, appendOutputTail, OUTPUT_TAIL_LIMIT } from '../src/work/activity.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { WorkInterruptResult, WorkSnapshot, SubagentWorkItem } from '../src/work/model.ts'
@@ -25,6 +28,12 @@ import { activeElapsedMs, subagentDuration } from '../src/work/model.ts'
 
 /** Standard successful interrupt response for overlay-only tests. */
 const INTERRUPT_REQUESTED: WorkInterruptResult = { kind: 'requested', message: 'Interrupt requested.' }
+
+/** The exact listener `HarnessWork` registers for a `subagent/start` edge. */
+type StartInfo = Parameters<NonNullable<WorkCapabilities['onSubagentStart']>>[0]
+
+/** The exact listener `HarnessWork` registers for a `subagent/end` edge. */
+type EndInfo = Parameters<NonNullable<WorkCapabilities['onSubagentEnd']>>[0]
 
 /** A minimal typed session event builder. */
 function ev(type: string, data: unknown = {}): SessionEvent {
@@ -36,17 +45,39 @@ function call(id: string, name: string): SessionEvent {
   return ev('tool/call', { turn: 1, step: 1, callId: id, name, arguments: '{}' })
 }
 
-/** A tool result settling one exact call id. */
+/**
+ * A tool result settling one exact call id.
+ *
+ * The adopted generation makes a `tool/result` a first-class tool-role message
+ * that carries its OWN `toolCallId`; the identity is no longer something a
+ * reader has to dig out of the first content block, so this fixture puts it
+ * where the message itself holds it.
+ * @param id - the `tool/call` this result answers.
+ * @returns the session event under test.
+ */
 function result(id: string): SessionEvent {
   return ev('tool/result', {
     turn: 1, step: 1,
-    message: { content: [{ type: 'tool', toolCallId: id, content: [] }] },
+    message: { role: 'tool', toolCallId: id, content: [] },
   })
 }
 
 /** One live chunk frame for one attempt of the child's stream. */
 function frame(chunk: unknown, attemptId = 's:1'): AssistantStreamFrame {
   return { type: 'chunk', attemptId, revision: 1, index: 0, time: 0, chunk } as AssistantStreamFrame
+}
+
+/**
+ * One STORED attempt: how a persisted log keeps a model attempt that committed
+ * no surface message, carrying the frame it grew from inside the record.
+ * @param chunk - the recorded stream chunk.
+ * @returns the session event a cold-resumed child's log actually holds.
+ */
+function attempt(chunk: unknown): SessionEvent {
+  return ev('assistant/attempt', {
+    turn: 1, step: 1,
+    stream: [{ type: 'chunk', time: 0, chunk }],
+  })
 }
 
 /** A reasoning delta frame. */
@@ -189,26 +220,32 @@ function harness(
   invalidations: () => number
 } {
   let invalidations = 0
-  let started: ((info: { runId: string; provider: string; id: string; local: boolean }) => void) | undefined
-  let ended: ((info: { runId: string; provider: string; id: string; local: boolean; stopReason: 'completed' }) => void) | undefined
-  const root = { session: { id: 'root' }, ctx: rootCtx } as unknown as Agent
+  let started: StartInfo | undefined
+  let ended: EndInfo | undefined
+  const root = { session: { id: SessionId('root') }, ctx: rootCtx } as Agent
   const work = new HarnessWork({
     agent: root,
+    // Discovery is the recursive descendant walk, asked for this parent. These
+    // tests are about live activity, so no row is ever enriched from it. The
+    // double is asserted as `never` because `SubagentRuntime` descends from
+    // cordis' `Service`, whose protected members make a class type comparable
+    // only to itself and its subclasses; what it does implement is typed against
+    // the real `SubagentDescendantListEntry`.
     subagents: {
-      listChildren: async () => [],
+      listDescendants: async (): Promise<SubagentDescendantListEntry[]> => [],
       interrupt: () => {},
-    } as unknown as SubagentRuntime,
+    } as never,
     agents: { get: id => registry.get(String(id)) },
     resolveTool: lookup(views),
-    onSubagentStart: listener => { started = listener as typeof started; return () => {} },
-    onSubagentEnd: listener => { ended = listener as typeof ended; return () => {} },
+    onSubagentStart: listener => { started = listener; return () => {} },
+    onSubagentEnd: listener => { ended = listener; return () => {} },
     invalidate: () => { invalidations += 1 },
     ...projections === undefined ? {} : { projections: projections as never },
   })
   return {
     work,
-    start: info => started?.(info),
-    end: info => ended?.(info),
+    start: info => started?.({ ...info, runId: SubagentRunId(info.runId), id: SessionId(info.id) }),
+    end: info => ended?.({ ...info, runId: SubagentRunId(info.runId), id: SessionId(info.id) }),
     invalidations: () => invalidations,
   }
 }
@@ -531,13 +568,16 @@ describe('per-child semantic activity for Work', () => {
   it('never turns historical turns into current activity at attach', () => {
     const rootCtx = new Context()
     // A cold-resumed child opens with a whole persisted log: a completed turn
-    // and even an aborted interrupted turn must both stay history.
+    // and even an aborted interrupted turn must both stay history. A stored
+    // attempt keeps its frames inside an `assistant/attempt` record — the live
+    // `agent/assistant-stream` frames it grew from are not in the log at all,
+    // which is exactly why they must not be folded as current activity.
     const child = makeChild('child', 'idle', [
       ev('turn/start', { turn: 1 }),
-      reasoning(),
+      attempt({ type: 'reasoning-delta', index: 0, text: 'thinking…' }),
       ev('turn/end', { turn: 1, reason: { kind: 'completed' } }),
       ev('turn/start', { turn: 2 }),
-      text(),
+      attempt({ type: 'text-delta', index: 0, text: 'answer' }),
       ev('turn/end', { turn: 2, reason: { kind: 'aborted' } }),
     ])
     const registry = new Map([['child', child]])

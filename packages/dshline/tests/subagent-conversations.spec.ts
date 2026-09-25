@@ -755,7 +755,9 @@ describe('bounded transcript paging', () => {
     const ranges = [[30, 53], [6, 29], [1, 5], [6, 29], [30, 53]] as const
     for (let step = 0; step < ranges.length; step += 1) {
       if (step > 0) state = await (step <= 2 ? readTranscriptOlder : readTranscriptNewer)(session, 'c' as never, state)
-      const [start, end] = ranges[step]!
+      const range = ranges[step]
+      if (range === undefined) throw new Error(`step ${String(step)} has no expected page range`)
+      const [start, end] = range
       expect(state.events.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE)
       expect(state.events.map(event => event.seq)).toEqual(Array.from({ length: end - start + 1 }, (_, i) => start + i))
       expect(state).toMatchObject({ startSeq: start, endSeq: end, hasOlder: start > 1, hasNewer: end < 53 })

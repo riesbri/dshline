@@ -547,9 +547,12 @@ function eventBus(): { ctx: Context; emit: (event: string) => void } {
 }
 
 describe('watching for changes made from elsewhere', () => {
+  // `settings/updated` was removed in the adopted generation: it announced a
+  // resolved-value commit, deep-equal-gated. `settings/document-updated` is its
+  // replacement — a raw entry change, not value-gated — so a Connect pass that
+  // would once have been skipped now happens and simply reads the same values.
   const EVENTS = [
     'llm/adapters-updated',
-    'settings/updated',
     'settings/document-updated',
     'credentials/reference-updated',
     'credentials/record-updated',
@@ -587,7 +590,6 @@ describe('watching for changes made from elsewhere', () => {
     const { ctx, emit } = eventBus()
     const unwatch = watchAdapters(ctx, catalog)
     // A single write commonly fires more than one of these together.
-    emit('settings/updated')
     emit('settings/document-updated')
     emit('credentials/reference-updated')
     await vi.waitFor(() => { expect(reads).toBeGreaterThan(before) })
