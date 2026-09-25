@@ -14,7 +14,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session/types'
-import { SessionCatalog, CATALOG_LIMIT, CONTENT_SEARCH_LIMIT } from '../packages/dshline/lib/sessions/catalog.js'
+import { SessionCatalog, CATALOG_LIMIT, CONTENT_SEARCH_LIMIT, TITLE_BATCH_SIZE } from '../packages/dshline/lib/sessions/catalog.js'
 import { createSessionsOverlay } from '../packages/dshline/lib/sessions/overlay.js'
 import { NO_FILTERS } from '../packages/dshline/lib/sessions/filters.js'
 
@@ -40,7 +40,7 @@ function deferred() {
 // Fixture services settle only through microtasks. The bound detects broken fixtures instead
 // of hiding failures behind sleeps; no event-loop/network/disk latency is being simulated.
 async function settle() {
-  for (let turn = 0; turn < 12; turn += 1) await Promise.resolve()
+  for (let turn = 0; turn < 64; turn += 1) await Promise.resolve()
 }
 
 function fixture(size, mode) {
@@ -123,7 +123,7 @@ function fixture(size, mode) {
   return {
     counters, requests, query,
     deferTitles() { titleGate = deferred() },
-    releaseTitles() { const gate = titleGate; titleGate = undefined; gate.resolve() },
+    releaseTitles() { const gate = titleGate; titleGate = undefined; gate?.resolve() },
     invalidate() { if (instrument) counters.invalidates += 1 },
   }
 }
@@ -131,7 +131,7 @@ function fixture(size, mode) {
 function mount(f) {
   const catalog = new SessionCatalog({ query: f.query, invalidate: f.invalidate, workspace: { kind: 'cwd', cwd: WORKSPACE }, now: () => NOW })
   const children = []
-  const methods = ['listing', 'content', 'filters', 'applyFilters', 'loadMoreContent', 'restartContentSearch', 'lineage', 'requestLineage', 'events', 'searchEvents', 'loadMoreEvents', 'requestEventContext', 'eventContext', 'detail', 'requestDetail', 'search']
+  const methods = ['listing', 'content', 'filters', 'applyFilters', 'loadMoreContent', 'restartContentSearch', 'lineage', 'requestLineage', 'events', 'searchEvents', 'loadMoreEvents', 'requestEventContext', 'eventContext', 'detail', 'requestDetail', 'search', 'prioritizeTitles']
   const overlay = createSessionsOverlay({
     ...Object.fromEntries(methods.map(name => [name, catalog[name].bind(catalog)])),
     currentSessionId: undefined, workspace: WORKSPACE, home: '/home/fixture', now: () => NOW,
@@ -168,7 +168,7 @@ async function child(size, mode) {
     f.deferTitles()
     mounted.catalog.refresh()
     await settle()
-    assert.equal(mounted.catalog.listing().kind, 'loading')
+    assert.equal(mounted.catalog.listing().kind, 'ready')
     const pending = gcHeap()
     f.releaseTitles()
     await settle()
@@ -193,13 +193,20 @@ async function child(size, mode) {
       ? Object.fromEntries(Object.keys(before).map(name => [name, f.counters[name] - before[name]]))
       : { wallMs, cpuUserMs: used.user / 1_000, cpuSystemMs: used.system / 1_000, cpuTotalMs: (used.user + used.system) / 1_000 }
   }
-  await stage('firstCatalogOpen', async () => { mounted.catalog.refresh(); await settle(); ready(mounted.catalog) })
+  await stage('metadataList', async () => { mounted.catalog.refresh(); await settle(); ready(mounted.catalog) })
   assert.equal(ready(mounted.catalog).entries.length, Math.min(size, CATALOG_LIMIT))
   assert.equal(ready(mounted.catalog).truncated, Math.max(0, size - CATALOG_LIMIT))
   await stage('firstRender', () => render())
-  await stage('titleObservationRefresh', async () => { mounted.catalog.refreshTitles(); await settle(); render() })
-  await stage('cursor100WithRender', () => { for (let i = 0; i < 100; i += 1) { key(mounted.overlay, 'down'); render() } })
-  await stage('localFilter10CharsWithRender', () => { for (const char of LOCAL_TEXT) { text(mounted.overlay, char); render() } })
+  await stage('firstVisibleTitles', async () => { f.releaseTitles(); await settle(); render() })
+  await stage('totalTitleHydration', async () => { mounted.catalog.refreshTitles(); await settle(); render() })
+  await stage('cursor100WithRender', async () => {
+    for (let i = 0; i < 100; i += 1) { key(mounted.overlay, 'down'); render() }
+    await settle()
+  })
+  await stage('localFilter10CharsWithRender', async () => {
+    for (const char of LOCAL_TEXT) { text(mounted.overlay, char); render() }
+    await settle()
+  })
   key(mounted.overlay, 'ctrl-u'); render()
   for (const [name, filters] of [
     ['workspaceFilterWithRender', { ...NO_FILTERS, workspace: 'current' }],
@@ -234,9 +241,37 @@ async function child(size, mode) {
     render(context)
   })
   if (mode === 'counts') {
-    for (const name of ['firstRender', 'cursor100WithRender', 'localFilter10CharsWithRender', 'detailRepeated10WithRender', 'eventCursor20WithRender']) {
+    const earlyFixture = fixture(size, 'counts')
+    const earlyMounted = mount(earlyFixture)
+    earlyFixture.deferTitles()
+    earlyMounted.catalog.refresh()
+    await settle()
+    const earlyListing = earlyMounted.catalog.listing()
+    assert.equal(earlyListing.kind, 'ready')
+    const earlyTitleIds = earlyFixture.counters.titleIds
+    earlyMounted.catalog.dispose()
+    earlyFixture.releaseTitles()
+    await settle()
+    stages.earlyClose = {
+      titleIds: earlyTitleIds,
+      titleBatches: earlyFixture.counters.readTitleSnapshots,
+    }
+    assert.ok(earlyTitleIds <= TITLE_BATCH_SIZE)
+
+    assert.equal(stages.metadataList.readTitleSnapshots, 1)
+    assert.equal(stages.metadataList.titleIds, Math.min(size, TITLE_BATCH_SIZE))
+    assert.equal(stages.totalTitleHydration.readTitleSnapshots, 1)
+    assert.equal(stages.totalTitleHydration.titleIds, Math.min(size, CATALOG_LIMIT))
+    for (const name of ['firstRender', 'detailRepeated10WithRender', 'eventCursor20WithRender']) {
       for (const method of METHODS) assert.equal(stages[name][method], 0, `${name} must not call ${method}`)
     }
+    for (const method of METHODS.filter(method => method !== 'readTitleSnapshots')) {
+      assert.equal(stages.cursor100WithRender[method], 0, `cursor100WithRender must not call ${method}`)
+      assert.equal(stages.localFilter10CharsWithRender[method], 0, `localFilter10CharsWithRender must not call ${method}`)
+    }
+    assert.equal(stages.cursor100WithRender.titleIds, 0)
+    assert.equal(stages.localFilter10CharsWithRender.titleIds, 0)
+    assert.equal(stages.localFilter10CharsWithRender.readTitleSnapshots, 0)
     assert.equal(stages.detailDisclosureWithRender.listEvents, 1)
     assert.equal(stages.readEventDisclosureWithRender.readEvent, 1)
     assert.equal(stages.contentFirstPageWithRender.searchSessions, 1)
@@ -312,13 +347,15 @@ if (invokedDirectly && process.argv[2] === '--child') {
   }
   assert.deepEqual(hashes(), before, 'compiled runtime changed during collection')
   const report = {
-    benchmark: 'REAL compiled Sessions frontend + synthetic fixture services (NOT real Harness costs)',
+    benchmark: 'REAL compiled Sessions frontend + synthetic fixture services (NOT real Harness persistence costs)',
     generatedAt: new Date().toISOString(), command: `pnpm build && node tools/sessions-perf.mjs --output ${output}`,
     metadata: { node: process.version, v8: process.versions.v8, platform: process.platform, arch: process.arch, release: os.release(), cpu: os.cpus()[0]?.model, gitHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(), compiledSha256: before },
     parameters: { sizes: SIZES, repetitions: REPETITIONS, catalogLimit: CATALOG_LIMIT, pageLimit: CONTENT_SEARCH_LIMIT, columns: COLUMNS, rows: ROWS, now: NOW, timezone: 'UTC', localText: LOCAL_TEXT },
     limitations: [
       'Fixture service costs only: no Harness persistence scans, title folding, index, I/O, model, terminal Screen diff, or real session attachment.',
-      'First catalog open includes initial title observation; titleObservationRefresh is a separate explicit refreshTitles plus render, not an additive decomposition of open.',
+      'MetadataList measures the authoritative listing and first bounded title request; firstVisibleTitles measures the exact-title work needed to settle the initial viewport. The fixture gate is released only after the metadata frame is recorded.',
+      'The ordinary production path starts one TITLE_BATCH_SIZE request automatically; later batches occur only when the overlay asks for more rows or a local query makes unresolved titles relevant.',
+      'totalTitleHydration is the explicit full-refresh path used to measure the cost of resolving every retained title; earlyClose is a fresh catalog disposed after metadata, whose work count shows the avoided remainder.',
       'Each timing child is cold after module import; later stages share that child JIT/GC history. Module/process startup and fixture allocation are excluded. No warmup and no CI timing thresholds.',
       'Counts/getters/request history are isolated from ordinary-property timing and heap children. All stage durations include the microtask settle helper where asynchronous work is required.',
       'Fixture filterSessions scans the synthetic authoritative corpus; content service returns its fixed first 50 hits and event search 20 hits, not a real search implementation.',
@@ -330,5 +367,5 @@ if (invokedDirectly && process.argv[2] === '--child') {
   }
   writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`)
   process.stdout.write(`Saved ${runs.length} isolated samples to ${output}\n`)
-  for (const result of report.summary) process.stdout.write(`${result.size}: open ${result.timing.firstCatalogOpen.wallMs.median.toFixed(3)} ms; projections ${result.counts.firstCatalogOpen.projections}; pending heap delta ${result.heap.deferredTitleDeltaBytes.median} B; retained delta ${result.heap.retainedDeltaBytes.median} B\n`)
+  for (const result of report.summary) process.stdout.write(`${result.size}: metadata ${result.timing.metadataList.wallMs.median.toFixed(3)} ms; first titles ${result.timing.firstVisibleTitles.wallMs.median.toFixed(3)} ms; total titles ${result.timing.totalTitleHydration.wallMs.median.toFixed(3)} ms; first ids ${result.counts.metadataList.titleIds}; total ids ${result.counts.totalTitleHydration.titleIds}; projections ${result.counts.metadataList.projections}; early-close ids ${result.counts.earlyClose.titleIds}; pending heap delta ${result.heap.deferredTitleDeltaBytes.median} B; retained delta ${result.heap.retainedDeltaBytes.median} B\n`)
 }

@@ -19,7 +19,7 @@ import type {
   SessionTitleObservationResult,
 } from '@deepseek-ai/dsh-session-query'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
-import { CATALOG_LIMIT, EVENT_CONTEXT_AFTER, EVENT_CONTEXT_BEFORE, SessionCatalog } from '../src/sessions/catalog.ts'
+import { CATALOG_LIMIT, EVENT_CONTEXT_AFTER, EVENT_CONTEXT_BEFORE, EXHAUSTIVE_TITLE_BATCH_SIZE, SessionCatalog, TITLE_BATCH_SIZE } from '../src/sessions/catalog.ts'
 import { NO_FILTERS } from '../src/sessions/filters.ts'
 import { flattenLineage } from '../src/sessions/lineage.ts'
 
@@ -235,6 +235,226 @@ describe('listing the corpus', () => {
     // One batched observation, not one call per row: the batch resolves every id
     // from a single corpus listing.
     expect(titleCalls).toBe(1)
+  })
+
+  it('publishes metadata before the first exact title batch settles', async () => {
+    const titles = deferred<SessionTitleObservationResult[]>()
+    let titleReads = 0
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => [record('a'), record('b')],
+        readTitleSnapshots: async ids => {
+          titleReads += 1
+          expect(ids).toEqual(['a', 'b'])
+          return titles.promise
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    expect(titleReads).toBe(1)
+    expect(catalog.listing()).toMatchObject({
+      kind: 'ready',
+      entries: [
+        { id: 'a', title: undefined, titleState: { kind: 'pending' } },
+        { id: 'b', title: undefined, titleState: { kind: 'pending' } },
+      ],
+    })
+    titles.resolve([titled('a', 'First'), { sessionId: 'b' as SessionId, status: 'fulfilled', value: { session: header('b') } }])
+    await settled()
+    expect(catalog.listing()).toMatchObject({
+      kind: 'ready',
+      entries: [
+        { title: 'First', titleState: { kind: 'exact', title: 'First' } },
+        { title: undefined, titleState: { kind: 'exact', title: undefined } },
+      ],
+    })
+  })
+
+  it('hydrates only the first batch until the reader asks for more', async () => {
+    const records = Array.from({ length: 30 }, (_unused, index) => record(`s${String(index)}`))
+    const batches: string[][] = []
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async ids => {
+          batches.push([...ids])
+          return ids.map(id => titled(id, `Title ${id}`))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    expect(batches).toHaveLength(1)
+    expect(batches[0]).toHaveLength(TITLE_BATCH_SIZE)
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    catalog.prioritizeTitles([listing.entries[25]!])
+    await settled()
+    expect(batches).toHaveLength(2)
+    expect(batches[1]).toEqual([listing.entries[25]!.id])
+  })
+
+  it('uses one remaining bounded batch when a query makes every title relevant', async () => {
+    const records = Array.from({ length: TITLE_BATCH_SIZE + 10 }, (_unused, index) => record(`q${String(index)}`))
+    const batches: string[][] = []
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async ids => {
+          batches.push([...ids])
+          return ids.map(id => titled(id, `Title ${id}`))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    catalog.prioritizeTitles(listing.entries, true)
+    await settled()
+    expect(batches.map(batch => batch.length)).toEqual([TITLE_BATCH_SIZE, 10])
+    expect(batches[1]!.length).toBeLessThanOrEqual(EXHAUSTIVE_TITLE_BATCH_SIZE)
+  })
+
+  it('deduplicates repeated title prioritization while a batch is in flight', async () => {
+    const firstBatch = deferred<SessionTitleObservationResult[]>()
+    const records = Array.from({ length: 30 }, (_unused, index) => record(`d${String(index)}`))
+    const batches: string[][] = []
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async ids => {
+          batches.push([...ids])
+          if (batches.length === 1) return firstBatch.promise
+          return ids.map(id => titled(id, `Title ${id}`))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    catalog.titleQueryChanged('a')
+    catalog.prioritizeTitles(listing.entries, true)
+    catalog.titleQueryChanged('ab')
+    catalog.prioritizeTitles(listing.entries, true)
+    expect(batches).toHaveLength(1)
+    firstBatch.resolve(records.slice(0, TITLE_BATCH_SIZE).map(item => titled(item.header.id, `Title ${item.header.id}`)))
+    await settled()
+    const allIds = batches.flat()
+    expect(new Set(allIds).size).toBe(allIds.length)
+  })
+
+  it('cancels queued exhaustive title work when the local query is cleared', async () => {
+    const secondBatch = deferred<SessionTitleObservationResult[]>()
+    let secondSignal: AbortSignal | undefined
+    const records = Array.from({ length: 30 }, (_unused, index) => record(`c${String(index)}`))
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async (ids, signal) => {
+          if (ids.length === TITLE_BATCH_SIZE) return ids.map(id => titled(id, `Title ${id}`))
+          secondSignal = signal
+          return secondBatch.promise
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    catalog.prioritizeTitles(listing.entries, true)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(secondSignal?.aborted).toBe(false)
+    catalog.titleQueryChanged('')
+    expect(secondSignal?.aborted).toBe(true)
+    secondBatch.resolve([])
+    await settled()
+    expect(catalog.listing()).toMatchObject({ kind: 'ready' })
+  })
+
+  it('lets a cleared query reprioritize titles that were only queued', async () => {
+    const firstBatch = deferred<SessionTitleObservationResult[]>()
+    const records = Array.from({ length: 30 }, (_unused, index) => record(`q${String(index)}`))
+    const batches: string[][] = []
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async ids => {
+          batches.push([...ids])
+          if (batches.length === 1) return firstBatch.promise
+          return ids.map(id => titled(id, `Title ${id}`))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    catalog.prioritizeTitles(listing.entries, true)
+    catalog.titleQueryChanged('')
+    firstBatch.resolve(records.slice(0, TITLE_BATCH_SIZE).map(item => titled(item.header.id, `Title ${item.header.id}`)))
+    await settled()
+    expect(batches).toHaveLength(1)
+    catalog.prioritizeTitles([listing.entries[24]!])
+    await settled()
+    expect(batches.at(-1)).toEqual([listing.entries[24]!.id])
+  })
+
+  it('does not publish a title batch from a replaced listing generation', async () => {
+    const oldTitles = deferred<SessionTitleObservationResult[]>()
+    let listCalls = 0
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => {
+          listCalls += 1
+          return listCalls === 1 ? [record('old')] : []
+        },
+        readTitleSnapshots: async () => oldTitles.promise,
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    catalog.refresh()
+    await settled()
+    oldTitles.resolve([titled('old', 'Stale title')])
+    await settled()
+    expect(catalog.listing()).toMatchObject({ kind: 'ready', entries: [] })
+  })
+
+  it('aborts an in-flight exhaustive batch when the browser closes', async () => {
+    const secondBatch = deferred<SessionTitleObservationResult[]>()
+    let secondSignal: AbortSignal | undefined
+    const records = Array.from({ length: 30 }, (_unused, index) => record(`x${String(index)}`))
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async (ids, signal) => {
+          if (ids.length === TITLE_BATCH_SIZE) return ids.map(id => titled(id, `Title ${id}`))
+          secondSignal = signal
+          return secondBatch.promise
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    catalog.prioritizeTitles(listing.entries, true)
+    await new Promise<void>(resolve => setImmediate(resolve))
+    catalog.dispose()
+    expect(secondSignal?.aborted).toBe(true)
+    secondBatch.resolve([])
+    await settled()
   })
 
   it('keeps a session whose title could not be read', async () => {
@@ -472,6 +692,30 @@ describe('filtering the authoritative listing', () => {
     expect(catalog.listing()).toMatchObject({ kind: 'ready', entries: [{ title: 'After' }] })
   })
 
+  it('releases the title scheduler after an explicit refresh', async () => {
+    const records = Array.from({ length: 25 }, (_unused, index) => record(`r${String(index)}`))
+    const batches: string[][] = []
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async ids => {
+          batches.push([...ids])
+          return ids.map(id => titled(id, `Title ${id}`))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    catalog.refreshTitles()
+    await settled()
+    const beforeRefresh = batches.length
+    catalog.refresh()
+    await settled()
+    expect(batches.length).toBe(beforeRefresh + 1)
+    expect(batches.at(-1)).toHaveLength(TITLE_BATCH_SIZE)
+  })
+
   it('does no title work after the browser is disposed', async () => {
     // A rename finishing after the browser closed must not start a title read
     // that would repaint a live region which has moved on.
@@ -493,7 +737,7 @@ describe('filtering the authoritative listing', () => {
     catalog.refreshTitles()
     await settled()
     expect(titleReads).toBe(1)
-    expect(repaints).toBe(2)
+    expect(repaints).toBe(3)
   })
 
   it('refreshes active content-search titles after a rename', async () => {

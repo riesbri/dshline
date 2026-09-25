@@ -287,9 +287,45 @@ ctx.subagents.prompt         → human queue / steer
 
 ## Sessions：一个语料库，两个生命周期
 
-Sessions 是第三个适配器，它只读取一个权威。`ctx.sessionQuery` 已经发布一个偏好活动的逻辑语料库，把 `ctx.sessions` 与任何已挂载的持久化合并，因此浏览器列出 `listSessions()` 记录，并用一次批量的 `readTitleSnapshots()` 观察折叠它们的标题。没有会话目录扫描、没有标题缓存、没有第二个索引；前端索引会在任一侧第一次变化时与语料库不一致。
+Sessions 是第三个适配器，它只读取一个权威。`ctx.sessionQuery` 发布一个偏好活动的逻辑语料库，把 `ctx.sessions` 与任何已挂载的持久化合并。浏览器先保留至多 200 条 `listSessions()` / `filterSessions()` 记录，并立即发布这些元数据行。没有会话目录扫描、没有 dshline 自己的标题缓存，也没有第二个语料库索引。
 
-这两次读取就是浏览的全部开销，而这是一个呈现层的决定，不是运气。浏览器首先是一个**选择器**：一行就是标题加相对年龄，因为这正是回答"哪一个会话"的两个事实，而其他每一个事实都在与这个答案争夺注意力。工作区、来源、可用性、血统、事件计数与会话 id 都在 `→` 之后针对**单个**会话披露。那里也正是 `listEvents()` 被读取的地方。一个事件计数与一个最后活动时间要花费一次完整的日志加载与表层折叠，因此显示它们的清单不得不在光标每次移动时都做这次读取；披露界面才是呈现它们的界面，因此打开它才是为它们付费的动作。过滤回答的是关于语料库的问题，而不是关于某一行的问题，所以它是浏览器级别的 `ctrl-f`——用 ctrl 手势，因为这里每一个可打印字符都已经是搜索输入。
+标题刻意不会在列表可用之前被折叠。每一行都携带明确的解析状态：pending、provisional、exact title、exact absence 或 failed observation。只有 `title: undefined` 绝不能把这些含义压成同一个状态。pending 行会说明它仍在加载；可能过期的 Harness 投影提示会明显标成 provisional；只有 fulfilled 的精确观测才能成为 `untitled`。
+
+精确标题读取按需发生。初始批次覆盖可能的第一个视口，随后是选中行及其附近视口；只有滚动使后面的行有用时才读取它们。非空的本地标题查询会让保留语料中所有未解析的标题变得相关，因此剩余的有界工作会被排队，过滤在它结算前会明确保持不完整。关闭浏览器、替换过滤或列表、或改变 generation 都会中止 signal 并丢弃迟到结果。清空本地查询还会丢弃已排队的 exhaustive 工作；把一个非空查询改成另一个非空查询时，同一批未解析标题仍然相关。工作区与 id 匹配立即可用；迟到的精确标题可以新增匹配，权威协调也可以移除 provisional 匹配，而不会把尚未解析的标题说成一个否定结论。
+
+浏览器首先仍然是一个**选择器**：一行是当前最好的标题加相对年龄。工作区、来源、可用性、血统、事件计数与会话 id 都在 `→` 之后针对**单个**会话披露。那里也正是 `listEvents()` 被读取的地方。一个事件计数与一个最后活动时间要花费一次完整的日志加载与表层折叠，因此只有披露界面为它们付费。过滤回答的是关于语料库的问题，而不是关于某一行的问题，所以它仍是浏览器级别的 `ctrl-f`——用 ctrl 手势，因为这里每一个可打印字符都已经是搜索输入。
+
+### 下一种通用 Harness 摘要约定
+
+已采纳的世代仍没有一种无正文列表 API，把 header 与标题/投影提示连接起来。它的通用 `listSessions()` 只返回元数据；`readTitleSnapshots()` 是精确的，但可能为每个被请求的会话打开日志。因此 dshline 可选的 `ctx.sessionProjectionCache` 适配器是世代特定的：它可以提供一个明显标成 provisional 的标题，而不会成为前端索引，但它不能替代最终的通用观测。在已固定的世代中，这个适配器只对未 seed 的冷行调用 `cachedSnapshot`，因为这类行的 inherited cut 按契约就是零。冷 seed 行不返回提示：`SessionRecord` 不暴露确切的 inherited cut，而已固定的 cache 即使读取 predecessor title 也要求这个 cut。活动行则可以使用所附 Session 的投影单元。
+
+**迁移说明：**已固定的 `0.1.6-alpha.2` cache identity 要求确切的
+`inheritedEventCount`，因此 dshline 有意不给冷 seed 行提示。Harness
+`0.1.7-rc.2`、提交 `477b4f420553e8a52c2fbccc464d7561b239c443`
+已经把 listing cache 的匹配移到只接受 header 的
+`cachedSnapshot(header)` / `cachedPredecessorTitle(header)`。当
+`HARNESS_TARGET` 迁移时，应重新审视并移除这个已固定的 seed 行 fallback；
+不要把它永久保留为兼容行为。
+
+最小的未来 Harness 增量是一条附加的查询读取，而不是另一套持久化或标题数据库：
+
+```ts
+type SessionProjectionHintKind = 'sequenced' | 'cached'
+
+interface SessionProjectionHints {
+  readonly kind: SessionProjectionHintKind
+  readonly asOfSeq: number
+  readonly values: Readonly<Record<string, unknown>>
+}
+
+interface SessionListHint extends SessionRecord {
+  readonly projections?: SessionProjectionHints
+}
+
+ctx.sessionQuery.listSessionHints(): Promise<readonly SessionListHint[]>
+```
+
+它执行一次偏好活动的语料库列举。已附着行只暴露已经物化的 sequenced 投影单元；未来的 header-only cache 视图可以让冷行无需读取正文。缺失的 key 保持 unknown，cached 的序号绝不与 sequenced 的序号比较。可见行的精确标题继续通过 `readTitleSnapshots()`，精确打开继续通过 `observeSession()`。只有当存在稳定的不透明语料 generation 时才应加入分页，而不是照抄当前被忽略的 Web 请求游标。
 
 ### `/session`：已附着的对话，而不是目录中的一行
 

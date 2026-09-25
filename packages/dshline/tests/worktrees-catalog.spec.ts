@@ -18,7 +18,8 @@ import type {
   SessionTitleObservationResult,
 } from '@deepseek-ai/dsh-session-query'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
-import { CATALOG_LIMIT } from '../src/sessions/catalog.ts'
+import { CATALOG_LIMIT, TITLE_BATCH_SIZE } from '../src/sessions/catalog.ts'
+import { createWorktreesOverlay } from '../src/worktrees/overlay.ts'
 import { WorktreeCatalog } from '../src/worktrees/catalog.ts'
 import { worktreeLabel, worktreeRows } from '../src/worktrees/model.ts'
 
@@ -369,6 +370,70 @@ describe('the sessions under one selected directory', () => {
     if (selection?.sessions.kind !== 'ready') throw new Error('expected a ready session listing')
     expect(selection.row.cwd).toBe('/home/me/src/dshline-auth')
     expect(selection.sessions.entries.map(entry => entry.title)).toEqual(['Implement auth flow'])
+  })
+
+  it('prioritizes newly visible worktree titles without duplicate or abandoned reads', async () => {
+    const cwd = '/home/me/src/big'
+    const group = Array.from({ length: TITLE_BATCH_SIZE + 5 }, (_unused, index) =>
+      record(`big-${String(index)}`, cwd, TITLE_BATCH_SIZE + 5 - index))
+    const batches: string[][] = []
+    const blocked = deferred<SessionTitleObservationResult[]>()
+    let blockedSignal: AbortSignal | undefined
+    let markBlocked!: () => void
+    const blockedStarted = new Promise<void>(resolve => { markBlocked = resolve })
+    const catalog = new WorktreeCatalog({
+      query: engine({
+        listSessions: async () => [...group, record('other', '/home/me/src/other', 1)],
+        filterSessions: async () => [...group],
+        readTitleSnapshots: async (ids, signal) => {
+          batches.push([...ids])
+          if (ids.includes(`big-${String(TITLE_BATCH_SIZE + 4)}`)) {
+            blockedSignal = signal
+            markBlocked()
+            return blocked.promise
+          }
+          return ids.map(id => titled(id, `Title ${id}`))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    catalog.select(cwd)
+    await settled()
+    expect(batches[0]).toHaveLength(TITLE_BATCH_SIZE)
+    expect(batches[0]).toEqual(group.slice(0, TITLE_BATCH_SIZE).map(item => item.header.id))
+
+    const overlay = createWorktreesOverlay({
+      listing: () => catalog.listing(),
+      selection: () => catalog.selection(),
+      prioritizeTitles: entries => { catalog.prioritizeTitles(entries) },
+      open: selected => { catalog.select(selected) },
+      back: () => { catalog.select(undefined) },
+      resume: () => ({ kind: 'resume' }),
+      create: () => ({ kind: 'new' }),
+      home: '/home/me',
+      now: () => 1_800_000_000_000,
+      close: () => {},
+      invalidate: () => {},
+    })
+    overlay.render(88, 26)
+    const down = { kind: 'key', name: 'down' } as const
+    for (let step = 0; step < group.length; step += 1) {
+      overlay.handleKey(down)
+      overlay.render(88, 26)
+    }
+    await blockedStarted
+    const allIds = batches.flat()
+    expect(allIds).toContain(`big-${String(TITLE_BATCH_SIZE + 4)}`)
+    expect(new Set(allIds).size).toBe(allIds.length)
+
+    // Backing out disposes the nested catalog and aborts the obsolete title read.
+    catalog.select('/home/me/src/other')
+    expect(blockedSignal?.aborted).toBe(true)
+    blocked.resolve([])
+    await settled()
+    catalog.dispose()
   })
 
   it('never lists the whole corpus into the second view', async () => {

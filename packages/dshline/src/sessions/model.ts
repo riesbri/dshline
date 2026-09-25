@@ -27,18 +27,49 @@ import type { SessionEventWindow } from '@deepseek-ai/dsh-session-query'
  */
 export type SessionOrigin = 'own' | 'delegated'
 
+/**
+ * How far a displayed title has been resolved.
+ *
+ * `title` on {@link SessionEntry} remains a convenient text projection, but it
+ * is deliberately not the authority: `undefined` can mean four different things
+ * while a picker is loading. The state keeps those meanings visible to the
+ * renderer and to local filtering.
+ */
+export type SessionTitleState =
+  /** The exact title observation has not been requested or has not settled. */
+  | { readonly kind: 'pending' }
+  /** A possibly stale Harness projection hint; it is not an exact log fold. */
+  | { readonly kind: 'provisional'; readonly title: string | undefined }
+  /** The exact Harness title observation settled, including exact absence. */
+  | { readonly kind: 'exact'; readonly title: string | undefined }
+  /** The exact observation was unreadable; any retained hint is still provisional. */
+  | { readonly kind: 'failed'; readonly title: string | undefined; readonly message: string }
+
+/** A title value supplied by a Harness live projection or optional cache before exact observation. */
+export interface SessionTitleHint {
+  /** The projected title, or undefined when that cut had no title. */
+  readonly title: string | undefined
+}
+
 /** One session as the browser lists it. */
 export interface SessionEntry {
   /** Harness session id, the only stable identity a row has. */
   readonly id: SessionId
   /**
-   * The folded `session/title`, or undefined when the log carries none.
+   * The folded `session/title`, or undefined when the exact log has none.
    *
-   * Undefined rather than a placeholder string: "untitled" is a rendering
-   * decision, and a matcher that searched the placeholder would report a hit on
-   * sessions whose text never contained the word.
+   * This is a display convenience only. Read {@link titleState} before treating
+   * absence as a fact or matching it as a negative result.
    */
   readonly title: string | undefined
+  /**
+   * The exact/provisional/pending/failed meaning of {@link title}.
+   *
+   * Optional only for source-compatible embedders that still construct the
+   * pre-resolution shape; {@link entryTitleState} treats that legacy shape as
+   * exact. Every catalog-produced row supplies the state explicitly.
+   */
+  readonly titleState?: SessionTitleState
   /** When the session was created, from its immutable header. */
   readonly createdAt: number
   /** Workspace the session was created in, when the header records one. */
@@ -242,22 +273,60 @@ export function relativeAge(at: number, now: number): string {
   return `${String(Math.round(days / 7))}w ago`
 }
 
-/** What a row is called when its log never carried a title. */
+/** What a row is called when its exact log never carried a title. */
 export const UNTITLED = 'untitled'
 
 /** A clear list label for the currently open session when it has no title. */
 export const CURRENT = 'current'
 
+/** A pending title is never rendered as an exact `untitled` row. */
+export const LOADING_TITLE = 'loading title…'
+
+/** A failed exact title observation is not an exact `untitled` row. */
+export const TITLE_UNAVAILABLE = 'title unavailable'
+
+/** Prefix that makes a possibly stale projection visibly provisional. */
+export const PROVISIONAL_TITLE_PREFIX = '~ '
+
 /**
- * The name a row shows.
+ * Resolve an entry's title state, including the legacy exact fallback.
+ * @param entry - the entry to inspect.
+ * @returns its explicit state or an exact state derived from legacy text.
+ */
+export function entryTitleState(entry: SessionEntry): SessionTitleState {
+  return entry.titleState ?? { kind: 'exact', title: entry.title }
+}
+
+/** Whether a title state is an exact settled observation. */
+export function titleIsExact(state: SessionTitleState): boolean {
+  return state.kind === 'exact'
+}
+
+/**
+ * The name a row shows, including the distinction between absent and unknown.
  * @param entry - the session.
  * @param currentSessionId - the open session, when the caller has one.
- * @returns its title, a current-session label, or the untitled placeholder.
+ * @returns its exact/provisional title or an honest resolution label.
  */
 export function sessionLabel(entry: SessionEntry, currentSessionId?: SessionId): string {
-  const title = entry.title
-  if (title !== undefined && title.trim() !== '') return title
-  return entry.id === currentSessionId ? CURRENT : UNTITLED
+  const state = entryTitleState(entry)
+  switch (state.kind) {
+    case 'pending':
+      return entry.id === currentSessionId ? `${CURRENT} · ${LOADING_TITLE}` : LOADING_TITLE
+    case 'provisional':
+      return state.title === undefined || state.title.trim() === ''
+        ? `${PROVISIONAL_TITLE_PREFIX}${TITLE_UNAVAILABLE}`
+        : `${PROVISIONAL_TITLE_PREFIX}${state.title}`
+    case 'failed':
+      return state.title === undefined || state.title.trim() === ''
+        ? (entry.id === currentSessionId ? `${CURRENT} · ${TITLE_UNAVAILABLE}` : TITLE_UNAVAILABLE)
+        : `${PROVISIONAL_TITLE_PREFIX}${state.title}`
+    case 'exact': {
+      const title = state.title
+      if (title !== undefined && title.trim() !== '') return title
+      return entry.id === currentSessionId ? CURRENT : UNTITLED
+    }
+  }
 }
 
 /**
@@ -295,18 +364,65 @@ function normalize(text: string): string {
 /**
  * Whether a query matches one entry's identifying text.
  *
- * Matched against the title, the workspace, and the id — the three facts a row
- * shows. Content is deliberately NOT searched here: that is the other tier, and
- * it needs Harness's index rather than a scan this frontend invented.
+ * Metadata is always searchable. A title contributes a positive match only
+ * when it has a value; an unresolved title never becomes a fabricated
+ * negative, because a late exact observation may still match.
  * @param entry - the candidate.
  * @param query - raw query text; an empty query matches everything.
- * @returns whether the entry should be listed.
+ * @returns whether the entry can be listed as a match.
  */
 export function matchesQuery(entry: SessionEntry, query: string): boolean {
   const needle = normalize(query)
   if (needle === '') return true
-  const haystack = normalize([entry.title ?? '', entry.cwd ?? '', entry.id].join(' '))
-  return haystack.includes(needle)
+  const metadata = normalize([entry.cwd ?? '', entry.id].join(' '))
+  if (metadata.includes(needle)) return true
+  const state = entryTitleState(entry)
+  return state.kind !== 'pending'
+    && state.kind !== 'failed'
+    && normalize(state.title ?? '').includes(needle)
+}
+
+/** A filtered listing plus whether every title was exact at this pass. */
+export interface SessionFilterResult {
+  /** Entries that currently match, in Harness order. */
+  readonly entries: readonly SessionEntry[]
+  /** Whether an unresolved title could still add a match. */
+  readonly complete: boolean
+}
+
+/**
+ * Apply a query while reporting whether title matching is authoritative.
+ *
+ * An unresolved title is not shown as a match merely because it might become
+ * one: that would flood a filtered picker with every pending row. It does,
+ * however, keep the result explicitly incomplete so the view can say that
+ * more matches may arrive. Workspace and id matches remain immediately useful.
+ * @param entries - the listing.
+ * @param query - raw query text.
+ * @returns the current matches and whether the title pass is complete.
+ */
+export function filterEntriesWithState(
+  entries: readonly SessionEntry[],
+  query: string,
+): SessionFilterResult {
+  const needle = normalize(query)
+  if (needle === '') {
+    return {
+      entries,
+      complete: entries.every(entry => titleIsExact(entryTitleState(entry))),
+    }
+  }
+  let complete = true
+  const matches = entries.filter(entry => {
+    const metadata = normalize([entry.cwd ?? '', entry.id].join(' '))
+    if (metadata.includes(needle)) return true
+    const state = entryTitleState(entry)
+    if (state.kind === 'exact') return normalize(state.title ?? '').includes(needle)
+    complete = false
+    return (state.kind === 'provisional' || state.kind === 'failed')
+      && normalize(state.title ?? '').includes(needle)
+  })
+  return { entries: matches, complete }
 }
 
 /**
@@ -324,7 +440,7 @@ export function filterEntries(
   entries: readonly SessionEntry[],
   query: string,
 ): readonly SessionEntry[] {
-  return normalize(query) === '' ? entries : entries.filter(entry => matchesQuery(entry, query))
+  return filterEntriesWithState(entries, query).entries
 }
 
 /** One `label  value` line in a disclosed session's fact block. */

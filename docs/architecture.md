@@ -522,23 +522,89 @@ is the stronger premise, and through its existing human adapter.
 ## Sessions: one corpus, and two lifetimes
 
 Sessions is the third adapter, and it reads exactly one authority. `ctx.sessionQuery`
-already publishes a live-preferred logical corpus that merges `ctx.sessions` with
-whatever persistence is mounted, so the browser lists `listSessions()` records and
-folds their titles with one batched `readTitleSnapshots()` observation. There is no
-sessions-directory scan, no title cache, and no second index; a frontend index
-would disagree with the corpus the first time either changed.
+publishes a live-preferred logical corpus that merges `ctx.sessions` with
+whatever persistence is mounted. The browser first retains at most 200
+`listSessions()` / `filterSessions()` records and publishes those metadata rows
+immediately. There is no sessions-directory scan, no dshline-owned title cache,
+and no second corpus index.
 
-Those two reads are the whole cost of browsing, which is a presentation decision
-rather than a lucky one. The browser is a PICKER first: a row is the title and
-the relative age, because those are the two facts that answer "which session,"
-and every other fact competes with the answer. Workspace, origin, availability,
-lineage, event count and session id are disclosed for ONE session behind `→`.
-That is also where `listEvents()` is read. An event count and a last-activity
-time cost a whole log load and surface fold, so a list that shows them has to
-take that read every time the cursor moves; the disclosure is the surface that
-presents them, so opening it is what pays for them. Filters answer a question
-about the corpus rather than about a row, so they are a browser-level `ctrl-f`
-— a ctrl gesture because every printable character here is already search input.
+A title is deliberately not folded before the list is usable. Every entry carries
+an explicit resolution state: pending, provisional, exact title, exact absence,
+or failed observation. `title: undefined` alone is never allowed to collapse
+those meanings. A pending row says it is loading; a possibly stale Harness
+projection hint is visibly provisional; only a fulfilled exact observation may
+become `untitled`.
+
+Exact title reads are demand-driven. The initial batch covers the likely first
+viewport, then the selected row and its nearby viewport; later rows are read only
+when scrolling makes them useful. A non-empty local title query makes every
+unresolved title in the retained corpus relevant, so the remaining bounded work
+is queued and filtering remains explicitly incomplete until it settles. Closing
+the browser, replacing a filter/listing, or changing generation aborts the signal
+and discards late results. Clearing the local query also drops queued exhaustive
+work; editing one non-empty query to another leaves the same unresolved retained
+set relevant. Workspace and id matches work immediately, while a late exact
+title can add a match and authoritative reconciliation can remove a provisional
+match without claiming that an unresolved title was a negative.
+
+The browser remains a PICKER first: a row is the best title currently available
+and the relative age. Workspace, origin, availability, lineage, event count and
+session id are disclosed for ONE session behind `→`. That is also where
+`listEvents()` is read. An event count and a last-activity time cost a whole log
+load and surface fold, so only the disclosure surface pays for them. Filters
+answer a question about the corpus rather than about a row, so they remain a
+browser-level `ctrl-f` — a ctrl gesture because every printable character here is
+already search input.
+
+### The next generic Harness summary contract
+
+The adopted generation still has no body-free list API that joins a header with
+title/projection hints. Its generic `listSessions()` returns metadata only;
+`readTitleSnapshots()` is exact but can open every requested log. dshline's
+optional `ctx.sessionProjectionCache` adapter is therefore generation-specific:
+it may provide a visibly provisional title without becoming a frontend index,
+but it cannot replace the eventual generic observation. In the pinned
+generation, that adapter calls `cachedSnapshot` only for an unseeded cold row,
+whose inherited cut is contractually zero. A cold seeded row returns no hint:
+`SessionRecord` does not expose its exact inherited cut, and the pinned cache
+requires that cut even for predecessor-title reads. Live rows may use the
+attached Session's projection cells.
+
+**Migration note:** the pinned `0.1.6-alpha.2` cache identity requires the exact
+`inheritedEventCount`, so dshline intentionally gives no cold seeded-row hint.
+Harness `0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`
+has moved listing cache matching to header-only `cachedSnapshot(header)` and
+`cachedPredecessorTitle(header)`. Revisit and remove the pinned seeded-row
+fallback when `HARNESS_TARGET` migrates; do not preserve it as permanent
+compatibility behavior.
+
+The smallest future Harness addition is one additive query read, not another
+persistence or title database:
+
+```ts
+type SessionProjectionHintKind = 'sequenced' | 'cached'
+
+interface SessionProjectionHints {
+  readonly kind: SessionProjectionHintKind
+  readonly asOfSeq: number
+  readonly values: Readonly<Record<string, unknown>>
+}
+
+interface SessionListHint extends SessionRecord {
+  readonly projections?: SessionProjectionHints
+}
+
+ctx.sessionQuery.listSessionHints(): Promise<readonly SessionListHint[]>
+```
+
+It performs one live-preferred corpus listing. Attached rows expose only
+already-materialized sequenced projection cells; a future header-only cache
+view can expose cold rows without a body read. Missing keys stay unknown, and
+cached sequence numbers are never compared with sequenced ones. Exact visible
+titles continue through `readTitleSnapshots()`, and exact opening continues
+through `observeSession()`. Pagination should be added only with a stable
+opaque corpus generation rather than copying the currently ignored Web request
+cursor.
 
 ### `/session`: the attached conversation, not a catalog row
 

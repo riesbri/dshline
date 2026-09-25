@@ -6,6 +6,7 @@ import type { SessionEntry } from '../src/sessions/model.ts'
 import {
   CURRENT,
   filterEntries,
+  filterEntriesWithState,
   matchesQuery,
   relativeAge,
   sessionFacts,
@@ -143,6 +144,43 @@ describe('filtering a listing', () => {
 
   it('returns nothing rather than everything when nothing matches', () => {
     expect(filterEntries(listing, 'attachments')).toEqual([])
+  })
+})
+
+describe('title resolution while a picker is loading', () => {
+  it('does not call a pending title untitled or a negative match', () => {
+    const pending = entry({ title: undefined, titleState: { kind: 'pending' } })
+    expect(sessionLabel(pending)).toBe('loading title…')
+    expect(filterEntriesWithState([pending], 'untitled')).toEqual({ entries: [], complete: false })
+  })
+
+  it('keeps workspace and id matches useful before the title settles', () => {
+    const pending = entry({ id: 'session-abc' as SessionId, title: undefined, cwd: '/w/project', titleState: { kind: 'pending' } })
+    expect(filterEntriesWithState([pending], 'project').entries).toEqual([pending])
+    expect(filterEntriesWithState([pending], 'abc').entries).toEqual([pending])
+  })
+
+  it('lets a late exact title add a match', () => {
+    const pending = entry({ title: undefined, titleState: { kind: 'pending' } })
+    const exact = entry({ title: 'late title', titleState: { kind: 'exact', title: 'late title' } })
+    expect(filterEntriesWithState([pending], 'late').entries).toEqual([])
+    expect(filterEntriesWithState([exact], 'late')).toEqual({ entries: [exact], complete: true })
+  })
+
+  it('does not present a provisional hint as exact and removes it after reconciliation', () => {
+    const provisional = entry({ title: 'cached old', titleState: { kind: 'provisional', title: 'cached old' } })
+    expect(sessionLabel(provisional)).toBe('~ cached old')
+    expect(filterEntriesWithState([provisional], 'old').complete).toBe(false)
+    const exact = entry({ title: 'new exact', titleState: { kind: 'exact', title: 'new exact' } })
+    expect(filterEntriesWithState([exact], 'old').entries).toEqual([])
+  })
+
+  it('distinguishes exact absence from an unreadable observation', () => {
+    const exactNone = entry({ title: undefined, titleState: { kind: 'exact', title: undefined } })
+    const failed = entry({ title: undefined, titleState: { kind: 'failed', title: undefined, message: 'no read' } })
+    expect(sessionLabel(exactNone)).toBe(UNTITLED)
+    expect(sessionLabel(failed)).toBe('title unavailable')
+    expect(filterEntriesWithState([exactNone, failed], 'anything').complete).toBe(false)
   })
 })
 

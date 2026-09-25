@@ -796,12 +796,19 @@ says so and keeps filtering — that path is supported, not broken.
 A row is a title and a relative age, with two small relationship cues. `open`
 marks the session this window is already driving — the row reopening refuses —
 and `delegated` marks a child session so it is not mistaken for an unrelated
-conversation. When the open session has no title, its row says `current` rather
-than `untitled`. Everything else about a session is one keystroke away: `→` shows
-its workspace, when it was created, when it was last active, how many events its
-log holds, whether Harness holds it live or persisted, its fork or delegation
-parent, and its id. Nothing there is read until you open it, so moving through the
-list costs no session-log reads at all.
+conversation. Metadata appears first; a row whose exact title is still being read
+says `loading title…`. A provisional Harness projection hint is visibly marked
+with `~`, and only an exact observation with no title says `untitled` (or
+`current` for the open session). If a title query is entered before every title
+has settled, the browser says that more matches may appear rather than claiming
+that none exist.
+
+Everything else about a session is one keystroke away: `→` shows its workspace,
+when it was created, when it was last active, how many events its log holds,
+whether Harness holds it live or persisted, its fork or delegation parent, and
+its id. Moving through already-hydrated rows does not read event bodies; newly
+visible rows may request their exact title, and leaving the browser abandons
+that work.
 
 Reopening retires the agent driving the current session and resumes the one you
 chose, in the same window and the same terminal. Everything already in your

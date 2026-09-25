@@ -19,6 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-query'
 import { promptSessionTitle } from '../prompt.ts'
+import { sessionTitleHints } from './hints.ts'
 import { SessionCatalog } from './catalog.ts'
 import { workspaceScope } from './filters.ts'
 import { createSessionsOverlay, type RenameDraftOutcome } from './overlay.ts'
@@ -29,8 +30,10 @@ export type { SessionCatalogSpec, SessionQueryReads } from './catalog.ts'
 export {
   CATALOG_LIMIT,
   CONTENT_SEARCH_LIMIT,
+  TITLE_BATCH_SIZE,
   EVENT_CONTEXT_AFTER,
   EVENT_CONTEXT_BEFORE,
+  EXHAUSTIVE_TITLE_BATCH_SIZE,
   SessionCatalog,
 } from './catalog.ts'
 export type {
@@ -53,6 +56,8 @@ export type {
   SessionFact,
   SessionOrigin,
   SessionSearchMode,
+  SessionTitleHint,
+  SessionTitleState,
 } from './model.ts'
 export { CURRENT, filterEntries, matchesQuery, relativeAge, sessionFacts, sessionLabel, shortWorkspace, UNTITLED } from './model.ts'
 export { createSessionsOverlay } from './overlay.ts'
@@ -111,10 +116,12 @@ export interface BrowseSpec {
  */
 export async function browseSessions(spec: BrowseSpec): Promise<SessionId | undefined> {
   const { ctx } = spec
+  const titleHints = sessionTitleHints(ctx)
   const catalog = new SessionCatalog({
     query: ctx.get('sessionQuery'),
     invalidate: () => { ctx.tuiSlots.invalidate() },
     workspace: workspaceScope(spec.workspace),
+    ...(titleHints === undefined ? {} : { titleHints }),
     ...(spec.now === undefined ? {} : { now: spec.now }),
   })
   catalog.refresh()
@@ -155,6 +162,8 @@ export async function browseSessions(spec: BrowseSpec): Promise<SessionId | unde
       }
       const overlay = createSessionsOverlay({
         listing: () => catalog.listing(),
+        prioritizeTitles: (entries, exhaustive) => catalog.prioritizeTitles(entries, exhaustive),
+        titleQueryChanged: query => { catalog.titleQueryChanged(query) },
         content: () => catalog.content(),
         filters: () => catalog.filters(),
         applyFilters: filters => { catalog.applyFilters(filters) },

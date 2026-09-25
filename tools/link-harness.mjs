@@ -54,6 +54,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { declarationState } from './harness-declarations.mjs'
 import {
   discoverHarnessPackages,
   evaluateLinkedClosure,
@@ -102,29 +103,6 @@ if (argument === '--restore') {
   process.exit(0)
 }
 
-/**
- * The declaration file a linked package must have emitted.
- *
- * A present `package.json` proves only that the directory is there. Typechecking
- * reads declarations, and the harness emits those into `lib/types` during its own
- * build — so an unbuilt checkout has every manifest and no types, which is
- * exactly the state that made the old success message a lie.
- * @param target - the resolved package directory.
- * @returns the declaration path the package advertises, or undefined when it
- *   advertises none.
- */
-async function declarationOf(target) {
-  let manifestText
-  try {
-    manifestText = await readFile(join(target, 'package.json'), 'utf8')
-  } catch {
-    return undefined
-  }
-  const packaged = JSON.parse(manifestText)
-  const declared = packaged.types ?? packaged.exports?.['.']?.types
-  return typeof declared === 'string' ? join(target, declared) : undefined
-}
-
 if (argument === '--check') {
   const yamlText = await readFile(workspaceYamlPath, 'utf8')
   const overrides = readWorkspaceOverrides(yamlText)
@@ -155,19 +133,13 @@ if (argument === '--check') {
   // its declarations are built would just be asking the wrong directory.
   const missing = []
   const unbuilt = []
+  const invalid = []
   for (const [name, spec] of linked) {
     if (mismatchedNames.has(name)) continue
-    const target = resolveTarget(spec)
-    const declaration = await declarationOf(target)
-    if (declaration === undefined) {
-      missing.push(name)
-      continue
-    }
-    try {
-      await access(declaration)
-    } catch {
-      unbuilt.push(name)
-    }
+    const state = await declarationState(resolveTarget(spec))
+    if (state.kind === 'missing') missing.push(name)
+    else if (state.kind === 'unbuilt') unbuilt.push(name)
+    else if (state.kind === 'invalid') invalid.push([name, state.message])
   }
 
   process.stdout.write(`harness expected at ${harnessRoot}\n`)
@@ -176,7 +148,7 @@ if (argument === '--check') {
   // a stale entry left over from a prior checkout is as much a failure as a
   // missing one, since either means the overrides no longer describe one
   // coherent graph.
-  if (mismatched.length === 0 && missing.length === 0 && unbuilt.length === 0 && notLinked.length === 0 && stale.length === 0) {
+  if (mismatched.length === 0 && missing.length === 0 && unbuilt.length === 0 && invalid.length === 0 && notLinked.length === 0 && stale.length === 0) {
     process.stdout.write(`harness links resolve to one coherent checkout and its declarations are built; ${String(linked.length)} package(s); \`pnpm typecheck\` will work\n`)
     process.exit(0)
   }
@@ -194,11 +166,15 @@ if (argument === '--check') {
     process.stdout.write('  re-run node tools/link-harness.mjs <path-to-deepseek-harness> to prune them\n')
   }
   if (missing.length > 0) {
-    process.stdout.write(`  ${String(missing.length)} linked package(s) have no directory at their link target, starting with ${missing[0]}\n`)
+    process.stdout.write(`  ${String(missing.length)} linked package(s) have no package directory or manifest at their link target, starting with ${missing[0]}\n`)
   }
   if (unbuilt.length > 0) {
-    process.stdout.write(`  ${String(unbuilt.length)} linked package(s) are present but unbuilt, starting with ${unbuilt[0]}\n`)
+    process.stdout.write(`  ${String(unbuilt.length)} linked package(s) are present but their advertised declarations are not built, starting with ${unbuilt[0]}\n`)
     process.stdout.write('  fix by building the harness: pnpm install && pnpm run build:lib, in that checkout\n')
+  }
+  if (invalid.length > 0) {
+    const [name, message] = invalid[0]
+    process.stdout.write(`  ${String(invalid.length)} linked package(s) have unreadable package.json manifests, starting with ${name}: ${message}\n`)
   }
   process.exit(1)
 }

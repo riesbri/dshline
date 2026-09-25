@@ -79,6 +79,8 @@ export interface WorktreesOverlaySpec {
   readonly open: (cwd: string) => void
   /** Return to the directory list. */
   readonly back: () => void
+  /** Prioritize exact titles for the visible/selected sessions in the second view. */
+  readonly prioritizeTitles?: (entries: readonly SessionEntry[]) => void
   /**
    * Decide whether the chosen session may be reopened.
    *
@@ -193,7 +195,10 @@ export function createWorktreesOverlay(spec: WorktreesOverlaySpec): TuiOverlay {
       const cursor = selection === undefined ? listCursor : sessionCursor
       const bounded = Math.min(cursor, Math.max(0, rows.length - 1))
       if (selection === undefined) listCursor = bounded
-      else sessionCursor = bounded
+      else {
+        sessionCursor = bounded
+        prioritizeSessionTitles(spec, sessionRows(), bounded, Math.max(1, terminalRows - FIXED_ROWS))
+      }
       if (terminalRows <= FIXED_ROWS || columns < MIN_COLUMNS) {
         return compactFallback(spec, selection, columns, terminalRows, notice, rows.length)
       }
@@ -352,6 +357,35 @@ function worktreesBody(
       worktreeRowText(row, selected, rows, spec.home, inner)),
     ...noticeRows,
   ]
+}
+
+/**
+ * Ask the nested SessionCatalog for titles useful in the visible window.
+ * @param spec - the worktree overlay's owner surface.
+ * @param rows - the `+ New session` row and the directory's sessions.
+ * @param cursor - the selected row index.
+ * @param capacity - rows available for the list, including any omission marker.
+ */
+function prioritizeSessionTitles(
+  spec: WorktreesOverlaySpec,
+  rows: readonly WorktreeSessionRow[],
+  cursor: number,
+  capacity: number,
+): void {
+  if (spec.prioritizeTitles === undefined || rows.length === 0) return
+  const marker = rows.length > capacity ? 1 : 0
+  const room = Math.max(1, capacity - marker)
+  const start = Math.min(Math.max(0, cursor - room + 1), Math.max(0, rows.length - room))
+  const priority: SessionEntry[] = []
+  const seen = new Set<SessionId>()
+  const add = (row: WorktreeSessionRow | undefined): void => {
+    if (row?.kind !== 'session' || seen.has(row.entry.id)) return
+    seen.add(row.entry.id)
+    priority.push(row.entry)
+  }
+  add(rows[cursor])
+  for (let index = start; index < start + room; index += 1) add(rows[index])
+  spec.prioritizeTitles(priority)
 }
 
 /**
