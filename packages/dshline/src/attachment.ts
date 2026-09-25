@@ -1596,11 +1596,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     }
     if (event.type === 'tool/call') return cards.call(event.data, columns)
     if (event.type === 'tool/result') {
-      const block = event.data.message.content[0]
+      // The adopted generation puts the call identity and the outcome on the
+      // tool-role MESSAGE itself; the per-call `tool-result` content block it
+      // used to be wrapped in is gone, so there is no first-block probe left.
+      const message = event.data.message
       return cards.result({
-        callId: block.toolCallId,
-        content: block.content,
-        isError: block.isError === true,
+        callId: message.toolCallId,
+        content: message.content,
+        isError: message.isError === true,
         ...event.data.meta === undefined ? {} : { meta: event.data.meta },
         ...event.data.error === undefined ? {} : { error: event.data.error },
       }, columns)

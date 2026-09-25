@@ -297,15 +297,9 @@ Sessions 是第三个适配器，它只读取一个权威。`ctx.sessionQuery` �
 
 ### 下一种通用 Harness 摘要约定
 
-已采纳的世代仍没有一种无正文列表 API，把 header 与标题/投影提示连接起来。它的通用 `listSessions()` 只返回元数据；`readTitleSnapshots()` 是精确的，但可能为每个被请求的会话打开日志。因此 dshline 可选的 `ctx.sessionProjectionCache` 适配器是世代特定的：它可以提供一个明显标成 provisional 的标题，而不会成为前端索引，但它不能替代最终的通用观测。在已固定的世代中，这个适配器只对未 seed 的冷行调用 `cachedSnapshot`，因为这类行的 inherited cut 按契约就是零。冷 seed 行不返回提示：`SessionRecord` 不暴露确切的 inherited cut，而已固定的 cache 即使读取 predecessor title 也要求这个 cut。活动行则可以使用所附 Session 的投影单元。
+已采纳的世代仍没有一种无正文列表 API，把 header 与标题/投影提示连接起来。它的通用 `listSessions()` 只返回元数据；`readTitleSnapshots()` 是精确的，但可能为每个被请求的会话打开日志。因此 dshline 可选的 `ctx.sessionProjectionCache` 读取器是世代特定的：它可以提供一个明显标成 provisional 的标题，而不会成为前端索引，但它不能替代最终的通用观测。
 
-**迁移说明：**已固定的 `0.1.6-alpha.2` cache identity 要求确切的
-`inheritedEventCount`，因此 dshline 有意不给冷 seed 行提示。Harness
-`0.1.7-rc.2`、提交 `477b4f420553e8a52c2fbccc464d7561b239c443`
-已经把 listing cache 的匹配移到只接受 header 的
-`cachedSnapshot(header)` / `cachedPredecessorTitle(header)`。当
-`HARNESS_TARGET` 迁移时，应重新审视并移除这个已固定的 seed 行 fallback；
-不要把它永久保留为兼容行为。
+这个读取器现在是只传 header 的调用 `cachedSnapshot(header, ['title'])`，对两类冷行都一样。这不是把旧契约放宽了——`0.1.6-alpha.2` 要求确切的 `inheritedEventCount`，而列出的 `SessionRecord` 并不携带它，这正是冷 seed 行过去完全拿不到提示、而不是伪造一个零的原因。`0.1.7-rc.2` 移除了这个参数，并把判定交给 Harness：它只用 header 能证明的生命周期身份（`formatVersion`、`createdAt`、`cwd`、`isSeeded`）去匹配已缓存的 checkpoint，不匹配就什么都不返回。因此 dshline 只传 header、绝不重建计数，并让已 seed 与未 seed 的冷行走同一次调用。活动行则可以使用所附 Session 的投影单元。
 
 最小的未来 Harness 增量是一条附加的查询读取，而不是另一套持久化或标题数据库：
 

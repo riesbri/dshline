@@ -20,6 +20,14 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import { deriveEventMessage, isReplacementSurfaceEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
+// Type-only, and a devDependency rather than a peer: compaction is an optional
+// Harness plugin. This activates its `MessageSourceMap` merge, which is what
+// puts the `compact-checkpoint` source kind in front of
+// {@link isCompactionCheckpoint} — the same reasoning the token-meter import
+// carries, and the reason that check is structural rather than a call to
+// `isCompactCheckpointSource` (a value, which would make compaction a hard
+// runtime dependency of a frontend that must start without it).
+import type {} from '@deepseek-ai/dsh-compaction'
 // Type-only, and a devDependency rather than a peer: the meter is an optional
 // Harness plugin. This activates the `Context.tokenMeter` declaration and the
 // `SessionProjectionMap` keys its three units publish, without requiring the
@@ -415,8 +423,7 @@ function toolNames(
   for (const node of nodes) {
     const event = session.eventAt(node.seq)
     if (event?.type !== 'tool/result') continue
-    const callId = event.data.message.content[0]?.toolCallId
-    if (callId === undefined) continue
+    const callId = event.data.message.toolCallId
     wanted.add(callId)
     if (from === undefined || node.seq > from) from = node.seq
   }
@@ -466,26 +473,26 @@ function entryOf(
  * Whether one surface message's provenance is a compaction checkpoint.
  *
  * A STRUCTURAL check against the durable checkpoint source every compaction
- * backend is required to write — `{ kind: 'plugin', plugin: 'compact' }` plus
- * the transaction's `compactionId`, as `compactCheckpointSource` in
- * `@deepseek-ai/dsh-compaction/checkpoint` constructs it and
- * `isCompactCheckpointSource` recognizes it. The predicate is not imported,
- * deliberately: it is a VALUE, and the compaction plugin is optional, so
- * importing it would give a frontend that must start without compaction a hard
- * runtime dependency on it. The marker is a persisted contract rather than a
- * private implementation detail — it exists precisely so a consumer can
+ * backend is required to write — the `compact-checkpoint` kind that
+ * `compactCheckpointSource` in `@deepseek-ai/dsh-compaction/checkpoint`
+ * constructs and `isCompactCheckpointSource` recognizes. The predicate is not
+ * imported, deliberately: it is a VALUE, and the compaction plugin is optional,
+ * so importing it would give a frontend that must start without compaction a
+ * hard runtime dependency on it. The marker is a persisted contract rather
+ * than a private implementation detail — it exists precisely so a consumer can
  * recognize a checkpoint independently of the backend — so reading it off the
  * restored source is the same authority the predicate reads.
  *
- * `compactionId` is required as well as the marker, because it is what makes
- * the source a compaction TRANSACTION's checkpoint rather than any message some
- * plugin named `compact` happened to inject.
+ * The adopted generation replaced the previous `{ kind: 'plugin', plugin:
+ * 'compact' }` shape — where the real provenance had to be recovered from a
+ * plugin NAME plus an `compactionId` smuggled past the declared type — with a
+ * kind that says what it is. The second check is therefore gone rather than
+ * reimplemented, and nothing weaker is put in its place.
  * @param source - the message source restored from the durable log.
  * @returns whether this message is a compaction's replacement checkpoint.
  */
 function isCompactionCheckpoint(source: SessionEvent<'user/message'>['data']['source']): boolean {
-  if (source.kind !== 'plugin' || source.plugin !== 'compact') return false
-  return typeof (source as { compactionId?: unknown }).compactionId === 'string'
+  return source.kind === 'compact-checkpoint'
 }
 
 /** The identity fields one surface event contributes. */
@@ -500,11 +507,11 @@ function identityOf(
     case 'assistant/message':
       return { ...none, kind: 'assistant', turn: event.data.turn, step: event.data.step }
     case 'tool/result': {
-      const callId = event.data.message.content[0]?.toolCallId
+      const callId = event.data.message.toolCallId
       return {
         ...none,
         kind: 'tool-result',
-        tool: callId === undefined ? undefined : tools.get(callId),
+        tool: tools.get(callId),
         turn: event.data.turn,
         step: event.data.step,
       }
@@ -583,9 +590,6 @@ function blockText(blocks: readonly ContentBlock[]): string {
         break
       case 'tool-call':
         parts.push(`${block.name} ${block.arguments}`)
-        break
-      case 'tool-result':
-        parts.push(blockText(block.content))
         break
       default:
         // ContentBlockMap is merge-extensible: a block this frontend has never

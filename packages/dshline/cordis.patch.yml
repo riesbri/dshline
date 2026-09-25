@@ -241,16 +241,23 @@
     - id: subagent-model-selection-settings
       name: '@deepseek-ai/dsh-tool-subagent/model-selection-settings'
 
-# The preset roster. `standard` is the shipped default; `code`/`minimal`/
-# `cordis` and any locally authored preset are equally reachable through
-# `/plugins`. The system root itself is not configured here — the installed
-# `dsh` app resolves and patches its own shipped `config/agent-presets/`
-# directory in beside this composition (the same treatment its `distIndex`
-# gets on the webserver row upstream), so a profile naming no root still
-# finds one. `dsh-agent-presets`' own default (`includeUserRoot`) keeps
-# `$DSH_HOME/.agent-presets` available for anything authored locally.
+# The preset registry, then the preset declarations themselves.
+#
+# The adopted generation replaced a directory of preset FILES with rows. A
+# preset is now an ordinary `@deepseek-ai/dsh-agent-preset` declaration in a
+# Cordis composition, and the registry "neither scans directories nor accepts
+# preset paths" — so there is no shipped preset root left to point at. Each
+# bundle supplies its own declarations, which is why `dsh.bundle.patch` in
+# package.json is an array listing `presets/*.patch.yml` after this file, the
+# same treatment upstream's own web bundle takes.
+#
+# `standard` is the shipped default and the preset a session that recorded none
+# resumes under. `minimal` is the deliberately small counterpart a person
+# switches to when they want the tools and nothing else. Both are reachable
+# through `/plugins`; a profile patch may add or override any declaration by
+# row id, which is how upstream says a new preset is authored.
 - insert:
-    - id: agent-presets
-      name: '@deepseek-ai/dsh-agent-presets'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
       config:
         default: standard

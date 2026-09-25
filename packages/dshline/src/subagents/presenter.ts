@@ -2,8 +2,8 @@
  * The durable subagent-conversation presenter.
  *
  * This is the adapter layer between Harness authority and the terminal: it
- * reads durable direct children from `ctx.subagents.listChildren`, reads one
- * child's bounded session window from `ctx.sessionQuery`, and routes human
+ * reads durable direct children from `ctx.subagents.listDescendants`, reads
+ * one child's bounded session window from `ctx.sessionQuery`, and routes human
  * follow-up/steer through the one human prompt operation Harness publishes.
  * It owns no lifecycle, no scheduling, and no child conversation state — every
  * paint re-reads the current reading, and neither a refresh nor a keystroke
@@ -16,13 +16,14 @@
  *
  * Interruption is deliberately NOT part of this presenter. `/work` owns the
  * active lifecycle epoch and its existing human interrupt; a durable child's
- * `listChildren().activity` is session-store residency, not proof that a turn
- * is executing, so offering interrupt here could claim a cancellation Harness
+ * catalog `activity` is session-store residency, not proof that a turn is
+ * executing, so offering interrupt here could claim a cancellation Harness
  * only accepted as a no-op. The durable view inspects and continues instead.
  * @module dshline/subagents/presenter
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 import type { LocalCommand } from '../local-commands.ts'
 import type { TuiSlots } from '../slots.ts'
 import { openSurface, SurfaceNotice } from '../surface.ts'
@@ -50,6 +51,31 @@ import {
   type TranscriptState,
 } from './transcript.ts'
 
+/**
+ * The edge distance `listDescendants` reports for a child of the requested
+ * parent; every deeper row belongs to some other parent's branch.
+ */
+const DIRECT_CHILD_DEPTH = 1
+
+/**
+ * The subagent operations this presenter calls.
+ *
+ * {@link HumanSubagentSeam} plus descendant discovery, and the addition is the
+ * adopted generation forcing it rather than a preference. `listChildren` now
+ * answers with the parent-owned `subagentCatalog` projection alone — id,
+ * creation time, mode, label — while residency, child presence, and the
+ * `corrupt`/`unsupported`/`unavailable` branch diagnostics are produced only by
+ * the recursive walk. A catalog built from the flat read would have to invent
+ * all three, and a branch Harness says it cannot read is exactly the row a
+ * person most needs to see.
+ *
+ * This widens OBSERVATION only. `interrupt` is still absent for the reason
+ * {@link HumanSubagentSeam} gives: residency is not proof that a turn is
+ * executing, and an open lifecycle epoch is `/work`'s premise, not this
+ * presenter's.
+ */
+export type SubagentCatalogSeam = HumanSubagentSeam & Pick<SubagentRuntime, 'listDescendants'>
+
 /** Narrow dependencies the subagent-conversation presenter needs. */
 export interface SubagentsPresenterDeps {
   /** Live-region registry that owns the overlay stack. */
@@ -59,7 +85,7 @@ export interface SubagentsPresenterDeps {
   /** Redraw after a read or action changes presentation state. */
   readonly invalidate: () => void
   /** Human-authoritative subagent operations, or undefined without `ctx.subagents`. */
-  readonly subagents?: HumanSubagentSeam
+  readonly subagents?: SubagentCatalogSeam
   /** Bounded child-session reads, or undefined without `ctx.sessionQuery`. */
   readonly query?: ChildSessionReads
   /** Subscribe to parent-scoped subagent lifecycle edges. */
@@ -132,7 +158,17 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
 
   const disposers: (() => void)[] = []
 
-  /** Re-run durable discovery under a generation guard. */
+  /**
+   * Re-run durable discovery under a generation guard.
+   *
+   * `listDescendants` walks the whole reachable tree and this catalog is the
+   * parent's DIRECT children, so the rows are cut at depth one. The traversal
+   * reads deeper only because the seam publishes no direct-children-only form
+   * of a row carrying residency, child presence, and branch diagnostics. A
+   * branch that stopped BELOW the cut is still reported honestly: the direct
+   * child that owns it is listed, and its own `has children` fact is what says
+   * there was something down there to lose.
+   */
   const refreshCatalog = (): void => {
     const seam = deps.subagents
     if (seam === undefined) {
@@ -148,9 +184,12 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
     // beside a "loading" label would present stale facts as current ones.
     catalog = { kind: 'loading' }
     deps.invalidate()
-    void seam.listChildren(deps.parentSessionId, abort.signal).then(entries => {
+    void seam.listDescendants(deps.parentSessionId, abort.signal).then(rows => {
       if (generation !== catalogGeneration) return
-      catalog = catalogReading(entries)
+      // Diagnostics are kept, not filtered: a row Harness could not interpret
+      // is a listed record with no conversation behind it, and the catalog
+      // already draws it as such rather than letting the branch vanish.
+      catalog = catalogReading(rows.filter(row => row.depth === DIRECT_CHILD_DEPTH))
       // An open inspector keeps showing the freshest residency Harness published
       // rather than the snapshot taken when it opened. Durable identity, mode,
       // and label do not change, but residency can.

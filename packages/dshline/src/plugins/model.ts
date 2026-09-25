@@ -2,30 +2,28 @@
  * What `/plugins` knows, as rows and decisions a terminal can draw.
  *
  * Two things are joined here that Harness keeps deliberately separate: a
- * preset's ROSTER identity (`AgentPresetRow` — id, trust, broken-ness) and one
- * preset's COMPOSITION (`CompositionRow`, from `./composition.ts` — the rows a
- * `.cordis.yml` actually lists). A session's relationship to a preset is a
- * third thing again, and it is not reconstructed here at all: `agentPreset`
- * and `turnBoundary` are Session projections Harness owns, and `harness.ts`'s
- * {@link PluginsSessionFacts} is what they answer. This module decides only
- * what those facts make worth OFFERING; the authority to act on them is
- * Harness's, and `AgentPresets.select` re-reads `turnBoundary` itself before
- * it writes.
+ * preset's ROSTER identity (`AgentPresetRow` — id, display fields,
+ * broken-ness) and one preset's COMPOSITION (`CompositionRow`, from
+ * `./composition.ts` — the rows a declaration lists). A session's relationship
+ * to a preset is a third thing again, and it is not reconstructed here at all:
+ * `agentPreset` and `turnBoundary` are Session projections Harness owns, and
+ * `harness.ts`'s {@link PluginsSessionFacts} is what they answer. This module
+ * decides only what those facts make worth OFFERING; the authority to act on
+ * them is Harness's, and `AgentPresetRegistry.select` re-reads `turnBoundary`
+ * itself before it writes.
  * @module dshline/plugins/model
  */
 
-import type { AgentPresetRow, PluginsSessionFacts, PresetTrust } from './harness.ts'
+import type { AgentPresetRow, PluginsSessionFacts } from './harness.ts'
 import type { CompositionRow } from './composition.ts'
 
 /** One roster preset, joined with what the current session and default say about it. */
 export interface PresetRow {
   /** The preset id. */
   readonly id: string
-  /** Whether it ships with the deployment or was authored locally. */
-  readonly trust: PresetTrust
   /** Display name; falls back to `id`. */
   readonly name: string
-  /** One-line description, when the preset declares one. */
+  /** One-line description, when the declaration publishes one. */
   readonly description: string | undefined
   /** Why this preset cannot be mounted, when it cannot. */
   readonly broken: string | undefined
@@ -39,8 +37,8 @@ export interface PresetRow {
  * Join the roster with session and default facts, preserving roster order.
  *
  * Order is never re-ranked, the same rule `connect/model.ts` states for its
- * own rows: the roster's order is Harness's, not a preference this frontend
- * invents.
+ * own rows: the registry's own `order` sort is Harness's, not a preference
+ * this frontend invents.
  * @param presets - the roster, as `AgentPresetsSeam.list()` returns it.
  * @param currentId - the id the active session is composed from, if resolved.
  * @param defaultId - the id a new session would get.
@@ -53,7 +51,6 @@ export function presetRows(
 ): readonly PresetRow[] {
   return presets.map(preset => ({
     id: preset.id,
-    trust: preset.trust,
     name: preset.name ?? preset.id,
     description: preset.description,
     broken: preset.broken,
@@ -160,45 +157,6 @@ export function compositionRowFacts(row: CompositionRow): string[] {
   return facts
 }
 
-/** What pressing space on one composition row would do, before it is tried. */
-export type ToggleEligibility =
-  /** The row's own field is a plain boolean; space flips it. */
-  | { readonly kind: 'toggle'; readonly enable: boolean }
-  /** The preset is a system preset; space should offer a copy-to-customize flow instead. */
-  | { readonly kind: 'requires-copy' }
-  /** The row's `disabled` is a `!!js` condition; a plain toggle would discard it. */
-  | { readonly kind: 'conditional' }
-  /** No writable seam is mounted at all. */
-  | { readonly kind: 'unavailable'; readonly reason: string }
-
-/**
- * What pressing space on one row would do, given the preset it belongs to.
- *
- * The conditional check runs BEFORE the system/user trust check on purpose:
- * a `!!js` row is not togglable no matter whose preset it is copied into, so
- * checking trust first would walk a reader through "create a local copy" for
- * a toggle that was always going to be refused. Copy is offered only for a
- * row that would actually become togglable once it belongs to a preset this
- * deployment can write to.
- * @param row - the selected composition row.
- * @param preset - the preset this composition was read from.
- * @param capabilities - whether a write path exists at all right now.
- * @returns the eligibility, before any write is attempted.
- */
-export function toggleEligibility(
-  row: CompositionRow,
-  preset: { readonly trust: PresetTrust },
-  capabilities: { readonly canWriteUserPresets: boolean },
-): ToggleEligibility {
-  if (row.group) return { kind: 'unavailable', reason: 'a group row has no single on/off state to toggle' }
-  if (row.disabled.kind === 'conditional') return { kind: 'conditional' }
-  if (!capabilities.canWriteUserPresets) {
-    return { kind: 'unavailable', reason: 'this deployment has no writable preset root' }
-  }
-  if (preset.trust === 'system') return { kind: 'requires-copy' }
-  return { kind: 'toggle', enable: row.disabled.kind === 'disabled' }
-}
-
 /** What selecting a preset in the `p` picker would do to the active session. */
 export type PresetSwitchEligibility =
   /** The session is blank; `select` may run and takes effect immediately. */
@@ -210,9 +168,9 @@ export type PresetSwitchEligibility =
  * Whether picking a preset may switch the active session, or must be
  * redirected to "default for the next session" instead.
  *
- * PRESENTATION eligibility, not write authority. `AgentPresets.select` refuses
- * a started session itself, from the same `turnBoundary` fact, re-read inside
- * its own serialized switch — so this decides only whether the reader is
+ * PRESENTATION eligibility, not write authority. `AgentPresetRegistry.select`
+ * refuses a started session itself, from the same `turnBoundary` fact, re-read
+ * inside its own serialized switch — so this decides only whether the reader is
  * offered a switch or the default they can actually have. Both read one
  * projection, which is why the offer and the refusal cannot disagree.
  * @param session - the active session's projected facts.
@@ -229,11 +187,10 @@ export function presetSwitchEligibility(session: PluginsSessionFacts): PresetSwi
 /**
  * Presets worth offering in the `p` switch/default picker.
  *
- * A broken preset is still shown in the composition browser when it is the
- * one currently open (Harness's own roster still lists it, `broken` and
- * all), but a picker whose whole job is choosing what to compose from next
- * offers none it cannot mount — the same filter Harness's own Web settings
- * store applies (`presetOptions()`) before a pick-list is built.
+ * A broken declaration is still shown in the composition browser when it is the
+ * one currently open (the roster still lists it, `broken` and all), but a
+ * picker whose whole job is choosing what to compose from next offers none it
+ * cannot mount.
  * @param rows - every roster preset row.
  * @returns the rows a picker may offer.
  */
@@ -243,8 +200,12 @@ export function selectablePresetRows(rows: readonly PresetRow[]): readonly Prese
 
 /**
  * One preset's picker label: name, id, and the tags that distinguish it —
- * current, default, and built-in vs custom — matching the facts the spec's
- * own mock calls out (`current · default`).
+ * current and default — matching the facts the spec's own mock calls out
+ * (`current · default`).
+ *
+ * No built-in-vs-custom tag: the adopted generation's roster does not carry
+ * one. A shipped declaration and a profile-authored one are both rows in a
+ * composition, and nothing in the registry's own report distinguishes them.
  * @param row - the preset row.
  * @returns the label line.
  */
@@ -252,7 +213,6 @@ export function presetChoiceLabel(row: PresetRow): string {
   const tags = [
     row.isCurrent ? 'current' : undefined,
     row.isDefault ? 'default' : undefined,
-    row.trust === 'user' ? 'custom' : undefined,
   ].filter((tag): tag is string => tag !== undefined)
   const suffix = tags.length === 0 ? '' : ` · ${tags.join(' · ')}`
   return `${row.name}  ${row.id}${suffix}`
@@ -265,36 +225,4 @@ export function presetChoiceLabel(row: PresetRow): string {
  */
 export function presetChoiceDetail(row: PresetRow): string | undefined {
   return row.description
-}
-
-/** The id shape Harness's own authoring accepts (`PRESET_ID` in `dsh-agent-presets`). */
-const PRESET_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/u
-
-/**
- * Whether a typed string is a usable preset id.
- * @param id - the candidate id.
- * @returns whether Harness's own authoring would accept it.
- */
-export function validPresetId(id: string): boolean {
-  return PRESET_ID_PATTERN.test(id)
-}
-
-/**
- * A free id for copying `from`, preferring the obvious `<from>-custom`.
- *
- * Suggested, never assigned outright: the happy path is accepting this with
- * one keystroke, but a reader who already has a `standard-custom` should not
- * be stopped from typing their own name instead.
- * @param from - the preset being copied.
- * @param existingIds - every id already on the roster.
- * @returns an id not already taken.
- */
-export function suggestPresetId(from: string, existingIds: readonly string[]): string {
-  const taken = new Set(existingIds)
-  const base = `${from}-custom`
-  if (!taken.has(base)) return base
-  for (let suffix = 2; ; suffix += 1) {
-    const candidate = `${base}-${String(suffix)}`
-    if (!taken.has(candidate)) return candidate
-  }
 }

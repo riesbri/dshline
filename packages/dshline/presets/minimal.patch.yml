@@ -1,0 +1,31 @@
+# The `minimal` agent preset: the same persona and skills, and almost no tools.
+#
+# It exists to be switched TO, not tuned. `standard` is what a terminal session
+# has always run; a person who wants the filesystem and nothing else composes
+# from this declaration instead, and `/plugins` switches a blank session onto it
+# through Harness's own `select`. Anything a preset does not list, that session
+# does not see — which is the property the previous generation's roster could
+# not offer, since there every preset was a file behind a directory the terminal
+# had to decide for itself.
+- insert:
+    - id: preset-minimal
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: minimal
+        order: 3
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              suffix: Your working directory is {{cwd}}.
+              prefix: You are a coding agent powered by the {{model}} model.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'

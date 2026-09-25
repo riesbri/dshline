@@ -6,7 +6,7 @@
  * here means a fresh install gets it wrong. The check is structural, not a
  * live Cordis mount (nothing in this repo boots a real Loader tree in a
  * unit test): every row `dsh-base` mounts unconditionally that a Harness
- * preset also lists must be disabled here, `agent-presets` must be
+ * preset also lists must be disabled here, `agent-preset-registry` must be
  * inserted with a real default, and no id may be both disabled and
  * (re-)inserted by this same file — that would be dshline arguing with
  * itself about whether one row exists.
@@ -131,13 +131,15 @@ describe('cordis.patch.yml: the agent plane moves behind agent presets', () => {
     expect(disabled.has('workflow-worker-thread')).toBe(false)
   })
 
-  it('inserts the preset roster with a real default', () => {
+  it('inserts the preset registry with a real default', () => {
     const patch = loadPatch()
-    const agentPresets = patch
+    const registry = patch
       .flatMap(entry => entry.insert ?? [])
-      .find(row => row.id === 'agent-presets')
-    expect(agentPresets?.name).toBe('@deepseek-ai/dsh-agent-presets')
-    expect((agentPresets?.config as { default?: unknown } | undefined)?.default).toBe('standard')
+      .find(row => row.id === 'agent-preset-registry')
+    // The service that replaced the removed `@deepseek-ai/dsh-agent-presets`.
+    // Naming the old package here would resolve to nothing in a real profile.
+    expect(registry?.name).toBe('@deepseek-ai/dsh-agent-preset-registry')
+    expect((registry?.config as { default?: unknown } | undefined)?.default).toBe('standard')
   })
 
   it('never both disables and (re-)inserts the same row id', () => {

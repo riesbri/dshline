@@ -170,7 +170,7 @@ export const CAPABILITY_PROBES = [
   {
     name: 'agentPresets',
     files: ['packages/dshline/tests/capability/agent-presets.probe.spec.ts'],
-    note: 'real AgentPresets list/resolve/read/copy and structural AgentPresetsSeam assignment, plus the creation-header projection read; mount/recompose/select and selected events are outside the probe',
+    note: 'real AgentPresetRegistry list/resolve/readDocument over a real AgentPreset declaration, structural AgentPresetsSeam assignment, the absence of the withdrawn trust/path/copy row fields, and the creation-header projection read; mount/recompose/select and selected events are outside the probe',
   },
   {
     name: 'goals',

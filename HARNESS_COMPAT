@@ -41,7 +41,12 @@
 # A subagent backend forwards a delegated child process's stderr straight to
 # file descriptor 2 for the life of the run, which on an interactive launch is
 # the terminal the live region is drawn on. Read the module header before
-# touching this record. Reconfirmed against 0.1.6-alpha.2 at
-# subagent-codex/src/run.ts (`writeFileSync(process.stderr.fd, bytes)`);
-# alpha.2 still publishes no Host-owned diagnostic seam to route it through.
-shim packages/dshline/src/stderr.ts 0.1.6-alpha.2
+# touching this record. Reconfirmed against 0.1.7-rc.2 at
+# `packages/subagent/subagent-codex/src/run.ts:261`
+# (`writeFileSync(process.stderr.fd, bytes)`), whose git blob is byte-identical
+# to alpha.2's (`12abd405e3b24858a3ae5fc00e8c0be341821bab`); rc.2 still publishes
+# no Host-owned diagnostic seam to route it through, the subprocess seam offering
+# only `pipe | inherit | collect` with no Host-owned sink behind it. The
+# `'inherit'` backends (`subagent-acp`, `subagent-claude-code`) reach the same
+# descriptor and are NOT contained by this shim — see the module header.
+shim packages/dshline/src/stderr.ts 0.1.7-rc.2

@@ -561,22 +561,21 @@ already search input.
 The adopted generation still has no body-free list API that joins a header with
 title/projection hints. Its generic `listSessions()` returns metadata only;
 `readTitleSnapshots()` is exact but can open every requested log. dshline's
-optional `ctx.sessionProjectionCache` adapter is therefore generation-specific:
+optional `ctx.sessionProjectionCache` reader is therefore generation-specific:
 it may provide a visibly provisional title without becoming a frontend index,
-but it cannot replace the eventual generic observation. In the pinned
-generation, that adapter calls `cachedSnapshot` only for an unseeded cold row,
-whose inherited cut is contractually zero. A cold seeded row returns no hint:
-`SessionRecord` does not expose its exact inherited cut, and the pinned cache
-requires that cut even for predecessor-title reads. Live rows may use the
-attached Session's projection cells.
+but it cannot replace the eventual generic observation.
 
-**Migration note:** the pinned `0.1.6-alpha.2` cache identity requires the exact
-`inheritedEventCount`, so dshline intentionally gives no cold seeded-row hint.
-Harness `0.1.7-rc.2` at commit `477b4f420553e8a52c2fbccc464d7561b239c443`
-has moved listing cache matching to header-only `cachedSnapshot(header)` and
-`cachedPredecessorTitle(header)`. Revisit and remove the pinned seeded-row
-fallback when `HARNESS_TARGET` migrates; do not preserve it as permanent
-compatibility behavior.
+That reader is now a header-only call, `cachedSnapshot(header, ['title'])`, for
+a cold row of either kind. It is not a loosened version of the old contract —
+`0.1.6-alpha.2` took an exact `inheritedEventCount` that a listed
+`SessionRecord` does not carry, which is why cold seeded rows used to get no
+hint at all rather than a fabricated zero. `0.1.7-rc.2` dropped that parameter
+and moved the decision into Harness, which matches a cached checkpoint against
+the lifecycle identity a header alone witnesses: `formatVersion`, `createdAt`,
+`cwd`, and `isSeeded`, returning nothing at all on a mismatch. dshline
+therefore passes the header and nothing else, never reconstructs a count, and
+serves seeded and unseeded cold rows through the identical call. Live rows may
+use the attached Session's projection cells.
 
 The smallest future Harness addition is one additive query read, not another
 persistence or title database:

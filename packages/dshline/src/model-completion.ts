@@ -29,7 +29,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only, for the `Context` event-map merges this module subscribes to
-// (`llm/adapters-updated`, `settings/updated`). The services are optional peers
+// (`llm/adapters-updated`, `settings/document-updated`). The services are optional peers
 // read through their types, never their runtime code.
 import type {} from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-settings'
@@ -147,7 +147,7 @@ export class ModelCompletionCatalog {
  *
  * Two feeds, established from the adapters this generation ships. The registry
  * announces a route set or configurable-provider directory change with
- * `llm/adapters-updated`. `settings/updated` is the resolved-value commit each
+ * `llm/adapters-updated`. `settings/document-updated` is the entry change each
  * adapter's `listModels` actually reads: a `models` or `modelOverrides` edit
  * changes an already-registered route's catalog WITHOUT re-registering it, so
  * no registry event fires. The other settings and credential events do not bear
@@ -164,7 +164,10 @@ export class ModelCompletionCatalog {
 export function watchModelCompletion(ctx: Context, catalog: ModelCompletionCatalog): () => void {
   const disposers = [
     ctx.on('llm/adapters-updated', () => { catalog.invalidate() }),
-    ctx.on('settings/updated', () => { catalog.invalidate() }),
+    // `settings/updated` was removed in the adopted generation; its replacement
+    // is coarser (a raw entry change, not a value-gated commit), which costs an
+    // extra invalidation on an unchanged value and nothing else.
+    ctx.on('settings/document-updated', () => { catalog.invalidate() }),
   ]
   return () => {
     for (const dispose of disposers) dispose()
