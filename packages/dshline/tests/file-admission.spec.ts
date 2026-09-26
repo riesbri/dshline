@@ -327,6 +327,29 @@ describe('bounded streaming', () => {
     expect(ref.bytes).toBe(0)
   })
 
+  it('never introduces a deadline of its own: a signal that never aborts runs to completion', async () => {
+    // The version-independent half of "no wall clock on a stream". The deadline
+    // lives at the composition site in the session attachment, and this proves
+    // the streaming path adds none: whatever signal it is handed is the whole
+    // of its cancellation, so a caller that composes no timeout gets none. A
+    // fake-timer test would not prove this — Node implements
+    // `AbortSignal.timeout` outside the globals vitest patches — and waiting 30
+    // seconds is not a test.
+    const large = entries({ '/ws/slow.log': { data: bytes(40_000), type: 'file', version: 'v1' } })
+    const { fs } = backend(large)
+    const store = new CapturingStore({})
+    const never = new AbortController().signal
+    const ref = await admitFileDraft(
+      { kind: 'file', path: 'slow.log', name: 'slow.log' },
+      fs, store.asStore(), '/ws', never, 1024,
+    )
+    expect(ref.bytes).toBe(40_000)
+    expect(never.aborted).toBe(false)
+    expect(store.lengths).toHaveLength(40)
+    // And the signal it passed down is the very one it was handed, undecorated.
+    expect(store.signals).toEqual([never])
+  })
+
   it('stops reading once the signal aborts', async () => {
     const controller = new AbortController()
     const { fs, windows } = backend(entries({ '/ws/long.log': { data: bytes(4096), type: 'file', version: 'v1' } }), {

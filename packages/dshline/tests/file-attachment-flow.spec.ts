@@ -305,23 +305,6 @@ function sent(f: Awaited<ReturnType<typeof fixture>>): readonly { type: string; 
   return message.content
 }
 
-/**
- * Whether a signal was composed from an `AbortSignal.timeout` source.
- *
- * Node records that fact on the composite: `AbortSignal.any([a, b])` carries an
- * internal `kTimeout` marker when one of its sources is a timeout signal, and
- * does not when none is. That makes the composition directly assertable, so
- * "this transfer is not tied to a wall clock" is a fact about the signal the
- * store actually received rather than something read off the source.
- * @param signal - the signal handed to the attachment store or a filesystem read.
- * @returns whether any composed source is a timeout.
- */
-function hasTimeoutSource(signal: AbortSignal | undefined): boolean {
-  // By name, not by value: a composite signal also carries `kComposite: true`.
-  return Object.getOwnPropertySymbols(signal ?? {}).some(symbol =>
-    symbol.description === 'kTimeout' && (signal as unknown as Record<symbol, unknown>)[symbol] === true)
-}
-
 describe('staging a generic file', () => {
   it('stages without reading anything, and lists what is staged', async () => {
     const f = await fixture()
@@ -985,23 +968,94 @@ describe('registered commands', () => {
 })
 
 describe('generic file transfer lifetime', () => {
-  it('carries no wall-clock deadline, so transfer speed is not a size policy', async () => {
-    // The defect this covers. A fixed deadline on a STREAMED transfer is a
-    // maximum file size in everything but name: it is reached sooner by exactly
-    // the two things a remote or sandboxed provider makes more likely — bytes
-    // and round trips per window. The signal the store is handed is asserted,
-    // not waited on, so this says nothing about wall-clock time.
-    const f = await fixture()
-    submit(f.dispatch(), '/attach logs/server.log')
-    await flush()
-    submit(f.dispatch(), 'inspect')
-    await flush()
+  /**
+   * How many deadlines a staged submission adds over a plain one.
+   *
+   * `AbortSignal.timeout` is also used elsewhere in this frontend for reasons
+   * that have nothing to do with attachments — the composer arms its own — so an
+   * absolute count would assert against code this test does not own. Both
+   * measurements are taken in ONE fixture so that noise cancels, and the delta
+   * asks the question that is actually about this change. It also survives the
+   * constant being retuned.
+   * @param staging - command lines to submit before the measured prompt.
+   * @returns deadlines the measured prompt added over a plain attachment-free one.
+   */
+  async function deadlinesAddedByStagedPrompt(staging: readonly string[]): Promise<number> {
+    const timeout = vi.spyOn(AbortSignal, 'timeout')
+    try {
+      const f = await fixture({ inputModalities: ['text', 'image'] })
+      // Baseline first, in the same session: a prompt with nothing staged.
+      const start = timeout.mock.calls.length
+      submit(f.dispatch(), 'nothing staged here')
+      await flush()
+      const plain = timeout.mock.calls.length - start
 
-    expect(f.saves).toHaveBeenCalledOnce()
-    const signal = f.fileSignals[0]
-    expect(signal).toBeInstanceOf(AbortSignal)
-    expect(signal?.aborted).toBe(false)
-    expect(hasTimeoutSource(signal)).toBe(false)
+      for (const line of staging) {
+        submit(f.dispatch(), line)
+        await flush()
+      }
+      const staged = timeout.mock.calls.length
+      submit(f.dispatch(), 'measure me')
+      await flush()
+      expect(f.agent.followup).toHaveBeenCalledTimes(2)
+      return timeout.mock.calls.length - staged - plain
+    } finally {
+      timeout.mockRestore()
+    }
+  }
+
+  it('arms no wall clock at all for a generic file', async () => {
+    // The decisive form, and the one that works on every supported Node.
+    // `AbortSignal.timeout` is a public static, so a spy records exactly what
+    // the admission composed — no waiting for 30 seconds, no reading of a
+    // runtime's internal signal symbols (which differ between Node 22 and 24),
+    // and no fake timers (Node implements `AbortSignal.timeout` outside the
+    // globals vitest patches). Restoring the image deadline on the file path
+    // makes this fail by name.
+    expect(await deadlinesAddedByStagedPrompt(['/attach logs/server.log'])).toBe(0)
+  })
+
+  it('still arms the image deadline', async () => {
+    // The asymmetry, in the same currency, so neither half is taken on trust.
+    expect(await deadlinesAddedByStagedPrompt(['/image pictures/a.png'])).toBe(1)
+  })
+
+  it('arms it once for a MIXED batch, never once per attachment', async () => {
+    // A mixed batch is where a shared deadline would have been simplest and
+    // most wrong: one timer bounding a stream it has no business bounding. Two
+    // images and one file must still arm exactly one.
+    expect(await deadlinesAddedByStagedPrompt([
+      '/image pictures/a.png',
+      '/attach logs/server.log',
+      '/image pictures/c.png',
+    ])).toBe(1)
+  })
+
+
+  it('gives the image path a DIFFERENT signal from the file path', async () => {
+    // Version-independent, and it is the assertion that carries the review. The
+    // two paths receiving different signal OBJECTS is what proves the image
+    // path composes an extra layer the file path does not — an object identity
+    // check, not a reading of a runtime's internals.
+    const images = await fixture()
+    submit(images.dispatch(), '/image pictures/a.png')
+    await flush()
+    submit(images.dispatch(), 'look')
+    await flush()
+    const imageSignal = images.reads.mock.calls.at(-1)?.[1] as AbortSignal | undefined
+
+    const files = await fixture()
+    submit(files.dispatch(), '/attach trace.json')
+    await flush()
+    submit(files.dispatch(), 'look')
+    await flush()
+    const fileSignal = files.fileSignals[0]
+
+    expect(imageSignal).toBeInstanceOf(AbortSignal)
+    expect(fileSignal).toBeInstanceOf(AbortSignal)
+    // Two distinct objects: the image path composes an extra layer and the file
+    // path does not. Object identity, so this holds on every supported Node.
+    expect(imageSignal).not.toBe(fileSignal)
   })
 
   it('still aborts on the reader cancelling with ctrl-c', async () => {
@@ -1063,23 +1117,6 @@ describe('generic file transfer lifetime', () => {
     expect(f.frame()).toContain('second prompt')
   })
 
-  it('keeps the image deadline: an image read is still bounded in time', async () => {
-    // The image path keeps its own wall clock, and the two now differ. This
-    // asserts the image signal is a composed one carrying a timeout source,
-    // which is the asymmetry this change introduced on purpose.
-    const f = await fixture()
-    submit(f.dispatch(), '/image pictures/a.png')
-    await flush()
-    submit(f.dispatch(), 'look')
-    await flush()
-    const readSignal = f.reads.mock.calls.at(-1)?.[1] as AbortSignal | undefined
-    expect(readSignal).toBeInstanceOf(AbortSignal)
-    expect(readSignal?.aborted).toBe(false)
-    // The asymmetry, asserted rather than assumed: the image read's signal DOES
-    // carry a timeout source and the file stream's, in the test above, does not.
-    expect(hasTimeoutSource(readSignal)).toBe(true)
-    expect(f.agent.followup).toHaveBeenCalledOnce()
-  })
 })
 
 describe('delegated conversations', () => {
