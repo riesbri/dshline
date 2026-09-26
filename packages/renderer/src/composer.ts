@@ -676,19 +676,19 @@ export class Composer {
    * either wholly inside the range or wholly outside it, which is the only shape
    * it has to reason about.
    *
-   * The set of touched folds is taken from the ORIGINAL range, never from a range
-   * that has already been widened. That distinction is what stops two ADJACENT
-   * folds from vanishing together: widening to cover `#1` brings the new end up
-   * to `#2`'s start, and re-testing that would swallow `#2` as well even though
-   * the reader pressed backspace once. One pass over the original range cannot
-   * cascade for the same reason.
+   * The touched-fold set is computed from the ORIGINAL deletion range, in one
+   * pass. Under the composer invariant that folds are ascending and
+   * non-overlapping, that produces the same result as repeatedly re-testing a
+   * widened range: widening to cover one fold can at most reach an adjacent
+   * fold's boundary, and touching is not intersection. The one-pass form is kept
+   * because it states the rule directly and avoids unnecessary iteration, not
+   * because the iterative form would behave differently.
    *
-   * Touching is not intersecting. Two folds meeting at offset 100 both survive a
-   * deletion that ends exactly there, because `deleteStart < fold.end &&
-   * deleteEnd > fold.start` is false for the fold on the far side of the
-   * boundary. Backspace at 100 takes `[99, 100)` and so takes `#1`; Delete at 100
-   * takes `[100, 101)` and so takes `#2`. Each removes exactly the token the
-   * caret is touching.
+   * Touching is not intersecting. Two folds meeting at offset 100 each keep their
+   * own token, because `deleteStart < fold.end && deleteEnd > fold.start` is
+   * false for the fold on the far side of the boundary. Backspace at 100 takes
+   * `[99, 100)` and so takes `#1`; Delete at 100 takes `[100, 101)` and so takes
+   * `#2`. Each removes exactly the token the caret is touching.
    * @param start - first raw offset the gesture covers, before any widening.
    * @param end - one past the last, before any widening.
    * @param kind - which deletion gesture this is, for undo coalescing.
