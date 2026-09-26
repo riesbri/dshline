@@ -42,9 +42,12 @@ inside it, reveals the text first — a horizontal move unfolds and then moves, 
 the cursor is never invisible, and a mutation that would touch hidden characters
 invalidates the label before it applies. Deleting a folded span removes its
 metadata with the text. Undo and redo restore fold state along with the
-characters, and paste numbers are monotonic for the life of a session: a submitted
-draft does not reset the counter, and undo never hands a number to different
-content.
+characters, and paste numbers are monotonic for the lifetime of one Composer: a
+submitted draft does not reset the counter, a clear does not either, and undo
+never hands a number to different content. The root session composer keeps its
+sequence for as long as it lives, so the second large block in a conversation is
+`#2`; other multiline Composer instances, such as a subagent-message editor,
+maintain their own.
 
 Compact paste behaviour belongs to the reusable multiline Composer, so the root
 prompt and the subagent message composer both inherit it. Single-line query and

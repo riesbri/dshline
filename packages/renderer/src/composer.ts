@@ -199,13 +199,19 @@ export class Composer {
    * Identity handed to the NEXT folded paste, monotonic for this composer's whole
    * life.
    *
+   * The lifetime is the COMPOSER, not the conversation. This is one class used by
+   * the root prompt and by each subagent-message editor alike, and two of them
+   * must not share a sequence. The root composer normally lives as long as its
+   * attached session, so in practice its numbering reads as per-session — but
+   * where the instance happens to live is not what defines the rule.
+   *
    * It survives {@link Composer.clear} and {@link Composer.set} on purpose: the
    * numbers name pastes in the order they arrived, so submitting a draft and
    * pasting again continues at `#2` rather than reusing `#1` for a different
-   * block of text. A new composer — a new session — starts at `#1` naturally,
-   * because that is the only thing that resets it. Undo does not give a number
-   * back either: it was shown to a reader, and handing it to different content
-   * would be a worse lie than a gap in the sequence.
+   * block of text. A new composer is the only thing that resets it, and it starts
+   * at `#1`. Undo does not give a number back either: it was shown to a reader,
+   * and handing it to different content would be a worse lie than a gap in the
+   * sequence.
    */
   private nextPasteId = 1
   /**

@@ -925,11 +925,12 @@ describe('folds stay ordered by position, not by arrival', () => {
     expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
     expectFoldsValid(composer, 'A | C')
 
-    // Home, then a paste, is the only way a reader can put a new block ahead of
-    // an existing one: a horizontal step that would land INSIDE a fold reveals it
-    // instead, by design, so there is no cursor position between two folded
-    // spans to click into. Home reaches the start without touching either, which
-    // is what makes this reachable at all.
+    // Home, then a paste, is the simple way to put a new block ahead of an
+    // existing one: it reaches the start without entering either span. It is not
+    // the ONLY route — a vertical move onto a wrapped row can land on visible
+    // text between two spans, and the test below pastes into such a separator.
+    // What a horizontal step cannot do is pass THROUGH a fold's interior, so the
+    // cases here and there exercise the insertion in both directions.
     composer.handle(key('home'))
     composer.handle(paste(block(11, 'B')))
 
@@ -1033,13 +1034,18 @@ describe('folds stay ordered by position, not by arrival', () => {
     expect(foldsOf(plain).map(fold => fold.start)).toEqual([0, 100])
   })
 
-  it('cannot reach a position between two folds, because entering one reveals it', () => {
-    // Stated as a test because it is the reason every ordering case above is built
-    // from Home rather than from walking rightwards: the middle of a draft whose
-    // spans are both folded is not a place the cursor can be. The separator between
-    // them is visible text, but reaching it means crossing the first span, and a
-    // horizontal step that would land inside a fold reveals its contents first — by
-    // design, because the alternative is an invisible cursor.
+  it('horizontal movement cannot cross a folded span without revealing it', () => {
+    // Narrower than "there is no position between two folds", and stated this way
+    // because it is the rule that is actually enforced. A horizontal step walks
+    // one code point at a time, so reaching content BEYOND a folded span means
+    // stepping through its interior, and the interior is not drawn. Rather than
+    // land the cursor there, the step reveals the span first and then moves into
+    // what is now ordinary visible text.
+    //
+    // What this does NOT claim: that a separator between two folded spans is
+    // unreachable. It is ordinary visible text, and the test below reaches it with
+    // a vertical move. Only the horizontal route through a fold's interior is
+    // closed.
     const composer = new Composer()
     composer.handle(paste(block(9, 'A')))
     type(composer, ' between ')
@@ -1056,6 +1062,62 @@ describe('folds stay ordered by position, not by arrival', () => {
     expect(composer.display().text.startsWith('A line 1\n')).toBe(true)
     expect(composer.display().text).toContain(' between ')
     expect(composer.display().text.endsWith('[Pasted text #2 +10 lines]')).toBe(true)
+  })
+
+  it('vertical movement reaches the separator between two folded spans', () => {
+    // The counterpart to the test above, and the reason that one must not claim
+    // more than it does. A wrapped label is several visual rows tall, so the rows
+    // BETWEEN two folded spans hold the separator, and `positionAt` maps a cell on
+    // one of those rows to a raw offset in ordinary text. Vertical movement is
+    // therefore a way to put the cursor between two spans that are both still
+    // folded — no reveal, and no invisible position.
+    const a = block(9, 'A')
+    const separator = ' between '
+    const c = block(10, 'C')
+    const composer = new Composer()
+    composer.handle(paste(a))
+    type(composer, separator)
+    composer.handle(paste(c))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
+
+    // Thirty columns wraps both labels, so the row above the cursor holds the
+    // middle of the separator.
+    expect(composer.moveUp(30, GUTTER)).toBe(true)
+    expect(composer.position).toBe(85)
+    expect(composer.position).toBeGreaterThan(a.length)
+    expect(composer.position).toBeLessThan(a.length + separator.length)
+    // Both spans are still folded: nothing was revealed to get here.
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
+    expectFoldsValid(composer, 'cursor in the separator')
+  })
+
+  it('places a paste into a separator the cursor reached vertically', () => {
+    const a = block(9, 'A')
+    const separator = ' between '
+    const c = block(10, 'C')
+    const b = block(11, 'B')
+    const composer = new Composer()
+    composer.handle(paste(a))
+    type(composer, separator)
+    composer.handle(paste(c))
+    expect(composer.moveUp(30, GUTTER)).toBe(true)
+    expect(composer.position).toBe(85)
+
+    composer.handle(paste(b))
+
+    // Arrival was A, C, B. Position is A, B, C — the same interleaving the Home
+    // route produces, reached a different way, so `insertFoldOrdered` has to get
+    // both right.
+    expectFoldsValid(composer, 'B inserted into the separator')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 3, 2])
+    expect(foldsOf(composer).map(fold => fold.start)).toEqual([0, 85, 85 + b.length + 4])
+    // The separator is split where the cursor actually was, not at a boundary.
+    expect(composer.value).toBe(`${a}${separator.slice(0, 5)}${b}${separator.slice(5)}${c}`)
+    expect(composer.handle(key('enter'))).toEqual({
+      kind: 'submit',
+      text: `${a}${separator.slice(0, 5)}${b}${separator.slice(5)}${c}`,
+      gesture: 'enter',
+    })
   })
 
   it('restores a position-ordered collection from an undo snapshot', () => {
