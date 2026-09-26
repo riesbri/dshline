@@ -495,8 +495,11 @@ resume with no dshline-side state at all.
 
 **The one place this stops is registered commands.** `CommandSubmitAttachment`
 admits a generic file only as a staged upload receipt resolved by the Session
-upload owner, and no such owner is mounted in this frontend. Fabricating a
-receipt id would be a fabricated reference, and claiming
+upload owner, and **dshline's shipped composition mounts no file-upload receipt
+owner**. Harness's own `@deepseek-ai/dsh-client-file-upload` is the package that
+registers one, and it is a row of the Web bundle; dshline composes over
+`dsh-base` and does not add it. Fabricating a receipt id would be a fabricated
+reference, and claiming the single-writer
 `ctx.commands.registerFileReceiptResolver` would make a terminal the receipt
 authority for a product boundary Harness owns — so a command that declares
 `input.attachments` is refused with an explanation while its drafts survive.

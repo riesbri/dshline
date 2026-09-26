@@ -29,7 +29,12 @@ and resumed sessions render each durable file by name and size and read no
 bytes while drawing history.
 
 Registered Harness commands are not yet given staged files: the adopted command
-contract admits a generic file only as an upload receipt produced by Harness's
-own file-upload flow, which this frontend does not mount. Such an invocation is
-refused with an explanation and every draft survives, rather than silently
-omitting the files.
+contract admits a generic file only as an upload receipt resolved by the Session
+upload owner, and dshline's shipped composition mounts no file-upload receipt
+owner — Harness registers one in its Web bundle, which dshline composes over
+rather than adopts. Such an invocation is refused with an explanation and every
+draft survives, rather than silently omitting the files.
+
+Generic file attachments are also refused, exactly as Harness's own upload path
+refuses them, in a delegated subagent conversation; `/image` is unaffected,
+because upstream admits image parts there today.

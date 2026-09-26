@@ -383,9 +383,10 @@ diagram.png` and `/attach diagram.png` mean different things.
 
 Still ahead for dshline: forwarding a staged file to a registered Harness
 command. The adopted command contract admits a generic file only as a staged
-upload receipt resolved by the Session upload owner, and dshline mounts no such
-owner — so it refuses such an invocation with an explanation instead of
-fabricating a receipt. Building that receipt flow is Harness's side of the
+upload receipt resolved by the Session upload owner, and dshline's shipped
+composition mounts no file-upload receipt owner — Harness registers one in its
+Web bundle, which dshline composes over rather than adopts — so it refuses such
+an invocation with an explanation instead of fabricating a receipt. Building that receipt flow is Harness's side of the
 boundary, not this frontend's.
 
 ### 7. Permissions and approvals

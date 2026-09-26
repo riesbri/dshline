@@ -10,6 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
+import { isAttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import { stripAnsi, type Key } from '@dshline/renderer'
@@ -54,6 +55,8 @@ function text(value: string): Uint8Array {
 /** Build one fresh attached session with optional attachment capabilities. */
 async function fixture(options: {
   readonly capabilities?: boolean
+  /** The durable `SessionHeader.origin` this session records. */
+  readonly origin?: 'subagent'
   readonly files?: Map<string, Entry>
   /** Serve this instead of the stored bytes, for a refusal case. */
   readonly serve?: (key: string) => Served | undefined
@@ -91,6 +94,8 @@ async function fixture(options: {
   files: Map<string, Entry>
   commands: { execute: ReturnType<typeof vi.fn> }
   exit: ReturnType<typeof vi.fn>
+  /** Signals every generic-file stream was handed, in order. */
+  fileSignals: (AbortSignal | undefined)[]
   commits: string[][]
   frame: () => string
   output: () => string
@@ -115,7 +120,11 @@ async function fixture(options: {
   const reads = vi.fn(async (target: { displayPath: string }) =>
     await options.readBytes?.(target.displayPath) ?? files.get(target.displayPath)?.data ?? new Uint8Array(0))
   const windows = vi.fn()
-  const saves = vi.fn(async (input: { name?: string; data: AsyncIterable<Uint8Array> }) => {
+  // Every signal the store was handed, so a test can read the composition the
+  // streaming path actually received rather than trusting the source.
+  const fileSignals: (AbortSignal | undefined)[] = []
+  const saves = vi.fn(async (input: { name?: string; data: AsyncIterable<Uint8Array>; signal?: AbortSignal }) => {
+    fileSignals.push(input.signal)
     if (options.saveFileFailure !== undefined) throw options.saveFileFailure
     const chunks: Uint8Array[] = []
     try {
@@ -182,6 +191,11 @@ async function fixture(options: {
         name: input.name,
       } as ImageAttachmentRef))),
       saveFileStream: saves,
+      // The real predicate, from the real package, because dshline now asks the
+      // store whether a failure is an attachment failure. Every store that
+      // extends the abstract `AttachmentStore` inherits this concrete method, so
+      // a double without it would not be modelling any real provider.
+      isAttachmentError,
     } as never)
   }
 
@@ -222,7 +236,13 @@ async function fixture(options: {
     setExit: handler => { exitHandler = handler },
   } as unknown as Window
   const agent = {
-    session: { id: 's-file', header: { cwd: '/workspace' }, events: [] },
+    session: {
+      id: 's-file',
+      // `origin` is the one durable fact Harness's own upload service reads to
+      // refuse a generic file for a delegated child (`origin?: 'subagent'`).
+      header: { cwd: '/workspace', ...options.origin === undefined ? {} : { origin: options.origin } },
+      events: [],
+    },
     status: options.agentStatus ?? 'idle',
     inbox: { nextStep: [], nextTurn: [] },
     followup: vi.fn(),
@@ -243,6 +263,7 @@ async function fixture(options: {
     files,
     commands,
     exit,
+    fileSignals: fileSignals,
     commits: commits,
     frame: () => stripAnsi(latest.join('\n')),
     output: () => commits.flat().map(stripAnsi).join('\n'),
@@ -282,6 +303,23 @@ async function flush(): Promise<void> {
 function sent(f: Awaited<ReturnType<typeof fixture>>): readonly { type: string; attachment?: { name?: string; bytes?: number } }[] {
   const message = f.agent.followup.mock.calls[0]?.[0] as { content: { type: string; attachment?: { name?: string } }[] }
   return message.content
+}
+
+/**
+ * Whether a signal was composed from an `AbortSignal.timeout` source.
+ *
+ * Node records that fact on the composite: `AbortSignal.any([a, b])` carries an
+ * internal `kTimeout` marker when one of its sources is a timeout signal, and
+ * does not when none is. That makes the composition directly assertable, so
+ * "this transfer is not tied to a wall clock" is a fact about the signal the
+ * store actually received rather than something read off the source.
+ * @param signal - the signal handed to the attachment store or a filesystem read.
+ * @returns whether any composed source is a timeout.
+ */
+function hasTimeoutSource(signal: AbortSignal | undefined): boolean {
+  // By name, not by value: a composite signal also carries `kComposite: true`.
+  return Object.getOwnPropertySymbols(signal ?? {}).some(symbol =>
+    symbol.description === 'kTimeout' && (signal as unknown as Record<symbol, unknown>)[symbol] === true)
 }
 
 describe('staging a generic file', () => {
@@ -943,5 +981,163 @@ describe('registered commands', () => {
     await flush()
     expect(f.commands.execute).not.toHaveBeenCalled()
     expect(f.output()).toContain('does not accept image attachments')
+  })
+})
+
+describe('generic file transfer lifetime', () => {
+  it('carries no wall-clock deadline, so transfer speed is not a size policy', async () => {
+    // The defect this covers. A fixed deadline on a STREAMED transfer is a
+    // maximum file size in everything but name: it is reached sooner by exactly
+    // the two things a remote or sandboxed provider makes more likely — bytes
+    // and round trips per window. The signal the store is handed is asserted,
+    // not waited on, so this says nothing about wall-clock time.
+    const f = await fixture()
+    submit(f.dispatch(), '/attach logs/server.log')
+    await flush()
+    submit(f.dispatch(), 'inspect')
+    await flush()
+
+    expect(f.saves).toHaveBeenCalledOnce()
+    const signal = f.fileSignals[0]
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal?.aborted).toBe(false)
+    expect(hasTimeoutSource(signal)).toBe(false)
+  })
+
+  it('still aborts on the reader cancelling with ctrl-c', async () => {
+    const f = await fixture({
+      onWindow: (_key, signal) => new Promise<void>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+      }),
+    })
+    submit(f.dispatch(), '/attach logs/server.log')
+    await flush()
+    submit(f.dispatch(), 'first prompt')
+    await flush()
+    expect(f.fileSignals[0]?.aborted).toBe(false)
+
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
+    await flush()
+    expect(f.fileSignals[0]?.aborted).toBe(true)
+    expect(f.agent.followup).not.toHaveBeenCalled()
+    expect(f.output()).toContain('attachment cancelled')
+  })
+
+  it('still aborts when this session is torn down mid-transfer', async () => {
+    const f = await fixture({
+      onWindow: (_key, signal) => new Promise<void>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+      }),
+    })
+    submit(f.dispatch(), '/attach logs/server.log')
+    await flush()
+    submit(f.dispatch(), 'first prompt')
+    await flush()
+    expect(f.fileSignals[0]?.aborted).toBe(false)
+
+    // A session transition disposes the attachment scope, which owns the
+    // lifecycle abort the transfer's signal is composed from.
+    submit(f.dispatch(), '/new')
+    await flush()
+    await f.attachment
+    expect(f.fileSignals[0]?.aborted).toBe(true)
+    expect(f.agent.followup).not.toHaveBeenCalled()
+  })
+
+  it('keeps one admission lock: a second submission is refused while a transfer runs', async () => {
+    // Removing the deadline must not remove the serialization. The lock is a
+    // separate mechanism and it is still there.
+    const f = await fixture({
+      onWindow: (_key, signal) => new Promise<void>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+      }),
+    })
+    submit(f.dispatch(), '/attach logs/server.log')
+    await flush()
+    submit(f.dispatch(), 'first prompt')
+    await flush()
+    submit(f.dispatch(), 'second prompt')
+    await flush()
+    expect(f.saves).toHaveBeenCalledOnce()
+    expect(f.output()).toContain('still being sent')
+    expect(f.frame()).toContain('second prompt')
+  })
+
+  it('keeps the image deadline: an image read is still bounded in time', async () => {
+    // The image path keeps its own wall clock, and the two now differ. This
+    // asserts the image signal is a composed one carrying a timeout source,
+    // which is the asymmetry this change introduced on purpose.
+    const f = await fixture()
+    submit(f.dispatch(), '/image pictures/a.png')
+    await flush()
+    submit(f.dispatch(), 'look')
+    await flush()
+    const readSignal = f.reads.mock.calls.at(-1)?.[1] as AbortSignal | undefined
+    expect(readSignal).toBeInstanceOf(AbortSignal)
+    expect(readSignal?.aborted).toBe(false)
+    // The asymmetry, asserted rather than assumed: the image read's signal DOES
+    // carry a timeout source and the file stream's, in the test above, does not.
+    expect(hasTimeoutSource(readSignal)).toBe(true)
+    expect(f.agent.followup).toHaveBeenCalledOnce()
+  })
+})
+
+describe('delegated conversations', () => {
+  it('refuses to stage a generic file in a subagent session', async () => {
+    // Harness's own staged-upload service refuses one outright for the same
+    // reason and on the same durable fact (`agent.session.header.origin`).
+    const f = await fixture({ origin: 'subagent' })
+    submit(f.dispatch(), '/attach report.pdf')
+    await flush()
+    expect(f.output()).toContain('delegated conversations do not accept file attachments')
+    expect(f.frame()).not.toContain('1 file')
+    expect(f.windows).not.toHaveBeenCalled()
+  })
+
+  it('leaves images alone, because upstream admits image parts to subagents today', async () => {
+    // Deliberate asymmetry. The upstream refusal is written against the `file`
+    // discriminant alone, and a subagent prompt is admitted with image parts
+    // on purpose, so `/image` must keep working here.
+    const f = await fixture({ origin: 'subagent' })
+    submit(f.dispatch(), '/image pictures/a.png')
+    await flush()
+    expect(f.frame()).toContain('1 image')
+    submit(f.dispatch(), 'look at this')
+    await flush()
+    expect(f.agent.followup).toHaveBeenCalledOnce()
+    const content = f.agent.followup.mock.calls[0]?.[0] as { content: { type: string }[] }
+    expect(content.content.map(block => block.type)).toEqual(['text', 'image'])
+  })
+
+  it('leaves an ordinary text prompt untouched in a subagent session', async () => {
+    const f = await fixture({ origin: 'subagent' })
+    submit(f.dispatch(), 'just words')
+    await flush()
+    expect(f.agent.followup).toHaveBeenCalledOnce()
+    expect(f.output()).not.toContain('delegated')
+  })
+
+  it('refuses at the send boundary even if a file draft is somehow staged', async () => {
+    // The defensive half, which is the one that matters: `/attach` refusing is
+    // a UX guard, and a product boundary that depends on one earlier branch
+    // staying correct is not a boundary. Staging is injected here through the
+    // ledger the command writes, so the send check is what has to catch it.
+    // Staged in an ORDINARY session, which then becomes delegated. A draft
+    // outliving the eligibility that created it is the case the second check
+    // exists for, and `/attach` cannot produce it by itself.
+    const f = await fixture()
+    submit(f.dispatch(), '/attach logs/server.log')
+    await flush()
+    expect(f.frame()).toContain('1 file')
+    ;(f.agent as unknown as { session: { header: Record<string, unknown> } }).session.header.origin = 'subagent'
+
+    submit(f.dispatch(), 'inspect')
+    await flush()
+    expect(f.saves).not.toHaveBeenCalled()
+    expect(f.agent.followup).not.toHaveBeenCalled()
+    expect(f.output()).toContain('delegated conversations do not accept file attachments')
+    // All or nothing holds here too: the refusal is the whole message, not a
+    // file silently dropped from one that went.
+    expect(f.output()).toContain('nothing was sent')
   })
 })

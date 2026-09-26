@@ -14,7 +14,7 @@
  * @module dshline/attachment-drafts
  */
 
-import { basename, extname } from 'node:path'
+import { extname } from 'node:path'
 import type { EncodedImageAttachment, ImageMediaType, SaveImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 
@@ -105,6 +105,54 @@ export function stagedPath(raw: string): string {
   return value
 }
 
+/** Separators a provider path may use, in a world that is not necessarily this host's. */
+const PATH_SEPARATORS = /[/\\]/u
+
+/**
+ * The leaf name to hand the attachment store as a display name.
+ *
+ * `node:path.basename` is the wrong tool here. `ctx.fs` is an abstraction over
+ * ONE execution world, not the host this process happens to run on:
+ * `FsTarget.displayPath` is documented as possibly a local absolute path, a
+ * workspace-relative path, or a remote URI. A provider on another platform can
+ * hand back `C:\logs\server.log` while this process is POSIX, where `basename`
+ * finds no `/` and returns the WHOLE STRING — a durable attachment name that is
+ * a path, on a field that is persisted and then printed in every transcript.
+ *
+ * Both separators are therefore treated as separators regardless of host, which
+ * is the one assumption a provider-neutral name can safely make: over-splitting a
+ * name that genuinely contained a backslash costs a shorter label, while failing
+ * to split one leaks the directory. A remote URI's authority and query are not
+ * modelled — the leaf is the last segment, which is the part a reader needs.
+ *
+ * Derived from the STAGED path, not from a resolved target: `resolve` may
+ * perform a round trip against a remote backend, and staging is a local
+ * metadata operation. A path with no leaf at all — a bare root, or only
+ * separators — has no name to give, and is given {@link UNNAMED_DRAFT} rather
+ * than the root spelling, which is a path.
+ * @param path - the staged path text, in the provider's own vocabulary.
+ * @returns the leaf name, or {@link UNNAMED_DRAFT} when the path has none.
+ */
+export function displayName(path: string): string {
+  const segments = path.trim().split(PATH_SEPARATORS)
+  // Trailing separators produce a final empty segment; a leading one produces a
+  // leading one, which the last-segment read already skips past.
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index]
+    if (segment !== undefined && segment !== '') return segment
+  }
+  return UNNAMED_DRAFT
+}
+
+/**
+ * The display name for a staged path that has no leaf of its own.
+ *
+ * A root path is a directory, so it is refused at admission before any name is
+ * ever shown; this exists so the helper above is total and cannot return an
+ * empty string into a field the durable reference declares required.
+ */
+const UNNAMED_DRAFT = 'unnamed'
+
 /**
  * Infer the only image attachment kind Harness currently accepts.
  *
@@ -163,7 +211,7 @@ export class AttachmentDrafts {
     if (this.entries.some(entry => entry.kind === 'image' && entry.path === path)) {
       return { ok: false, reason: 'duplicate' }
     }
-    const draft: ImageDraft = { kind: 'image', path, mediaType, name: basename(path) }
+    const draft: ImageDraft = { kind: 'image', path, mediaType, name: displayName(path) }
     this.entries.push(draft)
     return { ok: true, draft }
   }
@@ -187,7 +235,7 @@ export class AttachmentDrafts {
     if (this.entries.some(entry => entry.kind === 'file' && entry.path === path)) {
       return { ok: false, reason: 'duplicate' }
     }
-    const draft: FileDraft = { kind: 'file', path, name: basename(path) }
+    const draft: FileDraft = { kind: 'file', path, name: displayName(path) }
     this.entries.push(draft)
     return { ok: true, draft }
   }

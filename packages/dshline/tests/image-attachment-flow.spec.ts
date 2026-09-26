@@ -8,6 +8,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
+import { isAttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import { stripAnsi, type Key } from '@dshline/renderer'
@@ -87,6 +88,10 @@ async function fixture(options: {
         mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
       },
       saveImages: saves,
+      // The real predicate, from the real package. dshline asks the store
+      // whether a failure is an attachment failure, and every store extending
+      // the abstract `AttachmentStore` inherits this concrete method.
+      isAttachmentError,
     } as never)
   }
 

@@ -2,5 +2,5 @@
 # as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-docs --write ROADMAP.md
-ROADMAP.md: 657037974f3651d8c8a8c45dbb92358c0a15e5e2
-ROADMAP.zh.md: 3b1078b0d45468bba84b9dbe2e3c30f9a73d3c1d
+ROADMAP.md: 2761371ad2832bea945d64bdb08e2522cd0e0943
+ROADMAP.zh.md: 72e9eee1ee027f63953430e3191e8a19f59faa0a

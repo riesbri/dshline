@@ -148,14 +148,21 @@ const TIMING_VALUES: readonly LocalCommandChoice[] = [
 ]
 
 /**
- * Bounds path resolution, file reads, validation, and durable attachment commit.
+ * Bounds IMAGE admission: path resolution, the bounded read, validation, and
+ * the durable batch commit.
  *
- * Generous enough for a large log over a remote filesystem and short enough that
- * a wedged backend cannot hold an admission open until the reader gives up on
- * the session. The same bound covers both kinds: they share one admission, and
- * two timeouts would have been a race between them.
+ * Images are whole objects held in memory and validated by decoding, so a
+ * wedged backend here is worth a deadline. A generic file is none of those
+ * things: it is streamed in windows of a fixed size with nothing accumulated,
+ * so the same wall clock there is not a safety net — it is a throughput
+ * assumption, and a remote or sandboxed provider paying a round trip per window
+ * turns it into a file-size limit the adopted contract explicitly does not
+ * have. Files therefore get lifecycle cancellation only: the reader's `ctrl-c`
+ * and this session's teardown. One admission lock does not require one timeout
+ * policy, and giving both kinds the same deadline is what made the file path
+ * wrong.
  */
-const ATTACHMENT_ADMISSION_TIMEOUT_MS = 30_000
+const IMAGE_ADMISSION_TIMEOUT_MS = 30_000
 
 /**
  * The definition id the effective `/goal` command identifies itself with.
@@ -197,18 +204,21 @@ function imageFilesystemFailure(error: unknown): string | undefined {
 /**
  * One safe sentence for an admission failure, whatever raised it.
  *
- * Three vocabularies, consulted in the order that loses the least: a specific
- * file condition, then a specific image condition, then the attachment
- * capability's own diagnostic, which its error class documents as carrying no
- * bytes and no host paths. Anything left over is a filesystem failure in an
- * unfamiliar shape, and it is answered with this frontend's own words rather
- * than the failure's — an `FsError` message is allowed to spell an absolute
- * user path, and a scrollback is read by whoever opens this terminal.
+ * Three sources, consulted in the order that loses the least: a specific file
+ * condition, then a specific image condition, then the attachment capability's
+ * own diagnostic — which is asked for through the store's own
+ * `isAttachmentError`, never through a local list of codes, so a code added
+ * upstream is still recognised as an attachment failure. Anything left over is
+ * a filesystem failure in an unfamiliar shape, and it is answered with this
+ * frontend's own words rather than the failure's — an `FsError` message is
+ * allowed to spell an absolute user path, and a scrollback is read by whoever
+ * opens this terminal.
  * @param error - an admission failure.
+ * @param attachments - the store that owns attachment-error identity.
  * @returns a sentence safe to commit to scrollback.
  */
-function admissionFailure(error: unknown): string {
-  const authored = attachmentAuthoredMessage(error)
+function admissionFailure(error: unknown, attachments: AttachmentStore): string {
+  const authored = attachmentAuthoredMessage(error, attachments)
   // An authored message is a whole sentence and usually ends in a full stop,
   // which the caller's `; nothing was sent` would then double up behind.
   return fileAttachmentFailure(error)
@@ -225,9 +235,19 @@ function admissionFailure(error: unknown): string {
  * work in separate passes — the image batch is read under its published
  * aggregate byte limit and committed through one `saveImages` call, exactly as
  * it was before generic files existed — and the walk afterwards is what
- * reassembles them without ever grouping images ahead of files. Reads happen
- * first on purpose: a path that is missing or unreadable then costs no durable
- * object at all.
+ * reassembles them without ever grouping images ahead of files.
+ *
+ * The two kinds also get different deadlines, because the two transfers differ.
+ * Images are whole objects decoded in memory and get
+ * {@link IMAGE_ADMISSION_TIMEOUT_MS}. A generic file is streamed in bounded
+ * windows and is bounded by that, not by a clock, so it inherits only the
+ * lifecycle signal this function was handed: the reader's `ctrl-c` and this
+ * session's teardown.
+ *
+ * Reads run before stores within each kind, which means a missing or unreadable
+ * IMAGE costs no durable object. That does not extend to files: an image batch
+ * that already committed stays committed when a later file stream fails, and the
+ * unreachable object left behind is the provider's retention to collect.
  *
  * ALL OR NOTHING, and that is the caller's contract too: this returns blocks for
  * the whole snapshot or throws, so a message is never sent carrying the
@@ -238,7 +258,7 @@ function admissionFailure(error: unknown): string {
  * @param fs - the current session's filesystem authority.
  * @param attachments - the current session's durable attachment store.
  * @param workspace - the session workspace, for relative draft paths.
- * @param signal - cancellation shared by every step of the batch.
+ * @param signal - lifecycle cancellation: the reader's, and this session's teardown.
  * @returns durable blocks in the batch's own order.
  */
 async function admitAttachmentBatch(
@@ -249,8 +269,9 @@ async function admitAttachmentBatch(
   signal: AbortSignal,
 ): Promise<readonly ContentBlock[]> {
   const imageDrafts = batch.filter((draft): draft is ImageDraft => draft.kind === 'image')
-  // An empty batch is never sent: `saveImages([])` is a real call, and making
-  // one to commit nothing asks the provider to work on a message that has none.
+  // An empty batch is never sent, and an empty IMAGE set is never given a
+  // deadline: `saveImages([])` commits nothing, and arming a timer no call will
+  // observe is a stray handle kept alive for its whole duration.
   const imageRefs = imageDrafts.length === 0
     ? []
     : await attachments.saveImages(await readImageDrafts(
@@ -259,7 +280,7 @@ async function admitAttachmentBatch(
       workspace,
       attachments.imageLimits.maxImageBytes,
       attachments.imageLimits.maxMessageImageBytes,
-      signal,
+      AbortSignal.any([signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)]),
     ))
   const fileRefs = new Map<string, FileAttachmentRef>()
   for (const draft of batch) {
@@ -419,6 +440,25 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // authority, and resuming into the directory that happens to be current would
   // silently re-root the conversation.
   const workspace = agent.session.header.cwd ?? startup.cwd
+  // Whether this is a delegated child conversation, from the one durable fact
+  // Harness itself guards generic file intake with: its own staged-upload
+  // service refuses a file outright when `agent.session.header.origin` says the
+  // session is a subagent child (`FileUploads.assertOrdinaryAgent` in
+  // `packages/client/file-upload/src/index.ts`, reason
+  // `SUBAGENT_FILE_UNSUPPORTED`). dshline does not go through that service, so
+  // the same restriction is enforced here — at the same place in the flow, on
+  // the same fact, with the same scope.
+  //
+  // FILES ONLY, and that is upstream's scope rather than a narrower reading of
+  // it: a subagent prompt is admitted with image parts today
+  // (`dsh-subagent` calls `attachments.admitPromptContent` for exactly that
+  // case), and the refusal is written against the `file` discriminant alone. So
+  // `/image` is untouched here, deliberately.
+  //
+  // Read live at each use rather than captured once here: the header is the
+  // authority, it belongs to Harness, and a fact this frontend snapshots at
+  // attach time is a fact it can then be wrong about.
+  const isDelegated = (): boolean => agent.session.header.origin === 'subagent'
 
   const composer = new Composer()
   const history = new InputHistory()
@@ -947,6 +987,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // a profile can recompose between the two.
         if (ctx.get('attachments') === undefined || ctx.get('fs') === undefined) {
           commit([paint('✗ file attachment needs this profile\'s attachment and filesystem services', 'error')])
+          draw()
+          return
+        }
+        // Eligibility before capability: a delegated child conversation takes no
+        // generic file at all, so saying the SERVICES are missing would be a
+        // lie about this profile when they are present and perfectly working.
+        if (isDelegated()) {
+          commit([paint('✗ delegated conversations do not accept file attachments', 'error')])
           draw()
           return
         }
@@ -1934,17 +1982,33 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         draw()
         return
       }
+      // The defensive half of the delegated-session restriction. `/attach`
+      // already refuses to stage here, so this should be unreachable; it exists
+      // because the rule is a PRODUCT boundary and a product boundary that
+      // depends on one earlier branch staying correct is not one. A draft can
+      // also outlive the session it was staged in — a resumed log, a future
+      // gesture, a stale ledger — and the admission boundary is the last place
+      // before bytes become a durable block, so the check belongs here too.
+      // Refusing the whole submission rather than dropping the file keeps
+      // "all or nothing" true: a reader who asked for a file and silently got a
+      // text-only message has been lied to by omission.
+      if (drafts.files.length > 0 && isDelegated()) {
+        if (composer.isEmpty) composer.set(line)
+        commit([paint('✗ delegated conversations do not accept file attachments; nothing was sent', 'error')])
+        draw()
+        return
+      }
       const admission = new AbortController()
       attachmentAdmission = admission
       // The immutable snapshot, taken before any await. A draft staged after
       // this line is not part of this message and must survive its success.
       const batch = drafts.items
       admitted = batch
-      const admissionSignal = AbortSignal.any([
-        attachmentAbort.signal,
-        admission.signal,
-        AbortSignal.timeout(ATTACHMENT_ADMISSION_TIMEOUT_MS),
-      ])
+      // LIFECYCLE cancellation only: this session's teardown and the reader's
+      // `ctrl-c`. No wall clock — an image-only batch arms its own deadline
+      // inside the admission, and a generic file has none, because a fixed
+      // deadline on a streamed transfer is a size policy in everything but name.
+      const admissionSignal = AbortSignal.any([attachmentAbort.signal, admission.signal])
       try {
         blocks = await admitAttachmentBatch(batch, fs, attachments, workspace, admissionSignal)
         // Durable publication cannot be interrupted. Honour a reader
@@ -1961,7 +2025,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           commit([paint('· attachment cancelled; nothing was sent', 'muted')])
           draw()
         } else {
-          commit([paint(`✗ ${admissionFailure(error)}; nothing was sent`, 'error')])
+          commit([paint(`✗ ${admissionFailure(error, attachments)}; nothing was sent`, 'error')])
           draw()
         }
         return
@@ -2175,11 +2239,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // Here the command DID ask for attachments and this frontend has no
       // legitimate way to deliver a generic file. The adopted command contract
       // admits a file only as a staged upload receipt resolved by the Session
-      // upload owner, and no such owner is mounted here: taking the slot
-      // ourselves would make this terminal the receipt authority for a product
-      // boundary Harness owns, and inventing a receipt id would be a fabricated
-      // reference. So the invocation is refused out loud, the line stays in input
-      // history, and the drafts stay exactly where they were.
+      // upload owner, and dshline's shipped composition mounts no such owner:
+      // Harness's own `@deepseek-ai/dsh-client-file-upload` is the package that
+      // registers one, and it is a row of the WEB bundle, which dshline composes
+      // over `dsh-base` and does not add. Taking the slot ourselves would make
+      // this terminal the receipt authority for a product boundary Harness
+      // owns, and inventing a receipt id would be a fabricated reference. So the
+      // invocation is refused out loud, the line stays in input history, and the
+      // drafts stay exactly where they were.
       commit([paint(`✗ /${parsed?.name ?? 'command'} needs files uploaded before it can run; staged files were kept`, 'error')])
       draw()
       return
@@ -2230,7 +2297,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
             workspace,
             attachments.imageLimits.maxImageBytes,
             attachments.imageLimits.maxMessageImageBytes,
-            AbortSignal.any([attachmentAbort.signal, admission.signal, AbortSignal.timeout(ATTACHMENT_ADMISSION_TIMEOUT_MS)]),
+            // Image-only, so the image deadline is the right one here. A command
+            // never carries a generic file on this frontend, so there is no
+            // streamed transfer here for a clock to be wrong about.
+            AbortSignal.any([attachmentAbort.signal, admission.signal, AbortSignal.timeout(IMAGE_ADMISSION_TIMEOUT_MS)]),
           )
         } catch (error: unknown) {
           if (scope.closed) return
@@ -2238,7 +2308,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           if (admission.signal.aborted) {
             commit([paint('· image attachment cancelled; drafts were kept', 'muted')])
           } else {
-            commit([paint(`✗ ${admissionFailure(error)}; drafts were kept`, 'error')])
+            commit([paint(`✗ ${admissionFailure(error, attachments)}; drafts were kept`, 'error')])
           }
           draw()
           return

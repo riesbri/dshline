@@ -107,7 +107,9 @@ The order you stage in is the order the message has. This:
 
 sends one message containing the text, then `screenshot-a.png`, `trace.json`, `diagram.png`, and `report.pdf` — in that order, not all images then all files. Enter on an empty composer after staging files sends them on their own, with no blank line of your own in front of them. The transcript then shows each file's name and size, the same compact rows images use, and reopening the session reconstructs them from the durable file references in its log.
 
-Staged files are not sent to registered slash commands. A command that takes no attachments runs normally and your files stay staged. A command that does declare `input.attachments` is refused with an explanation, because Harness delivers a generic file to a command as an upload receipt produced by its own file-upload flow, and this interface has no such flow. That is a limitation of this terminal frontend, not of Harness.
+Staged files are not sent to registered slash commands. A command that takes no attachments runs normally and your files stay staged. A command that does declare `input.attachments` is refused with an explanation, because Harness delivers a generic file to a command as an upload receipt resolved by the Session upload owner, and dshline's composition mounts no such owner. That is a limitation of this terminal frontend, not of Harness.
+
+In a delegated subagent conversation, `/attach` refuses and no file is staged — the same restriction Harness applies to its own uploads, on the same fact. `/image` is unaffected there, because image parts are accepted in those conversations today.
 
 `@path` itself remains a textual file reference. It tells the model which workspace path to inspect with its filesystem tools; it never reads or attaches the file. `/attach` is the gesture that turns that path into a real attachment. This distinction matters for source files and directories, which are not Harness image attachments.
 

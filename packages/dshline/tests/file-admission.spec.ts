@@ -11,12 +11,59 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { AttachmentStore, FileAttachmentRef, SaveFileStreamAttachment } from '@deepseek-ai/dsh-attachment'
+import { Context } from '@deepseek-ai/cordis'
+import AttachmentStore, { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentLimits, SaveFileStreamAttachment } from '@deepseek-ai/dsh-attachment'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import type { FileSystem, FsInfo, FsTarget } from '@deepseek-ai/dsh-fs'
 import { admitFileDraft, FILE_CHUNK_BYTES, fileAttachmentFailure, attachmentAuthoredMessage } from '../src/file-admission.ts'
 import type { FileDraft } from '../src/attachment-drafts.ts'
+
+/**
+ * A store that keeps the real classifier and stores nothing.
+ *
+ * `isAttachmentError` is inherited from the real abstract `AttachmentStore`,
+ * because it is the method dshline now asks instead of keeping its own list of
+ * codes — a double answering with a local predicate would prove nothing about
+ * the ownership the change is about.
+ */
+class StreamingStore extends AttachmentStore {
+  override get imageLimits(): ImageAttachmentLimits {
+    return {
+      maxImageBytes: 1 << 20,
+      maxImagesPerMessage: 2,
+      maxMessageImageBytes: 2 << 20,
+      maxImagePixels: 1 << 22,
+      maxImageDimension: 8192,
+      mediaTypes: ['image/png'],
+    }
+  }
+
+  override async validateImage(): Promise<void> {
+    throw new Error('the generic file path validates no image')
+  }
+
+  override async saveImage(): Promise<never> {
+    throw new Error('the generic file path saves no image')
+  }
+
+  override async readImage(): Promise<never> {
+    throw new Error('the generic file path reads no image')
+  }
+
+  override async saveFileStream(input: SaveFileStreamAttachment): Promise<FileAttachmentRef> {
+    for await (const chunk of input.data) void chunk
+    return { attachmentId: AttachmentId('sha256:0'), name: input.name ?? 'unnamed', bytes: 0 }
+  }
+}
+
+/** A fresh store carrying the real `isAttachmentError`. */
+function store(): AttachmentStore {
+  return new StreamingStore(new Context())
+}
+
+/** One shared real store, for tests that only ask it a question. */
+const realStore = store()
 
 /** A regular file of a given size, with recognisable content. */
 function bytes(length: number): Uint8Array {
@@ -38,7 +85,14 @@ interface Options {
   readonly saveFailure?: Error | undefined
 }
 
-/** A store double that captures exactly what the streaming bridge yielded. */
+/**
+ * A store double that captures exactly what the streaming bridge yielded.
+ *
+ * `isAttachmentError` is the REAL abstract implementation, reached through the
+ * real `AttachmentStore` base — it is the method dshline now asks instead of
+ * keeping its own list of codes, so a double that answered with a local
+ * predicate would prove nothing about the ownership this change is about.
+ */
 class CapturingStore {
   /** Chunks pulled from the iterable, in order. */
   readonly chunks: Uint8Array[] = []
@@ -182,7 +236,7 @@ describe('resolve, stat, and the regular-file check', () => {
     const rejection = await admitFileDraft(DRAFT, fs, store.asStore(), '/ws', new AbortController().signal, 4)
       .then(() => undefined, (error: unknown) => error)
     expect(rejection).toBe(failed)
-    expect(attachmentAuthoredMessage(rejection)).toBe('Unable to persist attachment.')
+    expect(attachmentAuthoredMessage(rejection, realStore)).toBe('Unable to persist attachment.')
   })
 
   it('refuses a path the filesystem does not have, with a stable code', async () => {
@@ -399,12 +453,44 @@ describe('failure presentation', () => {
     expect(fileAttachmentFailure(new Error('cannot read /private/secret.log'))).toBeUndefined()
   })
 
-  it('shows an attachment-authored message only for the published attachment codes', () => {
+  it('shows an attachment-authored message only for what the STORE recognises', () => {
+    const attachments = store()
     const authored = Object.assign(new Error('stored object could not be written'), { code: 'ATTACHMENT_WRITE_FAILED' })
-    expect(attachmentAuthoredMessage(authored)).toBe('stored object could not be written')
+    expect(attachmentAuthoredMessage(authored, attachments)).toBe('stored object could not be written')
     // A filesystem failure is never shown raw: its message may name a host path.
     const fsFailure = Object.assign(new Error('cannot read /private/secret.log'), { code: 'FS_IO_ERROR' })
-    expect(attachmentAuthoredMessage(fsFailure)).toBeUndefined()
-    expect(attachmentAuthoredMessage(new Error('plain failure'))).toBeUndefined()
+    expect(attachmentAuthoredMessage(fsFailure, attachments)).toBeUndefined()
+    expect(attachmentAuthoredMessage(new Error('plain failure'), attachments)).toBeUndefined()
+  })
+
+  it('takes the classification from the STORE, not from a table of its own', () => {
+    // The regression this ownership change exists to prevent. dshline used to
+    // keep its own copy of the published code list, so any code added upstream
+    // after that copy was taken fell through to the FILESYSTEM wording — a
+    // storage fault reported as an unreadable file. Upstream's own predicate is
+    // also a set, so the meaningful claim is not "dshline guesses new codes"
+    // but "dshline does not decide": whatever the store calls an attachment
+    // error, dshline presents as one, and whatever it does not, it does not.
+    const wider = {
+      isAttachmentError: (error: unknown): boolean =>
+        error instanceof Error && 'code' in error && error.code === 'ATTACHMENT_ADDED_NEXT_YEAR',
+    } as unknown as AttachmentStore
+    const addedLater = Object.assign(new Error('a storage fault from a newer harness'), { code: 'ATTACHMENT_ADDED_NEXT_YEAR' })
+    expect(attachmentAuthoredMessage(addedLater, wider)).toBe('a storage fault from a newer harness')
+    // The same failure, judged by the store as NOT an attachment failure, is not
+    // one — which is the half that proves the verdict is delegated rather than
+    // hard-coded in either direction.
+    expect(attachmentAuthoredMessage(addedLater, store())).toBeUndefined()
+    // And the path-free catch-all a filesystem failure gets is not what a
+    // recognised attachment code receives.
+    expect(fileAttachmentFailure(addedLater)).toBeUndefined()
+  })
+
+  it('asks the store, not a local list: a code the store rejects is not an attachment error', () => {
+    // The converse, so the new dependency cannot quietly become "always true".
+    const attachments = store()
+    expect(attachmentAuthoredMessage(Object.assign(new Error('x'), { code: 'FS_IO_ERROR' }), attachments)).toBeUndefined()
+    // Not even an Error: the real predicate requires one, exactly as upstream's does.
+    expect(attachmentAuthoredMessage({ code: 'ATTACHMENT_WRITE_FAILED' }, attachments)).toBeUndefined()
   })
 })

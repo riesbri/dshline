@@ -277,7 +277,7 @@ path staged locally by dshline
 
 **dshline 在这里不拥有的东西。** 没有文件存储，没有解析器，没有扩展名或体积策略，没有文本抽取，没有 base64 传输，没有缓存。transcript 只按名称与字节数显示一个持久文件引用，渲染历史时不读取任何字节——这正是 `FileBlock` 在恢复之后能完全一致地重放、且完全不需要 dshline 侧状态的原因。
 
-**这里止步的唯一位置是已注册命令。** `CommandSubmitAttachment` 只接受通用文件作为由 Session 上传所有者解析的暂存上传回执，而本前端并未挂载这样的所有者。伪造回执 id 就是伪造引用，而认领 `ctx.commands.registerFileReceiptResolver` 会让一个终端成为 Harness 所拥有的产品边界的回执权威——因此声明了 `input.attachments` 的命令会被拒绝并给出说明，其草稿得以保留。这是前端的能力限制，而不是 Harness 的限制，并且是被说明出来的，而不是被绕开的。
+**这里止步的唯一位置是已注册命令。** `CommandSubmitAttachment` 只接受通用文件作为由 Session 上传所有者解析的暂存上传回执，而 **dshline 已发布的组合中没有挂载任何文件上传回执所有者**。Harness 自己的 `@deepseek-ai/dsh-client-file-upload` 才是注册回执解析器的包，它是 Web bundle 的一行；dshline 组合在 `dsh-base` 之上，并不添加它。伪造回执 id 就是伪造引用，而认领 `ctx.commands.registerFileReceiptResolver` 会让一个终端成为 Harness 所拥有的产品边界的回执权威——因此声明了 `input.attachments` 的命令会被拒绝并给出说明，其草稿得以保留。这是前端的能力限制，而不是 Harness 的限制，并且是被说明出来的，而不是被绕开的。
 
 ## Work：第一个通用适配器
 

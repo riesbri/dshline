@@ -1,6 +1,55 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
-import { AttachmentDrafts, imageMediaType, readImageDrafts, stagedPath } from '../src/attachment-drafts.ts'
+import { AttachmentDrafts, displayName, imageMediaType, readImageDrafts, stagedPath } from '../src/attachment-drafts.ts'
+
+describe('displayName()', () => {
+  it('reads the leaf of a POSIX path', () => {
+    expect(displayName('/workspace/logs/server.log')).toBe('server.log')
+    expect(displayName('logs/trace.json')).toBe('trace.json')
+    expect(displayName('server.log')).toBe('server.log')
+  })
+
+  it('reads the leaf of a WINDOWS path while these tests run on this host', () => {
+    // The reason this helper exists. `ctx.fs` is one execution world, not the
+    // host this process runs on, and `node:path.basename` on a POSIX host finds
+    // no `/` in `C:\repo\logs\server.log` and returns the WHOLE STRING — a
+    // durable attachment name that is a path, on a field that is persisted and
+    // printed in every transcript.
+    expect(displayName(String.raw`C:\repo\logs\server.log`)).toBe('server.log')
+    expect(displayName(String.raw`C:\server.log`)).toBe('server.log')
+    expect(displayName(String.raw`dir\file.txt`)).toBe('file.txt')
+  })
+
+  it('reads the leaf of a remote URI, which `displayPath` is documented to permit', () => {
+    expect(displayName('s3://bucket/prefix/trace.json')).toBe('trace.json')
+    expect(displayName('workspace-relative/notes.md')).toBe('notes.md')
+  })
+
+  it('ignores trailing separators rather than reporting an empty leaf', () => {
+    expect(displayName('logs/')).toBe('logs')
+    expect(displayName('/workspace/logs//')).toBe('logs')
+    // Spelled as a normal string, because a `String.raw` template cannot end in
+    // a backslash: the `\` would escape the closing backtick and swallow the
+    // rest of the file.
+    expect(displayName('C:\\repo\\logs\\')).toBe('logs')
+  })
+
+  it('names a path with no leaf at all, rather than returning a root as a name', () => {
+    // A root is a directory and is refused at admission before any name is
+    // shown; the helper is total anyway, because the durable reference declares
+    // its name required.
+    expect(displayName('/')).toBe('unnamed')
+    expect(displayName('   ')).toBe('unnamed')
+    expect(displayName('///')).toBe('unnamed')
+  })
+
+  it('never returns a path, only a leaf', () => {
+    for (const path of ['/a/b/c.log', String.raw`D:\a\b\c.log`, 'x']) {
+      expect(displayName(path)).not.toContain('/')
+      expect(displayName(path)).not.toContain('\\')
+    }
+  })
+})
 
 describe('staged attachment paths', () => {
   it('keeps the command remainder as one path and accepts the completion sigil', () => {
@@ -90,6 +139,15 @@ describe('session file drafts', () => {
     expect(drafts.stageFile('   ')).toEqual({ ok: false, reason: 'empty' })
     expect(drafts.stageFile('server.log').ok).toBe(true)
     expect(drafts.stageFile('server.log')).toEqual({ ok: false, reason: 'duplicate' })
+  })
+
+  it('gives both kinds the same provider-neutral display name', () => {
+    // The same defect would have hit `/image` — it took the same host `basename`
+    // — so both are proved here rather than one.
+    const drafts = new AttachmentDrafts()
+    expect(drafts.stageImage(String.raw`C:\shots\a.png`).ok).toBe(true)
+    expect(drafts.stageFile(String.raw`C:\logs\server.log`).ok).toBe(true)
+    expect(drafts.items.map(item => item.name)).toEqual(['a.png', 'server.log'])
   })
 
   it('lets the same path be staged once as a file and once as an image', () => {

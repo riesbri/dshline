@@ -218,47 +218,28 @@ function codeOf(error: unknown): string | undefined {
  * one into "could not be read" would throw away a diagnostic that names the
  * actual fault.
  *
- * The list is the package's published `AttachmentErrorCode` union, matched by
- * value rather than by importing its `isAttachmentError` helper: that helper
- * lives in a package which is a devDependency precisely because it does not
- * have to be mounted, and importing it for a value would make it one. A code
- * added upstream is therefore treated as a filesystem failure until this list
- * is updated, which is the safe direction to be wrong in — it renders one of
- * this module's own path-free sentences rather than printing an unknown string.
- */
-const ATTACHMENT_CODES: ReadonlySet<string> = new Set([
-  'TOO_MANY_IMAGES',
-  'IMAGES_TOO_LARGE',
-  'UNSUPPORTED_IMAGE_TYPE',
-  'INVALID_IMAGE_BASE64',
-  'INVALID_IMAGE',
-  'IMAGE_TYPE_MISMATCH',
-  'IMAGE_TOO_LARGE',
-  'IMAGE_TOO_MANY_PIXELS',
-  'IMAGE_DIMENSION_TOO_LARGE',
-  'INVALID_FILE_BASE64',
-  'INVALID_ATTACHMENT_REF',
-  'ATTACHMENT_CORRUPT',
-  'ATTACHMENT_WRITE_FAILED',
-  'ATTACHMENT_NOT_FOUND',
-  'ATTACHMENT_READ_FAILED',
-  'ATTACHMENT_PROJECTION_UNSUPPORTED',
-  'ATTACHMENT_FILES_UNSUPPORTED',
-])
-
-/**
- * The failure's own message, when the attachment capability authored it.
- *
- * Kept separate from {@link fileAttachmentFailure} so the two vocabularies
- * cannot be confused for one another: a filesystem failure is never printed
- * raw, because an `FsError` message may spell an absolute user path, while an
- * attachment failure is printed as Harness wrote it.
+ * Whether a failure IS an attachment failure is not decided here. This module
+ * once kept a local copy of the whole published `AttachmentErrorCode` union to
+ * answer that, which made a frontend the authority on a vocabulary Harness owns
+ * and would have silently misclassified every code added after the copy was
+ * taken — a new upstream code would have fallen through to the filesystem
+ * wording. The store's own `isAttachmentError` is asked instead, which is the
+ * same call upstream's own `FileUploads.commit()` makes, and a failure it
+ * recognises is shown whatever its code happens to be.
  * @param error - an admission failure.
+ * @param attachments - the store that authored, or owns, the capability.
  * @returns the authored message, or undefined when the failure is not one of ours.
  */
-export function attachmentAuthoredMessage(error: unknown): string | undefined {
-  const code = codeOf(error)
-  if (code === undefined || !ATTACHMENT_CODES.has(code)) return undefined
+export function attachmentAuthoredMessage(error: unknown, attachments: AttachmentStore): string | undefined {
+  return attachments.isAttachmentError(error) ? errorMessage(error) : undefined
+}
+
+/**
+ * One failure's own words, as a string, without claiming it is an Error.
+ * @param error - the value to read.
+ * @returns its message when it has one, otherwise its string form.
+ */
+function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
@@ -275,6 +256,11 @@ export function attachmentAuthoredMessage(error: unknown): string | undefined {
  * storage must still start, stage, and prompt normally. Its sentence is
  * specific rather than the class's own wording because the class describes
  * itself, and what a reader needs to know is which profile they are in.
+ *
+ * This switch names a handful of codes it can say something better about. It is
+ * not the attachment-error test — {@link attachmentAuthoredMessage} is, and it
+ * asks the store — so a code absent from this list is still classified
+ * correctly upstream of here, it simply falls through to the store's own words.
  *
  * `undefined` means "no sentence here", which sends the caller on to
  * {@link attachmentAuthoredMessage} for a Harness-authored storage diagnostic.
