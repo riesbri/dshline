@@ -588,8 +588,8 @@ a field it does not render. See
 ### Plugins
 
 `/plugins` opens a bounded overlay on the running agent's Harness preset — the
-named composition of tools, prompt sections, and delegation backends the
-agent was actually joined to, not a fixed list this interface keeps:
+named composition of tools, prompt sections, delegation backends, and skill
+roots the agent was actually joined to, not a fixed list this interface keeps:
 
 ```
 ╭─ dshline ───────────────────────────────────────────────────────────── Plugins ─╮
@@ -1250,6 +1250,78 @@ duplicate name, who is allowed to invoke it, and what loading one does. This
 interface only shows you the ones your agent can actually see, and helps you
 type the line that invokes one.
 
+**The `standard` preset also ships DeepSeek's own skills.** Next to whatever
+you have written yourself, `standard` exposes the first-party skills that come
+from the installed `@deepseek-ai/dsh-agent-preset` package itself:
+
+- `cordis-composition-reference` — the Cordis bundle-patch and agent-preset
+  dialect, and what each installable plugin package provides
+- `editing-cordis-compositions` — creating, changing, and validating a preset
+- `cordis-plugin-development` — adding, enabling, disabling, or configuring a
+  plugin, bundle, tool, page, or MCP connection in this profile
+
+They are ordinary Harness skills whose files are read from the installed
+package and never copied into this interface, so reworded or additional skills
+arrive with the next Harness release rather than with an update here.
+
+They are contributed by a **separate** skill provider rather than by your
+ordinary one. `/plugins` therefore lists two rows:
+
+| Row | Provides |
+|---|---|
+| `skill-filesystem` | your project and user skills, and this deployment's own bundled skills |
+| `skill-harness-authoring` | only the skills inside `@deepseek-ai/dsh-agent-preset` |
+
+Because the two rows are independent, switching off `skill-harness-authoring`
+in `/plugins` removes exactly these three and leaves every skill you wrote
+where it was.
+
+**Where skills are found.** For the skills you control, Harness's own filesystem
+provider scans these roots, and the first one to supply a name wins:
+
+```
+<project>/.dsh/skills
+<project>/.agents/skills
+~/.dsh/skills
+~/.agents/skills
+this deployment's own bundled skills
+```
+
+The Harness authoring skills rank after every **project and user** root, so
+anything you put in those wins a shared name. A `cordis-composition-reference`
+of your own — in the project or in your home — replaces the shipped copy; only a
+name nobody else claims resolves to DeepSeek's version.
+
+The deployment's own bundled root and the Harness authoring provider both use
+Harness's bundled rank. They can coexist, and this interface deliberately
+defines no separate ordering between two bundled providers: which of two bundled
+skills with the same name you would get is Harness's business, not a guarantee
+made here.
+
+`/skills` labels these three **`bundled`**, because that is the source Harness
+resolved for a package-owned root. It is not a dshline category and it does not
+mean your installation bundles anything of its own.
+
+**Package ownership and model capability are separate things.** Harness owns
+the skill bodies; dshline's `standard` chooses to expose the provider that finds
+them; `tool-skill` owns loading them. And because all three are model-invocable,
+every new `standard` session receives their **names and descriptions** in
+Harness's durable `<available_skills>` catalog — that is a few lines of context
+per session, not zero. Their **full bodies are not sent** until something asks
+for them: either your explicit `/<skill-name>` line, or the model calling the
+skill tool. The same is true of any skill; nothing special is done for these
+three.
+
+> [!IMPORTANT]
+> A skill can describe an operation whose tool this preset does not mount.
+> `standard` deliberately ships **without** Creator's tooling — no
+> `tool-cordis`, so neither `cordis_inspect_list` nor `cordis_inspect_query`,
+> and `tool-plugin-manager` stays disabled — so one of the skills above may ask
+> the agent to do something this profile cannot do. The skill text is Harness's
+> and is shown as written rather than trimmed to hide the gap: exposing a skill
+> does not imply that everything the skill mentions is available here.
+> `/plugins` is where you check what the running agent actually composes.
+
 **Invoking a skill is just typing.** A message that starts with the skill's
 name after a slash invokes it:
 
@@ -1261,7 +1333,48 @@ The whole line is sent as your message, exactly as you wrote it. Harness
 recognizes the `/review-pr` reference at its own boundary and puts that skill's
 instructions into the same step, so the model has them before it answers.
 Nothing about the line is rewritten here, and your prompt is what the transcript
-shows.
+shows. The instruction block Harness injects is **not** echoed as a second
+transcript message: it is prompt content addressed to the model, not something
+you typed, and printing it back would put a message in your history that you
+never sent.
+
+**When the model picks one instead, the tool call is the evidence.** You never
+typed the name, so there is no prompt line to look for. The model called
+Harness's ordinary `skill` tool, and that call draws the same card as any other:
+
+```
+◇ Load skill cordis-composition-reference
+```
+
+That row is the durable record: it is in the transcript, it survives a resume,
+and it names the skill the model actually selected. The full body then arrives as
+that call's result, and the session simply continues.
+
+**Skills are invocations, not modes.** There is deliberately no "active skill"
+badge in the composer or the status line after a load finishes, and no
+`skill: <name>` segment anywhere, because Harness exposes no persistent
+active-skill state — there is nothing for such a badge to report, and one would
+promise a mode that does not exist. What a skill changes is the instructions the
+model has for the rest of that session; what it does not change is what this
+interface believes is running. So the sequence is simply
+
+```
+model decides to use a skill
+  ↓
+◇ Load skill <name>
+  ↓
+tool result
+  ↓
+ordinary session continues
+```
+
+> [!NOTE]
+> Nothing is pre-loaded. The model's catalog carries each skill's **name and
+> description**; the **full `SKILL.md` body** is fetched only when something
+> invokes it. Whether a description matches the task at hand is the model's
+> judgement, not a rules engine: it decides a skill clearly applies and then
+> calls the `skill` tool. A skill it does not consider relevant is never loaded,
+> however well its description happens to match.
 
 **They are in the `/` list.** A skill you can invoke this way appears in the
 suggestion list beside the commands, marked as a skill:

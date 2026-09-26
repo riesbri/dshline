@@ -282,9 +282,9 @@ Still ahead for Connect:
 ### 5. Agent presets — merged
 
 The fifth generic capability adapter presents agent COMPOSITION: which tools,
-prompt sections, and delegation backends the running agent actually has,
-through `ctx.agentPresets`. A preset is a declaration in the composition, not
-a file in a shipped directory. `/plugins` browses the roster and the
+prompt sections, delegation backends, and skill roots the running agent
+actually has, through `ctx.agentPresets`. A preset is a declaration in the
+composition, not a file in a shipped directory. `/plugins` browses the roster and the
 composition of whichever declaration an agent is joined to, and carries out
 every change through the seam that owns it — `ctx.configEditor` for a row,
 `ctx.settings` for the default, `select()` for the switch.
@@ -311,7 +311,20 @@ every change through the seam that owns it — `ctx.configEditor` for a row,
 - adopting this meant moving dshline's own previously process-wide tool set
   behind the same preset boundary Harness's Web frontend already uses, the
   same "agent plane moves behind agent presets" step and for the identical
-  reason
+  reason, plus the terminal-profile differences dshline has always carried
+  (`command-goal` stays Host-side). dshline's `standard` is not a byte-for-byte
+  copy of upstream's; the maintenance rule is to start from the adopted upstream
+  declaration and keep every difference explicit, small, and tested
+- one of those differences is a dedicated `skill-harness-authoring` provider
+  beside the ordinary `skill-filesystem` row, contributing the three first-party
+  Cordis authoring skills `@deepseek-ai/dsh-agent-preset` ships. It uses
+  Harness's own packaged-skill semantics — `bundledSkillDir`, `source: bundled`,
+  rank 600, Host-trusted — so those skills rank *below* project and user skills
+  and lose a shared name to anything a person wrote. A separate row also means
+  `/plugins` can drop them without costing someone their own skills. This is
+  first-party skill knowledge, not Creator capability: `tool-cordis` and an
+  enabled `tool-plugin-manager` remain absent. See
+  [Architecture](docs/architecture.md#presets-composition-is-harnesss-not-dshlines)
 
 `/profiles` presents the profile layer above it: the roster under
 `$DSH_HOME/profiles` read through Harness's own `dshHomePath` service, the

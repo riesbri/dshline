@@ -114,6 +114,32 @@ which is the same contract Harness's own Web client follows
 alone), and the gap is documented for the user rather than guessed at. An
 authoritative readiness seam is upstream work.
 
+Which skills an agent can see is likewise Harness's decision, and a preset is
+one of the places it is made. The shipped `standard` declaration carries an
+**additional terminal-profile difference** here (see
+[Presets](#presets-composition-is-harnesss-not-dshlines)): a second,
+dedicated `@deepseek-ai/dsh-skill-filesystem` instance, `skill-harness-authoring`,
+whose only root is the `bundledSkillDir` the `@deepseek-ai/dsh-agent-preset`
+package already ships — the three first-party Cordis authoring skills.
+
+A dedicated provider rather than a `customSkillDirs` entry on the ordinary one,
+because the two answer different questions. These are package-owned baseline
+skills, not a root a person configured, and the adopted generation models that
+with `source: bundled`, `BUNDLED_SKILL_RANK` (600), and a Host-trusted read that
+deliberately bypasses the workspace `ctx.fs` because the path is inside an
+installed package. It also puts them **below** the user roots, which rank 300
+would not. It cannot be the ordinary row's `bundledSkillDir` either, because an
+explicit value replaces that instance's `$DSH_BUNDLED_SKILL_DIR` fallback and
+would delete whatever the deployment bundles as its own baseline skills.
+
+dshline contributes one configured row and nothing else — the files, the
+discovery, the precedence between roots, and the loading are all Harness's — and
+a skill arriving there surfaces through `ctx.skills` like any other, with a
+`bundled` source this frontend neither special-cases nor explains away. The two
+rows being independent is also the control: `/plugins` can drop
+`skill-harness-authoring` without touching `skill-filesystem`, so disabling it
+never costs someone their own project or user skills.
+
 ### 2. Known projection domains
 
 A domain plugin may publish structured, log-derived state through
@@ -1116,7 +1142,8 @@ through.
 ## Presets: composition is Harness's, not dshline's
 
 An agent preset is Harness's own answer to "what can this agent do" — a named
-composition of tools, prompt sections, and delegation backends, resolved
+composition of tools, prompt sections, delegation backends, and the skill roots
+the agent may load from, resolved
 through `ctx.agentPresets` and joined to an agent at the one supported point
 in its lifecycle, `setup(agentCtx, agent)`. `/plugins` is the terminal presentation
 of that seam: it lists the roster, shows the rows the running agent's preset
@@ -1202,6 +1229,42 @@ joins, the same "agent plane moves behind agent presets" step Harness's own
 Web bundle already took for the identical reason; process-wide services with
 no per-session meaning — registries, the sandbox and approval stack, the
 token meter — stay exactly where they were.
+
+**The maintenance rule is: start from the adopted upstream standard, and keep
+every terminal-owned difference explicit, small, and tested.** dshline's
+`standard` is *not* a byte-for-byte copy of upstream's, and this file has never
+claimed it was. The difference that predates the skill work below is that
+upstream's `command-goal` stays Host-side, because dshline owns that command's
+key routing against its own attachment and it must resolve without a preset. So
+no single row below is "the only divergence", and a migration must not restore a
+row to match upstream without checking the terminal reason it is absent.
+
+**The skill rows add one more.** Upstream's own `standard` carries a bare
+`skill-filesystem` row, and dshline's still does, unchanged. Beside it,
+`skill-harness-authoring` mounts a second instance of the same provider with
+`includeDefaultRoots: false` and a `bundledSkillDir` pointing at the `skills/`
+directory `@deepseek-ai/dsh-agent-preset` ships — the same three skills upstream's
+`cordis` (Creator) preset exposes.
+
+Stated correctly, because the obvious reading is wrong: **`tool-cordis` does not
+load these skills.** `skill-filesystem` discovers them and `tool-skill` exposes
+and loads them. Upstream Creator mounts these authoring skills *and* Creator
+capabilities such as `tool-cordis` and Plugin Manager side by side, because its
+authoring workflow needs both; `tool-cordis` is a separate inspection capability
+that some of those instructions refer to. dshline wants the knowledge without the
+capability, which is the whole point — a skill is text an agent can read, not a
+tool it needs mounted.
+
+The bound on that is what makes it composition rather than a second skill
+system. Harness still owns the files, their versioning, the discovery, the
+precedence between roots, and the loading; dshline supplies one configured row
+and adds no scanner, no registry, and no second ordering. So a future adoption
+takes up the next generation's reworded or added skills by itself, and a profile
+may still override or drop either row by id through the ordinary mechanisms.
+What it does **not** do is enable Creator: `tool-cordis` stays absent and
+`tool-plugin-manager` stays disabled, which means a packaged skill may describe
+an operation this preset cannot perform. That gap is shown, not filtered out of
+the skill text.
 
 ## Profiles provide; presets expose
 

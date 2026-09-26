@@ -12,14 +12,48 @@
           # The `standard` agent preset: the full coding agent, mounted once per process.
           #
           # A preset is now an ordinary `@deepseek-ai/dsh-agent-preset` declaration in a
-          # Cordis composition, and this file is its `config.plugins`. The rows are the
+          # Cordis composition, and this file is its `config.plugins`. It starts from the
           # released 0.1.7-rc.2 standard declaration
-          # (`packages/bundle/web-app/presets/standard.patch.yml` in deepseek-harness),
-          # restated for a terminal profile. Nothing here is dshline's preset design: the
-          # tool set is the one a terminal session has always run, and every row here is
-          # one this bundle DISABLES in `cordis.patch.yml` above, because `dsh-base`
-          # ships the same rows mounted process-wide and mounting both would
-          # double-register each one.
+          # (`packages/bundle/web-app/presets/standard.patch.yml` in deepseek-harness) and
+          # carries the terminal-profile differences a terminal session has always needed.
+          # The tool set is the one a terminal session has run, and every row here is one
+          # this bundle DISABLES in `cordis.patch.yml` above, because `dsh-base` ships the
+          # same rows mounted process-wide and mounting both would double-register each one.
+          #
+          # THE MAINTENANCE RULE IS: start from the adopted upstream standard, and keep every
+          # terminal-owned difference explicit, small, and tested. This file is NOT a
+          # byte-for-byte copy of upstream's, and never claimed to be — the one difference
+          # already here before the skill work below is that upstream's `command-goal` stays
+          # Host-side, because dshline owns that command's key routing against its own
+          # attachment and it must resolve without a preset. So do not read any single row
+          # below as "the only divergence", and do not "restore" a row to match upstream
+          # without checking the terminal reason it is absent.
+          #
+          # One further difference, made here for the first time in this file, is the
+          # dedicated `skill-harness-authoring` provider next to the ordinary skill rows.
+          # Upstream `standard` carries the ordinary bare `skill-filesystem` row, and does
+          # NOT add this authoring provider or its `@deepseek-ai/dsh-agent-preset` root.
+          # Upstream `cordis` exposes the same three package skills, as part of the Creator
+          # composition, configured as one more root on its single provider.
+          # What that is actually about, stated correctly because the obvious reading is
+          # wrong: `tool-cordis` does not load these skills. `skill-filesystem` discovers
+          # them and `tool-skill` exposes and loads them. Creator mounts `tool-cordis` and
+          # Plugin Manager alongside because ITS authoring workflow needs those
+          # capabilities; dshline wants the knowledge and not the Creator tool set.
+          #
+          # What the extra provider does and does not change:
+          #
+          #   Harness still owns the files. They are read from the installed package, in
+          #   that package's own `skills/` directory — nothing is copied into this
+          #   repository, and the next adopted generation's new or reworded skill bodies
+          #   arrive by the Harness migration alone.
+          #   Harness still owns discovery, precedence and loading. This is one more
+          #   instance of the ordinary provider, configured; no registry, no scanner, and
+          #   no precedence rule was added.
+          #   SKILLS EXPOSED IS NOT CREATOR TOOLS ENABLED. `cordis_inspect_list`,
+          #   `cordis_inspect_query`, `tool-plugin-manager` and the Web Client tooling
+          #   stay unmounted, so a skill may describe an operation this preset cannot
+          #   perform. The bodies are not filtered to hide that, and must not be.
           #
           # A service row here MUST sit inside a group carrying an `isolate` realm. Without
           # one it publishes into the root realm, where it is process-global — another
@@ -94,8 +128,51 @@
 
           # The skill REGISTRY lives in the host composition and is layered per scope:
           # these rows register into THIS preset's layer of it, so they need no realm.
+          #
+          # This first row is upstream's own, left exactly as upstream states it. It owns
+          # every ordinary root — project `.dsh/skills`, project `.agents/skills`,
+          # `~/.dsh/skills`, `~/.agents/skills` — and the deployment's own bundled channel
+          # through `$DSH_BUNDLED_SKILL_DIR`. A person who configures nothing and a person
+          # who configures a great deal both get the same provider they would get from
+          # upstream.
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
+
+          # The first-party authoring skills `@deepseek-ai/dsh-agent-preset` ships, on a
+          # SECOND instance of the same provider, dedicated to them.
+          #
+          # `bundledSkillDir` is the field that matters, and it is why this is not
+          # `customSkillDirs`. These are package-owned baseline skills, not a root this
+          # profile or a user configured, so Harness's own packaged-skill semantics are
+          # the honest ones: `source: bundled`, `rank: 600`, and a Host-trusted read that
+          # deliberately bypasses the workspace `ctx.fs` because the path is inside an
+          # installed package rather than inside anything a workspace may restrict. It
+          # also puts them BELOW the user roots, which `customSkillDirs` at 300 would not:
+          # a project or home skill of the same name wins, and only an unclaimed name
+          # resolves to the shipped copy.
+          #
+          # It cannot simply be the ordinary provider's `bundledSkillDir` instead, because
+          # an explicit `bundledSkillDir` REPLACES that instance's `$DSH_BUNDLED_SKILL_DIR`
+          # fallback. Setting it there would commandeer the deployment's bundled slot and
+          # delete whatever this installation packages as its own baseline skills.
+          #
+          # `includeDefaultRoots: false` is what makes this instance isolated rather than
+          # a second copy of the row above: it contributes this one root and nothing else.
+          # `providerName` is required, not decorative — a scope holds one provider per
+          # name, so a second instance left on the shipped `filesystem` default would fail
+          # to register at all.
+          #
+          # Being its OWN row is the point. `/plugins` can toggle `skill-harness-authoring`
+          # off without touching `skill-filesystem`, so someone who does not want these
+          # packaged authoring skills can disable this row while retaining the ordinary
+          # provider and every project and user skill they wrote. No dshline-side switch is
+          # added for this; the preset-row toggle dshline already has is the control.
+          - id: skill-harness-authoring
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              providerName: harness-authoring
+              includeDefaultRoots: false
+              bundledSkillDir: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
