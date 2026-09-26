@@ -7,6 +7,15 @@
  * code that decides placement is the one code that decides movement. Text wraps
  * by display width, not by word boundary, which is the same chunking the
  * composer's rendering uses and the property that lets a prefix be located.
+ *
+ * The rows are built from the composer's DISPLAY PROJECTION rather than its
+ * buffer, which is the whole reason a large paste can be drawn as one short
+ * token. This module has no idea that a token exists: it lays out whatever text
+ * it is handed, and a label is simply the text at that point in the projection.
+ * What it must not do is guess where raw content is hiding, and it never does —
+ * every position it reports is translated back through the projection's own
+ * mapping, so a row that happens to contain a collapsed paste resolves to that
+ * paste's boundaries rather than to characters no one can see.
  * @module @dshline/renderer/composer-layout
  */
 
@@ -21,11 +30,15 @@ import { codePointWidth, displayWidth } from './width.ts'
  * offset arithmetic is measured against; the gutter is prepended when the row is
  * drawn. Keeping the two apart is what lets one forward pass build both the
  * drawn row and its mapping.
+ *
+ * `start` counts PROJECTION code points — offsets into the text the reader sees —
+ * and is translated to a buffer offset by `positionAt` on the way out, so a row
+ * that contains a collapsed paste is measured the same way as any other.
  */
 interface RowChunk {
   /** The row's own characters, gutter excluded. */
   readonly text: string
-  /** Buffer offset (code points) of this row's first text character. */
+  /** Projection offset of this row's first text character. */
   readonly start: number
   /** Display columns this row's gutter spends before its text begins. */
   readonly gutterWidth: number
@@ -56,6 +69,12 @@ export interface ComposerLayout {
    * the DRAWN line, gutter included — so the two are exact inverses and the
    * column a vertical move LEAVES is the column it arrives at. A gutter's own
    * cells are not navigable, so aiming inside it lands at the text's start.
+   *
+   * The answer is a position in the AUTHORITATIVE buffer, and it is never inside
+   * collapsed content: a cell that lands in the middle of a folded paste's label
+   * resolves to that paste's start, which is the nearest position a reader can
+   * actually be at. That is what lets `↑`/`↓` cross a collapsed span without
+   * ever putting the cursor where nothing is drawn.
    * @param row - the target visual row, clamped to a real row.
    * @param column - the display column to aim at, measured as {@link cursorColumn} is.
    * @returns the buffer offset to set the cursor to.
@@ -66,15 +85,21 @@ export interface ComposerLayout {
 /**
  * Lay out a composer's buffer into visual rows.
  *
- * ONE forward pass over a single snapshot of the buffer produces every row, the
- * cursor's placement, and each row's buffer offset together. That is a
- * correctness property as much as a performance one: the earlier shape asked the
- * composer for whole-buffer derived forms (`lines`, `cursorLine`,
- * `lineBeforeCursor`, `value`) from inside a per-line loop, so a draft of L lines
- * and N code points cost O(N·L) — thousands of full joins and rescans for one
- * `↑` press. Each row here is built from the characters as they arrive and the
- * cursor is placed from the count accumulated at its own character, so nothing is
- * re-derived and the cost is O(N) whatever the line structure.
+ * ONE forward pass over a single projection of the buffer produces every row, the
+ * cursor's placement, and each row's offset together. That is a correctness
+ * property as much as a performance one: the earlier shape asked the composer for
+ * whole-buffer derived forms (`lines`, `cursorLine`, `lineBeforeCursor`, `value`)
+ * from inside a per-line loop, so a draft of L lines and N code points cost
+ * O(N·L) — thousands of full joins and rescans for one `↑` press. Each row here is
+ * built from the characters as they arrive and the cursor is placed from the
+ * count accumulated at its own character, so nothing is re-derived and the cost is
+ * O(N) whatever the line structure.
+ *
+ * The projection is asked for once, and the offsets this returns are RAW buffer
+ * offsets while everything it works in is a projection offset. Translating at the
+ * single point where a placement becomes a position is what keeps the mapping
+ * honest: the layout has no fold concepts at all, and still cannot report a
+ * position a reader would not be able to see.
  * @param composer - the buffer being edited.
  * @param width - display-column budget per visual row, including the gutter.
  * @param gutter - the gutter for a logical line, styled by which line it is.
@@ -86,11 +111,13 @@ export function layoutComposer(
   gutter: (line: number) => string,
 ): ComposerLayout {
   const budget = Math.max(1, width)
-  // ONE reading of the buffer: the value is joined once and split into code
-  // points once, and every later decision reads this array rather than asking the
-  // composer again.
-  const chars = [...composer.value]
-  const cursor = composer.position
+  // ONE reading of the buffer, and one of the state around it: the visible text
+  // is chunked into code points once, the cursor arrives already expressed in
+  // those coordinates, and every later decision reads these rather than asking
+  // the composer again.
+  const display = composer.display()
+  const chars = [...display.text]
+  const cursor = display.cursor
   const chunks: RowChunk[] = []
   /** The drawn rows, built in step with `chunks` so neither is derived twice. */
   const rows: string[] = []
@@ -289,7 +316,13 @@ export function layoutComposer(
         usedColumn += charWidth
         index += 1
       }
-      return chunk.start + index
+      // `chunk.start + index` is a projection offset, so it is translated through
+      // the composer's own mapping before it is returned as a buffer position.
+      // That single call is what makes a placement inside a collapsed paste
+      // resolve to one of its boundaries: the layout has no idea a fold is there,
+      // but the mapping does, and it will not hand back a raw offset whose
+      // character is not drawn anywhere on screen.
+      return display.rawAt(chunk.start + index)
     },
   }
 }

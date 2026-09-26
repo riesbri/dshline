@@ -146,6 +146,28 @@ function text(value: string): Key {
   return { kind: 'text', text: value }
 }
 
+/**
+ * Type a draft of `count` numbered lines that is taller than the overlay's
+ * eight-row viewport, WITHOUT folding it into one placeholder.
+ *
+ * Pasting twelve lines at once used to do this and no longer does: a large paste
+ * now draws as a single `[Pasted text #N +12 lines]` token, which is the feature
+ * working correctly and which would make the draft one row tall. The tests that
+ * use this are about WINDOW GEOMETRY — where the caret row sits once the draft no
+ * longer fits — so the height is built one line at a time instead. A one-line
+ * paste is far below the fold threshold, so nothing collapses, and the numbered
+ * text stays interleaved with the newlines that give the draft its height, which
+ * matters because the viewport shows the draft's END.
+ * @param overlay - the overlay whose composer is being filled.
+ * @param count - how many logical lines the finished draft should have.
+ */
+function tallDraft(overlay: { handleKey: (key: Key) => void }, count: number): void {
+  for (let index = 0; index < count; index += 1) {
+    overlay.handleKey({ kind: 'paste', text: `line ${String(index).padStart(2, '0')}` } as Key)
+    if (index < count - 1) overlay.handleKey(key('newline'))
+  }
+}
+
 /** One recorded descendant-listing call, exactly as the presenter makes it. */
 interface DescendantCall {
   readonly parentSessionId: SessionId
@@ -691,10 +713,9 @@ describe('subagent message composer', () => {
 
   it('keeps the cursor row visible for a long multiline draft', () => {
     const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
-    const lines = Array.from({ length: 12 }, (_, index) => `line ${String(index).padStart(2, '0')}`)
-    overlay.handleKey({ kind: 'paste', text: lines.join('\n') } as Key)
+    tallDraft(overlay, 12)
     const plain = stripAnsi(overlay.render(80, 8).join('\n'))
-    // The caret row — the end of the paste — is inside the window, and the
+    // The caret row — the end of the draft — is inside the window, and the
     // window did not stay pinned to the draft's first line.
     expect(plain).toContain('█')
     expect(plain).toContain('line 11')
@@ -702,10 +723,66 @@ describe('subagent message composer', () => {
     expect(physicalRows(overlay.render(80, 8), 80).length).toBeLessThanOrEqual(8)
   })
 
+  it('draws a large paste as one token and submits its whole body', async () => {
+    // Compact paste behaviour belongs to the reusable multiline Composer, so this
+    // composer inherits it along with the root prompt — the overlay is a consumer
+    // of the same class, not a second implementation. A real large paste is the
+    // case, as opposed to the tall drafts built one line at a time above.
+    const requests: string[] = []
+    const { overlay } = composer(async value => {
+      requests.push(value)
+      return { kind: 'accepted', messageId: 'm-1' }
+    })
+    const body = Array.from({ length: 11 }, (_, index) => `pasted line ${String(index + 1)}`).join('\n')
+    overlay.handleKey(text('please read '))
+    overlay.handleKey({ kind: 'paste', text: body } as Key)
+    const plain = stripAnsi(overlay.render(80, 8).join('\n'))
+    expect(plain).toContain('[Pasted text #1 +11 lines]')
+    expect(plain).not.toContain('pasted line 5')
+
+    overlay.handleKey(key('enter'))
+    await flush()
+    // The message that leaves carries the complete text, never the label.
+    expect(requests).toEqual([`please read ${body}`])
+  })
+
+  it('numbers a second large paste #2 within one subagent composer', async () => {
+    const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
+    const body = Array.from({ length: 11 }, (_, index) => `pasted line ${String(index + 1)}`).join('\n')
+    overlay.handleKey({ kind: 'paste', text: body } as Key)
+    overlay.handleKey(key('enter'))
+    // The surface retains the draft while Harness decides, and swallows keys
+    // meanwhile, so the submission has to be allowed to land before the next
+    // paste can mean anything.
+    await flush()
+    overlay.handleKey({ kind: 'paste', text: body } as Key)
+    expect(stripAnsi(overlay.render(80, 8).join('\n'))).toContain('[Pasted text #2 +11 lines]')
+  })
+
+  it('places a large paste in front of an existing one in the right order', () => {
+    // The subagent composer runs the same Composer, so the positional fold
+    // ordering the root prompt relies on is inherited here too rather than being a
+    // property of one call site.
+    const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
+    const a = Array.from({ length: 9 }, (_, index) => `A line ${String(index + 1)}`).join('\n')
+    const b = Array.from({ length: 11 }, (_, index) => `B line ${String(index + 1)}`).join('\n')
+    overlay.handleKey({ kind: 'paste', text: a } as Key)
+    overlay.handleKey(key('home'))
+    overlay.handleKey({ kind: 'paste', text: b } as Key)
+    const plain = stripAnsi(overlay.render(80, 8).join('\n'))
+    // The caret is drawn at the cursor, which is the boundary between the two
+    // spans, so the labels are separated by the block rather than adjacent.
+    expect(plain).toContain('[Pasted text #2 +11 lines]')
+    expect(plain).toContain('[Pasted text #1 +9 lines]')
+    expect(plain).not.toContain('B line 1')
+    // And they appear in POSITION order, which here is the opposite of arrival
+    // order: `#2` was the second paste but sits in front of `#1`.
+    expect(plain.indexOf('#2')).toBeLessThan(plain.indexOf('#1'))
+  })
+
   it('scrolls the draft window with the cursor on Up and back on Down', () => {
     const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
-    const lines = Array.from({ length: 12 }, (_, index) => `line ${String(index).padStart(2, '0')}`)
-    overlay.handleKey({ kind: 'paste', text: lines.join('\n') } as Key)
+    tallDraft(overlay, 12)
     overlay.render(80, 8)
     expect(stripAnsi(overlay.render(80, 8).join('\n'))).toContain('line 11')
     for (let press = 0; press < 5; press += 1) overlay.handleKey(key('up'))

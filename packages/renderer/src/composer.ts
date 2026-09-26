@@ -10,11 +10,20 @@
  * recall uses — starts a fresh baseline that `ctrl-z` can never cross. The
  * buffer stays safe to draw because every untrusted text that enters goes
  * through sanitization before it reaches the mutation primitive.
+ *
+ * The buffer is also AUTHORITATIVE, which is the other half of what this class is
+ * for. A large paste is drawn as one compact token, but the characters behind
+ * that token are the real ones, and {@link Composer.value} is what a submission,
+ * a history entry, and a completion all read. Presentation is a projection over
+ * this buffer, never a replacement for it, and the only thing a fold records is
+ * which range to draw short.
  * @module @dshline/renderer/composer
  */
 
 import type { Key } from './keys.ts'
 import { layoutComposer } from './composer-layout.ts'
+import type { ComposerDisplay, FoldedPaste } from './composer-display.ts'
+import { PASTE_FOLD_MIN_CHARS, PASTE_FOLD_MIN_LINES, projectDisplay } from './composer-display.ts'
 import { sanitizePasted } from './text.ts'
 import { displayWidth } from './width.ts'
 
@@ -73,6 +82,17 @@ interface ComposerSnapshot {
   readonly text: string
   /** The cursor's code-point position, the position the edit began at. */
   readonly position: number
+  /**
+   * The folded spans as they stood at that moment.
+   *
+   * Carried with the text rather than recomputed from it, because a fold is
+   * provenance: nothing in the buffer distinguishes a paste that was folded from
+   * one that was not, so an undo restoring only the characters would restore them
+   * UNFOLDED, and a label the reader had already seen would be gone after a step
+   * that changed no text at all. The array is shared rather than copied, because
+   * folds are never mutated in place — every edit publishes a new one.
+   */
+  readonly folds: readonly FoldedPaste[]
 }
 
 /**
@@ -93,6 +113,40 @@ type EditKind = 'typing' | 'paste' | 'newline' | 'backspace' | 'delete' | 'kill'
  * deliberate gesture that must stay individually undoable.
  */
 const COALESCING_EDITS: ReadonlySet<EditKind> = new Set(['typing', 'backspace', 'delete'])
+
+/**
+ * Put one folded span into a position-ordered collection.
+ *
+ * The composer's folds are held in ASCENDING raw order, because that is the
+ * order a display projection consumes them in, and a collection out of that order
+ * does not merely look wrong — the projection walks it in array order, so a span
+ * listed after one that begins later is skipped as if it were empty. The result
+ * is not a mislabelled row but a FALSE label: the wrong span gets collapsed while
+ * the one the label describes is drawn in full. That is how pasting a second
+ * large block at the very start of a draft once unfolded the new block and
+ * labelled the old one, because the new fold had been appended rather than
+ * placed.
+ *
+ * Ordering is by RAW POSITION and never by id. The two are deliberately
+ * different: `#1` names the block that arrived first, so pasting before an
+ * existing fold legitimately produces ids `[2, 1]` while the collection stays
+ * sorted `[…, #2, #1]` by where those blocks now sit in the buffer. Sorting by id
+ * would restore the order the label numbering implies and break the order the
+ * drawing depends on.
+ *
+ * A NEW array is returned rather than the argument being spliced. Undo snapshots
+ * hold the previous collection by reference and must keep seeing what it held
+ * when the snapshot was taken; a fold revealed or replaced since then must not
+ * reach backwards into a state the reader can still return to.
+ * @param existing - folds in ascending, non-overlapping raw order.
+ * @param fold - the span to place, which cannot overlap an existing one.
+ * @returns a new collection, still ascending, with `fold` at its raw position.
+ */
+function insertFoldOrdered(existing: readonly FoldedPaste[], fold: FoldedPaste): readonly FoldedPaste[] {
+  const at = existing.findIndex(other => other.start > fold.start)
+  if (at < 0) return [...existing, fold]
+  return [...existing.slice(0, at), fold, ...existing.slice(at)]
+}
 
 /** An editable input line. */
 export class Composer {
@@ -119,10 +173,91 @@ export class Composer {
    * baseline `set()`, an undo, or a submission always starts a fresh step.
    */
   private lastEdit: EditKind | undefined
+  /**
+   * Spans currently drawn as compact tokens, ascending and non-overlapping.
+   *
+   * THE invariant every mutation of this field must preserve: ordered by raw
+   * `start`, with no two spans overlapping — which is the order
+   * {@link projectDisplay} consumes. There is exactly one such rule, and every
+   * writer below obeys it: {@link Composer.insertPaste} places a new span by
+   * position through {@link insertFoldOrdered}, {@link Composer.reconcileFolds}
+   * filters in order and shifts only a prefix, {@link Composer.stepCursorTo} only
+   * removes, and `clear`/`set`/undo/redo restore a snapshot that was already valid
+   * or empty. The collection is replaced rather than mutated in every case,
+   * because a snapshot may still be holding the previous one.
+   *
+   * Order by raw position is not the same as order by id — see
+   * {@link insertFoldOrdered}.
+   *
+   * Presentation only, and deliberately empty for the overwhelmingly common case
+   * of a draft nobody has pasted anything large into. Each record is O(1) over
+   * {@link chars} — a range and two numbers — so the sidecar stays small however
+   * much text it hides, and the buffer stays the single copy of that text.
+   */
+  private folds: readonly FoldedPaste[] = []
+  /**
+   * Identity handed to the NEXT folded paste, monotonic for this composer's whole
+   * life.
+   *
+   * The lifetime is the COMPOSER, not the conversation. This is one class used by
+   * the root prompt and by each subagent-message editor alike, and two of them
+   * must not share a sequence. The root composer normally lives as long as its
+   * attached session, so in practice its numbering reads as per-session — but
+   * where the instance happens to live is not what defines the rule.
+   *
+   * It survives {@link Composer.clear} and {@link Composer.set} on purpose: the
+   * numbers name pastes in the order they arrived, so submitting a draft and
+   * pasting again continues at `#2` rather than reusing `#1` for a different
+   * block of text. A new composer is the only thing that resets it, and it starts
+   * at `#1`. Undo does not give a number back either: it was shown to a reader,
+   * and handing it to different content would be a worse lie than a gap in the
+   * sequence.
+   */
+  private nextPasteId = 1
+  /**
+   * Counts every observable change to the buffer, the cursor, or the folds.
+   *
+   * A view redraws on a timer rather than on an event, so it has to decide
+   * whether anything moved BEFORE it rebuilds. Keying that on the buffer's own
+   * text meant joining the whole draft on every frame to discover that nothing
+   * had changed — and with a large paste folded, the text being joined was mostly
+   * content that frame was never going to draw. A counter answers in constant
+   * time, and it is bumped by everything the layout reads, so it cannot disagree
+   * with what a frame would have drawn.
+   */
+  private rev = 0
 
   /** Current buffer contents. */
   get value(): string {
     return this.chars.join('')
+  }
+
+  /**
+   * A counter that changes whenever this composer's drawn state could differ.
+   *
+   * Compare it to decide whether a frame needs rebuilding at all. It is not an
+   * edit history, it does not roll back, and two different states never share a
+   * value.
+   */
+  get revision(): number {
+    return this.rev
+  }
+
+  /**
+   * The buffer as a reader sees it, with every folded span drawn as one token.
+   *
+   * This is the seam between what the composer HOLDS and what a terminal is shown.
+   * Layout takes the projection rather than the value, so nothing downstream has
+   * to know a label exists, let alone recognize one.
+   * @returns the visible text, the cursor in its coordinates, and the mapping back.
+   */
+  display(): ComposerDisplay {
+    return projectDisplay(this.chars, this.at, this.folds)
+  }
+
+  /** Record that the drawn state moved, so a later frame knows to rebuild. */
+  private touch(): void {
+    this.rev += 1
   }
 
   /** The cursor's absolute position in the buffer, in code points. */
@@ -168,12 +303,20 @@ export class Composer {
    * slice with: {@link cursorColumn} counts DISPLAY columns, so using it as a
    * string index overshoots by one position per wide character, and a UTF-16 index
    * splits an astral character in half. This is the text, already correct.
+   *
+   * Found by walking BACKWARD from the cursor rather than forward from the start.
+   * The forward scan visited every code point in the whole draft to find the last
+   * newline, which is the expensive direction now that a multiline paste can be
+   * thousands of lines long while being DRAWN as a single token: completion reads
+   * this on every refresh, so a folded paste would have turned each refresh into a
+   * rescan of the whole hidden document — a cost the folding exists to avoid,
+   * reintroduced one layer up. The backward walk stops at the first newline, so it
+   * costs the length of the current line, and a draft whose last line is short
+   * stops almost immediately.
    */
   get lineBeforeCursor(): string {
-    let start = 0
-    for (let index = 0; index < this.at; index += 1) {
-      if (this.chars[index] === '\n') start = index + 1
-    }
+    let start = this.at
+    while (start > 0 && this.chars[start - 1] !== '\n') start -= 1
     return this.chars.slice(start, this.at).join('')
   }
 
@@ -205,6 +348,11 @@ export class Composer {
    * line, or a whitespace-only enter — so there is no state left to undo to,
    * and every stack starts empty. This is what makes a sent prompt unreachable
    * through `ctrl-z`.
+   *
+   * The fold metadata goes with the text it described, and the paste COUNTER does
+   * not: submitting a draft is not arriving at a fresh composer, so the next large
+   * paste continues the same sequence rather than claiming a number a reader has
+   * already seen used for something else.
    */
   clear(): void {
     this.lastEdit = undefined
@@ -213,6 +361,8 @@ export class Composer {
     this.resetVerticalMovement()
     this.chars = []
     this.at = 0
+    this.folds = []
+    this.touch()
   }
 
   /**
@@ -273,11 +423,21 @@ export class Composer {
     const offset = layout.positionAt(targetRow, this.preferredColumn)
     if (offset === this.at) return false
     this.at = offset
+    this.touch()
     return true
   }
 
   /**
    * Replace the buffer, leaving the cursor at the end.
+   *
+   * This is a BASELINE, not an edit, and it deliberately forges no paste
+   * provenance. History recall, search adoption, draft restoration, and the
+   * skills picker all arrive here, and a long prompt recalled from an earlier
+   * turn is text the user typed, not a paste that happened to be long: labelling
+   * it `[Pasted text #4 +80 lines]` would put a claim into the message that is
+   * simply false. So a recalled multiline prompt comes back as ordinary full
+   * text, in full, every time. Fold metadata describes a live draft's own pastes
+   * and is not durable data, which is exactly why history cannot restore it.
    * @param text - the new contents.
    */
   set(text: string): void {
@@ -291,6 +451,8 @@ export class Composer {
     this.resetVerticalMovement()
     this.chars = [...text]
     this.at = this.chars.length
+    this.folds = []
+    this.touch()
   }
 
   /**
@@ -305,10 +467,15 @@ export class Composer {
     // Pasted newlines are content, not a request to send — but pasted CONTROLS
     // are neither. They are sanitized on the way in so the buffer holds one
     // representation: anything else would leave every later width, cursor, and
-    // draw calculation reading different text than the terminal receives.
+    // draw calculation reading different text than the terminal receives. The
+    // sanitized text is also what the fold decision is made on, so the count a
+    // label shows describes the characters the composer actually holds.
     if (key.kind === 'text' || key.kind === 'paste') {
-      const paste = key.kind === 'paste'
-      this.replaceRange(this.at, this.at, paste ? sanitizePasted(key.text) : key.text, paste ? 'paste' : 'typing')
+      if (key.kind === 'paste') {
+        this.insertPaste(sanitizePasted(key.text))
+        return { kind: 'changed' }
+      }
+      this.replaceRange(this.at, this.at, key.text, 'typing')
       return { kind: 'changed' }
     }
     switch (key.name) {
@@ -334,6 +501,12 @@ export class Composer {
       case 'newline':
         this.replaceRange(this.at, this.at, '\n', 'newline')
         return { kind: 'changed' }
+      // The five deletion gestures below share one rule, stated once in
+      // {@link deleteRange}: a still-collapsed paste is ONE thing to the reader, so
+      // a deletion that touches one removes it whole. Everything else in this
+      // switch — typing, pasting, accepting a completion — is not a deletion and
+      // keeps ordinary character semantics, including the rule that entering or
+      // editing a fold reveals it.
       case 'backspace':
         if (this.at === 0) {
           // Nothing deleted, but the press is still a gesture: the next
@@ -341,14 +514,14 @@ export class Composer {
           this.lastEdit = undefined
           return { kind: 'changed' }
         }
-        this.replaceRange(this.at - 1, this.at, '', 'backspace')
+        this.deleteRange(this.at - 1, this.at, 'backspace')
         return { kind: 'changed' }
       case 'delete':
         if (this.at >= this.chars.length) {
           this.lastEdit = undefined
           return { kind: 'changed' }
         }
-        this.replaceRange(this.at, this.at + 1, '', 'delete')
+        this.deleteRange(this.at, this.at + 1, 'delete')
         return { kind: 'changed' }
       case 'ctrl-z':
         this.undo()
@@ -356,35 +529,42 @@ export class Composer {
       case 'ctrl-y':
         this.redo()
         return { kind: 'changed' }
+      // Horizontal movement is the one way a reader deliberately ENTERS folded
+      // text, so a step that would land inside a span reveals it first and then
+      // moves as it always would. The alternative — letting the cursor land
+      // somewhere with no character drawn under it — is the failure this avoids:
+      // an invisible cursor inside a collapsed attachment is indistinguishable
+      // from a broken one. `home`/`end` need no such check, because the buffer's
+      // two ends are always honest boundaries.
       case 'left':
-        this.at = Math.max(0, this.at - 1)
-        this.lastEdit = undefined
+        this.stepCursorTo(Math.max(0, this.at - 1))
         return { kind: 'changed' }
       case 'right':
-        this.at = Math.min(this.chars.length, this.at + 1)
-        this.lastEdit = undefined
+        this.stepCursorTo(Math.min(this.chars.length, this.at + 1))
         return { kind: 'changed' }
       case 'home':
       case 'ctrl-a':
         this.at = 0
         this.lastEdit = undefined
+        this.touch()
         return { kind: 'changed' }
       case 'end':
       case 'ctrl-e':
         this.at = this.chars.length
         this.lastEdit = undefined
+        this.touch()
         return { kind: 'changed' }
       case 'ctrl-u':
-        this.replaceRange(0, this.at, '', 'kill')
+        this.deleteRange(0, this.at, 'kill')
         return { kind: 'changed' }
       case 'ctrl-k':
-        this.replaceRange(this.at, this.chars.length, '', 'kill')
+        this.deleteRange(this.at, this.chars.length, 'kill')
         return { kind: 'changed' }
       case 'ctrl-w': {
         let cut = this.at
         while (cut > 0 && WORD_BOUNDARY.test(this.chars[cut - 1] ?? '')) cut -= 1
         while (cut > 0 && !WORD_BOUNDARY.test(this.chars[cut - 1] ?? '')) cut -= 1
-        this.replaceRange(cut, this.at, '', 'kill')
+        this.deleteRange(cut, this.at, 'kill')
         return { kind: 'changed' }
       }
       default:
@@ -397,9 +577,139 @@ export class Composer {
     }
   }
 
+  /**
+   * Insert one already-sanitized paste, folding it when it is large enough.
+   *
+   * The paste is inserted like any other edit — through {@link replaceRange}, so
+   * it is one undo step and lands at the cursor — and the fold is recorded
+   * afterwards, which is what keeps the undo snapshot the state BEFORE this paste
+   * rather than one that already contains a span the text did not have.
+   * @param sanitized - the pasted text, already made safe to hold and draw.
+   */
+  private insertPaste(sanitized: string): void {
+    const chars = [...sanitized]
+    // Line count and length are measured on the SANITIZED text, which is what the
+    // buffer will hold: a label that counts lines the buffer does not contain
+    // would be the same kind of lie as a label over a span an edit had shortened.
+    let lines = 1
+    for (const char of chars) {
+      if (char === '\n') lines += 1
+    }
+    const start = this.at
+    this.replaceRange(start, start, sanitized, 'paste')
+    if (lines < PASTE_FOLD_MIN_LINES && chars.length < PASTE_FOLD_MIN_CHARS) return
+    // Placed by POSITION, not appended: the cursor can be in front of an existing
+    // fold, and `replaceRange` has just shifted that fold forward. Appending would
+    // leave the collection out of the order the display projection walks it in.
+    this.folds = insertFoldOrdered(this.folds, { id: this.nextPasteId, start, end: start + chars.length, lines })
+    this.nextPasteId += 1
+    this.touch()
+  }
+
+  /**
+   * Move the cursor one step, revealing any fold the step would enter.
+   *
+   * Revealing is a PRESENTATION change and deliberately not an undoable text
+   * edit: no character was added or removed, so recording it would put an entry
+   * on the undo stack for a keystroke that changed nothing, and a later `ctrl-z`
+   * would appear to do nothing at all. Once a span is revealed it is ordinary
+   * visible text for the rest of the draft.
+   * @param offset - the raw offset to move to.
+   */
+  private stepCursorTo(offset: number): void {
+    const inside = this.folds.find(fold => offset > fold.start && offset < fold.end)
+    if (inside !== undefined) {
+      this.folds = this.folds.filter(fold => fold !== inside)
+      this.touch()
+    }
+    this.at = offset
+    this.lastEdit = undefined
+    this.touch()
+  }
+
+  /**
+   * Keep fold metadata honest across one replacement.
+   *
+   * A span survives exactly when the edit left its characters alone: entirely
+   * before it, which shifts its raw range by however much the text in front
+   * changed length, or entirely after it, which cannot move it. Anything else
+   * removed or rewrote at least one code point the label was counting, so the
+   * label is dropped and the characters are left as ordinary visible text. That
+   * includes a `ctrl-u`/`ctrl-k` that swallows a span whole — there is nothing
+   * to reveal about text that no longer exists, and keeping its metadata would
+   * only misplace a future edit.
+   *
+   * Both bounds are compared against the PRE-EDIT positions, which is why this
+   * runs before the buffer is reassembled.
+   * @param from - first replaced raw offset, before the edit.
+   * @param to - one past the last, before the edit.
+   * @param delta - how much the edit changed the text's length.
+   */
+  private reconcileFolds(from: number, to: number, delta: number): void {
+    if (this.folds.length === 0) return
+    const kept: FoldedPaste[] = []
+    for (const fold of this.folds) {
+      if (to <= fold.start) {
+        kept.push({ ...fold, start: fold.start + delta, end: fold.end + delta })
+      } else if (from >= fold.end) {
+        kept.push(fold)
+      }
+    }
+    this.folds = kept
+  }
+
+  /**
+   * Remove a range, treating any still-collapsed paste it touches as ONE thing.
+   *
+   * A folded paste is DRAWN as a single token, so deleting the character beside it
+   * deletes the token — not one hidden character while a label keeps describing
+   * the rest. The original rule here was "editing a fold reveals it", which is
+   * right for every other gesture and wrong for deletion: a reader who presses
+   * backspace once on `[Pasted text #1 +8 lines]` expects that token gone, and
+   * instead got the token gone AND a character silently removed from the middle
+   * of a document they had not yet been able to read. Deleting a paste one
+   * character at a time, with the rest of it revealed by the accident, is not a
+   * lesser version of the same thing.
+   *
+   * So the deletion RANGE is chosen here, before {@link replaceRange} sees it,
+   * and `reconcileFolds` is left alone: by the time it runs the folded span is
+   * either wholly inside the range or wholly outside it, which is the only shape
+   * it has to reason about.
+   *
+   * The touched-fold set is computed from the ORIGINAL deletion range, in one
+   * pass. Under the composer invariant that folds are ascending and
+   * non-overlapping, that produces the same result as repeatedly re-testing a
+   * widened range: widening to cover one fold can at most reach an adjacent
+   * fold's boundary, and touching is not intersection. The one-pass form is kept
+   * because it states the rule directly and avoids unnecessary iteration, not
+   * because the iterative form would behave differently.
+   *
+   * Touching is not intersecting. Two folds meeting at offset 100 each keep their
+   * own token, because `deleteStart < fold.end && deleteEnd > fold.start` is
+   * false for the fold on the far side of the boundary. Backspace at 100 takes
+   * `[99, 100)` and so takes `#1`; Delete at 100 takes `[100, 101)` and so takes
+   * `#2`. Each removes exactly the token the caret is touching.
+   * @param start - first raw offset the gesture covers, before any widening.
+   * @param end - one past the last, before any widening.
+   * @param kind - which deletion gesture this is, for undo coalescing.
+   */
+  private deleteRange(start: number, end: number, kind: 'backspace' | 'delete' | 'kill'): void {
+    const from = Math.max(0, Math.min(start, this.chars.length))
+    const to = Math.max(from, Math.min(end, this.chars.length))
+    let first = from
+    let last = to
+    for (const fold of this.folds) {
+      if (from < fold.end && to > fold.start) {
+        if (fold.start < first) first = fold.start
+        if (fold.end > last) last = fold.end
+      }
+    }
+    this.replaceRange(first, last, '', kind)
+  }
+
   /** The current state, exactly as an undo step should restore it. */
   private snapshot(): ComposerSnapshot {
-    return { text: this.value, position: this.at }
+    return { text: this.value, position: this.at, folds: this.folds }
   }
 
   /**
@@ -408,14 +718,18 @@ export class Composer {
    * The restored cursor belongs to that snapshot, so `ctrl-z` returns the
    * cursor to where it was immediately before the undone edit began. Undoing
    * and redoing also end any typing run and any vertical sequence: they are
-   * fresh states, not continuations.
+   * fresh states, not continuations. Folds come back with the text, so undoing
+   * an edit inside a paste restores the compact form the reader had actually
+   * seen, not just the characters underneath it.
    * @param snapshot - the state to restore.
    */
   private restore(snapshot: ComposerSnapshot): void {
     this.chars = [...snapshot.text]
     this.at = snapshot.position
+    this.folds = snapshot.folds
     this.lastEdit = undefined
     this.resetVerticalMovement()
+    this.touch()
   }
 
   /**
@@ -508,12 +822,19 @@ export class Composer {
     }
     this.lastEdit = kind
     this.resetVerticalMovement()
+    // Fold metadata is settled before the buffer moves, because it is expressed
+    // in the pre-edit offsets. Backspace and delete reach here against a range
+    // that can begin inside a folded span, and this is the single point where that
+    // is noticed: a hidden character cannot be deleted while a label still claims
+    // it is there.
+    this.reconcileFolds(from, to, inserted.length - (to - from))
     // Reassembled with array-literal spreads rather than `splice(from, n,
     // ...inserted)`: spreading into a CALL is limited by the engine's argument
     // count, so a single very large edit — a whole pasted document, a future
     // editor result — would throw where these two arrays compose fine.
     this.chars = [...this.chars.slice(0, from), ...inserted, ...this.chars.slice(to)]
     this.at = from + inserted.length
+    this.touch()
   }
 
   /** Step back to the state before the most recent undoable edit. */

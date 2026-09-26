@@ -2240,7 +2240,13 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       completion.refresh().then(draw).catch(report)
       return
     }
-    const valueBeforeAction = composer.value
+    // The draft before the action, but ONLY when a recalled history entry is being
+    // looked at. Deciding that needs both the old and the new text; deciding
+    // anything else does not, and a draft can hold a very large folded paste whose
+    // full value is not worth joining twice for every keystroke merely to learn
+    // something already known — there is no saved traversal to abandon.
+    const wasNavigating = history.navigating
+    const valueBeforeAction = wasNavigating ? composer.value : undefined
     const action = composer.handle(key)
     if (action.kind === 'submit') {
       // Whatever was being completed is gone with the line, and any lookup it
@@ -2258,7 +2264,9 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       // Cursor motion and text edits share one composer action. Only an edit
       // abandons history navigation; otherwise Left followed by Up must continue
       // to the older entry, and the saved half-typed draft must remain recoverable.
-      const edited = history.resetIfEdited(valueBeforeAction, composer.value)
+      // Outside that traversal there is nothing to compare against and nothing to
+      // reset, so the second join of the draft is skipped as well as the first.
+      const edited = valueBeforeAction === undefined ? false : history.resetIfEdited(valueBeforeAction, composer.value)
       draw()
       // A recalled line deliberately owns the arrows until it is edited or
       // submitted. Cursor-only motion must not open completion over that line and

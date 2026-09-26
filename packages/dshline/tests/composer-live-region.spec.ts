@@ -30,11 +30,18 @@ const DIRECTIONAL_ARROWS = [0x2191, 0x2193] as const
 /**
  * A draft long enough that the composer viewport scrolls: 30 logical lines
  * against a ten-row viewport, so a moved cursor hides rows on both sides.
+ *
+ * Seeded with `set()` rather than pasted, and that distinction is the whole
+ * point: a paste of thirty lines now folds to one `[Pasted text #N +30 lines]`
+ * token, which is this feature working correctly and which would leave the draft
+ * a single row tall. These tests are about live-region GEOMETRY — a frame taller
+ * than its viewport — so the height has to arrive as a baseline. The compactness
+ * of a genuinely large paste is asserted where it belongs, in `folded-pastes.spec.ts`.
  * @returns the composer, cursor at the end.
  */
 function longDraft(): Composer {
   const composer = new Composer()
-  composer.handle({ kind: 'paste', text: Array.from({ length: 30 }, (_, i) => `draft ${String(i).padStart(2, '0')}`).join('\n') })
+  composer.set(Array.from({ length: 30 }, (_, i) => `draft ${String(i).padStart(2, '0')}`).join('\n'))
   return composer
 }
 
