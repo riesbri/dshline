@@ -11,6 +11,8 @@ export { BOX_CHROME_COLUMNS, box, boxHeight, fitToWidth, frame, frameHeight } fr
 export type { BoxOptions, FrameDivider, FrameOptions, FrameRow } from './box.ts'
 export { Composer } from './composer.ts'
 export type { ComposerAction, SubmitGesture } from './composer.ts'
+export { PASTE_FOLD_MIN_CHARS, PASTE_FOLD_MIN_LINES, pastedTextLabel } from './composer-display.ts'
+export type { ComposerDisplay, FoldedPaste } from './composer-display.ts'
 export { layoutComposer } from './composer-layout.ts'
 export type { ComposerLayout } from './composer-layout.ts'
 export { createMarkdownRenderer, renderInline, renderMarkdown } from './markdown.ts'

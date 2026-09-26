@@ -25,6 +25,7 @@ How this interface is built, and the reason behind each decision. Every heading 
 - [Colour is chosen by role, not by name](#colour-is-chosen-by-role-not-by-name)
 - [Markdown is rendered, and made safe while it is parsed](#markdown-is-rendered-and-made-safe-while-it-is-parsed)
 - [Pasted text is untrusted too](#pasted-text-is-untrusted-too)
+  - [A large paste draws as one token, and the buffer keeps all of it](#a-large-paste-draws-as-one-token-and-the-buffer-keeps-all-of-it)
 - [Keyboard input is read in both formats](#keyboard-input-is-read-in-both-formats)
 - [Queue and steer are the reader's choice, not the agent's status](#queue-and-steer-are-the-readers-choice-not-the-agents-status)
 - [The empty composer answers three questions in one row](#the-empty-composer-answers-three-questions-in-one-row)
@@ -250,6 +251,29 @@ Pasted text is cleaned up when it is inserted, rather than at each place it is l
 Tabs are expanded everywhere, not only here. A tab is a single character that moves the terminal to the next tab stop, so leaving one in place makes every width calculation disagree with the screen — a framed row is padded to the wrong width and its right border moves. Keeping one representation in the buffer means every width, cursor, and drawing calculation reads the same text the terminal receives.
 
 Terminals can mark the beginning and end of a paste, and that is what makes a multi-line paste one message instead of a burst of `enter` presses. A paste that arrives in pieces is held until its end marker, however long that takes: a slow paste and an abandoned one look identical, and cutting a real one short would send the rest of the document as separate messages.
+
+### A large paste draws as one token, and the buffer keeps all of it
+
+A stack trace, a diff, and a minified bundle are all unreadable in a three-line input box, and scrolling four hundred of them to find the sentence you are typing is worse than not seeing them. So a paste that reaches **eight logical lines or a thousand code points** — measured on the sanitized text the buffer actually holds — is drawn as a single placeholder:
+
+```text
+[Pasted text #1 +11 lines]
+```
+
+The compact form is inspired by what other coding agents do with a big paste, and nothing more than that. What matters is what it is *not*: the placeholder is a **drawing, and the buffer underneath is the message**. `Composer.value` keeps the complete sanitized text, and that is the text a submission sends, a history entry records, and a completion reads. There is no expansion step, because there is nothing to expand — submission already has the whole thing. A string that happens to look like a placeholder is just text a person typed.
+
+The mapping between the two is structural rather than textual. A fold is a record of a *range* over the buffer plus the numbers its label needs, and layout consumes a projection that skips the folded interiors — it never parses a label, and there are no sentinel characters standing in for hidden text. A cell inside a placeholder resolves to that placeholder's boundary, so vertical movement can never leave the cursor somewhere nothing is drawn.
+
+Four rules follow from the placeholder being presentation:
+
+- **Typing outside a fold leaves it folded.** An edit before it shifts its range; an edit after it does not move it.
+- **Moving into it unfolds it.** A horizontal step that would land inside hidden text reveals that text first and then moves as it always would, because an invisible cursor is indistinguishable from a broken one. The reveal is not an undoable edit — no character changed.
+- **Editing it unfolds it.** A backspace, a delete, a `ctrl-w`, or a completion that would touch a folded span invalidates the label first. Otherwise the composer would delete a character behind a caption that still claims the character is there.
+- **Deleting it wholesale takes the label with it.** Nothing is expanded on the way out.
+
+The numbers are monotonic for the life of one composer, which in this interface is the life of a session: submitting or clearing a draft does not reset them, so the second large block in a conversation is `#2`. A new session starts again at `#1`. The numbers are never written anywhere durable.
+
+Which brings up history. **A recalled prompt comes back as the full ordinary text it was**, because paste provenance is not persisted: a long prompt the user typed by hand and a large paste that was collapsed are the same characters in the buffer, and labelling the first as the second would put a false claim into the message. Committed scrollback is untouched for the same reason — a transcript entry cannot be expanded again without breaking the native-scrollback model that copy, select, and replay all depend on.
 
 ## Keyboard input is read in both formats
 

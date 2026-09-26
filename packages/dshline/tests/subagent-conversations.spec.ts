@@ -146,6 +146,28 @@ function text(value: string): Key {
   return { kind: 'text', text: value }
 }
 
+/**
+ * Type a draft of `count` numbered lines that is taller than the overlay's
+ * eight-row viewport, WITHOUT folding it into one placeholder.
+ *
+ * Pasting twelve lines at once used to do this and no longer does: a large paste
+ * now draws as a single `[Pasted text #N +12 lines]` token, which is the feature
+ * working correctly and which would make the draft one row tall. The tests that
+ * use this are about WINDOW GEOMETRY — where the caret row sits once the draft no
+ * longer fits — so the height is built one line at a time instead. A one-line
+ * paste is far below the fold threshold, so nothing collapses, and the numbered
+ * text stays interleaved with the newlines that give the draft its height, which
+ * matters because the viewport shows the draft's END.
+ * @param overlay - the overlay whose composer is being filled.
+ * @param count - how many logical lines the finished draft should have.
+ */
+function tallDraft(overlay: { handleKey: (key: Key) => void }, count: number): void {
+  for (let index = 0; index < count; index += 1) {
+    overlay.handleKey({ kind: 'paste', text: `line ${String(index).padStart(2, '0')}` } as Key)
+    if (index < count - 1) overlay.handleKey(key('newline'))
+  }
+}
+
 /** One recorded descendant-listing call, exactly as the presenter makes it. */
 interface DescendantCall {
   readonly parentSessionId: SessionId
@@ -691,10 +713,9 @@ describe('subagent message composer', () => {
 
   it('keeps the cursor row visible for a long multiline draft', () => {
     const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
-    const lines = Array.from({ length: 12 }, (_, index) => `line ${String(index).padStart(2, '0')}`)
-    overlay.handleKey({ kind: 'paste', text: lines.join('\n') } as Key)
+    tallDraft(overlay, 12)
     const plain = stripAnsi(overlay.render(80, 8).join('\n'))
-    // The caret row — the end of the paste — is inside the window, and the
+    // The caret row — the end of the draft — is inside the window, and the
     // window did not stay pinned to the draft's first line.
     expect(plain).toContain('█')
     expect(plain).toContain('line 11')
@@ -704,8 +725,7 @@ describe('subagent message composer', () => {
 
   it('scrolls the draft window with the cursor on Up and back on Down', () => {
     const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
-    const lines = Array.from({ length: 12 }, (_, index) => `line ${String(index).padStart(2, '0')}`)
-    overlay.handleKey({ kind: 'paste', text: lines.join('\n') } as Key)
+    tallDraft(overlay, 12)
     overlay.render(80, 8)
     expect(stripAnsi(overlay.render(80, 8).join('\n'))).toContain('line 11')
     for (let press = 0; press < 5; press += 1) overlay.handleKey(key('up'))

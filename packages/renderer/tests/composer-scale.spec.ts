@@ -32,16 +32,20 @@ function cursorAt(text: string, offset: number): Composer {
 /**
  * A composer that records how its whole-buffer getters are used.
  *
- * The layout is allowed to read `value` once and `position` once to take its
- * snapshot. It is never allowed to reach for `lines`, `lineBeforeCursor`, or
- * `cursorLine`: those are the getters that join, split, or rescan the entire
- * buffer, and calling them from inside the traversal is exactly what made the
- * old layout quadratic. Asserting zero calls is stronger than timing, and it
- * cannot flake.
+ * The layout is allowed to ask for the DISPLAY PROJECTION once, which is what it
+ * now reads: the projection is the composer's own answer to "what would a reader
+ * see", and with a large paste folded it is also the only shape in which the
+ * hidden text is never touched. The layout is never allowed to reach for
+ * `value`, `lines`, `lineBeforeCursor`, or `cursorLine` — those are the getters
+ * that join, split, or rescan the entire buffer, and calling them from inside the
+ * traversal is exactly what made the old layout quadratic. Asserting zero calls
+ * is stronger than timing, and it cannot flake.
  */
 class AuditedComposer extends Composer {
   /** Names of the whole-buffer derived getters read since {@link reset}. */
   readonly derivedReads: string[] = []
+  /** Times the projection was read since {@link reset}. */
+  displayReads = 0
   /** Times the snapshot getters were read since {@link reset}. */
   valueReads = 0
   positionReads = 0
@@ -49,8 +53,14 @@ class AuditedComposer extends Composer {
   /** Begin a fresh observation window. */
   reset(): void {
     this.derivedReads.length = 0
+    this.displayReads = 0
     this.valueReads = 0
     this.positionReads = 0
+  }
+
+  override display(): ReturnType<Composer['display']> {
+    this.displayReads += 1
+    return super.display()
   }
 
   override get value(): string {
@@ -115,11 +125,30 @@ describe('layout at scale', () => {
 
     layoutComposer(composer, 80, GUTTER)
 
-    // The whole cost of the layout is one join and one position read. Any per-line
-    // re-derivation shows up here as a growing count, so the assertion is the
-    // regression guard the wall-clock benchmark cannot be in CI.
-    expect(composer.valueReads).toBe(1)
-    expect(composer.positionReads).toBe(1)
+    // The whole cost of the layout is one projection and no join of the buffer at
+    // all. Any per-line re-derivation shows up here as a growing count, so the
+    // assertion is the regression guard the wall-clock benchmark cannot be in CI.
+    expect(composer.displayReads).toBe(1)
+    expect(composer.valueReads).toBe(0)
+    expect(composer.positionReads).toBe(0)
+    expect(composer.derivedReads).toEqual([])
+  })
+
+  it('never reads the hidden text of a folded paste while laying out', () => {
+    // The point of the projection. A draft whose only large content is a folded
+    // paste draws as a couple of rows, and the layout must be able to prove it
+    // got there without ever joining the document behind the token — otherwise
+    // "compact" would be a drawing trick over an unchanged cost.
+    const composer = new AuditedComposer()
+    composer.handle({ kind: 'paste', text: Array.from({ length: 2000 }, (_, i) => `line ${String(i)}`).join('\n') })
+    composer.reset()
+
+    const layout = layoutComposer(composer, 80, GUTTER)
+
+    expect(layout.rows.join('')).toBe('› [Pasted text #1 +2000 lines]')
+    expect(composer.displayReads).toBe(1)
+    // The authoritative buffer is intact and was never materialized by the draw.
+    expect(composer.valueReads).toBe(0)
     expect(composer.derivedReads).toEqual([])
   })
 
@@ -132,9 +161,9 @@ describe('layout at scale', () => {
     composer.moveUp(80, GUTTER)
     composer.moveDown(80, GUTTER)
 
-    // A vertical move is one layout, and one layout is one snapshot.
-    expect(composer.valueReads).toBe(2)
-    expect(composer.positionReads).toBe(2)
+    // A vertical move is one layout, and one layout is one projection.
+    expect(composer.displayReads).toBe(2)
+    expect(composer.valueReads).toBe(0)
     expect(composer.derivedReads).toEqual([])
   })
 })

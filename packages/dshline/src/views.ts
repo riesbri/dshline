@@ -423,21 +423,25 @@ export function createComposerView(
   const escapedLabel = widthStableLabel(escapeControls(label))
 
   /**
-   * A layout result kept for one (document, cursor, width) triple.
+   * A layout result kept for one (revision, width) pair.
    *
    * `TuiSlots.compose` asks a view for `render()` and then `cursor()` with the
    * same geometry and the same composer state, and both need the wrapped rows —
-   * without this the whole buffer is laid out twice per frame. The key holds the
-   * TEXT and the cursor POSITION, not just one of them: the cursor's row and
-   * column are part of what is cached, so keying on the text alone would hand a
-   * stale placement to the first frame after a cursor move. A cursor move that
-   * does not also re-render therefore misses, which is correct — what the entry
-   * reuses is the wrap of an unchanged document for the pair that shares a frame.
+   * without this the whole buffer is laid out twice per frame. The key is the
+   * COMPOSER'S OWN REVISION rather than its text, and that is a performance
+   * property as much as a tidiness one. The key used to be `composer.value`, so
+   * asking "did anything change?" cost a full join of the draft on every frame —
+   * and once a large paste is folded, the text being joined on each of those
+   * frames was mostly content the frame was about to draw as a single short
+   * token. A counter answers the question without touching the buffer at all, and
+   * because it is bumped by every change to the text, the cursor, or the folds, it
+   * cannot report "unchanged" for a frame that would have drawn differently.
+   *
    * One entry, because a frame uses one geometry and a map keyed by width would
    * grow without bound across a resize.
    */
   let memo:
-    | { text: string; columns: number; at: number; rows: readonly string[]; row: number; column: number }
+    | { revision: number; columns: number; rows: readonly string[]; row: number; column: number }
     | undefined
 
   /**
@@ -462,13 +466,12 @@ export function createComposerView(
    * @returns the rows and the cursor's row and column within them.
    */
   const layout = (columns: number): { rows: readonly string[]; row: number; column: number } => {
-    const text = composer.value
-    const at = composer.position
-    if (memo !== undefined && memo.text === text && memo.columns === columns && memo.at === at) {
+    const revision = composer.revision
+    if (memo !== undefined && memo.revision === revision && memo.columns === columns) {
       return { rows: memo.rows, row: memo.row, column: memo.column }
     }
     const found = layoutComposer(composer, composerInner(columns), line => composerGutter(line, columns))
-    memo = { text, columns, at, rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
+    memo = { revision, columns, rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
     return { rows: found.rows, row: found.cursorRow, column: found.cursorColumn }
   }
 

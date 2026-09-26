@@ -25,6 +25,24 @@ function typed(text: string): Composer {
 }
 
 /**
+ * A composer holding `text` as a BASELINE rather than as a paste.
+ *
+ * Several tests here want a composer TALLER than its viewport, and pasting was
+ * the convenient way to get one. It no longer is: a large paste now draws as a
+ * single `[Pasted text #N +M lines]` token, which is the feature working, and it
+ * would leave those drafts one row tall. `set()` is the documented route for text
+ * that is not a paste, and it is the honest one — so the geometry tests use it,
+ * while {@link typed} keeps its paste for the tests that are about pasting.
+ * @param text - the content the draft starts with, newlines included.
+ * @returns the composer.
+ */
+function seeded(text: string): Composer {
+  const composer = new Composer()
+  composer.set(text)
+  return composer
+}
+
+/**
  * Where the terminal actually puts its cursor after drawing the composer.
  *
  * Asserted through an emulator rather than against the returned LiveCursor,
@@ -155,13 +173,13 @@ describe('a composer taller than the terminal', () => {
     // The live region is redrawn by climbing rows, so rows that scrolled off cannot
     // be reached or erased: an uncapped composer left duplicate rows in scrollback
     // and could clear unrelated output. Pasting twenty short lines is enough.
-    const composer = typed(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
+    const composer = seeded(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
     const { rows } = await drawn(composer)
     expect(rows.filter(row => row !== '')).toHaveLength(COMPOSER_FRAME_ROWS)
   })
 
   it('scrolls to keep the cursor visible, and says how much is hidden', async () => {
-    const composer = typed(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
+    const composer = seeded(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
     const { cursor, rows } = await drawn(composer)
     // The cursor is at the end, so the end is what is shown, and the title names
     // the DIRECTION of what is hidden rather than a bare count: a reader can tell
@@ -204,7 +222,7 @@ describe('a composer taller than the terminal', () => {
   })
 
   it('reports the cursor relative to the visible window', async () => {
-    const composer = typed(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
+    const composer = seeded(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
     const { cursor, rows } = await drawn(composer)
     const onCursorRow = stripAnsi(rows[cursor.row] ?? '')
     expect(onCursorRow).toContain('line 39')
@@ -1373,7 +1391,7 @@ describe('the status line’s attention notice', () => {
 
 describe('the composer viewport follows the cursor both ways', () => {
   it('scrolls the window upward as the cursor climbs', async () => {
-    const composer = typed(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
+    const composer = seeded(Array.from({ length: 40 }, (_, i) => `line ${String(i)}`).join('\n'))
     const view = createComposerView(composer, '/w/repo')
     const top = () => view.render(40, 24).join('\n')
     expect(top()).toContain('line 39')
@@ -1390,11 +1408,39 @@ describe('the composer viewport follows the cursor both ways', () => {
 })
 
 describe('a very large pasted prompt', () => {
-  it('stays a bounded viewport and keeps the cursor on the drawn text', async () => {
-    // The pathological case this change is about: thousands of lines pasted at
-    // once. The live region must stay capped, and the cursor must still land on
-    // the character a person sees.
+  it('draws as one compact token and keeps the cursor on it', async () => {
+    // The pathological case this feature is about: thousands of lines pasted at
+    // once. The live region must stay capped, the cursor must land on the
+    // character a person actually sees, and not one line of the hidden document
+    // may appear in the frame.
     const composer = typed(Array.from({ length: 3000 }, (_, i) => `pasted line ${String(i)}`).join('\n'))
+    const emulator = createEmulator(COLUMNS, 24)
+    const screen = new Screen(emulator.target)
+    const view = createComposerView(composer, '/w/repo')
+    const rows = view.render(COLUMNS, 24)
+    const placement = view.cursor?.(COLUMNS, 24)
+    const frame = stripAnsi(rows.join('\n'))
+    expect(frame).toContain('[Pasted text #1 +3000 lines]')
+    // Not one of the three thousand lines reaches the terminal, and the frame is
+    // smaller than the viewport it used to fill.
+    expect(frame).not.toContain('pasted line')
+    expect(rows.filter(row => row !== '').length).toBeLessThan(COMPOSER_FRAME_ROWS)
+    const cell = await emulator.cell(placement?.column ?? 0, placement?.row ?? 0)
+    screen.setLive(rows, placement)
+    expect(screen.height).toBeLessThanOrEqual(24)
+    // The cursor sits just past the label, which is the end of the buffer and the
+    // cell a person sees the caret in.
+    expect(stripAnsi(rows[placement?.row ?? 0] ?? '')).toContain('[Pasted text #1 +3000 lines]')
+    expect(cell).toBeDefined()
+  })
+
+  it('still bounds the viewport and places the cursor for a tall NON-pasted draft', async () => {
+    // The same geometry, reached the other way. A draft this tall only exists
+    // without folding when it was never a paste — `set()` is the documented
+    // route for recalled or restored text — so this is the case where a composer
+    // really is taller than the terminal, and the cap and the cursor still have
+    // to hold.
+    const composer = seeded(Array.from({ length: 3000 }, (_, i) => `pasted line ${String(i)}`).join('\n'))
     const emulator = createEmulator(COLUMNS, 24)
     const screen = new Screen(emulator.target)
     const view = createComposerView(composer, '/w/repo')
@@ -1405,8 +1451,6 @@ describe('a very large pasted prompt', () => {
     const cell = await emulator.cell(placement?.column ?? 0, placement?.row ?? 0)
     screen.setLive(rows, placement)
     expect(screen.height).toBeLessThanOrEqual(24)
-    // The cursor sits on the line it would overwrite next, which is the end of
-    // the buffer — a cell that is part of the final line's text region.
     expect(stripAnsi(rows[placement?.row ?? 0] ?? '')).toContain('pasted line 2999')
     expect(cell).toBeDefined()
   })
