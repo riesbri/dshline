@@ -114,6 +114,40 @@ type EditKind = 'typing' | 'paste' | 'newline' | 'backspace' | 'delete' | 'kill'
  */
 const COALESCING_EDITS: ReadonlySet<EditKind> = new Set(['typing', 'backspace', 'delete'])
 
+/**
+ * Put one folded span into a position-ordered collection.
+ *
+ * The composer's folds are held in ASCENDING raw order, because that is the
+ * order a display projection consumes them in, and a collection out of that order
+ * does not merely look wrong — the projection walks it in array order, so a span
+ * listed after one that begins later is skipped as if it were empty. The result
+ * is not a mislabelled row but a FALSE label: the wrong span gets collapsed while
+ * the one the label describes is drawn in full. That is how pasting a second
+ * large block at the very start of a draft once unfolded the new block and
+ * labelled the old one, because the new fold had been appended rather than
+ * placed.
+ *
+ * Ordering is by RAW POSITION and never by id. The two are deliberately
+ * different: `#1` names the block that arrived first, so pasting before an
+ * existing fold legitimately produces ids `[2, 1]` while the collection stays
+ * sorted `[…, #2, #1]` by where those blocks now sit in the buffer. Sorting by id
+ * would restore the order the label numbering implies and break the order the
+ * drawing depends on.
+ *
+ * A NEW array is returned rather than the argument being spliced. Undo snapshots
+ * hold the previous collection by reference and must keep seeing what it held
+ * when the snapshot was taken; a fold revealed or replaced since then must not
+ * reach backwards into a state the reader can still return to.
+ * @param existing - folds in ascending, non-overlapping raw order.
+ * @param fold - the span to place, which cannot overlap an existing one.
+ * @returns a new collection, still ascending, with `fold` at its raw position.
+ */
+function insertFoldOrdered(existing: readonly FoldedPaste[], fold: FoldedPaste): readonly FoldedPaste[] {
+  const at = existing.findIndex(other => other.start > fold.start)
+  if (at < 0) return [...existing, fold]
+  return [...existing.slice(0, at), fold, ...existing.slice(at)]
+}
+
 /** An editable input line. */
 export class Composer {
   /** Buffer contents as code points, so indices are cursor positions. */
@@ -141,6 +175,19 @@ export class Composer {
   private lastEdit: EditKind | undefined
   /**
    * Spans currently drawn as compact tokens, ascending and non-overlapping.
+   *
+   * THE invariant every mutation of this field must preserve: ordered by raw
+   * `start`, with no two spans overlapping — which is the order
+   * {@link projectDisplay} consumes. There is exactly one such rule, and every
+   * writer below obeys it: {@link Composer.insertPaste} places a new span by
+   * position through {@link insertFoldOrdered}, {@link Composer.reconcileFolds}
+   * filters in order and shifts only a prefix, {@link Composer.stepCursorTo} only
+   * removes, and `clear`/`set`/undo/redo restore a snapshot that was already valid
+   * or empty. The collection is replaced rather than mutated in every case,
+   * because a snapshot may still be holding the previous one.
+   *
+   * Order by raw position is not the same as order by id — see
+   * {@link insertFoldOrdered}.
    *
    * Presentation only, and deliberately empty for the overwhelmingly common case
    * of a draft nobody has pasted anything large into. Each record is O(1) over
@@ -250,12 +297,20 @@ export class Composer {
    * slice with: {@link cursorColumn} counts DISPLAY columns, so using it as a
    * string index overshoots by one position per wide character, and a UTF-16 index
    * splits an astral character in half. This is the text, already correct.
+   *
+   * Found by walking BACKWARD from the cursor rather than forward from the start.
+   * The forward scan visited every code point in the whole draft to find the last
+   * newline, which is the expensive direction now that a multiline paste can be
+   * thousands of lines long while being DRAWN as a single token: completion reads
+   * this on every refresh, so a folded paste would have turned each refresh into a
+   * rescan of the whole hidden document — a cost the folding exists to avoid,
+   * reintroduced one layer up. The backward walk stops at the first newline, so it
+   * costs the length of the current line, and a draft whose last line is short
+   * stops almost immediately.
    */
   get lineBeforeCursor(): string {
-    let start = 0
-    for (let index = 0; index < this.at; index += 1) {
-      if (this.chars[index] === '\n') start = index + 1
-    }
+    let start = this.at
+    while (start > 0 && this.chars[start - 1] !== '\n') start -= 1
     return this.chars.slice(start, this.at).join('')
   }
 
@@ -531,10 +586,10 @@ export class Composer {
     const start = this.at
     this.replaceRange(start, start, sanitized, 'paste')
     if (lines < PASTE_FOLD_MIN_LINES && chars.length < PASTE_FOLD_MIN_CHARS) return
-    this.folds = [
-      ...this.folds,
-      { id: this.nextPasteId, start, end: start + chars.length, lines },
-    ]
+    // Placed by POSITION, not appended: the cursor can be in front of an existing
+    // fold, and `replaceRange` has just shifted that fold forward. Appending would
+    // leave the collection out of the order the display projection walks it in.
+    this.folds = insertFoldOrdered(this.folds, { id: this.nextPasteId, start, end: start + chars.length, lines })
     this.nextPasteId += 1
     this.touch()
   }

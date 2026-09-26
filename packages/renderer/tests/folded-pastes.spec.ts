@@ -74,6 +74,44 @@ function foldsOf(composer: Composer): readonly FoldedPaste[] {
 }
 
 /**
+ * Assert the one invariant every fold mutation must preserve.
+ *
+ * Each range is checked on its own AND against the one before it, because those
+ * are different failures. A scrambled collection can hold ranges that are each
+ * individually perfect — `start >= 0`, `end > start`, `end <= length` — and still
+ * be wrong, and that is the failure that costs the most: the projection walks
+ * folds in array order, so a span listed after one that begins later is skipped
+ * as if it were empty, and the label ends up describing the wrong text. Asserting
+ * per-range validity alone would have passed while the composer showed one block
+ * expanded and another block's label sitting over it.
+ * @param composer - the buffer whose sidecar is checked.
+ * @param label - what is being checked, for the failure message.
+ */
+function expectFoldsValid(composer: Composer, label = 'folds'): void {
+  const folds = foldsOf(composer)
+  const length = [...composer.value].length
+  for (const [index, fold] of folds.entries()) {
+    expect(fold.start, `${label}: ${String(index)} start`).toBeGreaterThanOrEqual(0)
+    expect(fold.end, `${label}: ${String(index)} end > start`).toBeGreaterThan(fold.start)
+    expect(fold.end, `${label}: ${String(index)} end within buffer`).toBeLessThanOrEqual(length)
+    if (index === 0) continue
+    expect(fold.start, `${label}: ${String(index)} starts at or after the previous end`).toBeGreaterThanOrEqual(
+      folds[index - 1]?.end ?? 0,
+    )
+  }
+}
+
+/**
+ * A numbered multi-line block, tagged so a composition of several is readable.
+ * @param count - how many logical lines the block holds.
+ * @param tag - a marker that survives into the authoritative buffer.
+ * @returns the pasted text.
+ */
+function block(count: number, tag: string): string {
+  return Array.from({ length: count }, (_, index) => `${tag} line ${String(index + 1)}`).join('\n')
+}
+
+/**
  * Whether the cursor sits somewhere a reader can actually see.
  *
  * The projection maps every visible boundary back to a raw offset, and a raw
@@ -836,5 +874,368 @@ describe('the placeholder at real widths', () => {
     composer.set('a🙂🙂b🙂cdef🙂gh')
     const layout = layoutComposer(composer, 40, GUTTER)
     expect(layout.positionAt(layout.cursorRow, layout.cursorColumn)).toBe(composer.position)
+  })
+})
+
+describe('folds stay ordered by position, not by arrival', () => {
+  // The projection consumes folds in ARRAY order and trusts that order, so a
+  // collection that is out of position order does not merely look wrong: the
+  // later-listed span is skipped as if it were empty, and the label that survives
+  // ends up describing text the reader cannot see while the text it describes is
+  // drawn in full. That is a false statement on screen, not a cosmetic one.
+
+  it('places a new fold before an existing one when pasted in front of it', () => {
+    const composer = new Composer()
+    composer.handle(paste(block(9, 'A')))
+    expectFoldsValid(composer, 'after A')
+    composer.handle(key('home'))
+    // Home is a boundary, so `#1` is still folded and the cursor is in front of it.
+    expectFoldsValid(composer, 'after home')
+    composer.handle(paste(block(11, 'B')))
+
+    // POSITION order: B was inserted at raw 0 and A was shifted forward behind it.
+    expectFoldsValid(composer, 'after B')
+    expect(foldsOf(composer).map(fold => fold.start)).toEqual([0, 100])
+    // ARRIVAL order is deliberately different: the collection is positional, so
+    // it holds `[2, 1]` here. Sorting by id instead would satisfy the numbering
+    // and break the drawing.
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+    // And the screen shows them in the order they sit in the buffer.
+    expect(composer.display().text).toBe('[Pasted text #2 +11 lines][Pasted text #1 +9 lines]')
+  })
+
+  it('submits the complete B-then-A buffer for a paste placed before a fold', () => {
+    const composer = new Composer()
+    const a = block(9, 'A')
+    const b = block(11, 'B')
+    composer.handle(paste(a))
+    composer.handle(key('home'))
+    composer.handle(paste(b))
+    // The authoritative buffer is the new block FIRST, because that is where the
+    // cursor put it — and the label order above says exactly the same thing.
+    expect(composer.value).toBe(`${b}${a}`)
+    expect(composer.handle(key('enter'))).toEqual({ kind: 'submit', text: `${b}${a}`, gesture: 'enter' })
+  })
+
+  it('places a new fold in front of two existing ones', () => {
+    const composer = new Composer()
+    composer.handle(paste(block(9, 'A')))
+    type(composer, ' between ')
+    composer.handle(paste(block(10, 'C')))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
+    expectFoldsValid(composer, 'A | C')
+
+    // Home, then a paste, is the only way a reader can put a new block ahead of
+    // an existing one: a horizontal step that would land INSIDE a fold reveals it
+    // instead, by design, so there is no cursor position between two folded
+    // spans to click into. Home reaches the start without touching either, which
+    // is what makes this reachable at all.
+    composer.handle(key('home'))
+    composer.handle(paste(block(11, 'B')))
+
+    expectFoldsValid(composer, 'B | A | C')
+    // Arrival was A, C, B. Position is B, A, C — so the collection holds
+    // `[3, 1, 2]`, and two separate insertions had to land ahead of an existing
+    // fold rather than one.
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([3, 1, 2])
+    expect(composer.display().text).toBe(
+      '[Pasted text #3 +11 lines][Pasted text #1 +9 lines] between [Pasted text #2 +10 lines]',
+    )
+  })
+
+  it('places a new fold at a non-zero position ahead of an existing one', () => {
+    const composer = new Composer()
+    composer.handle(paste(block(9, 'A')))
+    composer.handle(key('home'))
+    // Visible text typed at the front, so the new fold does not start at raw 0 and
+    // the placement is decided by a real comparison rather than by an empty prefix.
+    type(composer, 'lead ')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1])
+    composer.handle(paste(block(11, 'B')))
+
+    expectFoldsValid(composer, 'lead B A')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+    expect(foldsOf(composer).map(fold => fold.start)).toEqual([5, 105])
+    expect(composer.display().text).toBe('lead [Pasted text #2 +11 lines][Pasted text #1 +9 lines]')
+  })
+
+  it('submits the whole buffer with two folds placed ahead of the first', () => {
+    const composer = new Composer()
+    const a = block(9, 'A')
+    const c = block(10, 'C')
+    const b = block(11, 'B')
+    composer.handle(paste(a))
+    type(composer, ' between ')
+    composer.handle(paste(c))
+    composer.handle(key('home'))
+    composer.handle(paste(b))
+    expect(composer.value).toBe(`${b}${a} between ${c}`)
+    expect(composer.handle(key('enter'))).toEqual({ kind: 'submit', text: `${b}${a} between ${c}`, gesture: 'enter' })
+  })
+
+  it('brings the old fold back alone on undo, and both in position order on redo', () => {
+    const composer = new Composer()
+    const a = block(9, 'A')
+    const b = block(11, 'B')
+    composer.handle(paste(a))
+    composer.handle(key('home'))
+    composer.handle(paste(b))
+    expect(composer.display().text).toBe('[Pasted text #2 +11 lines][Pasted text #1 +9 lines]')
+
+    composer.handle(key('ctrl-z'))
+    expect(composer.value).toBe(a)
+    expectFoldsValid(composer, 'after undo')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1])
+    expect(composer.display().text).toBe('[Pasted text #1 +9 lines]')
+
+    composer.handle(key('ctrl-y'))
+    expect(composer.value).toBe(`${b}${a}`)
+    expectFoldsValid(composer, 'after redo')
+    expect(composer.display().text).toBe('[Pasted text #2 +11 lines][Pasted text #1 +9 lines]')
+  })
+
+  it('keeps positional ids valid through edits before and after them', () => {
+    const composer = new Composer()
+    composer.handle(paste(block(9, 'A')))
+    composer.handle(key('home'))
+    composer.handle(paste(block(11, 'B')))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+
+    // Before both: both shift by the edit's length, and the order is unchanged.
+    composer.handle(key('home'))
+    type(composer, 'lead ')
+    expectFoldsValid(composer, 'after a leading edit')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+    expect(foldsOf(composer).map(fold => fold.start)).toEqual([5, 105])
+    expect(composer.display().text).toBe('lead [Pasted text #2 +11 lines][Pasted text #1 +9 lines]')
+
+    // After both: neither moves, and the drawing is unchanged around them.
+    composer.handle(key('end'))
+    type(composer, ' tail')
+    expectFoldsValid(composer, 'after a trailing edit')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+    expect(foldsOf(composer).map(fold => fold.start)).toEqual([5, 105])
+    expect(composer.display().text).toBe('lead [Pasted text #2 +11 lines][Pasted text #1 +9 lines] tail')
+
+    // Deleting the text in front shifts both back together, still in order. The
+    // cursor is walked to the end of that text with Home and a few right steps,
+    // which never enter a fold because the visible text it crosses is in front of
+    // the first one.
+    const plain = new Composer()
+    plain.handle(paste(block(9, 'A')))
+    plain.handle(key('home'))
+    plain.handle(paste(block(11, 'B')))
+    plain.handle(key('home'))
+    type(plain, 'lead ')
+    for (let press = 0; press < 'lead '.length; press += 1) plain.handle(key('backspace'))
+    expectFoldsValid(plain, 'after deleting the leading text')
+    expect(foldsOf(plain).map(fold => fold.id)).toEqual([2, 1])
+    expect(foldsOf(plain).map(fold => fold.start)).toEqual([0, 100])
+  })
+
+  it('cannot reach a position between two folds, because entering one reveals it', () => {
+    // Stated as a test because it is the reason every ordering case above is built
+    // from Home rather than from walking rightwards: the middle of a draft whose
+    // spans are both folded is not a place the cursor can be. The separator between
+    // them is visible text, but reaching it means crossing the first span, and a
+    // horizontal step that would land inside a fold reveals its contents first — by
+    // design, because the alternative is an invisible cursor.
+    const composer = new Composer()
+    composer.handle(paste(block(9, 'A')))
+    type(composer, ' between ')
+    composer.handle(paste(block(10, 'C')))
+    expect(foldsOf(composer)).toHaveLength(2)
+    expectFoldsValid(composer, 'A | C')
+
+    composer.handle(key('home'))
+    // The very first right step would land inside `#1`, so it unfolds it — and
+    // `#1` is then ordinary text the reader can walk through, separator included.
+    composer.handle(key('right'))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2])
+    expectFoldsValid(composer, 'after revealing the first span')
+    expect(composer.display().text.startsWith('A line 1\n')).toBe(true)
+    expect(composer.display().text).toContain(' between ')
+    expect(composer.display().text.endsWith('[Pasted text #2 +10 lines]')).toBe(true)
+  })
+
+  it('restores a position-ordered collection from an undo snapshot', () => {
+    const composer = new Composer()
+    composer.handle(paste(block(9, 'A')))
+    type(composer, ' between ')
+    composer.handle(paste(block(10, 'C')))
+    composer.handle(key('home'))
+    composer.handle(paste(block(11, 'B')))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([3, 1, 2])
+
+    // `ctrl-z` walks back through states whose collections were captured in
+    // whatever order those states were built in, so restoring one must hand back
+    // the snapshot as it was taken — not a re-sorted or otherwise rewritten copy.
+    composer.handle(key('ctrl-z'))
+    expect(composer.value).toBe(`${block(9, 'A')} between ${block(10, 'C')}`)
+    expectFoldsValid(composer, 'after undoing B')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
+    expect(composer.display().text).toBe('[Pasted text #1 +9 lines] between [Pasted text #2 +10 lines]')
+
+    composer.handle(key('ctrl-y'))
+    expectFoldsValid(composer, 'after redoing B')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([3, 1, 2])
+    expect(composer.display().text).toBe(
+      '[Pasted text #3 +11 lines][Pasted text #1 +9 lines] between [Pasted text #2 +10 lines]',
+    )
+  })
+
+  it('does not reach back into a snapshot when a later paste reorders folds', () => {
+    const composer = new Composer()
+    composer.handle(paste(block(9, 'A')))
+    composer.handle(key('home'))
+    composer.handle(paste(block(11, 'B')))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+
+    // The snapshot `ctrl-z` restores was captured while only `#1` existed. Placing
+    // `#2` in front must have produced a NEW collection rather than reordering the
+    // one the snapshot still holds, or this undo would return two folds where the
+    // state it restores had one.
+    composer.handle(key('ctrl-z'))
+    expect(composer.value).toBe(block(9, 'A'))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1])
+    expectFoldsValid(composer, 'after undoing B')
+    composer.handle(key('ctrl-z'))
+    expect(composer.value).toBe('')
+    expect(foldsOf(composer)).toEqual([])
+    composer.handle(key('ctrl-y'))
+    expect(composer.value).toBe(block(9, 'A'))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1])
+  })
+})
+
+describe('lineBeforeCursor finds the line by walking backward', () => {
+  /**
+   * The scan this replaced, kept here as the oracle.
+   *
+   * The backward walk and the forward scan must agree for every input, and the
+   * only way to be sure of that without reasoning about each case is to run both.
+   * The reference is written the way the original was — index zero upward — so a
+   * difference is a real regression rather than a restatement of the same code.
+   * @param chars - the buffer, one entry per code point.
+   * @param at - the cursor offset.
+   * @returns the text before the cursor on its own logical line.
+   */
+  function forwardReference(chars: readonly string[], at: number): string {
+    let start = 0
+    for (let index = 0; index < at; index += 1) {
+      if (chars[index] === '\n') start = index + 1
+    }
+    return chars.slice(start, at).join('')
+  }
+
+  /** Every cursor position in `composer`, paired with both scans' answers. @param composer - the buffer to walk. */
+  function everyCursorLine(composer: Composer): [string, string][] {
+    const seen: [string, string][] = []
+    const chars = [...composer.value]
+    for (let at = 0; at <= chars.length; at += 1) {
+      while (composer.position > at) composer.handle(key('left'))
+      while (composer.position < at) composer.handle(key('right'))
+      seen.push([composer.lineBeforeCursor, forwardReference(chars, at)])
+    }
+    return seen
+  }
+
+  it('agrees with the forward scan at every cursor position of a plain draft', () => {
+    const composer = new Composer()
+    composer.set('alpha\nbeta\ngamma\ndelta')
+    for (const [before, reference] of everyCursorLine(composer)) {
+      expect(before, `cursor over a plain draft`).toBe(reference)
+    }
+  })
+
+  it('agrees with the forward scan at every cursor position of a folded draft', () => {
+    // The case that motivated the change: completion reads this on every refresh,
+    // and the forward scan made each of those a walk over the whole hidden paste.
+    const composer = new Composer()
+    composer.handle(paste(lines(40)))
+    type(composer, '\n/mod')
+    for (const [before, reference] of everyCursorLine(composer)) {
+      expect(before, `cursor over a folded draft`).toBe(reference)
+    }
+  })
+
+  it('agrees across astral and wide characters, and across a cursor inside a line', () => {
+    const composer = new Composer()
+    composer.set('标准🙂 first\nsecond line 标准🙂\nthird')
+    for (const [before, reference] of everyCursorLine(composer)) {
+      expect(before, `cursor over wide content`).toBe(reference)
+    }
+  })
+
+  it('agrees over a draft with trailing, leading, and doubled newlines', () => {
+    for (const text of ['', '\n', '\n\n', 'a\n', '\na', 'a\n\nb', '\n\n\n', 'a\nb\nc\n']) {
+      const composer = new Composer()
+      composer.set(text)
+      for (const [before, reference] of everyCursorLine(composer)) {
+        expect(before, `cursor over ${JSON.stringify(text)}`).toBe(reference)
+      }
+    }
+  })
+
+  it('returns the first line when the cursor is in it', () => {
+    const composer = new Composer()
+    composer.set('alpha\nbeta')
+    composer.handle(key('home'))
+    type(composer, 'al')
+    expect(composer.lineBeforeCursor).toBe('al')
+  })
+
+  it('returns a later line when the cursor is in it', () => {
+    const composer = new Composer()
+    composer.set('alpha\nbeta\ngamma')
+    // Back to the start of the last line, then type into it. Reaching that line
+    // crosses a newline, which is a boundary and so never unfolds anything.
+    for (let press = 0; press < 'gamma'.length; press += 1) composer.handle(key('left'))
+    type(composer, 'be')
+    expect(composer.lineBeforeCursor).toBe('be')
+  })
+
+  it('returns a partial line when the cursor is in the middle of it', () => {
+    const composer = new Composer()
+    composer.set('alpha\nbeta gamma\ndelta')
+    composer.handle(key('home'))
+    // Position 13 is inside `beta gamma` and short of its end.
+    for (let press = 0; press < 13; press += 1) composer.handle(key('right'))
+    expect(composer.lineBeforeCursor).toBe('beta ga')
+  })
+
+  it('reads the raw line of a folded paste, never the label', () => {
+    const composer = new Composer()
+    composer.handle(paste(lines(11)))
+    expect(composer.lineBeforeCursor).toBe('line 11')
+    expect(composer.lineBeforeCursor).not.toContain('[Pasted text')
+  })
+
+  it('completes against a slash command typed after a folded paste', () => {
+    const composer = new Composer()
+    composer.handle(paste(lines(11)))
+    type(composer, '\n/mod')
+    expect(composer.lineBeforeCursor).toBe('/mod')
+    // The token is what completion will see, and it is the real one.
+    expect(composer.lineBeforeCursor).not.toContain('[Pasted text')
+  })
+
+  it('completes against a mention typed after a folded paste', () => {
+    const composer = new Composer()
+    composer.handle(paste(lines(11)))
+    type(composer, '\n@foo')
+    expect(composer.lineBeforeCursor).toBe('@foo')
+    expect(composer.lineBeforeCursor).not.toContain('[Pasted text')
+  })
+
+  it('keeps a folded paste out of the line even when the cursor is inside it', () => {
+    // The cursor cannot rest inside a folded span — moving there unfolds it — so
+    // this is the state a reader lands in after revealing, and the line it reads is
+    // the revealed text.
+    const composer = new Composer()
+    composer.handle(paste(lines(11)))
+    composer.handle(key('left'))
+    expect(foldsOf(composer)).toEqual([])
+    expect(composer.lineBeforeCursor).toBe('line 1')
   })
 })

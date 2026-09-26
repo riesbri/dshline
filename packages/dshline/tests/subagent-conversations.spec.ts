@@ -723,6 +723,63 @@ describe('subagent message composer', () => {
     expect(physicalRows(overlay.render(80, 8), 80).length).toBeLessThanOrEqual(8)
   })
 
+  it('draws a large paste as one token and submits its whole body', async () => {
+    // Compact paste behaviour belongs to the reusable multiline Composer, so this
+    // composer inherits it along with the root prompt — the overlay is a consumer
+    // of the same class, not a second implementation. A real large paste is the
+    // case, as opposed to the tall drafts built one line at a time above.
+    const requests: string[] = []
+    const { overlay } = composer(async value => {
+      requests.push(value)
+      return { kind: 'accepted', messageId: 'm-1' }
+    })
+    const body = Array.from({ length: 11 }, (_, index) => `pasted line ${String(index + 1)}`).join('\n')
+    overlay.handleKey(text('please read '))
+    overlay.handleKey({ kind: 'paste', text: body } as Key)
+    const plain = stripAnsi(overlay.render(80, 8).join('\n'))
+    expect(plain).toContain('[Pasted text #1 +11 lines]')
+    expect(plain).not.toContain('pasted line 5')
+
+    overlay.handleKey(key('enter'))
+    await flush()
+    // The message that leaves carries the complete text, never the label.
+    expect(requests).toEqual([`please read ${body}`])
+  })
+
+  it('numbers a second large paste #2 within one subagent composer', async () => {
+    const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
+    const body = Array.from({ length: 11 }, (_, index) => `pasted line ${String(index + 1)}`).join('\n')
+    overlay.handleKey({ kind: 'paste', text: body } as Key)
+    overlay.handleKey(key('enter'))
+    // The surface retains the draft while Harness decides, and swallows keys
+    // meanwhile, so the submission has to be allowed to land before the next
+    // paste can mean anything.
+    await flush()
+    overlay.handleKey({ kind: 'paste', text: body } as Key)
+    expect(stripAnsi(overlay.render(80, 8).join('\n'))).toContain('[Pasted text #2 +11 lines]')
+  })
+
+  it('places a large paste in front of an existing one in the right order', () => {
+    // The subagent composer runs the same Composer, so the positional fold
+    // ordering the root prompt relies on is inherited here too rather than being a
+    // property of one call site.
+    const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
+    const a = Array.from({ length: 9 }, (_, index) => `A line ${String(index + 1)}`).join('\n')
+    const b = Array.from({ length: 11 }, (_, index) => `B line ${String(index + 1)}`).join('\n')
+    overlay.handleKey({ kind: 'paste', text: a } as Key)
+    overlay.handleKey(key('home'))
+    overlay.handleKey({ kind: 'paste', text: b } as Key)
+    const plain = stripAnsi(overlay.render(80, 8).join('\n'))
+    // The caret is drawn at the cursor, which is the boundary between the two
+    // spans, so the labels are separated by the block rather than adjacent.
+    expect(plain).toContain('[Pasted text #2 +11 lines]')
+    expect(plain).toContain('[Pasted text #1 +9 lines]')
+    expect(plain).not.toContain('B line 1')
+    // And they appear in POSITION order, which here is the opposite of arrival
+    // order: `#2` was the second paste but sits in front of `#1`.
+    expect(plain.indexOf('#2')).toBeLessThan(plain.indexOf('#1'))
+  })
+
   it('scrolls the draft window with the cursor on Up and back on Down', () => {
     const { overlay } = composer(async () => ({ kind: 'accepted', messageId: 'm-1' }))
     tallDraft(overlay, 12)

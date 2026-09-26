@@ -26,6 +26,7 @@ How this interface is built, and the reason behind each decision. Every heading 
 - [Markdown is rendered, and made safe while it is parsed](#markdown-is-rendered-and-made-safe-while-it-is-parsed)
 - [Pasted text is untrusted too](#pasted-text-is-untrusted-too)
   - [A large paste draws as one token, and the buffer keeps all of it](#a-large-paste-draws-as-one-token-and-the-buffer-keeps-all-of-it)
+    - [Where the compact form applies, and where it does not](#where-the-compact-form-applies-and-where-it-does-not)
 - [Keyboard input is read in both formats](#keyboard-input-is-read-in-both-formats)
 - [Queue and steer are the reader's choice, not the agent's status](#queue-and-steer-are-the-readers-choice-not-the-agents-status)
 - [The empty composer answers three questions in one row](#the-empty-composer-answers-three-questions-in-one-row)
@@ -273,7 +274,13 @@ Four rules follow from the placeholder being presentation:
 
 The numbers are monotonic for the life of one composer, which in this interface is the life of a session: submitting or clearing a draft does not reset them, so the second large block in a conversation is `#2`. A new session starts again at `#1`. The numbers are never written anywhere durable.
 
-Which brings up history. **A recalled prompt comes back as the full ordinary text it was**, because paste provenance is not persisted: a long prompt the user typed by hand and a large paste that was collapsed are the same characters in the buffer, and labelling the first as the second would put a false claim into the message. Committed scrollback is untouched for the same reason — a transcript entry cannot be expanded again without breaking the native-scrollback model that copy, select, and replay all depend on.
+Which brings up history. **A recalled prompt comes back as the full ordinary text it was**, because paste provenance is not persisted: a long prompt the user typed by hand and a large paste that were collapsed are the same characters in the buffer, and labelling the first as the second would put a false claim into the message. Committed scrollback is untouched for the same reason — a transcript entry cannot be expanded again without breaking the native-scrollback model that copy, select, and replay all depend on.
+
+### Where the compact form applies, and where it does not
+
+Folding belongs to the reusable multiline `Composer`, so it applies wherever that class is the editor: the **root session prompt** and the **subagent message composer**. Both draw a large paste as one token and both submit its complete text, and neither needs to know the other does. That is the reason it lives in the renderer — moving it into the session loop to make it root-only would give two implementations of the same editing surface, and the subagent composer would be left as the one multiline input in the interface that fills its own window with a stack trace.
+
+Single-line query and filter inputs are a different thing and are deliberately left alone. A session search box, a picker filter, and the command palette's query take one line of input where a second logical line is not a thing the reader can act on, so they keep normalizing a pasted newline the way they always have. Giving them a fold would mean a label in a field with nowhere to put the text it stands for.
 
 ## Keyboard input is read in both formats
 
