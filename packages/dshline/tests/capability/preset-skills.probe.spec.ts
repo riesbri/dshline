@@ -1,31 +1,34 @@
 /**
  * Capability probe: dshline's `standard` preset, over the REAL Harness
- * filesystem skill provider and the REAL installed `@deepseek-ai/dsh-agent-preset`
- * package.
+ * filesystem skill providers and the REAL installed
+ * `@deepseek-ai/dsh-agent-preset` package.
  *
  * `skills.probe.spec.ts` deliberately mounts no filesystem provider, because
  * where skill FILES live is not part of the `ctx.skills` contract dshline
  * consumes. That is right for the seam and wrong for THIS question. The shipped
- * `standard` declaration now points the real `@deepseek-ai/dsh-skill-filesystem`
- * provider at the `skills/` directory that ships inside
- * `@deepseek-ai/dsh-agent-preset`, and a structural check of the YAML proves
- * only that the string looks plausible. The chain that actually has to work is
+ * `standard` declaration mounts two instances of `@deepseek-ai/dsh-skill-filesystem`:
+ * the ordinary one exactly as upstream states it, and a second isolated one
+ * whose only root is the `bundledSkillDir` the `@deepseek-ai/dsh-agent-preset`
+ * package ships. A structural check of the YAML proves only that the strings
+ * look plausible. The chain that actually has to work is
  *
  * ```text
- *   the row in presets/standard.patch.yml
+ *   the two rows in presets/standard.patch.yml
  *     → the Loader's own `!!js` expression, evaluated with a real `baseUrl`
  *     → the installed @deepseek-ai/dsh-agent-preset/skills directory
- *     → the real dsh-skill-filesystem provider
+ *     → the real dsh-skill-filesystem provider, twice
  *     → ctx.skills.snapshot(), which is what /skills reads
  * ```
  *
- * so this file walks that chain end to end and asserts the catalog. Nothing here
- * is a fixture: the three skill bodies are the bytes the published package
- * carries, and the provider is the one a profile actually mounts.
+ * so this file mounts that shape and asserts the catalog. Both providers are
+ * configured from the declaration itself rather than restated here, and nothing
+ * about the three skills is a fixture: the bodies are the bytes the published
+ * package carries.
  *
- * The custom root must AUGMENT the ordinary ones, not replace them, and the
- * precedence between them is Harness's alone — so the last two cases assert
- * Harness's real ranking over a scratch project rather than describing one.
+ * The authoring provider contributes package-owned baseline skills, so it must
+ * sit BELOW every root a person controls. The cases below therefore use
+ * SAME-NAME skills, not unrelated ones — an unrelated skill would be visible
+ * under either shape and would prove nothing about precedence.
  * @module
  */
 
@@ -61,17 +64,15 @@ const PACKAGED_SKILLS = [
 ] as const
 
 /**
- * The whole `config` block the shipped `standard` declaration puts on its
- * `skill-filesystem` row, read from this bundle's own patch file rather than
- * restated here.
+ * The `config` block the shipped `standard` declaration puts on one named row.
  *
- * The WHOLE block, not just `customSkillDirs`, because every field in it is
- * load-bearing and a probe that read only the directory would pass against a
- * declaration that had also switched `includeDefaultRoots` off — which would
- * hide every project and user skill behind a row that still looks right.
+ * The whole block, not just the field this file cares about, because every field
+ * in it is load-bearing and a probe that read only `bundledSkillDir` would pass
+ * against a declaration that had also switched `includeDefaultRoots` back on.
+ * @param id - the preset row to read.
  * @returns the row's parsed config.
  */
-function shippedSkillFilesystemConfig(): Record<string, unknown> {
+function shippedConfig(id: string): Record<string, unknown> {
   const text = readFileSync(new URL('../../presets/standard.patch.yml', import.meta.url), 'utf8')
   const parsed: unknown = parse(text, { customTags: [JS_EXPR_TAG] })
   if (!Array.isArray(parsed)) throw new Error('standard.patch.yml must be a top-level patch list')
@@ -79,23 +80,9 @@ function shippedSkillFilesystemConfig(): Record<string, unknown> {
   const preset = rows.find(candidate => (candidate as { id?: string }).id === 'preset-standard')
   const plugins = (preset as { config: { plugins: { id?: string; config?: Record<string, unknown> }[] } } | undefined)
     ?.config.plugins
-  const row = plugins?.find(candidate => candidate.id === 'skill-filesystem')
-  if (row === undefined) throw new Error('standard must declare a skill-filesystem row')
+  const row = plugins?.find(candidate => candidate.id === id)
+  if (row === undefined) throw new Error(`standard must declare a ${id} row`)
   return row.config ?? {}
-}
-
-/**
- * The `customSkillDirs` entry that shipped config carries.
- * @returns the raw Loader expression string.
- */
-function customSkillDirExpression(): string {
-  const dirs = shippedSkillFilesystemConfig()['customSkillDirs']
-  if (!Array.isArray(dirs) || dirs.length !== 1) {
-    throw new Error('standard must declare exactly one customSkillDirs entry')
-  }
-  const expression = dirs[0]
-  if (typeof expression !== 'string') throw new Error('a customSkillDirs entry must be a Loader expression')
-  return expression
 }
 
 /**
@@ -108,7 +95,7 @@ function evaluate(expression: string, baseUrl: string): string {
   return new Function('baseUrl', `return (${expression})`)(baseUrl) as string
 }
 
-/** A scratch directory tree, removed when the suite finishes. */
+/** A scratch directory tree. */
 let scratch: string
 
 /** A scratch project root and a scratch user home, kept out of the real `$DSH_HOME`. */
@@ -116,114 +103,127 @@ let project: string
 let dshHome: string
 let agentsHome: string
 
-/** The directory the shipped declaration actually resolves to, or `undefined`. */
-let packagedSkills: string | undefined
+/** A fake deployment-bundled root, standing in for `$DSH_BUNDLED_SKILL_DIR`. */
+let deploymentBundled: string
+
+/** The `baseUrl` shape the Loader evaluates a preset row under. */
+let baseUrl: string
 
 beforeAll(async () => {
   scratch = await realpath(await mkdtemp(join(tmpdir(), 'dshline-preset-skills-')))
   project = join(scratch, 'project')
   dshHome = join(scratch, 'dsh-home')
   agentsHome = join(scratch, 'agents-home')
-  for (const dir of [project, dshHome, agentsHome]) await mkdir(dir, { recursive: true })
+  deploymentBundled = join(scratch, 'deployment-bundled')
+  for (const dir of [project, dshHome, agentsHome, deploymentBundled]) {
+    await mkdir(dir, { recursive: true })
+  }
   // The Loader evaluates a preset row with the BASE URL of the composition
   // resolving it. A profile root is the realistic value, and a file URL is what
   // `createRequire` needs, so this is the real thing rather than a stand-in.
-  //
-  // Resolved here but never asserted here on purpose: a `beforeAll` that THROWS
-  // skips every case below, and a silently skipped catalog is a much weaker
-  // signal than ten cases that each fail by name. `packagedRoot()` turns a
-  // missing or unresolvable declaration into a failure inside the case.
-  try {
-    packagedSkills = evaluate(customSkillDirExpression(), pathToFileURL(`${scratch}/`).href)
-  } catch {
-    packagedSkills = undefined
-  }
+  baseUrl = pathToFileURL(`${scratch}/`).href
 })
 
 afterEach(async () => {
-  await rm(join(project, '.dsh'), { recursive: true, force: true })
-  await rm(join(project, '.agents'), { recursive: true, force: true })
-  await rm(join(dshHome, 'skills'), { recursive: true, force: true })
-  await rm(join(agentsHome, 'skills'), { recursive: true, force: true })
+  for (const root of [join(project, '.dsh'), join(project, '.agents'), dshHome, agentsHome, deploymentBundled]) {
+    await rm(root, { recursive: true, force: true })
+    await mkdir(root, { recursive: true })
+  }
 })
 
 /**
- * The packaged directory the shipped declaration names.
+ * The packaged directory the authoring row's `bundledSkillDir` names.
  * @returns the resolved directory.
  */
 function packagedRoot(): string {
-  if (packagedSkills === undefined) {
-    throw new Error("standard.patch.yml must resolve one customSkillDirs entry to @deepseek-ai/dsh-agent-preset/skills")
+  const expression = shippedConfig('skill-harness-authoring')['bundledSkillDir']
+  if (typeof expression !== 'string') {
+    throw new Error('standard must set bundledSkillDir on skill-harness-authoring')
   }
-  return packagedSkills
+  return evaluate(expression, baseUrl)
 }
 
 /**
- * Mount the real registry and the real filesystem provider with the shipped
- * declaration's own custom root.
- * @param over - provider fields this case varies, merged over the shipped ones.
+ * Mount the real registry with BOTH production providers, the way the shipped
+ * `standard` declaration composes them.
+ * @param ordinary - extra fields for the ordinary provider, e.g. a deployment
+ *   bundled root. Empty by default, which leaves the deployment's own bundled
+ *   channel to `$DSH_BUNDLED_SKILL_DIR` exactly as upstream does.
  * @returns a context carrying the real `ctx.skills`.
  */
-async function catalogWith(over: Record<string, unknown> = {}): Promise<Context> {
+async function catalogWith(ordinary: Record<string, unknown> = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SkillRegistry)
+  // Row order follows the declaration. The ordinary provider gets ONLY the two
+  // fields a hermetic case must override — its home directories, so a
+  // developer's real `~/.dsh/skills` cannot decide a test result. Its
+  // `includeDefaultRoots` and `providerName` are whatever the declaration says,
+  // which for upstream's own row is "unset", i.e. the shipped defaults.
   await ctx.plugin(skillFilesystem, {
-    // The shipped config verbatim, so a field added there later is exercised
-    // here rather than silently ignored by a probe that hard-coded the one it
-    // knew about.
-    ...shippedSkillFilesystemConfig(),
-    // `!!js` is source text to the YAML parser, so the one field that needs
-    // evaluating is evaluated here with a real Loader-shaped `baseUrl`.
-    customSkillDirs: [packagedRoot()],
-    // `dshHome`/`agentsHome` are redirected so the case reads only its own
-    // fixture: a developer's real `~/.dsh/skills` must not decide a test result.
-    // `watch: false` keeps a chokidar watcher off the packaged directory. None of
-    // the three is what is under test — `customSkillDirs`, `includeDefaultRoots`
-    // and everything else in the declaration are.
+    ...shippedConfig('skill-filesystem'),
     dshHome,
     agentsHome,
-    watch: false,
-    ...over,
+    ...ordinary,
+  })
+  // The authoring provider, configured from the declaration verbatim. Its
+  // `bundledSkillDir` is a `!!js` value, so it is the one field evaluated here
+  // against a real Loader-shaped `baseUrl`.
+  const authoring = shippedConfig('skill-harness-authoring')
+  await ctx.plugin(skillFilesystem, {
+    ...authoring,
+    bundledSkillDir: packagedRoot(),
   })
   return ctx
 }
 
 /**
- * Write one project-local skill.
- * @param root - the skill root, relative to the project (`.dsh/skills` or `.agents/skills`).
+ * Write one skill into a root.
+ * @param dir - the absolute root directory to create the skill in.
  * @param name - the directory and frontmatter name.
  * @param description - the frontmatter description.
  */
-async function writeProjectSkill(root: string, name: string, description: string): Promise<void> {
-  const dir = join(project, root, name)
-  await mkdir(dir, { recursive: true })
+async function writeSkill(dir: string, name: string, description: string): Promise<void> {
+  // The SKILL directory itself, not just the root: `writeFile` creates no
+  // parents, and a root holding no skill directory is a valid but empty root.
+  await mkdir(join(dir, name), { recursive: true })
   await writeFile(
-    join(dir, 'SKILL.md'),
+    join(dir, name, 'SKILL.md'),
     `---\nname: ${name}\ndescription: ${description}\n---\n\n${description}\n`,
     'utf8',
   )
 }
 
-describe('capability: skills · the packaged root the standard preset declares', () => {
+/** Write a project skill under `.dsh/skills` or `.agents/skills`. @param root - which one. @param name - the skill name. @param description - its description. */
+async function writeProjectSkill(root: string, name: string, description: string): Promise<void> {
+  await writeSkill(join(project, root, 'skills'), name, description)
+}
+
+describe('capability: skills · the authoring provider the standard preset declares', () => {
   it('resolves the shipped expression to the installed package\'s own skills directory', async () => {
     // Not "the expression mentions the right words": the Loader's `!!js` value
     // is source text, so the only meaningful check is what it evaluates to in a
     // real composition, and that the directory is the PACKAGE's, not a copy.
-    const manifestPath = await realpath(join(packagedRoot(), '..', 'package.json'))
+    const dir = packagedRoot()
+    const manifestPath = await realpath(join(dir, '..', 'package.json'))
     const declared = JSON.parse(await readFile(manifestPath, 'utf8')) as { name?: string }
     expect(declared.name).toBe('@deepseek-ai/dsh-agent-preset')
-    expect(packagedRoot().endsWith(join('@deepseek-ai', 'dsh-agent-preset', 'skills'))).toBe(true)
+    expect(dir.endsWith(join('@deepseek-ai', 'dsh-agent-preset', 'skills'))).toBe(true)
   })
 
-  it('exposes the three packaged Cordis skills through ctx.skills', async () => {
+  it('exposes the three packaged Cordis skills as bundled, from harness-authoring', async () => {
     const ctx = await catalogWith()
     try {
       const observed = await ctx.skills.snapshot({ cwd: project })
       expect(observed.complete, 'discovery must settle for a catalog to mean anything').toBe(true)
       expect(observed.skills.map(skill => skill.name).sort()).toEqual([...PACKAGED_SKILLS].sort())
-      // They arrive as an ordinary Harness discovery bucket, which is what
-      // `/skills` already labels and filters on. dshline hard-codes no name.
-      for (const skill of observed.skills) expect(skill.source).toBe('custom')
+      // `bundled`, not `custom`: the adopted generation resolves a
+      // `bundledSkillDir` root to `source: bundled` at `BUNDLED_SKILL_RANK`, and
+      // that label is what `/skills` shows. It is also why a project or user
+      // skill of the same name wins — see the precedence cases.
+      for (const skill of observed.skills) {
+        expect(skill.source, skill.name).toBe('bundled')
+        expect(skill.provider, skill.name).toBe('harness-authoring')
+      }
     } finally {
       await ctx.fiber.dispose()
     }
@@ -239,9 +239,36 @@ describe('capability: skills · the packaged root the standard preset declares',
       // body is that package's real prose with its frontmatter already parsed
       // off. A fixture copied into this repository could not satisfy the first.
       expect(loaded.path?.startsWith(packagedRoot())).toBe(true)
-      expect(loaded.source).toBe('custom')
+      expect(loaded.source).toBe('bundled')
       expect(loaded.content).toContain('# Cordis composition reference')
       expect(loaded.content).toContain('## Loader patch dialect')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reads that root from the Host, not through a workspace ctx.fs', async () => {
+    // A `bundled` root is marked `trustedHost`, which is what makes the provider
+    // bypass the optional `ctx.fs` service and read the Host path directly. That
+    // is the correct production contract here: the path is inside an installed
+    // package, not inside anything a workspace's filesystem policy restricts.
+    // The case mounts a `ctx.fs` that refuses EVERY path, and the skills still
+    // arrive — so a workspace boundary cannot be what is serving them.
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    await ctx.provide('fs', {
+      resolve: () => { throw new Error('the workspace refuses this path') },
+      stat: () => { throw new Error('the workspace refuses this path') },
+      readTextFile: () => { throw new Error('the workspace refuses this path') },
+      readDir: () => { throw new Error('the workspace refuses this path') },
+    } as never)
+    await ctx.plugin(skillFilesystem, {
+      ...shippedConfig('skill-harness-authoring'),
+      bundledSkillDir: packagedRoot(),
+    })
+    try {
+      const observed = await ctx.skills.snapshot({ cwd: project })
+      expect(observed.skills.map(skill => skill.name).sort()).toEqual([...PACKAGED_SKILLS].sort())
     } finally {
       await ctx.fiber.dispose()
     }
@@ -251,7 +278,8 @@ describe('capability: skills · the packaged root the standard preset declares',
     // The three ship no `user-invocable` or `disable-model-invocation` field, so
     // Harness's own defaults decide. Asserting the ANSWER rather than a guess is
     // what lets `/skills` and the `/name` gesture keep treating them like any
-    // other skill.
+    // other skill — and what makes the model-facing claim in the docs true
+    // rather than assumed.
     const ctx = await catalogWith()
     try {
       const observed = await ctx.skills.snapshot({ cwd: project })
@@ -265,75 +293,16 @@ describe('capability: skills · the packaged root the standard preset declares',
   })
 })
 
-describe('capability: skills · the packaged root augments the default roots', () => {
-  it('keeps an ordinary project skill visible beside the packaged ones', async () => {
-    // `includeDefaultRoots` is deliberately unset in the declaration because
-    // Harness's own default is `true`. If it ever stopped being true, `.dsh/skills`
-    // would go dark and only this assertion would notice.
-    await writeProjectSkill('.dsh/skills', 'local-test', 'A local project skill')
-    const ctx = await catalogWith()
-    try {
-      const names = await namesIn(ctx)
-      expect(names).toContain('local-test')
-      expect(names).toEqual(expect.arrayContaining([...PACKAGED_SKILLS]))
-    } finally {
-      await ctx.fiber.dispose()
-    }
-  })
-
-  it('keeps an ordinary .agents/skills project skill visible too', async () => {
-    await writeProjectSkill('.agents/skills', 'agents-test', 'A shared-agents project skill')
-    const ctx = await catalogWith()
-    try {
-      expect(await namesIn(ctx)).toContain('agents-test')
-    } finally {
-      await ctx.fiber.dispose()
-    }
-  })
-
-  it('keeps the user roots visible as well', async () => {
-    const dir = join(dshHome, 'skills', 'user-test')
-    await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, 'SKILL.md'), '---\nname: user-test\ndescription: A user skill\n---\n\nbody\n', 'utf8')
-    const ctx = await catalogWith()
-    try {
-      const names = await namesIn(ctx)
-      expect(names).toContain('user-test')
-      expect(names).toEqual(expect.arrayContaining([...PACKAGED_SKILLS]))
-    } finally {
-      await ctx.fiber.dispose()
-    }
-  })
-
-  it('drops the default roots entirely when they are switched off', async () => {
-    // The other half of the same default, and the negative control for it: with
-    // `includeDefaultRoots: false` the packaged root still resolves, so a test
-    // that only asserted the packaged skills would pass. This one is what makes
-    // the "augments, not replaces" claim falsifiable.
-    await writeProjectSkill('.dsh/skills', 'local-test', 'A local project skill')
-    const ctx = await catalogWith({ includeDefaultRoots: false })
-    try {
-      const names = await namesIn(ctx)
-      expect(names).toEqual(expect.arrayContaining([...PACKAGED_SKILLS]))
-      expect(names).not.toContain('local-test')
-    } finally {
-      await ctx.fiber.dispose()
-    }
-  })
-})
-
-describe('capability: skills · precedence stays Harness\'s', () => {
-  it('lets a project skill of the same name win over the packaged one', async () => {
-    // Harness ranks project roots ahead of `customSkillDirs`; dshline implements
-    // no ranking of its own, so this is a statement about the adopted generation's
-    // provider and nothing else. The assertion is on `source`, not just presence:
-    // both candidates exist, and only the source says which one survived.
-    await writeProjectSkill('.dsh/skills', 'cordis-composition-reference', 'The project copy')
+describe('capability: skills · the bundled authoring root sits below every root a person owns', () => {
+  it('lets a project .dsh/skills skill of the same name win', async () => {
+    await writeProjectSkill('.dsh', 'cordis-composition-reference', 'The project copy')
     const ctx = await catalogWith()
     try {
       const observed = await ctx.skills.snapshot({ cwd: project })
-      expect(observed.skills.map(skill => skill.name).sort()).toEqual([...PACKAGED_SKILLS].sort())
       const winner = observed.skills.find(skill => skill.name === 'cordis-composition-reference')
+      // Rank 100 against rank 600. Asserting `source` rather than mere presence
+      // is the whole point: BOTH candidates exist, and only the source says which
+      // one survived.
       expect(winner?.source).toBe('project-dsh')
       const loaded = await ctx.skills.get('cordis-composition-reference', { cwd: project })
       expect(loaded?.content).toContain('The project copy')
@@ -343,11 +312,139 @@ describe('capability: skills · precedence stays Harness\'s', () => {
     }
   })
 
-  it('keeps the packaged body when no project skill claims the name', async () => {
+  it('lets a project .agents/skills skill of the same name win', async () => {
+    await writeProjectSkill('.agents', 'editing-cordis-compositions', 'The shared-agents copy')
     const ctx = await catalogWith()
     try {
-      const loaded = await ctx.skills.get('editing-cordis-compositions', { cwd: project })
-      expect(loaded?.source).toBe('custom')
+      const winner = (await ctx.skills.snapshot({ cwd: project }))
+        .skills.find(skill => skill.name === 'editing-cordis-compositions')
+      expect(winner?.source).toBe('project-agents')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('lets a ~/.dsh/skills skill of the same name win', async () => {
+    // THE case that distinguishes this design from a `customSkillDirs` entry,
+    // which sits at rank 300 and would LOSE this. A packaged baseline skill must
+    // not outrank something a person wrote in their own home.
+    await writeSkill(join(dshHome, 'skills'), 'cordis-plugin-development', 'The user copy')
+    const ctx = await catalogWith()
+    try {
+      const winner = (await ctx.skills.snapshot({ cwd: project }))
+        .skills.find(skill => skill.name === 'cordis-plugin-development')
+      expect(winner?.source).toBe('user-dsh')
+      const loaded = await ctx.skills.get('cordis-plugin-development', { cwd: project })
+      expect(loaded?.content).toContain('The user copy')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('lets a ~/.agents/skills skill of the same name win', async () => {
+    await writeSkill(join(agentsHome, 'skills'), 'cordis-composition-reference', 'The agents-home copy')
+    const ctx = await catalogWith()
+    try {
+      const winner = (await ctx.skills.snapshot({ cwd: project }))
+        .skills.find(skill => skill.name === 'cordis-composition-reference')
+      expect(winner?.source).toBe('user-agents')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('falls back to the packaged skill when nothing claims the name', async () => {
+    const ctx = await catalogWith()
+    try {
+      const observed = await ctx.skills.snapshot({ cwd: project })
+      expect(observed.skills.map(skill => skill.name).sort()).toEqual([...PACKAGED_SKILLS].sort())
+      for (const skill of observed.skills) expect(skill.source).toBe('bundled')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps unrelated ordinary roots visible alongside them', async () => {
+    await writeProjectSkill('.dsh', 'local-test', 'A local project skill')
+    await writeProjectSkill('.agents', 'agents-test', 'A shared-agents project skill')
+    await writeSkill(join(dshHome, 'skills'), 'user-test', 'A user skill')
+    await writeSkill(join(agentsHome, 'skills'), 'user-agents-test', 'An agents-home skill')
+    const ctx = await catalogWith()
+    try {
+      const names = await namesIn(ctx)
+      for (const name of ['local-test', 'agents-test', 'user-test', 'user-agents-test']) {
+        expect(names, name).toContain(name)
+      }
+      expect(names).toEqual(expect.arrayContaining([...PACKAGED_SKILLS]))
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('capability: skills · the ordinary provider keeps its own bundled channel', () => {
+  it('serves a deployment bundled root and the Harness authoring skills together', async () => {
+    // The regression that proves the second provider did not commandeer the
+    // first's bundled slot. An explicit `bundledSkillDir` REPLACES an instance's
+    // `$DSH_BUNDLED_SKILL_DIR` fallback, so had the authoring root been set on
+    // the ordinary row instead, this deployment skill would have vanished. Both
+    // are `bundled`; they are told apart by `provider`, and no claim is made here
+    // about how two same-rank candidates would otherwise be ordered.
+    await writeSkill(deploymentBundled, 'deployment-skill', 'Shipped by this deployment')
+    const ctx = await catalogWith({ bundledSkillDir: deploymentBundled })
+    try {
+      const observed = await ctx.skills.snapshot({ cwd: project })
+      const names = observed.skills.map(skill => skill.name)
+      expect(names).toContain('deployment-skill')
+      expect(names).toEqual(expect.arrayContaining([...PACKAGED_SKILLS]))
+      const byName = new Map(observed.skills.map(skill => [skill.name, skill]))
+      expect(byName.get('deployment-skill')?.provider).toBe('filesystem')
+      for (const name of PACKAGED_SKILLS) {
+        expect(byName.get(name)?.provider, name).toBe('harness-authoring')
+      }
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('still prefers a user skill over the deployment bundled root', async () => {
+    await writeSkill(deploymentBundled, 'deployment-skill', 'Shipped by this deployment')
+    await writeSkill(join(dshHome, 'skills'), 'deployment-skill', 'The user copy')
+    const ctx = await catalogWith({ bundledSkillDir: deploymentBundled })
+    try {
+      const winner = (await ctx.skills.snapshot({ cwd: project }))
+        .skills.find(skill => skill.name === 'deployment-skill')
+      expect(winner?.source).toBe('user-dsh')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('leaves every ordinary root to the ordinary provider', async () => {
+    // Which provider ANSWERS for an ordinary skill. Worth asserting, but note
+    // what it does and does not catch: rank would mask a second scan of the same
+    // root, because the ordinary provider's candidates are lower-ranked and win
+    // the merge even when the authoring provider also found them. So this is a
+    // guard on provider identity, not on duplication. What actually catches
+    // `includeDefaultRoots: false` being dropped is the structural assertion
+    // plus the Host-read case above, where the duplicate scan goes through a
+    // workspace `ctx.fs` that refuses it.
+    await writeProjectSkill('.dsh', 'project-skill', 'A project skill')
+    await writeProjectSkill('.agents', 'agents-skill', 'A shared-agents project skill')
+    await writeSkill(join(dshHome, 'skills'), 'user-skill', 'A user skill')
+    await writeSkill(deploymentBundled, 'deployment-skill', 'Shipped by this deployment')
+    const ctx = await catalogWith({ bundledSkillDir: deploymentBundled })
+    try {
+      const observed = await ctx.skills.snapshot({ cwd: project })
+      const byName = new Map(observed.skills.map(skill => [skill.name, skill]))
+      for (const name of ['project-skill', 'agents-skill', 'user-skill', 'deployment-skill']) {
+        expect(byName.get(name)?.provider, `${name} must stay on the ordinary provider`).toBe('filesystem')
+      }
+      // And the reverse: nothing the authoring provider answers for is an
+      // ordinary root.
+      for (const name of PACKAGED_SKILLS) {
+        expect(byName.get(name)?.provider, name).toBe('harness-authoring')
+      }
     } finally {
       await ctx.fiber.dispose()
     }
@@ -355,7 +452,7 @@ describe('capability: skills · precedence stays Harness\'s', () => {
 })
 
 describe('capability: skills · /skills needs no special case for them', () => {
-  it('offers all three as ordinary, launchable rows with a `custom` source label', async () => {
+  it('offers all three as ordinary, launchable rows labelled bundled', async () => {
     // The last link in the chain: the summaries Harness really produced, run
     // through dshline's own presentation functions. If surfacing these needed
     // anything, it would show up HERE — a name the interface had to know, a
@@ -367,12 +464,13 @@ describe('capability: skills · /skills needs no special case for them', () => {
       const views = observed.skills.map(toView)
       const rows = skillRows(views, ['/plugins', '/skills'])
       expect(rows.map(row => row.skill.name).sort()).toEqual([...PACKAGED_SKILLS].sort())
-      // `userInvocable` came from the real frontmatter, so `/name` reaches them
-      // and the inspector offers the slash without consulting a name list.
       for (const row of rows) {
         expect(row.launchable, row.skill.name).toBe(true)
         expect(row.shadowed).toBe(false)
-        expect(sourceLabel(row.skill.source)).toBe('custom')
+        // `bundled`, not `custom`: the source Harness resolved. The label is an
+        // existing bucket in `sourceLabel`, not a dshline category invented for
+        // these three.
+        expect(sourceLabel(row.skill.source)).toBe('bundled')
         expect(invocationLabel(row.skill)).toBe('you + model')
       }
       // And the `/` menu reaches the same three through the same rule.
@@ -383,6 +481,17 @@ describe('capability: skills · /skills needs no special case for them', () => {
     }
   })
 })
+
+/**
+ * The catalog names the production providers discovered for the scratch project.
+ * @param ctx - a context carrying the real `ctx.skills`.
+ * @returns every discovered skill name.
+ */
+async function namesIn(ctx: Context): Promise<readonly string[]> {
+  const observed = await ctx.skills.snapshot({ cwd: project })
+  expect(observed.complete).toBe(true)
+  return (observed.skills as readonly SkillSummary[]).map(skill => skill.name)
+}
 
 /**
  * Copy one resolved Harness summary into the view this frontend presents.
@@ -402,15 +511,4 @@ function toView(summary: SkillSummary): SkillView {
     modelInvocable: summary.invocation.modelInvocable,
     source: summary.source,
   }
-}
-
-/**
- * The catalog names this provider discovered for the scratch project.
- * @param ctx - a context carrying the real `ctx.skills`.
- * @returns every discovered skill name.
- */
-async function namesIn(ctx: Context): Promise<readonly string[]> {
-  const observed = await ctx.skills.snapshot({ cwd: project })
-  expect(observed.complete).toBe(true)
-  return (observed.skills as readonly SkillSummary[]).map(skill => skill.name)
 }

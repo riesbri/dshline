@@ -1260,28 +1260,51 @@ from the installed `@deepseek-ai/dsh-agent-preset` package itself:
 - `cordis-plugin-development` — adding, enabling, disabling, or configuring a
   plugin, bundle, tool, page, or MCP connection in this profile
 
-They are ordinary Harness skills. Their files are read from the installed
-package and are never copied into this interface, so reworded or additional
-skills arrive with the next Harness release rather than with an update here.
-`/skills` lists them like any other skill, with the source `custom`, and
-`/plugins` shows the row that mounts them: `skill-filesystem`, carrying the
-packaged directory as a `customSkillDirs` entry.
+They are ordinary Harness skills whose files are read from the installed
+package and never copied into this interface, so reworded or additional skills
+arrive with the next Harness release rather than with an update here.
 
-**Where skills are found.** Harness's own filesystem provider scans these roots
-in this order, and the first one to supply a name wins the duplicate:
+They are contributed by a **separate** skill provider rather than by your
+ordinary one. `/plugins` therefore lists two rows:
+
+| Row | Provides |
+|---|---|
+| `skill-filesystem` | your project and user skills, and this deployment's own bundled skills |
+| `skill-harness-authoring` | only the skills inside `@deepseek-ai/dsh-agent-preset` |
+
+Because the two rows are independent, switching off `skill-harness-authoring`
+in `/plugins` removes exactly these three and leaves every skill you wrote
+where it was.
+
+**Where skills are found.** For the skills you control, Harness's own filesystem
+provider scans these roots, and the first one to supply a name wins:
 
 ```
 <project>/.dsh/skills
 <project>/.agents/skills
-the packaged @deepseek-ai/dsh-agent-preset/skills
 ~/.dsh/skills
 ~/.agents/skills
+this deployment's own bundled skills
 ```
 
-Your own project skills are unaffected and outrank the packaged ones: a
-`cordis-composition-reference` of your own under `.dsh/skills` replaces the
-shipped copy. The packaged root sits between the project roots and the user
-roots, so a shipped skill can be overridden from either side.
+The Harness authoring skills come last of all, after everything above, so
+anything you wrote wins a shared name. A `cordis-composition-reference` of your
+own — in the project or in your home — replaces the shipped copy; only a name
+nobody else claims resolves to DeepSeek's version.
+
+`/skills` labels these three **`bundled`**, because that is the source Harness
+resolved for a package-owned root. It is not a dshline category and it does not
+mean your installation bundles anything of its own.
+
+**Package ownership and model capability are separate things.** Harness owns
+the skill bodies; dshline's `standard` chooses to expose the provider that finds
+them; `tool-skill` owns loading them. And because all three are model-invocable,
+every new `standard` session receives their **names and descriptions** in
+Harness's durable `<available_skills>` catalog — that is a few lines of context
+per session, not zero. Their **full bodies are not sent** until something asks
+for them: either your explicit `/<skill-name>` line, or the model calling the
+skill tool. The same is true of any skill; nothing special is done for these
+three.
 
 > [!IMPORTANT]
 > A skill can describe an operation whose tool this preset does not mount.

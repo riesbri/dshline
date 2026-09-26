@@ -769,19 +769,32 @@ subagent 行的构造首先回答一个问题——这个工作者正在做什�
 - `editing-cordis-compositions` —— 创建、修改与校验一个 preset
 - `cordis-plugin-development` —— 在本配置文件中添加、启用、禁用或配置插件、bundle、工具、页面或 MCP 连接
 
-它们就是普通的 Harness 技能。它们的文件从已安装的包中读取，绝不会被复制进本界面，因此改写或新增的技能会随下一次 Harness 发布到来，而不是随本界面的更新到来。`/skills` 像列出任何其他技能一样列出它们，来源显示为 `custom`；`/plugins` 显示挂载它们的那一行：`skill-filesystem`，其中以一个 `customSkillDirs` 条目携带该打包目录。
+它们就是普通的 Harness 技能，文件从已安装的包中读取，绝不会被复制进本界面，因此改写或新增的技能会随下一次 Harness 发布到来，而不是随本界面的更新到来。
 
-**技能从哪里被找到。** Harness 自己的文件系统提供方按以下顺序扫描这些根目录，提供某个名字的第一个根赢得该重名：
+它们由一个**独立的**技能提供方贡献，而不是由你普通的那一个。因此 `/plugins` 会列出两行：
+
+| 行 | 提供什么 |
+|---|---|
+| `skill-filesystem` | 你的项目与用户技能，以及本部署自己打包的技能 |
+| `skill-harness-authoring` | 仅限于 `@deepseek-ai/dsh-agent-preset` 内部的技能 |
+
+因为这两行彼此独立，在 `/plugins` 里关掉 `skill-harness-authoring`，恰好会移除这三个，而你自己写的每一个技能都原封不动。
+
+**技能从哪里被找到。** 对于你掌控的技能，Harness 自己的文件系统提供方扫描以下根目录，其中提供某个名字的第一个根获胜：
 
 ```
 <project>/.dsh/skills
 <project>/.agents/skills
-the packaged @deepseek-ai/dsh-agent-preset/skills
 ~/.dsh/skills
 ~/.agents/skills
+this deployment's own bundled skills
 ```
 
-你自己的项目技能不受影响，并且排在打包技能之前：你在 `.dsh/skills` 下自己写的 `cordis-composition-reference` 会替换随附的那份。打包根目录位于项目根与用户根之间，因此随附的技能可以从任意一侧被覆盖。
+Harness 的编写技能排在这一切之后，因此你写下的任何东西都会赢得同名。你自己写的 `cordis-composition-reference`——无论在项目里还是在家目录里——都会替换随附的那份；只有没人认领的名字才会解析到 DeepSeek 的版本。
+
+`/skills` 把这三个标注为 **`bundled`**，因为对于由包拥有的根，那就是 Harness 所解析出的来源。它不是 dshline 的分类，也不意味着你的安装打包了什么自己的东西。
+
+**包的归属与模型能力是两件事。**Harness 拥有技能正文；dshline 的 `standard` 决定暴露那个能找到它们的提供方；`tool-skill` 拥有加载它们的职责。而由于这三个都是模型可调用的，每一个新建的 `standard` 会话都会在 Harness 持久的 `<available_skills>` 目录中收到它们的**名称与描述**——那是每个会话几行上下文，而不是零。它们的**完整正文不会被发送**，直到有东西索取：要么是你显式的 `/<skill-name>` 那一行，要么是模型调用技能工具。任何技能都是如此；这三个并没有被特殊对待。
 
 > [!IMPORTANT]
 > 一个技能可能描述某个本预设并未挂载对应工具的操作。`standard` 是**刻意**不附带 Creator 的工具的——没有 `tool-cordis`，因此既没有 `cordis_inspect_list` 也没有 `cordis_inspect_query`，而 `tool-plugin-manager` 保持禁用——所以上面某个技能可能会要求 agent 做本配置文件做不到的事。技能文本属于 Harness，按原样展示，而不是被裁剪以掩盖这一落差：暴露一个技能并不意味着该技能提到的一切在这里都可用。`/plugins` 才是你查看运行中 agent 实际组合了什么的地方。

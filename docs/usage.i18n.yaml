@@ -2,5 +2,5 @@
 # as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-docs --write docs/usage.md
-usage.md: f3cf6168099b918b08624f6c87203ccb54e33f11
-usage.zh.md: 6ce8a3e19fdc5e2df0178c226fc794d73d73d105
+usage.md: d75c7ed2188c76ecb8f1e31109d607b84030b024
+usage.zh.md: 0742b73e5fb0b7356b4218838591134851bfd97c
