@@ -8,8 +8,10 @@ The `standard` preset now also exposes the skills that ship inside
 `@deepseek-ai/dsh-agent-preset`: `cordis-composition-reference`,
 `editing-cordis-compositions`, and `cordis-plugin-development`. dshline's
 shipped `standard` preset previously did not expose these package-owned skills
-by default; a profile that had already mounted that directory itself already had
-them, and this changes nothing for such a profile.
+by default; a profile that already mounted that directory may already resolve
+these skills, and this change makes them part of dshline's shipped `standard`
+composition by default. Either way the preset row and the provider are new, so
+the composition and the `/plugins` surface both change.
 
 Upstream's own `standard` mounts `skill-filesystem` bare; only its `cordis`
 (Creator) preset points that provider at the packaged directory. Upstream
@@ -50,7 +52,11 @@ the next adopted generation's reworded or added skills arrive through the
 Harness migration itself. Because all three are model-invocable, each new
 `standard` session also receives their names and descriptions in Harness's
 durable `<available_skills>` catalog — a few lines of context, not zero; the
-full bodies load only on an explicit invocation or a skill-tool call.
+full bodies load only on an explicit invocation or a skill-tool call. A load
+the model chose itself draws as an ordinary Harness tool card
+(`◇ Load skill <name>`), and a skill is an invocation rather than a mode: no
+active-skill badge appears afterwards, because Harness exposes no persistent
+active-skill state.
 `minimal` is unchanged, and `tool-cordis` / `cordis_inspect_*` and an enabled
 `tool-plugin-manager` remain absent, so a packaged skill may describe an
 operation this preset cannot perform. The bodies are not filtered to hide that.

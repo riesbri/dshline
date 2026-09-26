@@ -1333,7 +1333,48 @@ The whole line is sent as your message, exactly as you wrote it. Harness
 recognizes the `/review-pr` reference at its own boundary and puts that skill's
 instructions into the same step, so the model has them before it answers.
 Nothing about the line is rewritten here, and your prompt is what the transcript
-shows.
+shows. The instruction block Harness injects is **not** echoed as a second
+transcript message: it is prompt content addressed to the model, not something
+you typed, and printing it back would put a message in your history that you
+never sent.
+
+**When the model picks one instead, the tool call is the evidence.** You never
+typed the name, so there is no prompt line to look for. The model called
+Harness's ordinary `skill` tool, and that call draws the same card as any other:
+
+```
+◇ Load skill cordis-composition-reference
+```
+
+That row is the durable record: it is in the transcript, it survives a resume,
+and it names the skill the model actually selected. The full body then arrives as
+that call's result, and the session simply continues.
+
+**Skills are invocations, not modes.** There is deliberately no "active skill"
+badge in the composer or the status line after a load finishes, and no
+`skill: <name>` segment anywhere, because Harness exposes no persistent
+active-skill state — there is nothing for such a badge to report, and one would
+promise a mode that does not exist. What a skill changes is the instructions the
+model has for the rest of that session; what it does not change is what this
+interface believes is running. So the sequence is simply
+
+```
+model decides to use a skill
+  ↓
+◇ Load skill <name>
+  ↓
+tool result
+  ↓
+ordinary session continues
+```
+
+> [!NOTE]
+> Nothing is pre-loaded. The model's catalog carries each skill's **name and
+> description**; the **full `SKILL.md` body** is fetched only when something
+> invokes it. Whether a description matches the task at hand is the model's
+> judgement, not a rules engine: it decides a skill clearly applies and then
+> calls the `skill` tool. A skill it does not consider relevant is never loaded,
+> however well its description happens to match.
 
 **They are in the `/` list.** A skill you can invoke this way appears in the
 suggestion list beside the commands, marked as a skill:

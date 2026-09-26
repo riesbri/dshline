@@ -36,9 +36,15 @@ import SkillRegistry from '@deepseek-ai/dsh-skill'
 import type { SkillCandidate, SkillProvider, SkillProviderControl } from '@deepseek-ai/dsh-skill'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
+import { stripAnsi } from '@dshline/renderer'
+import { ToolCards } from '../../src/cards.ts'
+import type { CardDetail } from '../../src/cards.ts'
 
 /** The workspace every lookup below is made for. */
 const CWD = '/work/project'
+
+/** Terminal width the card draws at; wide enough to keep the row unwrapped. */
+const COLUMNS = 80
 
 /**
  * One provider candidate carrying every field the registry validates.
@@ -108,6 +114,37 @@ function agentFor(cwd: string): Agent {
     runMaintenance: (task: (signal: AbortSignal) => Promise<unknown>) => task(new AbortController().signal),
     whenIdle: async () => {},
   } as unknown as Agent
+}
+
+/**
+ * Mount the registry, the model-facing consumer, and two runtime skills.
+ *
+ * Module-scoped because both the `/name` gesture and the generic tool-card
+ * bridge below need the SAME mounted composition: the second is only evidence if
+ * the `skill` tool it resolves is the one the first proved real.
+ * @returns the context and an agent for the workspace.
+ */
+async function consumer(): Promise<{ ctx: Context; agent: Agent }> {
+  const ctx = new Context()
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SkillRegistry)
+  await ctx.plugin(toolSkill)
+  ctx.skills.register({
+    name: 'review-pr',
+    description: 'Review a pull request',
+    content: 'Check for regressions and missing tests.',
+    source: 'project-dsh',
+  })
+  ctx.skills.register({
+    name: 'architecture',
+    description: 'Architecture decision guidance',
+    content: 'Model-only guidance.',
+    source: 'project-dsh',
+    invocation: { modelInvocable: true, userInvocable: false },
+  })
+  return { ctx, agent: agentFor(CWD) }
 }
 
 describe('capability: skills · registry', () => {
@@ -218,33 +255,6 @@ describe('capability: skills · registry', () => {
 
 describe('capability: skills · the human /name gesture', () => {
   /**
-   * Mount the registry, the model-facing consumer, and two runtime skills.
-   * @returns the context and an agent for the workspace.
-   */
-  async function consumer(): Promise<{ ctx: Context; agent: Agent }> {
-    const ctx = new Context()
-    await ctx.plugin(SystemPrompt)
-    await ctx.plugin(ToolRuntime)
-    await ctx.plugin(AgentRegistry)
-    await ctx.plugin(SkillRegistry)
-    await ctx.plugin(toolSkill)
-    ctx.skills.register({
-      name: 'review-pr',
-      description: 'Review a pull request',
-      content: 'Check for regressions and missing tests.',
-      source: 'project-dsh',
-    })
-    ctx.skills.register({
-      name: 'architecture',
-      description: 'Architecture decision guidance',
-      content: 'Model-only guidance.',
-      source: 'project-dsh',
-      invocation: { modelInvocable: true, userInvocable: false },
-    })
-    return { ctx, agent: agentFor(CWD) }
-  }
-
-  /**
    * Offer one claimed batch to the pre-step boundary, exactly as an Agent does.
    * @param ctx - the mounted context.
    * @param agent - the agent whose scope and cwd select the catalog.
@@ -315,6 +325,64 @@ describe('capability: skills · the human /name gesture', () => {
       if (decision.kind !== 'enter') throw new Error('expected enter')
       expect(decision.messages.some(message =>
         (message.source as { kind?: string }).kind === 'skill-invocation')).toBe(true)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+})
+
+describe('capability: skills · the model-selected load reaches the transcript generically', () => {
+  /**
+   * Draw the real `skill` tool's own call card, at one detail level.
+   *
+   * The lookup is `attachment.ts`'s exact expression, so what the transcript
+   * draws is what production draws: no dshline-side name branch, no re-typed
+   * presenter, and no skill title constructed in this repository. The `skill`
+   * name reaches the card only as a string inside the call's arguments, which is
+   * how it arrives from the model.
+   * @param ctx - the mounted context holding the real `skill` tool.
+   * @param agent - the agent whose scope resolves the tool, as in production.
+   * @param detail - the card-detail level to draw at.
+   * @returns the drawn rows, styling removed.
+   */
+  function drawSkillCall(ctx: Context, agent: Agent, detail: CardDetail = 'compact'): string[] {
+    const cards = new ToolCards(name => ctx.tools.get(name, agent), CWD)
+    cards.detail = detail
+    return cards.call(
+      { callId: 'c1', name: 'skill', arguments: '{"name":"review-pr"}' },
+      COLUMNS,
+    ).map(stripAnsi)
+  }
+
+  it('presents the real skill tool through the generic card, with no skill case in this frontend', async () => {
+    const { ctx, agent } = await consumer()
+    try {
+      // The definition is the adopted `dsh-tool-skill`'s own, resolved through the
+      // registry — a fixture would prove only that a hand-written presenter renders.
+      const definition = ctx.tools.get('skill', agent)
+      expect(definition, 'the adopted dsh-tool-skill must publish its `skill` tool').toBeDefined()
+      expect(definition?.presentCall, 'and that tool must declare a call presentation').toBeDefined()
+      const drawn = drawSkillCall(ctx, agent).join('\n')
+      // Exactly the row a human saw in a real session:
+      //   ◇ Load skill review-pr
+      // The icon is the generic `read` mark the presenter asked for, not one
+      // chosen here, which is the point: `◇` and the title both arrive from the
+      // harness and are drawn by the ordinary card path.
+      expect(drawn).toContain('Load skill review-pr')
+      expect(drawn).toContain('◇')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('keeps that title at `hidden`, because a call that left no trace makes the transcript lie', async () => {
+    const { ctx, agent } = await consumer()
+    try {
+      // The generic card contract already promises this for every tool
+      // (`cards.spec.ts`); this pins the skill case to the same promise rather
+      // than restating it, since `hidden` drops the body but never the name of
+      // what ran.
+      expect(drawSkillCall(ctx, agent, 'hidden').join('\n')).toContain('Load skill review-pr')
     } finally {
       await ctx.fiber.dispose()
     }
