@@ -54,7 +54,7 @@ native terminal
 | 审批 | `ctx.approval` | 只回答属于本前端的请求；对于其他 agent 身份让 waterfall 失败关闭。 |
 | 权限预设 | `ctx.permissionPresets` + `ctx.sessionProjections`（`permissions`） | 两个权威，而不是一个。在选择器打开的那一刻用 `catalog()` 读取进程级实时目录，当前的持久选择来自投影；两者都不保留副本。只通过已注册的 `/permission <preset>` 命令变更，并且绝不提供实时目录未列出的项。两者都视为可选。 |
 | 会话 | `ctx.sessionQuery` | 查询 Harness 偏好活动的会话语料库；不构建另一个数据库。其全文方法是抽象的，因此把内容搜索视为可选。它的 `SessionHeader.cwd` 值也是唯一的工作目录权威：只做临时分组，绝不存储目录清单、worktree registry 或 Git 状态缓存。 |
-| 附件 | `ctx.fs` + `ctx.attachments` | 路径只作为会话本地草稿；通过当前文件系统执行有界读取，并把持久图片引用作为一个批次发布。绝不持久化字节、base64 或主机路径。 |
+| 附件 | `ctx.fs` + `ctx.attachments` | 路径只作为会话本地草稿，保存在一份由图片与通用文件共用的有序账本中——因为暂存顺序就是消息顺序。图片在部署公布的字节上限内整体读取；通用文件则以有界的 `readByteRange` 窗口读取，并把异步可迭代对象交给 `saveFileStream`，因此本进程永远不会缓冲整个文件。两种附件都通过同一个存储提交，并以 `ImageBlock`/`FileBlock` 的形式出现在普通的 `user/message` 中到达 Agent。绝不持久化字节、base64 或主机路径，也绝不添加存储方并未拥有的体积或类型策略。 |
 | 日志派生的状态 | `ctx.sessionProjections` | 消费已注册的领域快照与变更。 |
 | 上下文占用 | `ctx.sessionProjections`（`contextPressure`、`contextBreakdown`、`tokenUsage`） | 读取 O(1) 折叠；绝不自行计数 token 或分词。 |
 | 会话统计 | `ctx.sessionProjections`（`sessionStats`） | 读取全日志计数与墙钟时间；除了对两个已发布总量做一次除法之外不再推导任何东西。将该单元视为可选。 |
@@ -248,6 +248,36 @@ Goal 是一个具有两个权威的已知投影领域，dshline 分别从各自�
 `TuiSlots`、`TuiSlotView`、`TuiSlotName` 与 `TuiOverlay` 是 1.0 之前实验性的词汇。它们不是稳定的 SDK，还没有承诺任何公共 API 包。持久扩展行还需要全局布局预算；在那之前，能力 UI 属于有界浮层。
 
 **composer 与浮层共享视觉根，而不是所有权。** composer 与每一个临时浮层都通过同一个共享边框绘制——左边是 `dshline`，右边是工作区或视图身份，导航帮助在下边框内部——因此浏览器读起来像 composer 展开，而不是脱离的模态框。这种共享只是呈现层面的：浮层挂载期间仍然替换整个活动区域并接管每一次按键，composer 的缓冲区与光标不在它下面，关闭时 composer 原样恢复。共享 chrome 是一个纯辅助函数，无状态、除它所渲染的内容外无输入、没有自己的生命周期、也不持有对 Harness 的视图；输入与状态所有权不与它共享。
+
+## 附件：两个手势、一份账本、一个所有者
+
+`/image`、`/attach` 与 `@path` 回答三个不同的问题，并且必须保持三种不同的答案。`/image` 给模型一个可以"看见"的东西，`/attach` 交给它一份文档，而 `@path` 只是指出一个路径，供模型用自己的工具去打开。第三者从来就不是上传；把 `@foo` 变成上传，会悄无声息地改变每一条现有提示的含义。
+
+**一份有序账本，因为暂存顺序就是消息顺序。** 图片与通用文件在 `attachment-drafts.ts` 中共用一个数组。两份并行列表必须在发送时合并，而每一处这样的合并都是"先把所有图片、再把所有文件"悄悄变成实际投射的地方——那并不是 `/image a.png /attach trace.json /image b.png` 所要求的。每一种附件仍由各自的命令列出、编号与清空，因为 `/image` 一直是给图片编号的，改掉它本身就是一次回归；底层的账本保留读者使用的顺序。消费时的身份是 `(kind, path)` 这一对，因此同一个路径既作为图片又作为文件暂存时，两者不会互相吞掉。
+
+**暂存时什么都不读取。** 一条草稿只是路径与文件名。字节在消息发送时才读取，因为文件可能在两者之间被替换，而只有发送那一刻才对"你到底想附加什么"给出真实的回答。
+
+**文件是流式的，绝不缓冲。** 在已采纳的约定中，通用文件没有体积策略也没有类型策略，正是因为它的存储是流式的、内容是惰性消费的，因此 dshline 两者都不添加。它仍需决定的，只是如何在不成为第二个文件存储的前提下把字节送进那条流：
+
+```text
+path staged locally by dshline
+  → ctx.fs.resolve(path, { cwd, signal })
+  → ctx.fs.stat(target)              regular-file check
+  → ctx.fs.readByteRange(target, { offset, length }, signal)   bounded windows
+  → ctx.attachments.saveFileStream({ data, signal, name })
+  → ctx.fs.stat(target)              FsInfo.version freshness check
+  → FileBlock in an ordinary user/message
+```
+
+`node:fs` 被刻意排除在外。它的 `createReadStream` 会完全绕过 `ctx.fs`，并且只对主机本地配置文件有效——而那恰恰是本功能不能被限定的部署形态：远程或沙箱文件系统才是决定路径含义的一方。窗口大小是对本进程的内存约束，而不是最大文件体积：没有任何东西因为体积大而被拒绝，准入什么仍由存储方决定。
+
+**之所以检查新鲜度，是因为这次读取没有前置条件。** `readByteRange` 不接受期望版本，因此文件系统约定中没有任何东西能阻止文件在第一次 `stat` 与最后一个窗口之间被改写。围绕这次流比较 `FsInfo.version`，是唯一可用的证据来说明所存储的字节就是当时存在的字节；不一致时报告，而不是发送。提供方可能已经发布了一个对象；那是它的保留策略去回收的事，而这一侧没有可以发明的回滚。
+
+**一次准入，而且全有或全无。** 图片与文件共用一个准入标志与一份提交快照。两个标志意味着对同一份账本的两场竞态，谁都无法说清读者暂存了什么。一次提交要么送出所有预期的内容块，要么什么都不送：绝不会发出只带着"恰好成功"那些附件的消息；失败时草稿保持暂存，提交的文本只在读者没有另行输入时才回到输入框，错误则是一个依据稳定错误码给出的简短且不含路径的句子。
+
+**dshline 在这里不拥有的东西。** 没有文件存储，没有解析器，没有扩展名或体积策略，没有文本抽取，没有 base64 传输，没有缓存。transcript 只按名称与字节数显示一个持久文件引用，渲染历史时不读取任何字节——这正是 `FileBlock` 在恢复之后能完全一致地重放、且完全不需要 dshline 侧状态的原因。
+
+**这里止步的唯一位置是已注册命令。** `CommandSubmitAttachment` 只接受通用文件作为由 Session 上传所有者解析的暂存上传回执，而本前端并未挂载这样的所有者。伪造回执 id 就是伪造引用，而认领 `ctx.commands.registerFileReceiptResolver` 会让一个终端成为 Harness 所拥有的产品边界的回执权威——因此声明了 `input.attachments` 的命令会被拒绝并给出说明，其草稿得以保留。这是前端的能力限制，而不是 Harness 的限制，并且是被说明出来的，而不是被绕开的。
 
 ## Work：第一个通用适配器
 

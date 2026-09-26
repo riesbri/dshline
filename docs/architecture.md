@@ -74,7 +74,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | approvals | `ctx.approval` | Answer only requests owned by this frontend; let the waterfall fail closed for other agent identities. |
 | permission presets | `ctx.permissionPresets` + `ctx.sessionProjections` (`permissions`) | Two authorities, not one. Read the live process-level catalog with `catalog()` at the moment a picker opens, and the durable current selection from the projection; keep a copy of neither. Mutate only through the registered `/permission <preset>` command, and offer nothing the live catalog does not list. Treat both as optional. |
 | sessions | `ctx.sessionQuery` | Query Harness's live-preferred session corpus; do not build another database. Its full-text methods are abstract, so treat content search as optional. Its `SessionHeader.cwd` values are also the only working-directory authority: group them transiently, never store a directory list, a worktree registry, or a Git state cache. |
-| attachments | `ctx.fs` + `ctx.attachments` | Keep paths as session-local drafts; perform bounded reads through the active filesystem and publish durable image references as one batch. Never persist bytes, base64, or host paths. |
+| attachments | `ctx.fs` + `ctx.attachments` | Keep paths as session-local drafts, in ONE ordered ledger shared by images and generic files, because staging order is message order. Read images whole under the deployment's published byte limits; read a generic file in bounded `readByteRange` windows and hand `saveFileStream` an async iterable, so this process never buffers a whole file. Both kinds commit through the one store and reach the Agent as `ImageBlock`/`FileBlock` inside an ordinary `user/message`. Never persist bytes, base64, or host paths, and never add a size or type policy the store does not own. |
 | log-derived state | `ctx.sessionProjections` | Consume registered domain snapshots and changes. |
 | context occupancy | `ctx.sessionProjections` (`contextPressure`, `contextBreakdown`, `tokenUsage`) | Read the O(1) folds; never count tokens or tokenize. |
 | session statistics | `ctx.sessionProjections` (`sessionStats`) | Read the whole-log counts and wall times; derive nothing beyond one division over two published totals. Treat the unit as optional. |
@@ -421,6 +421,87 @@ buffer and cursor are not underneath it, and closing it restores the composer
 untouched. The shared chrome is a pure helper with no state, no inputs beyond
 what it renders, and no lifetime or view of Harness; input and state ownership
 are not shared with it.
+
+## Attachments: two gestures, one ledger, one owner
+
+`/image`, `/attach`, and `@path` answer three different questions and must stay
+three different answers. `/image` gives a model something to see, `/attach`
+gives it a document, and `@path` only names a path for the model to open with
+its own tools. The third was never an upload, and turning `@foo` into one would
+silently change what every existing prompt means.
+
+**One ordered ledger, because staging order is message order.** Images and
+generic files share one array in `attachment-drafts.ts`. Two parallel lists
+would have to be merged at send time, and every such merge is a place where
+"all the images, then all the files" quietly becomes the projection — which is
+not what `/image a.png /attach trace.json /image b.png` asked for. Each kind is
+still listed, numbered, and cleared by its own command, because `/image` has
+always numbered images and changing that would be its own regression; the
+ledger underneath keeps the order the reader used. Identity for consumption is
+the pair `(kind, path)`, so the same path staged once as an image and once as a
+file cannot swallow the other.
+
+**Nothing is read at staging time.** A draft is a path and a basename. The
+bytes are read when the message is sent, because the file may be replaced
+between the two and only the moment of sending is a truthful answer to "what
+did you mean to attach".
+
+**Files are streamed, never buffered.** A generic file has no size policy and
+no type policy in the adopted contract, precisely because its storage is
+streamed and consumed lazily, so dshline adds neither. What it still had to
+decide was how to get bytes into that stream without becoming a second file
+store:
+
+```text
+path staged locally by dshline
+  → ctx.fs.resolve(path, { cwd, signal })
+  → ctx.fs.stat(target)              regular-file check
+  → ctx.fs.readByteRange(target, { offset, length }, signal)   bounded windows
+  → ctx.attachments.saveFileStream({ data, signal, name })
+  → ctx.fs.stat(target)              FsInfo.version freshness check
+  → FileBlock in an ordinary user/message
+```
+
+`node:fs` is deliberately absent. Its `createReadStream` would bypass
+`ctx.fs` entirely and work only for a host-local profile, which is exactly the
+deployment this must not be limited to — a remote or sandboxed filesystem is
+the one that decides what the path means. The window size is a memory bound on
+this process, not a maximum file size: nothing is refused for being large, and
+the store still decides what it admits.
+
+**Freshness is checked because the read has no precondition.** `readByteRange`
+takes no expected version, so nothing in the filesystem contract stops the file
+being rewritten between the first `stat` and the last window. Comparing
+`FsInfo.version` around the stream is the only evidence available that the
+bytes stored are the bytes that were there, and a mismatch is reported rather
+than sent. The provider may already have published an object; that is its
+retention to collect, and there is no rollback to invent on this side of the
+seam.
+
+**One admission, and it is all or nothing.** Images and files share a single
+admission flag and a single submission snapshot. Two flags would be two races
+over one ledger, each unable to say what the reader had staged. A submission
+either delivers every intended block or delivers nothing: a message is never
+sent carrying the attachments that happened to succeed, and on failure the
+drafts stay staged, the submitted text returns to the composer only if the
+reader has not typed over it, and the error is a short path-free sentence read
+from a stable code.
+
+**What dshline does not own here.** No file storage, no parser, no extension or
+size policy, no text extraction, no base64 transport, no cache. The transcript
+shows a durable file reference by name and byte count and reads no bytes while
+rendering history, which is what makes a `FileBlock` replay identically after a
+resume with no dshline-side state at all.
+
+**The one place this stops is registered commands.** `CommandSubmitAttachment`
+admits a generic file only as a staged upload receipt resolved by the Session
+upload owner, and no such owner is mounted in this frontend. Fabricating a
+receipt id would be a fabricated reference, and claiming
+`ctx.commands.registerFileReceiptResolver` would make a terminal the receipt
+authority for a product boundary Harness owns — so a command that declares
+`input.attachments` is refused with an explanation while its drafts survive.
+That is a frontend limitation, not a Harness one, and it is stated rather than
+worked around.
 
 ## Work: the first generic adapter
 

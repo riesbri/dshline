@@ -40,7 +40,7 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { encodeCommandImages } from '../../src/image-drafts.ts'
+import { encodeCommandImages } from '../../src/attachment-drafts.ts'
 
 /** Limits this probe publishes through its local backend. */
 const LIMITS: ImageAttachmentLimits = {
