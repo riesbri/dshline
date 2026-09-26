@@ -21,6 +21,30 @@
           # ships the same rows mounted process-wide and mounting both would
           # double-register each one.
           #
+          # ONE DELIBERATE DIVERGENCE FROM UPSTREAM, and the only one: this declaration
+          # ALSO mounts the first-party Cordis authoring skills that ship inside
+          # `@deepseek-ai/dsh-agent-preset` itself. Upstream's own `standard` does NOT —
+          # only its `cordis` (Creator) preset does, because upstream reaches them through
+          # `tool-cordis`, which this profile does not mount at all. dshline wants the
+          # knowledge a terminal session cannot get any other way, and a skill is text the
+          # agent can READ, not a capability it needs mounted. A Harness migration must
+          # therefore expect this row to differ from upstream and must NOT "restore" it:
+          # that is drift being mistaken for an accident.
+          #
+          # What this does and does not change:
+          #
+          #   Harness still owns the files. They are read from the installed package, in
+          #   that package's own `skills/` directory — nothing is copied into this
+          #   repository, and the next adopted generation's new or reworded skill bodies
+          #   arrive by the Harness migration alone.
+          #   Harness still owns discovery, precedence and loading. The only thing below
+          #   is a `customSkillDirs` entry pointing the EXISTING provider at that
+          #   directory; no registry, no scanner, and no precedence rule was added.
+          #   SKILLS EXPOSED IS NOT CREATOR TOOLS ENABLED. `cordis_inspect_list`,
+          #   `cordis_inspect_query`, `tool-plugin-manager` and the Web Client tooling
+          #   stay unmounted, so a skill may describe an operation this preset cannot
+          #   perform. The bodies are not filtered to hide that, and must not be.
+          #
           # A service row here MUST sit inside a group carrying an `isolate` realm. Without
           # one it publishes into the root realm, where it is process-global — another
           # preset publishing the same name collides, and a host reader would resolve one
@@ -94,8 +118,26 @@
 
           # The skill REGISTRY lives in the host composition and is layered per scope:
           # these rows register into THIS preset's layer of it, so they need no realm.
+          #
+          # `customSkillDirs` is the ONE deliberate divergence from upstream's standard
+          # declaration, named in the comment at the top of this file. It points the
+          # ordinary Harness filesystem provider at the `skills/` directory the
+          # `@deepseek-ai/dsh-agent-preset` package already ships, using the exact
+          # resolution expression upstream's own Creator preset uses for the same three
+          # skills. Resolving through `createRequire(baseUrl).resolve(.../package.json)`
+          # rather than a literal `node_modules` path is what keeps it correct in a
+          # pnpm store, a linked Harness checkout, and a published bundle alike.
+          #
+          # `includeDefaultRoots` is deliberately left unset. Its own default is `true`,
+          # so `.dsh/skills` and `.agents/skills` in the project and under the user's
+          # home keep working, and the custom root slots in between the project and user
+          # ones at Harness's own rank. Setting it `false` would replace the ordinary
+          # roots with the packaged ones instead of augmenting them.
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              customSkillDirs:
+                - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'

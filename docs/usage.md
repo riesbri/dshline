@@ -588,8 +588,8 @@ a field it does not render. See
 ### Plugins
 
 `/plugins` opens a bounded overlay on the running agent's Harness preset — the
-named composition of tools, prompt sections, and delegation backends the
-agent was actually joined to, not a fixed list this interface keeps:
+named composition of tools, prompt sections, delegation backends, and skill
+roots the agent was actually joined to, not a fixed list this interface keeps:
 
 ```
 ╭─ dshline ───────────────────────────────────────────────────────────── Plugins ─╮
@@ -1249,6 +1249,49 @@ load. Harness owns all of it — where skills come from, which one wins a
 duplicate name, who is allowed to invoke it, and what loading one does. This
 interface only shows you the ones your agent can actually see, and helps you
 type the line that invokes one.
+
+**The `standard` preset also ships DeepSeek's own skills.** Next to whatever
+you have written yourself, `standard` exposes the first-party skills that come
+from the installed `@deepseek-ai/dsh-agent-preset` package itself:
+
+- `cordis-composition-reference` — the Cordis bundle-patch and agent-preset
+  dialect, and what each installable plugin package provides
+- `editing-cordis-compositions` — creating, changing, and validating a preset
+- `cordis-plugin-development` — adding, enabling, disabling, or configuring a
+  plugin, bundle, tool, page, or MCP connection in this profile
+
+They are ordinary Harness skills. Their files are read from the installed
+package and are never copied into this interface, so reworded or additional
+skills arrive with the next Harness release rather than with an update here.
+`/skills` lists them like any other skill, with the source `custom`, and
+`/plugins` shows the row that mounts them: `skill-filesystem`, carrying the
+packaged directory as a `customSkillDirs` entry.
+
+**Where skills are found.** Harness's own filesystem provider scans these roots
+in this order, and the first one to supply a name wins the duplicate:
+
+```
+<project>/.dsh/skills
+<project>/.agents/skills
+the packaged @deepseek-ai/dsh-agent-preset/skills
+~/.dsh/skills
+~/.agents/skills
+```
+
+Your own project skills are unaffected and outrank the packaged ones: a
+`cordis-composition-reference` of your own under `.dsh/skills` replaces the
+shipped copy. The packaged root sits between the project roots and the user
+roots, so a shipped skill can be overridden from either side.
+
+> [!IMPORTANT]
+> A skill can describe an operation whose tool this preset does not mount.
+> `standard` deliberately ships **without** Creator's tooling — no
+> `tool-cordis`, so neither `cordis_inspect_list` nor `cordis_inspect_query`,
+> and `tool-plugin-manager` stays disabled — so one of the skills above may ask
+> the agent to do something this profile cannot do. The skill text is Harness's
+> and is shown as written rather than trimmed to hide the gap: exposing a skill
+> does not imply that everything the skill mentions is available here.
+> `/plugins` is where you check what the running agent actually composes.
 
 **Invoking a skill is just typing.** A message that starts with the skill's
 name after a slash invokes it:

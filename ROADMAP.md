@@ -282,9 +282,9 @@ Still ahead for Connect:
 ### 5. Agent presets — merged
 
 The fifth generic capability adapter presents agent COMPOSITION: which tools,
-prompt sections, and delegation backends the running agent actually has,
-through `ctx.agentPresets`. A preset is a declaration in the composition, not
-a file in a shipped directory. `/plugins` browses the roster and the
+prompt sections, delegation backends, and skill roots the running agent
+actually has, through `ctx.agentPresets`. A preset is a declaration in the
+composition, not a file in a shipped directory. `/plugins` browses the roster and the
 composition of whichever declaration an agent is joined to, and carries out
 every change through the seam that owns it — `ctx.configEditor` for a row,
 `ctx.settings` for the default, `select()` for the switch.
@@ -311,7 +311,14 @@ every change through the seam that owns it — `ctx.configEditor` for a row,
 - adopting this meant moving dshline's own previously process-wide tool set
   behind the same preset boundary Harness's Web frontend already uses, the
   same "agent plane moves behind agent presets" step and for the identical
-  reason
+  reason, with one deliberate exception: dshline's `standard` also points the
+  ordinary Harness filesystem skill provider at the `skills/` directory
+  `@deepseek-ai/dsh-agent-preset` ships, so the three first-party Cordis
+  authoring skills reach a terminal session that mounts no `tool-cordis`.
+  Harness keeps the files, discovery, precedence, and loading; dshline
+  contributes one directory entry and no skill system of its own. This is
+  first-party skill knowledge, not Creator capability — see
+  [Architecture](docs/architecture.md#presets-composition-is-harnesss-not-dshlines)
 
 `/profiles` presents the profile layer above it: the roster under
 `$DSH_HOME/profiles` read through Harness's own `dshHomePath` service, the

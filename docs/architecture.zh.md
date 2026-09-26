@@ -75,6 +75,8 @@ native terminal
 
 技能是最后这条规则当前活生生的例子。`ctx.skills` 回答一个 agent 能看到哪些技能、其中哪些是 `userInvocable`，但真正解释人类 `/name` 手势的消费者是一个独立的包（`dsh-tool-skill`），而没有任何接口说明某个组合是否挂载了它。因此一个手工搭建的组合可以发布一个用户可调用的技能，而任何 `/name` 行都到达不了它。dshline 不推断这种就绪性——不解析预设 YAML，不检视 Cordis 的监听器注册，也不把一个名为 `skill` 的模型工具当作人类手势边界存在的证据；这些读的都是实现而非约定。它遵循 `userInvocable`，这与 Harness 自己的 Web 客户端遵循的约定相同（`session-controller` 的技能目录 Remote 仅按 `isUserInvocable` 过滤），并且这一缺口是向用户记录下来，而不是靠猜。一个权威的就绪性 seam 属于上游工作。
 
+一个 agent 能看到哪些技能同样是 Harness 的决定，而预设正是做出这一决定的地方之一。随包的 `standard` 声明是相对已采纳上游 `standard` 的那一处刻意分歧（见[预设](#预设组合属于-harness不属于-dshline)）：它把普通的 `@deepseek-ai/dsh-skill-filesystem` 提供方指向 `@deepseek-ai/dsh-agent-preset` 包本身随附的 `skills/` 目录，那三个第一方 Cordis 编写技能就来自那里。dshline 只贡献那个 `customSkillDirs` 条目，别的一概没有——文件、发现、根目录之间的优先级以及加载全部属于 Harness，而出现在那里的技能会像其他任何技能一样经由 `ctx.skills` 浮现，带一个 `custom` 来源，本前端既不为它开特例，也不替它解释。
+
 ### 2. 已知的投影领域
 
 领域插件可以通过 `ctx.sessionProjections` 发布结构化、日志派生的状态。dshline 可以为 `todos` 或 `goal` 这样的已知键提供原生呈现适配器，但领域与 Harness 仍然是状态权威。TUI 不得解析工具输出、折叠会话日志的第二份副本，或创建竞争性的持久化格式。
@@ -485,8 +487,8 @@ dshline 不发起任何提供方 HTTP 请求，除了在一次显式的创建之
 
 ## 预设：组合属于 Harness，不属于 dshline
 
-agent 预设是 Harness 自己对"这个 agent 能做什么"的回答——一个由工具、提示词分节与委派后端
-构成的具名组合，通过 `ctx.agentPresets` 解析，并在其生命周期唯一受支持的那个点
+agent 预设是 Harness 自己对"这个 agent 能做什么"的回答——一个由工具、提示词分节、委派后端
+与该 agent 可从中加载的技能根构成的具名组合，通过 `ctx.agentPresets` 解析，并在其生命周期唯一受支持的那个点
 `setup(agentCtx, agent)` 上加入某个 agent。`/plugins` 是这个 seam 的终端呈现：它列出名册，展示运行中
 agent 的预设实际组合的那些行，并通过与官方 Web 界面所做变更相同的权威执行变更。它不保留插件
 注册表、能力列表，也没有自己的提供方专用分支——正是本文档中每一个适配器都遵循的同一条规则，
@@ -538,6 +540,21 @@ header 与其后每一次选择折叠在一起；dshline 不从原始日志重�
 不是。`dsh-base` 过去无条件挂载的每一个按 agent 的行，现在都移到某个 agent 实际加入的预设之后，
 与 Harness 自己的 Web bundle 出于完全相同的理由已经走过的"agent 平面移到 agent 预设之后"是同
 一步；而没有按会话含义的进程级服务——各类注册表、沙箱与审批栈、token 计量器——原地不动。
+
+**有一行不是照抄，也不打算变成照抄。**除它之外，dshline 的 `standard` 就是已发布的上游 `standard`
+声明为终端配置文件重述的那一份，而未来的 Harness 迁移应当预期把这一点延续下去。例外是它的
+`skill-filesystem` 行：上游自己的 `standard` 让这一行保持空白，而 dshline 为它配置了一个
+`customSkillDirs` 条目，指向 `@deepseek-ai/dsh-agent-preset` 随附的 `skills/` 目录——与上游
+`cordis`（Creator）预设挂载的是同一个表达式、同样那三个技能。上游是通过 `tool-cordis` 触达这些
+技能的，而本配置文件并不挂载它；dshline 想要的是终端会话否则拿不到的那些知识，而一个技能是
+agent 可以阅读的文本，并不是它需要被挂载的一项能力。
+
+让这仍然属于组合、而不是第二套技能系统的，正是它的界限。文件及其版本、发现、根目录之间的
+优先级、加载，全部仍属于 Harness；dshline 只向既有提供方提供一个目录条目，不新增扫描器、
+不新增注册表、也不新增第二套排序。因此未来的采纳会自行接上下一个世代被改写或新增的技能，
+而一个配置文件仍然可以通过既有机制按行 id 覆盖或丢弃该行。它**没有**做的是启用 Creator：
+`tool-cordis` 依然缺席，`tool-plugin-manager` 依然禁用，这意味着某个随附技能可能描述一项本预设
+无法执行的操作。这一落差是被展示出来的，而不是被从技能文本里过滤掉的。
 
 ## 配置文件提供；预设暴露
 

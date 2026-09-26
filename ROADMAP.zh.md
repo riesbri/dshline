@@ -143,7 +143,7 @@ Connect 仍在前面：
 ### 5. Agent 预设——已合并
 
 第五个通用能力适配器呈现 agent 的 COMPOSITION（组合）：运行中的 agent 实际拥有哪些工具、
-提示词分节与委派后端，通过 `ctx.agentPresets` 读取。预设现在是组合中的一条 declaration，而不是
+提示词分节、委派后端与技能根，通过 `ctx.agentPresets` 读取。预设现在是组合中的一条 declaration，而不是
 发布目录里的一个文件。`/plugins` 浏览名册以及某个 agent 所加入声明的组合，并把每一项变更交给
 拥有它的 seam 执行——行内编辑走 `ctx.configEditor`，默认项走 `ctx.settings`，切换走 `select()`。
 
@@ -161,7 +161,11 @@ Connect 仍在前面：
   可用 `standard` 的部署回退到它自己的默认值并在 transcript（文本记录）中说明，而不是拒绝
   打开自己的历史
 - 采纳这一点意味着把 dshline 自己原先进程级的工具集移到 Harness 的 Web 前端已经使用的同一条
-  预设边界之后，与"agent 平面移到 agent 预设之后"是同一步，理由也完全相同
+  预设边界之后，与"agent 平面移到 agent 预设之后"是同一步，理由也完全相同——只有一处刻意的例外：
+  dshline 的 `standard` 还把普通的 Harness 文件系统技能提供方指向 `@deepseek-ai/dsh-agent-preset`
+  随附的 `skills/` 目录，于是那三个第一方 Cordis 编写技能可以到达一个不挂载 `tool-cordis` 的终端
+  会话。文件、发现、优先级与加载仍归 Harness 所有；dshline 只贡献一个目录条目，并不自带任何
+  技能系统。这是第一方技能知识，而不是 Creator 能力——见[架构](docs/architecture.zh.md#presets-composition-is-harnesss-not-dshlines)
 
 `/profiles` 呈现其上的配置文件层：通过 Harness 自己的 `dshHomePath` 服务读取 `$DSH_HOME/profiles`
 下的名册，从 Loader 的 base URL 读取已启动的配置文件，以及每个配置文件的 `dsh.profile.bundles`

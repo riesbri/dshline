@@ -106,8 +106,11 @@ export const CAPABILITY_PROBES = [
   },
   {
     name: 'skills',
-    files: ['packages/dshline/tests/capability/skills.probe.spec.ts'],
-    note: 'real SkillRegistry and dsh-tool-skill pre-step boundary over local provider/Agent fixtures; live agent submission and filesystem discovery are outside the probe',
+    files: [
+      'packages/dshline/tests/capability/skills.probe.spec.ts',
+      'packages/dshline/tests/capability/preset-skills.probe.spec.ts',
+    ],
+    note: 'real SkillRegistry and dsh-tool-skill pre-step boundary over local provider/Agent fixtures, plus the real dsh-skill-filesystem provider resolving dshline’s own shipped `standard` customSkillDirs over the installed @deepseek-ai/dsh-agent-preset/skills directory and a scratch project; live agent submission is outside the probe',
   },
   {
     name: 'authorization',

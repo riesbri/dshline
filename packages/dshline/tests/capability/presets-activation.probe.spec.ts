@@ -36,6 +36,15 @@ import { pathToFileURL } from 'node:url'
  */
 const JS_EXPR_TAG = { tag: 'tag:yaml.org,2002:js', resolve: (source: string) => source }
 
+/**
+ * The one adopted Harness version, read from `HARNESS_TARGET` rather than
+ * written here — a literal would be a second place to update on a migration,
+ * and `tools/harness-target.mjs` already owns that comparison.
+ */
+const HARNESS_VERSION = /^version (?<version>\S+)$/mu
+  .exec(readFileSync(fileURLToPath(new URL('../../../../HARNESS_TARGET', import.meta.url)), 'utf8'))
+  ?.groups?.version
+
 /** One shipped declaration file, as this bundle packs it. */
 function declaration(file: string): PresetDefinition {
   const parsed: unknown = parse(
@@ -179,5 +188,111 @@ describe('shipped preset declarations activate', () => {
     } finally {
       await ctx.fiber.dispose()
     }
+  })
+})
+
+/**
+ * dshline's ONE deliberate divergence from the adopted Harness `standard`
+ * declaration: it also mounts the first-party Cordis authoring skills that ship
+ * inside `@deepseek-ai/dsh-agent-preset`.
+ *
+ * Upstream's own `standard` carries a bare `skill-filesystem` row; only its
+ * `cordis` (Creator) preset points the same provider at the packaged directory.
+ * These assertions exist so a later Harness migration treats the difference as a
+ * decision rather than deleting it as drift — and, more urgently, so a future
+ * edit that quietly turns this into full Creator mode fails here.
+ *
+ * Structural only. That the expression really resolves to the installed package
+ * and that the real provider then serves those three skills is
+ * `preset-skills.probe.spec.ts`'s job; a string check cannot stand in for it.
+ */
+describe('shipped standard: the deliberate divergence from upstream', () => {
+  /** The config block of one row, typed only as far as these cases read it. */
+  function configOf(preset: PresetDefinition, id: string): Record<string, unknown> {
+    const row = preset.plugins.find(candidate => candidate.id === id)
+    if (row === undefined) throw new Error(`standard declares no ${id} row`)
+    return (row.config ?? {}) as Record<string, unknown>
+  }
+
+  it('declares exactly one skill-filesystem row, and it is the Harness provider', () => {
+    const rows = rowsOf(declaration('../../presets/standard.patch.yml')).filter(row => row.id === 'skill-filesystem')
+    expect(rows, 'a second provider would register the same skills twice').toHaveLength(1)
+    expect(rows[0]?.name).toBe('@deepseek-ai/dsh-skill-filesystem')
+  })
+
+  it('points that one row at the packaged skills directory through the Loader expression', () => {
+    const config = configOf(declaration('../../presets/standard.patch.yml'), 'skill-filesystem')
+    expect(Array.isArray(config['customSkillDirs'])).toBe(true)
+    const dirs = config['customSkillDirs'] as unknown[]
+    expect(dirs).toHaveLength(1)
+    // A `!!js` value is source text, so its exact form is the declaration. The
+    // resolution is verified for real in `preset-skills.probe.spec.ts`; what is
+    // pinned here is that it reaches the PACKAGE rather than a hard-coded path,
+    // because a literal `node_modules` spelling breaks in a pnpm store and in a
+    // published bundle alike.
+    const expression = dirs[0]
+    expect(typeof expression).toBe('string')
+    expect(expression as string).toContain("createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')")
+    expect(expression as string).toMatch(/'skills'\)?$/)
+  })
+
+  it('augments the default roots rather than replacing them', () => {
+    const config = configOf(declaration('../../presets/standard.patch.yml'), 'skill-filesystem')
+    // Both are deliberately absent. `includeDefaultRoots` is Harness's own
+    // default of `true`, and writing `false` here would be the one way to make
+    // the packaged skills visible while silently killing every project and user
+    // skill — a regression the catalog probe catches and this shape cannot.
+    expect(config['includeDefaultRoots']).toBeUndefined()
+    // Likewise the provider name: the shipped default is what `/skills` and the
+    // registry already know, and renaming it would fork the provider identity.
+    expect(config['providerName']).toBeUndefined()
+  })
+
+  it('keeps the skill tool that serves the merged catalog to the agent', () => {
+    const rows = rowsOf(declaration('../../presets/standard.patch.yml'))
+    const tool = rows.find(row => row.id === 'tool-skill')
+    expect(tool?.name).toBe('@deepseek-ai/dsh-tool-skill')
+    expect(tool?.group).toBe(false)
+  })
+
+  it('does NOT become the Creator preset: no tool-cordis row exists', () => {
+    // Skills exposed is not Creator tools enabled. `dsh-tool-cordis` supplies
+    // `cordis_inspect_list` and `cordis_inspect_query`, and enabling it is a
+    // separate decision that this feature explicitly does not take.
+    const rows = rowsOf(declaration('../../presets/standard.patch.yml'))
+    expect(rows.map(row => row.name)).not.toContain('@deepseek-ai/dsh-tool-cordis')
+    expect(rows.map(row => row.id)).not.toContain('tool-cordis')
+  })
+
+  it('leaves tool-plugin-manager disabled in the standard preset', () => {
+    const preset = declaration('../../presets/standard.patch.yml')
+    const row = preset.plugins.find(candidate => candidate.id === 'tool-plugin-manager')
+    expect(row?.name, 'the row stays, so a profile can still enable it deliberately').toBe('@deepseek-ai/dsh-plugin-manager/tools')
+    expect(row?.disabled, 'plugin management is a human action taken through /profiles').toBe(true)
+  })
+
+  it('leaves minimal alone: minimal is not a second way to get the packaged skills', () => {
+    // `minimal` exists to be switched TO, not tuned. A packaged root there would
+    // make the small preset carry three Cordis skills a person never asked for,
+    // and would make the divergence this PR records apply to two presets.
+    const rows = rowsOf(declaration('../../presets/minimal.patch.yml'))
+    expect(rows.filter(row => row.id === 'skill-filesystem')).toHaveLength(1)
+    const config = configOf(declaration('../../presets/minimal.patch.yml'), 'skill-filesystem')
+    expect(config['customSkillDirs']).toBeUndefined()
+  })
+
+  it('ships the package whose skills it exposes as a runtime dependency, not a new one', () => {
+    // The `!!js` expression resolves `@deepseek-ai/dsh-agent-preset` from the
+    // composition, so the row only works if the package is really installed —
+    // which it already was, because this bundle composes the preset itself.
+    const manifest = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
+    ) as {
+      dependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+    }
+    expect(manifest.dependencies?.['@deepseek-ai/dsh-agent-preset']).toBe(HARNESS_VERSION)
+    expect(manifest.peerDependencies?.['@deepseek-ai/dsh-agent-preset']).toBeUndefined()
   })
 })

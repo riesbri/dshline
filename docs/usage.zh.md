@@ -410,7 +410,7 @@ Signed in · ChatGPT (Codex)
 ### Plugins
 
 `/plugins` 在运行中 agent 的 Harness 预设上打开一个有界浮层——该 agent 实际加入的那个由工具、
-提示词分节与委派后端构成的具名组合，而不是本界面自己保存的一份固定清单：
+提示词分节、委派后端与技能根构成的具名组合，而不是本界面自己保存的一份固定清单：
 
 ```
 ╭─ dshline ───────────────────────────────────────────────────────────── Plugins ─╮
@@ -762,6 +762,29 @@ subagent 行的构造首先回答一个问题——这个工作者正在做什�
 ### 技能
 
 **技能**是你的 agent 可以加载的一组可复用的、面向具体任务的指令。它整个属于 Harness——技能从哪里来、同名时哪一个获胜、谁被允许调用它、加载一个会做什么。本界面只展示你的 agent 实际能看到的那些，并帮你把调用其中之一的那一行打出来。
+
+**`standard` 预设还自带 DeepSeek 自己的技能。** 除了你自己写的那些，`standard` 还暴露来自已安装的 `@deepseek-ai/dsh-agent-preset` 包本身的第一方技能：
+
+- `cordis-composition-reference` —— Cordis bundle patch 与 agent preset 的方言，以及每个可安装插件包提供什么
+- `editing-cordis-compositions` —— 创建、修改与校验一个 preset
+- `cordis-plugin-development` —— 在本配置文件中添加、启用、禁用或配置插件、bundle、工具、页面或 MCP 连接
+
+它们就是普通的 Harness 技能。它们的文件从已安装的包中读取，绝不会被复制进本界面，因此改写或新增的技能会随下一次 Harness 发布到来，而不是随本界面的更新到来。`/skills` 像列出任何其他技能一样列出它们，来源显示为 `custom`；`/plugins` 显示挂载它们的那一行：`skill-filesystem`，其中以一个 `customSkillDirs` 条目携带该打包目录。
+
+**技能从哪里被找到。** Harness 自己的文件系统提供方按以下顺序扫描这些根目录，提供某个名字的第一个根赢得该重名：
+
+```
+<project>/.dsh/skills
+<project>/.agents/skills
+the packaged @deepseek-ai/dsh-agent-preset/skills
+~/.dsh/skills
+~/.agents/skills
+```
+
+你自己的项目技能不受影响，并且排在打包技能之前：你在 `.dsh/skills` 下自己写的 `cordis-composition-reference` 会替换随附的那份。打包根目录位于项目根与用户根之间，因此随附的技能可以从任意一侧被覆盖。
+
+> [!IMPORTANT]
+> 一个技能可能描述某个本预设并未挂载对应工具的操作。`standard` 是**刻意**不附带 Creator 的工具的——没有 `tool-cordis`，因此既没有 `cordis_inspect_list` 也没有 `cordis_inspect_query`，而 `tool-plugin-manager` 保持禁用——所以上面某个技能可能会要求 agent 做本配置文件做不到的事。技能文本属于 Harness，按原样展示，而不是被裁剪以掩盖这一落差：暴露一个技能并不意味着该技能提到的一切在这里都可用。`/plugins` 才是你查看运行中 agent 实际组合了什么的地方。
 
 **调用一个技能就是打字。** 一条以斜杠加技能名开头的消息就调用它：
 
