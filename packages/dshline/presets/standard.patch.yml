@@ -31,8 +31,10 @@
           #
           # One further difference, made here for the first time in this file, is the
           # dedicated `skill-harness-authoring` provider next to the ordinary skill rows.
-          # Upstream's `standard` carries neither; upstream's `cordis` (Creator) preset does
-          # carry the same three skills, configured as one more root on its single provider.
+          # Upstream `standard` carries the ordinary bare `skill-filesystem` row, and does
+          # NOT add this authoring provider or its `@deepseek-ai/dsh-agent-preset` root.
+          # Upstream `cordis` exposes the same three package skills, as part of the Creator
+          # composition, configured as one more root on its single provider.
           # What that is actually about, stated correctly because the obvious reading is
           # wrong: `tool-cordis` does not load these skills. `skill-filesystem` discovers
           # them and `tool-skill` exposes and loads them. Creator mounts `tool-cordis` and
@@ -161,10 +163,10 @@
           # to register at all.
           #
           # Being its OWN row is the point. `/plugins` can toggle `skill-harness-authoring`
-          # off without touching `skill-filesystem`, so someone who wants neither these
-          # three skills nor a ChatGPT-shaped default keeps the ordinary provider and every
-          # project and user skill they wrote. No dshline-side switch is added for this;
-          # the preset-row toggle dshline already has is the control.
+          # off without touching `skill-filesystem`, so someone who does not want these
+          # packaged authoring skills can disable this row while retaining the ordinary
+          # provider and every project and user skill they wrote. No dshline-side switch is
+          # added for this; the preset-row toggle dshline already has is the control.
           - id: skill-harness-authoring
             name: '@deepseek-ai/dsh-skill-filesystem'
             config:

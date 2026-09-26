@@ -6,8 +6,10 @@ Expose DeepSeek Harness's first-party Cordis authoring skills in the standard pr
 
 The `standard` preset now also exposes the skills that ship inside
 `@deepseek-ai/dsh-agent-preset`: `cordis-composition-reference`,
-`editing-cordis-compositions`, and `cordis-plugin-development`. A terminal
-session previously had no way to reach them at all.
+`editing-cordis-compositions`, and `cordis-plugin-development`. dshline's
+shipped `standard` preset previously did not expose these package-owned skills
+by default; a profile that had already mounted that directory itself already had
+them, and this changes nothing for such a profile.
 
 Upstream's own `standard` mounts `skill-filesystem` bare; only its `cordis`
 (Creator) preset points that provider at the packaged directory. Upstream

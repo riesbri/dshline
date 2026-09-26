@@ -37,7 +37,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { parse } from 'yaml'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -109,7 +109,27 @@ let deploymentBundled: string
 /** The `baseUrl` shape the Loader evaluates a preset row under. */
 let baseUrl: string
 
+/**
+ * `DSH_BUNDLED_SKILL_DIR` as this process found it, and whether it was there.
+ *
+ * Production HONORS this variable: the ordinary provider falls back to it exactly
+ * when `bundledSkillDir` is unset and `includeDefaultRoots` is true, and the
+ * shipped row deliberately leaves both alone. That is correct, and this file
+ * does not weaken it. What would be wrong is letting an inherited value decide
+ * the result of a default case — on a machine or a CI runner that happens to
+ * export one, the three packaged skills would no longer be the whole catalog and
+ * a test would fail for a reason that has nothing to do with this composition.
+ *
+ * So the suite saves, clears, and restores exactly this one variable. Nothing
+ * else in the environment is touched, and the cases that genuinely need a
+ * deployment bundled root pass one explicitly rather than reading the ambient
+ * value. The original is put back in `afterAll` — including leaving it absent
+ * when it was absent — so a test process cannot leak a change into its parent.
+ */
+const inheritedBundledDir = process.env.DSH_BUNDLED_SKILL_DIR
+
 beforeAll(async () => {
+  delete process.env.DSH_BUNDLED_SKILL_DIR
   scratch = await realpath(await mkdtemp(join(tmpdir(), 'dshline-preset-skills-')))
   project = join(scratch, 'project')
   dshHome = join(scratch, 'dsh-home')
@@ -119,8 +139,10 @@ beforeAll(async () => {
     await mkdir(dir, { recursive: true })
   }
   // The Loader evaluates a preset row with the BASE URL of the composition
-  // resolving it. A profile root is the realistic value, and a file URL is what
-  // `createRequire` needs, so this is the real thing rather than a stand-in.
+  // resolving it, which the adopted generation anchors at the config-tree root
+  // (`typert-loader` requires it, and the CLI's profile boot supplies an include
+  // root to give it one). A profile root is therefore the realistic value, and a
+  // file URL is what `createRequire` needs.
   baseUrl = pathToFileURL(`${scratch}/`).href
 })
 
@@ -129,6 +151,24 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true })
     await mkdir(root, { recursive: true })
   }
+})
+
+/**
+ * Remove the whole scratch tree and put the environment back.
+ *
+ * `afterAll` rather than a final `afterEach`, because the per-case reset only
+ * clears the child roots; without this the suite would leave a `mkdtemp`
+ * directory behind on every run. `force` makes it a no-op on a tree a failing
+ * test already removed, so teardown still restores the variable on the way out
+ * rather than throwing before it gets there.
+ */
+afterAll(async () => {
+  if (inheritedBundledDir === undefined) {
+    delete process.env.DSH_BUNDLED_SKILL_DIR
+  } else {
+    process.env.DSH_BUNDLED_SKILL_DIR = inheritedBundledDir
+  }
+  if (scratch !== undefined) await rm(scratch, { recursive: true, force: true })
 })
 
 /**
@@ -146,9 +186,10 @@ function packagedRoot(): string {
 /**
  * Mount the real registry with BOTH production providers, the way the shipped
  * `standard` declaration composes them.
- * @param ordinary - extra fields for the ordinary provider, e.g. a deployment
- *   bundled root. Empty by default, which leaves the deployment's own bundled
- *   channel to `$DSH_BUNDLED_SKILL_DIR` exactly as upstream does.
+ * @param ordinary - extra fields for the ordinary provider. A deployment bundled
+ *   root is passed this way rather than through `DSH_BUNDLED_SKILL_DIR`, so the
+ *   cases that want one are deterministic and the cases that do not are not at
+ *   the mercy of the ambient environment.
  * @returns a context carrying the real `ctx.skills`.
  */
 async function catalogWith(ordinary: Record<string, unknown> = {}): Promise<Context> {

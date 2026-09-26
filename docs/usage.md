@@ -1287,10 +1287,16 @@ provider scans these roots, and the first one to supply a name wins:
 this deployment's own bundled skills
 ```
 
-The Harness authoring skills come last of all, after everything above, so
-anything you wrote wins a shared name. A `cordis-composition-reference` of your
-own — in the project or in your home — replaces the shipped copy; only a name
-nobody else claims resolves to DeepSeek's version.
+The Harness authoring skills rank after every **project and user** root, so
+anything you put in those wins a shared name. A `cordis-composition-reference`
+of your own — in the project or in your home — replaces the shipped copy; only a
+name nobody else claims resolves to DeepSeek's version.
+
+The deployment's own bundled root and the Harness authoring provider both use
+Harness's bundled rank. They can coexist, and this interface deliberately
+defines no separate ordering between two bundled providers: which of two bundled
+skills with the same name you would get is Harness's business, not a guarantee
+made here.
 
 `/skills` labels these three **`bundled`**, because that is the source Harness
 resolved for a package-owned root. It is not a dshline category and it does not

@@ -790,7 +790,9 @@ subagent 行的构造首先回答一个问题——这个工作者正在做什�
 this deployment's own bundled skills
 ```
 
-Harness 的编写技能排在这一切之后，因此你写下的任何东西都会赢得同名。你自己写的 `cordis-composition-reference`——无论在项目里还是在家目录里——都会替换随附的那份；只有没人认领的名字才会解析到 DeepSeek 的版本。
+Harness 的编写技能排序在每一个**项目与用户**根之后，因此你放进这些根里的任何东西都会赢得同名。你自己写的 `cordis-composition-reference`——无论在项目里还是在家目录里——都会替换随附的那份；只有没人认领的名字才会解析到 DeepSeek 的版本。
+
+本部署自己的打包根与 Harness 编写提供方使用的都是 Harness 的 bundled 排序。二者可以共存，而本界面刻意不对两个打包提供方之间的先后另作规定：两个同名打包技能你会得到哪一个，是 Harness 的事，而不是这里作出的保证。
 
 `/skills` 把这三个标注为 **`bundled`**，因为对于由包拥有的根，那就是 Harness 所解析出的来源。它不是 dshline 的分类，也不意味着你的安装打包了什么自己的东西。
 
