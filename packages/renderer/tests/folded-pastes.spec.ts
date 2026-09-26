@@ -446,38 +446,40 @@ describe('editing around a fold', () => {
     expect(foldsOf(composer)[0]?.start).toBe(0)
   })
 
-  it('reveals a fold that a backspace would otherwise edit invisibly', () => {
+  it('removes a whole folded paste on one backspace', () => {
     const composer = new Composer()
     const body = lines(11)
     composer.handle(paste(body))
     composer.handle(key('backspace'))
-    // Deleting a character behind a label and leaving the label up would leave a
-    // caption counting text that no longer exists.
+    // The token is one thing on screen, so backspace removes that thing. The
+    // earlier rule revealed the fold and deleted ONE character, which handed back
+    // a document the reader had not chosen to see, minus a character nobody had
+    // seen go.
     expect(foldsOf(composer)).toEqual([])
+    expect(composer.value).toBe('')
     expect(shown(composer)).not.toContain('[Pasted text')
-    expect(shown(composer)).toContain('line 10')
-    expect(composer.value).toBe(body.slice(0, -1))
+    expect(shown(composer)).not.toContain('line 10')
   })
 
-  it('reveals a fold that a delete would otherwise edit invisibly', () => {
+  it('removes a whole folded paste on one forward delete', () => {
     const composer = new Composer()
     const body = lines(11)
     composer.handle(paste(body))
     composer.handle(key('home'))
-    composer.handle(key('right'))
+    // Still folded: Home is a boundary, so nothing was revealed.
+    expect(foldsOf(composer)).toHaveLength(1)
     composer.handle(key('delete'))
     expect(foldsOf(composer)).toEqual([])
-    expect(shown(composer)).not.toContain('[Pasted text')
-    // The character under the cursor went, and the rest is the original text.
-    expect(composer.value).toBe(`${body.slice(0, 1)}${body.slice(2)}`)
+    expect(composer.value).toBe('')
   })
 
-  it('reveals a fold that a ctrl-w would otherwise eat from inside', () => {
+  it('removes a whole folded paste on ctrl-w', () => {
     const composer = new Composer()
     composer.handle(paste(lines(11)))
     composer.handle(key('ctrl-w'))
+    // The word rule picks a range inside the span; the span is then taken whole.
     expect(foldsOf(composer)).toEqual([])
-    expect(shown(composer)).not.toContain('[Pasted text')
+    expect(composer.value).toBe('')
   })
 
   it('reveals a fold that a completion would otherwise replace inside', () => {
@@ -544,10 +546,13 @@ describe('editing around a fold', () => {
     type(composer, '|')
     composer.handle(paste(lines(10)))
     composer.handle(key('home'))
-    // Forward-delete past the first span, stopping before the second.
-    for (let index = 0; index < lines(9).length + 1; index += 1) composer.handle(key('delete'))
+    // One forward delete takes the first span WHOLE now, so the separator is
+    // exposed and `#2` is left standing.
+    composer.handle(key('delete'))
+    expectFoldsValid(composer, 'after deleting the first span')
     expect(foldsOf(composer).map(fold => fold.id)).toEqual([2])
-    expect(shown(composer)).toBe('› [Pasted text #2 +10 lines]')
+    expect(composer.value).toBe(`|${lines(10)}`)
+    expect(shown(composer)).toBe('› |[Pasted text #2 +10 lines]')
   })
 
   it('does not leave a fold describing a range the buffer no longer has', () => {
@@ -1299,5 +1304,241 @@ describe('lineBeforeCursor finds the line by walking backward', () => {
     composer.handle(key('left'))
     expect(foldsOf(composer)).toEqual([])
     expect(composer.lineBeforeCursor).toBe('line 1')
+  })
+})
+
+describe('a collapsed paste is one thing to delete', () => {
+  // A token drawn in the composer is a token the reader deletes. The old rule —
+  // "editing a fold reveals it" — was right for typing and wrong for deletion,
+  // because it removed one hidden character and handed back the rest of a
+  // document nobody had asked to read. These cases pin the deletion contract.
+
+  /** The exact eight-line block the acceptance check uses. @returns the pasted text. */
+  function eightLines(): string {
+    return Array.from({ length: PASTE_FOLD_MIN_LINES }, (_, index) => `line ${String(index + 1)}`).join('\n')
+  }
+
+  it('empties the composer when an eight-line paste is backspaced once', () => {
+    const composer = new Composer()
+    const body = eightLines()
+    composer.handle(paste(body))
+    expect(shown(composer)).toBe('› [Pasted text #1 +8 lines]')
+    composer.handle(key('backspace'))
+    // Not `line 1 … line 7, line ` — the whole authoritative paste, gone.
+    expect(composer.value).toBe('')
+    expect(foldsOf(composer)).toEqual([])
+  })
+
+  it('empties the composer when an eight-line paste is deleted once from Home', () => {
+    const composer = new Composer()
+    composer.handle(paste(eightLines()))
+    composer.handle(key('home'))
+    expect(foldsOf(composer)).toHaveLength(1)
+    composer.handle(key('delete'))
+    expect(composer.value).toBe('')
+    expect(foldsOf(composer)).toEqual([])
+  })
+
+  it('backspaces a fold sitting between a prefix and a suffix', () => {
+    const composer = new Composer()
+    type(composer, 'prefix')
+    composer.handle(paste(eightLines()))
+    type(composer, 'suffix')
+    expect(composer.display().text).toBe('prefix[Pasted text #1 +8 lines]suffix')
+    // The caret is at the end, so walk it back over the suffix — ordinary
+    // characters, no fold involved — until it sits just after the token.
+    for (let index = 0; index < 'suffix'.length; index += 1) composer.handle(key('left'))
+
+    composer.handle(key('backspace'))
+    expect(composer.value).toBe('prefixsuffix')
+    expect(foldsOf(composer)).toEqual([])
+  })
+
+  it('forward-deletes a fold sitting between a prefix and a suffix', () => {
+    const composer = new Composer()
+    type(composer, 'prefix')
+    composer.handle(paste(eightLines()))
+    type(composer, 'suffix')
+    composer.handle(key('home'))
+    for (let index = 0; index < 'prefix'.length; index += 1) composer.handle(key('right'))
+    // The caret now sits just before the token, with the prefix behind it.
+    expect(composer.position).toBe('prefix'.length)
+
+    composer.handle(key('delete'))
+    expect(composer.value).toBe('prefixsuffix')
+    expect(foldsOf(composer)).toEqual([])
+  })
+
+  it('takes only the fold the caret is touching when two folds are adjacent', () => {
+    const composer = new Composer()
+    const a = eightLines()
+    const c = block(10, 'C')
+    // Pasting the SECOND block first and returning to the start to paste the first
+    // leaves the caret exactly where the two spans meet, with no walking and so no
+    // reveal: inserting at the start leaves the cursor at the end of what was just
+    // inserted, which is the far end of the first span.
+    composer.handle(paste(c))
+    composer.handle(key('home'))
+    composer.handle(paste(a))
+    // Exactly adjacent: no separator, so both spans meet at one offset.
+    expect(foldsOf(composer)[0]?.end).toBe(foldsOf(composer)[1]?.start)
+    const boundary = foldsOf(composer)[0]?.end ?? 0
+    expect(composer.position).toBe(boundary)
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+
+    // Backspace at the boundary covers `[boundary-1, boundary)`: inside the first
+    // span, merely touching the second. Only the first goes.
+    composer.handle(key('backspace'))
+    expectFoldsValid(composer, 'after backspacing at the shared boundary')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1])
+    expect(composer.value).toBe(c)
+  })
+
+  it('takes only the following fold when Delete is pressed at the shared boundary', () => {
+    const composer = new Composer()
+    const a = eightLines()
+    const c = block(10, 'C')
+    composer.handle(paste(c))
+    composer.handle(key('home'))
+    composer.handle(paste(a))
+    const boundary = foldsOf(composer)[0]?.end ?? 0
+    expect(composer.position).toBe(boundary)
+
+    // Delete takes `[boundary, boundary+1)`: inside the second span, merely
+    // touching the first. The other direction from the test above, and it keeps the
+    // other one.
+    composer.handle(key('delete'))
+    expectFoldsValid(composer, 'after deleting at the shared boundary')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2])
+    expect(composer.value).toBe(a)
+  })
+
+  it('takes one token out of a run of adjacent folds, never two', () => {
+    const composer = new Composer()
+    const parts = [block(9, 'A'), block(10, 'B'), block(11, 'C')]
+    // Paste them back to front from the start, so each insertion leaves the caret on
+    // the boundary between what was just inserted and what follows.
+    composer.handle(paste(parts[2] as string))
+    composer.handle(key('home'))
+    composer.handle(paste(parts[1] as string))
+    composer.handle(key('home'))
+    composer.handle(paste(parts[0] as string))
+    // Three spans, each ending exactly where the next begins.
+    const folds = foldsOf(composer)
+    expect(folds).toHaveLength(3)
+    for (let index = 1; index < folds.length; index += 1) {
+      expect(folds[index]?.start).toBe(folds[index - 1]?.end)
+    }
+    // The caret is on the first boundary.
+    expect(composer.position).toBe(folds[0]?.end)
+
+    composer.handle(key('backspace'))
+    expectFoldsValid(composer, 'after one backspace in a run of three')
+    // The span the caret was touching went whole; the one beyond it is untouched.
+    // Positional ids are `[3, 2, 1]` here — arrival ran C, B, A.
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([2, 1])
+    expect(composer.value).toBe(`${parts[1] as string}${parts[2] as string}`)
+
+    composer.handle(key('delete'))
+    expectFoldsValid(composer, 'after one delete in a run of three')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1])
+    expect(composer.value).toBe(parts[2] as string)
+  })
+
+  it('removes every fold one deletion range crosses, whole', () => {
+    const composer = new Composer()
+    const a = block(9, 'A')
+    const c = block(10, 'C')
+    composer.handle(paste(a))
+    type(composer, ' between ')
+    composer.handle(paste(c))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
+
+    // `ctrl-u` at the end covers a range that genuinely intersects BOTH spans, so
+    // both are taken whole in one edit rather than a character at a time. The
+    // caret cannot be parked BETWEEN two folded spans and still have a range
+    // crossing both, so clearing to the end is the reachable shape of this case.
+    composer.handle(key('ctrl-u'))
+    expectFoldsValid(composer, 'after a ctrl-u across two spans')
+    expect(foldsOf(composer)).toEqual([])
+    expect(composer.value).toBe('')
+  })
+
+  it('takes the following fold whole when a kill starts inside the separator', () => {
+    const composer = new Composer()
+    const a = block(9, 'A')
+    const c = block(10, 'C')
+    composer.handle(paste(a))
+    type(composer, ' between ')
+    composer.handle(paste(c))
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
+
+    // Reached the way a reader would: a vertical move onto a wrapped row, which
+    // lands on the separator between the two tokens with both still folded.
+    expect(composer.moveUp(30, GUTTER)).toBe(true)
+    expect(composer.position).toBeGreaterThan(a.length)
+    expect(composer.position).toBeLessThan(a.length + ' between '.length)
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1, 2])
+    const cut = composer.position
+
+    // `ctrl-k` from there covers all of the second span. The first lies entirely
+    // before the range, so it is untouched — the "survives when entirely before"
+    // half of the rule, and the reason the expansion is not unconditional. The
+    // rest of the separator after the caret goes too, as a kill to the end always
+    // does.
+    composer.handle(key('ctrl-k'))
+    expectFoldsValid(composer, 'after a ctrl-k from the separator')
+    expect(foldsOf(composer).map(fold => fold.id)).toEqual([1])
+    expect(composer.value).toBe(a + ' between '.slice(0, cut - a.length))
+  })
+
+  it('stays character-level once the fold has been revealed by moving into it', () => {
+    const composer = new Composer()
+    const body = eightLines()
+    composer.handle(paste(body))
+    composer.handle(key('left'))
+    // Moving in revealed it, which is the whole point: the fold is gone as far as
+    // the composer is concerned, and the text is ordinary from here on. Nothing
+    // remembers that it used to be a paste.
+    expect(foldsOf(composer)).toEqual([])
+    expect(composer.position).toBe(body.length - 1)
+
+    composer.handle(key('backspace'))
+    // Ordinary character deletion, because nothing folded is left to be atomic: one
+    // code point, the space before the final `8`, rather than a whole document.
+    expect(composer.value).toBe(`${body.slice(0, -2)}8`)
+    expect(foldsOf(composer)).toEqual([])
+  })
+
+  it('keeps completion replacement character-level, since it is not a deletion', () => {
+    const composer = new Composer()
+    const body = eightLines()
+    composer.handle(paste(body))
+    composer.replaceBeforeCursor(3, 'replacement')
+    // A completion replaces a token the reader selected; it does not delete "the
+    // thing under the caret", so it keeps ordinary semantics and reveals.
+    expect(foldsOf(composer)).toEqual([])
+    expect(composer.value).toBe(`${body.slice(0, -3)}replacement`)
+  })
+
+  it('undoes one atomic fold deletion as a single step', () => {
+    const composer = new Composer()
+    const body = eightLines()
+    composer.handle(paste(body))
+    composer.handle(key('backspace'))
+    expect(composer.value).toBe('')
+    composer.handle(key('ctrl-z'))
+    // One press brings back the token WITH its text, because the deletion was one
+    // edit rather than a per-character sweep.
+    expect(composer.value).toBe(body)
+    expect(shown(composer)).toBe('› [Pasted text #1 +8 lines]')
+  })
+
+  it('submits without the deleted paste when the deletion is confirmed by enter', () => {
+    const composer = new Composer()
+    type(composer, 'keep this ')
+    composer.handle(paste(eightLines()))
+    composer.handle(key('backspace'))
+    expect(composer.handle(key('enter'))).toEqual({ kind: 'submit', text: 'keep this ', gesture: 'enter' })
   })
 })

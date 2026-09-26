@@ -501,6 +501,12 @@ export class Composer {
       case 'newline':
         this.replaceRange(this.at, this.at, '\n', 'newline')
         return { kind: 'changed' }
+      // The five deletion gestures below share one rule, stated once in
+      // {@link deleteRange}: a still-collapsed paste is ONE thing to the reader, so
+      // a deletion that touches one removes it whole. Everything else in this
+      // switch — typing, pasting, accepting a completion — is not a deletion and
+      // keeps ordinary character semantics, including the rule that entering or
+      // editing a fold reveals it.
       case 'backspace':
         if (this.at === 0) {
           // Nothing deleted, but the press is still a gesture: the next
@@ -508,14 +514,14 @@ export class Composer {
           this.lastEdit = undefined
           return { kind: 'changed' }
         }
-        this.replaceRange(this.at - 1, this.at, '', 'backspace')
+        this.deleteRange(this.at - 1, this.at, 'backspace')
         return { kind: 'changed' }
       case 'delete':
         if (this.at >= this.chars.length) {
           this.lastEdit = undefined
           return { kind: 'changed' }
         }
-        this.replaceRange(this.at, this.at + 1, '', 'delete')
+        this.deleteRange(this.at, this.at + 1, 'delete')
         return { kind: 'changed' }
       case 'ctrl-z':
         this.undo()
@@ -549,16 +555,16 @@ export class Composer {
         this.touch()
         return { kind: 'changed' }
       case 'ctrl-u':
-        this.replaceRange(0, this.at, '', 'kill')
+        this.deleteRange(0, this.at, 'kill')
         return { kind: 'changed' }
       case 'ctrl-k':
-        this.replaceRange(this.at, this.chars.length, '', 'kill')
+        this.deleteRange(this.at, this.chars.length, 'kill')
         return { kind: 'changed' }
       case 'ctrl-w': {
         let cut = this.at
         while (cut > 0 && WORD_BOUNDARY.test(this.chars[cut - 1] ?? '')) cut -= 1
         while (cut > 0 && !WORD_BOUNDARY.test(this.chars[cut - 1] ?? '')) cut -= 1
-        this.replaceRange(cut, this.at, '', 'kill')
+        this.deleteRange(cut, this.at, 'kill')
         return { kind: 'changed' }
       }
       default:
@@ -650,6 +656,55 @@ export class Composer {
       }
     }
     this.folds = kept
+  }
+
+  /**
+   * Remove a range, treating any still-collapsed paste it touches as ONE thing.
+   *
+   * A folded paste is DRAWN as a single token, so deleting the character beside it
+   * deletes the token — not one hidden character while a label keeps describing
+   * the rest. The original rule here was "editing a fold reveals it", which is
+   * right for every other gesture and wrong for deletion: a reader who presses
+   * backspace once on `[Pasted text #1 +8 lines]` expects that token gone, and
+   * instead got the token gone AND a character silently removed from the middle
+   * of a document they had not yet been able to read. Deleting a paste one
+   * character at a time, with the rest of it revealed by the accident, is not a
+   * lesser version of the same thing.
+   *
+   * So the deletion RANGE is chosen here, before {@link replaceRange} sees it,
+   * and `reconcileFolds` is left alone: by the time it runs the folded span is
+   * either wholly inside the range or wholly outside it, which is the only shape
+   * it has to reason about.
+   *
+   * The set of touched folds is taken from the ORIGINAL range, never from a range
+   * that has already been widened. That distinction is what stops two ADJACENT
+   * folds from vanishing together: widening to cover `#1` brings the new end up
+   * to `#2`'s start, and re-testing that would swallow `#2` as well even though
+   * the reader pressed backspace once. One pass over the original range cannot
+   * cascade for the same reason.
+   *
+   * Touching is not intersecting. Two folds meeting at offset 100 both survive a
+   * deletion that ends exactly there, because `deleteStart < fold.end &&
+   * deleteEnd > fold.start` is false for the fold on the far side of the
+   * boundary. Backspace at 100 takes `[99, 100)` and so takes `#1`; Delete at 100
+   * takes `[100, 101)` and so takes `#2`. Each removes exactly the token the
+   * caret is touching.
+   * @param start - first raw offset the gesture covers, before any widening.
+   * @param end - one past the last, before any widening.
+   * @param kind - which deletion gesture this is, for undo coalescing.
+   */
+  private deleteRange(start: number, end: number, kind: 'backspace' | 'delete' | 'kill'): void {
+    const from = Math.max(0, Math.min(start, this.chars.length))
+    const to = Math.max(from, Math.min(end, this.chars.length))
+    let first = from
+    let last = to
+    for (const fold of this.folds) {
+      if (from < fold.end && to > fold.start) {
+        if (fold.start < first) first = fold.start
+        if (fold.end > last) last = fold.end
+      }
+    }
+    this.replaceRange(first, last, '', kind)
   }
 
   /** The current state, exactly as an undo step should restore it. */

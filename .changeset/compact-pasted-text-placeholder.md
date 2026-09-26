@@ -41,7 +41,15 @@ folded; an edit before it shifts its range. Moving the cursor into one, or editi
 inside it, reveals the text first — a horizontal move unfolds and then moves, so
 the cursor is never invisible, and a mutation that would touch hidden characters
 invalidates the label before it applies. Deleting a folded span removes its
-metadata with the text. Undo and redo restore fold state along with the
+metadata with the text.
+
+A collapsed paste is one thing to DELETE. Backspace, `delete`, `ctrl-w`,
+`ctrl-u`, and `ctrl-k` widen the deletion range to cover any still-folded
+span it touches before the buffer is touched at all, so one press removes a
+whole pasted block instead of one hidden character and an accidental
+revelation of the rest. Touching is not intersecting, so two spans that
+meet at one offset each keep their own token. Undo and redo restore fold
+state along with the
 characters, and paste numbers are monotonic for the lifetime of one Composer: a
 submitted draft does not reset the counter, a clear does not either, and undo
 never hands a number to different content. The root session composer keeps its
