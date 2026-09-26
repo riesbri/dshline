@@ -41,6 +41,23 @@ export function textOf(content: readonly ContentBlock[]): string {
 }
 
 /**
+ * Compact byte count, in whichever unit keeps the number small.
+ *
+ * Shared by both attachment kinds so an image and a file of the same size are
+ * labelled identically — a second formatter would eventually disagree at a
+ * boundary and make two rows of one prompt look like two different sizes.
+ * @param bytes - the durable reference's exact byte length.
+ * @returns the size with its unit, one decimal place above a kibibyte.
+ */
+function attachmentSize(bytes: number): string {
+  return bytes >= MEBIBYTE
+    ? `${(bytes / MEBIBYTE).toFixed(1)} MiB`
+    : bytes >= KIBIBYTE
+      ? `${(bytes / KIBIBYTE).toFixed(1)} KiB`
+      : `${String(bytes)} B`
+}
+
+/**
  * Compact presentation of one durable image reference.
  *
  * Reference metadata is sufficient for history layout, so transcript rendering
@@ -51,12 +68,65 @@ export function textOf(content: readonly ContentBlock[]): string {
  */
 export function imageLine(block: Extract<ContentBlock, { type: 'image' }>): string {
   const { name, width, height, bytes } = block.attachment
-  const size = bytes >= MEBIBYTE
-    ? `${(bytes / MEBIBYTE).toFixed(1)} MiB`
-    : bytes >= KIBIBYTE
-      ? `${(bytes / KIBIBYTE).toFixed(1)} KiB`
-      : `${String(bytes)} B`
-  return `image: ${name ?? 'unnamed'} · ${String(width)}×${String(height)} · ${size}`
+  return `image: ${name ?? 'unnamed'} · ${String(width)}×${String(height)} · ${attachmentSize(bytes)}`
+}
+
+/**
+ * Compact presentation of one durable verbatim file reference.
+ *
+ * Everything shown is a field the reference publishes: a display name and an
+ * exact byte length. The opaque content-addressed id, the provider's storage
+ * location, and any host path are all deliberately absent — this is history
+ * that anyone sharing the scrollback will read, and none of those three is
+ * information a reader can act on.
+ * @param block - durable Harness file content.
+ * @returns one unescaped, presentation-only label.
+ */
+export function fileLine(block: Extract<ContentBlock, { type: 'file' }>): string {
+  const { name, bytes } = block.attachment
+  return `file: ${name === '' ? 'unnamed' : name} · ${attachmentSize(bytes)}`
+}
+
+/**
+ * One prompt as the ordered lines its durable blocks describe.
+ *
+ * Order is the point. Grouping every text block first and every attachment after
+ * it was accurate while an ordinary prompt could carry images or nothing; it is
+ * a lie the moment one prompt carries a text block, an image, and a file in the
+ * order the reader staged them, because the terminal would then show a sequence
+ * the session log does not contain and a later replay would quietly disagree
+ * with what was watched. So the blocks are walked in place: consecutive text
+ * joins into one line, and an attachment flushes whatever text came before it.
+ * A text block after an attachment stays after it rather than being hoisted.
+ *
+ * Blocks this transcript has no presentation for are skipped rather than
+ * guessed at, for the same reason `projectEvent` never throws on an unfamiliar
+ * event: `ContentBlockMap` is merge-extensible, and a plugin's block is not
+ * something to invent a line for.
+ * @param content - the message's durable content, in its own order.
+ * @returns display lines, unescaped, each one a block or a run of text blocks.
+ */
+export function userContentLines(content: readonly ContentBlock[]): string[] {
+  const lines: string[] = []
+  let text = ''
+  const flush = (): void => {
+    const trimmed = text.trim()
+    if (trimmed !== '') lines.push(trimmed)
+    text = ''
+  }
+  for (const block of content) {
+    if (block.type === 'text') {
+      text += block.text
+    } else if (block.type === 'image') {
+      flush()
+      lines.push(imageLine(block))
+    } else if (block.type === 'file') {
+      flush()
+      lines.push(fileLine(block))
+    }
+  }
+  flush()
+  return lines
 }
 
 /**
@@ -92,15 +162,14 @@ export function projectEvent(event: SessionEvent, columns: number): string[] {
       // user did not type, and echoing them buries the conversation.
       const data = event.data as { content: readonly ContentBlock[]; source?: { kind?: string } }
       if (data.source?.kind !== 'user') return []
-      const text = textOf(data.content).trim()
-      const images = data.content
-        .filter((block): block is Extract<ContentBlock, { type: 'image' }> => block.type === 'image')
-        .map(imageLine)
-      if (text === '' && images.length === 0) return []
+      const body = userContentLines(data.content)
+      // An attachment-only prompt still produces a visible entry: the file rows
+      // ARE the message, so an empty result here would leave a submission the
+      // reader made with nothing at all in the scrollback.
+      if (body.length === 0) return []
       // A rule above each prompt separates exchanges in a long scrollback.
       const rule = paint('─'.repeat(Math.max(4, Math.min(columns - 2, 100))), 'rule')
-      const body = [...(text === '' ? [] : [text]), ...images].join('\n')
-      return ['', rule, ...marked(paint(MARK.user, 'user'), escapeControls(body), columns)]
+      return ['', rule, ...marked(paint(MARK.user, 'user'), escapeControls(body.join('\n')), columns)]
     }
     case 'turn/end': {
       const data = event.data as { reason: { kind: string; error?: { code: string; message: string } } }

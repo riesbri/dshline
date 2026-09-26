@@ -79,7 +79,37 @@ The empty composer reports the staged count. Once sent, the transcript shows eac
 
 An explicitly text-only selected model is refused before any image is read. When a provider does not declare its input modalities, dshline does not guess from its name: Harness receives the image and remains the authority. Registered slash commands accept staged images only when their command descriptor declares `input.attachments`; an error keeps both the command text and images for correction or retry.
 
-`@path` itself remains a textual file reference. It tells the model which workspace path to inspect with its filesystem tools; it never reads or attaches the file. This distinction matters for source files and directories, which are not Harness image attachments.
+### Files
+
+`/attach <path>` stages any file — a log, a JSON trace, a PDF, a binary — for the next ordinary prompt. The bytes are stored exactly as they are and the model receives a file handle, not pasted text:
+
+```text
+/attach server.log
+/attach trace.json
+/attach report.pdf
+/attach                      list staged files
+/attach --remove 2           remove one by its listed number
+/attach --clear              remove them all
+```
+
+Staging reads nothing, the same as `/image`, and the whole command remainder is the path. There is no file-size limit and no list of accepted extensions: storage is streamed and the file is only looked at when the prompt is actually sent, so a path that is missing, is a directory, or is unreadable is reported then — and the staged path is kept so you can fix it and send again. If the file changes while it is being attached, nothing is sent and it stays staged.
+
+`/attach` and `/image` are different commands, not two names for one thing. `/image picture.png` sends the picture as an image the model can see; `/attach picture.png` sends the same file verbatim, as a file. The command you choose decides which it is, so `/image` stays the way to give a model something to look at and `/attach` the way to hand it a document.
+
+The order you stage in is the order the message has. This:
+
+```text
+/image screenshot-a.png
+/attach trace.json
+/image diagram.png
+/attach report.pdf
+```
+
+sends one message containing the text, then `screenshot-a.png`, `trace.json`, `diagram.png`, and `report.pdf` — in that order, not all images then all files. Enter on an empty composer after staging files sends them on their own, with no blank line of your own in front of them. The transcript then shows each file's name and size, the same compact rows images use, and reopening the session reconstructs them from the durable file references in its log.
+
+Staged files are not sent to registered slash commands. A command that takes no attachments runs normally and your files stay staged. A command that does declare `input.attachments` is refused with an explanation, because Harness delivers a generic file to a command as an upload receipt produced by its own file-upload flow, and this interface has no such flow. That is a limitation of this terminal frontend, not of Harness.
+
+`@path` itself remains a textual file reference. It tells the model which workspace path to inspect with its filesystem tools; it never reads or attaches the file. `/attach` is the gesture that turns that path into a real attachment. This distinction matters for source files and directories, which are not Harness image attachments.
 
 ### Input history
 
@@ -121,7 +151,7 @@ The search covers this session's input only: your prompts and slash commands, th
 
 A long or multiline prompt is previewed around the line that matched, rather than by its first line, so you can see why a result is in the list. Pressing `ctrl-r` while a session is still being reopened is fine: the search says the history is still loading, and whatever you have typed resolves against it the moment it lands.
 
-Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/session`, `/sessions`, `/worktrees`, `/work`, `/subagents`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
+Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/attach`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/session`, `/sessions`, `/worktrees`, `/work`, `/subagents`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
 
 ### Queue or steer
 

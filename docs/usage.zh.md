@@ -79,7 +79,37 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 明确声明为纯文本的已选模型会在读取任何图片前被拒绝。提供方未声明输入模态时，dshline 不根据名称猜测：图片交给 Harness，仍由 Harness 掌握权威。只有命令描述符声明 `input.attachments` 的已注册斜杠命令才接受暂存图片；命令报错会保留命令文本和图片，以便修正或重试。
 
-`@path` 本身仍是文本文件引用。它告诉模型要通过文件系统工具检查哪个工作区路径；它绝不读取或附加文件。源码文件与目录并不是 Harness 图片附件，因此这一区分很重要。
+### 文件
+
+`/attach <path>` 为下一条普通提示暂存任意文件——日志、JSON trace、PDF、二进制文件都可以。字节按原样存储，模型得到的是一个文件句柄，而不是粘贴进来的文本：
+
+```text
+/attach server.log
+/attach trace.json
+/attach report.pdf
+/attach                      list staged files
+/attach --remove 2           remove one by its listed number
+/attach --clear              remove them all
+```
+
+与 `/image` 一样，暂存不会读取任何内容，命令后面的全部内容都是路径。这里没有体积上限，也没有可接受扩展名列表：存储是流式的，文件只在你真正发送提示时才会被查看。因此路径不存在、是目录或不可读，都会在那时报告出来，并且已暂存的路径会保留下来，方便你修正后重发。如果文件在附加过程中发生变化，什么都不会发送，路径仍然保持暂存。
+
+`/attach` 与 `/image` 是两个不同的命令，而不是同一件事的两个名字。`/image picture.png` 把图片作为模型可以"看见"的图像发送；`/attach picture.png` 把同一个文件按原样作为文件发送。语义由你选择的命令决定，因此 `/image` 仍是给模型"看"某个东西的方式，`/attach` 则是把一个文档交给它的方式。
+
+暂存顺序就是消息中的顺序。下面这串输入：
+
+```text
+/image screenshot-a.png
+/attach trace.json
+/image diagram.png
+/attach report.pdf
+```
+
+会发送一条消息，其中依次是文本、`screenshot-a.png`、`trace.json`、`diagram.png`、`report.pdf`——保持这个顺序，而不是先把图片放完再放文件。暂存文件后在空输入框上按 enter，会单独发送这些文件，前面不会加上你自己的空行。transcript（文本记录）随后会为每个文件显示名称与大小，使用与图片相同的紧凑行；重新打开会话时，这些行从日志中的持久文件引用重建。
+
+暂存的文件不会发送给已注册的斜杠命令。不接受附件的命令会照常运行，你的文件保持暂存。声明了 `input.attachments` 的命令会被拒绝并给出说明，因为 Harness 向命令交付通用文件时使用的是它自己的文件上传流程产生的上传回执，而本界面没有这样的流程。这是本终端前端的能力限制，而不是 Harness 的限制。
+
+`@path` 本身仍是文本文件引用。它告诉模型要通过文件系统工具检查哪个工作区路径；它绝不读取或附加文件。`/attach` 正是把那个路径变成真实附件的手势。源码文件与目录并不是 Harness 图片附件，因此这一区分很重要。
 
 ### 输入历史
 
@@ -121,7 +151,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 长提示或多行提示会围绕匹配到的那一行预览，而不是只显示第一行，于是你能看出一条结果为什么在列表里。会话还在重新打开时按 `ctrl-r` 也没问题：搜索会说明历史仍在加载，你已经输入的内容会在历史到达的那一刻立即解析。
 
-重新打开会话会恢复保存的日志记录下的历史：每一条提示与每一条输入被记录的已解决斜杠命令。本界面自己处理的命令（`/image`、`/model`、`/reasoning`、`/usage`、`/timing`、`/enter`、`/new`、`/clear`、`/session`、`/sessions`、`/worktrees`、`/work`、`/subagents`、`/todos`、`/turns`、`/skills`、`/exit`、`/quit`）与打错的命令在会话打开期间被记住，但不会写入会话日志，因此恢复后不会重现。
+重新打开会话会恢复保存的日志记录下的历史：每一条提示与每一条输入被记录的已解决斜杠命令。本界面自己处理的命令（`/image`、`/attach`、`/model`、`/reasoning`、`/usage`、`/timing`、`/enter`、`/new`、`/clear`、`/session`、`/sessions`、`/worktrees`、`/work`、`/subagents`、`/todos`、`/turns`、`/skills`、`/exit`、`/quit`）与打错的命令在会话打开期间被记住，但不会写入会话日志，因此恢复后不会重现。
 
 ### 排队还是导向
 

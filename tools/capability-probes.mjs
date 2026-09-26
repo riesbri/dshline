@@ -163,12 +163,12 @@ export const CAPABILITY_PROBES = [
   {
     name: 'attachments',
     files: ['packages/dshline/tests/capability/attachments.probe.spec.ts'],
-    note: 'real AttachmentStore.saveImages base ordering/admission used by `/image`, over local limits/validation/storage; context mounting and deployment policy are not claimed',
+    note: 'real AttachmentStore.saveImages base ordering/admission used by `/image` and the base saveFileStream refusal `/attach` maps, over local limits/validation/storage; context mounting and deployment policy are not claimed',
   },
   {
     name: 'fs',
     files: ['packages/dshline/tests/capability/fs.probe.spec.ts'],
-    note: 'real abstract FileSystem contract plus readImageDrafts passing cwd/signal/bound to a local backend; backend bounding policy is not claimed',
+    note: 'real abstract FileSystem contract plus readImageDrafts passing cwd/signal/bound and admitFileDraft passing cwd/signal, stat validation, bounded readByteRange windows and the FsInfo.version freshness check to a local backend; backend bounding policy is not claimed',
   },
   {
     name: 'agentPresets',

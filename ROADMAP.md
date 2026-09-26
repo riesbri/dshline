@@ -357,20 +357,36 @@ Still ahead for Presets:
 
 ### 6. Attachments
 
-Raster image attachment is now Harness-native:
+Both attachment kinds are now Harness-native, through one ordered draft ledger
+so that staging order is message order:
 
 - `/image` stages PNG, JPEG, WebP, and GIF paths without reading them, then the
   active filesystem and `ctx.attachments` own bounded reads, validation, and
   durable admission when the prompt is sent
-- transcripts and resumed sessions render metadata from durable `ImageBlock`
-  references; dshline stores neither bytes, base64, host paths, nor attachment ids
+- `/attach` stages any file the same way, with no size or type policy of its
+  own: bytes are read through bounded `ctx.fs.readByteRange` windows at send
+  time and committed through `ctx.attachments.saveFileStream`, so this process
+  never buffers a whole file
+- a `FileBlock` and an `ImageBlock` appear in the message in the order they were
+  staged, and a submission is all or nothing: either every intended attachment
+  is delivered, or nothing is sent and the drafts stay staged
+- transcripts and resumed sessions render metadata from durable `ImageBlock` and
+  `FileBlock` references; dshline stores neither bytes, base64, host paths, nor
+  attachment ids
 - registered commands receive images only when their descriptor opts in, and
-  explicit text-only model metadata stops admission before I/O
+  explicit text-only model metadata stops image admission before I/O
 
-Still ahead for dshline: staging arbitrary file attachments. Harness exposes a
-durable file-attachment contract alongside image attachments, but dshline's
-composer currently stages only images. `@path` therefore remains the honest
-textual file-reference gesture rather than implying bytes were attached.
+`@path` remains the honest textual file-reference gesture rather than implying
+bytes were attached; `/attach` is the gesture that turns a path into a real
+attachment. The two are deliberately different commands, so `/image
+diagram.png` and `/attach diagram.png` mean different things.
+
+Still ahead for dshline: forwarding a staged file to a registered Harness
+command. The adopted command contract admits a generic file only as a staged
+upload receipt resolved by the Session upload owner, and dshline mounts no such
+owner — so it refuses such an invocation with an explanation instead of
+fabricating a receipt. Building that receipt flow is Harness's side of the
+boundary, not this frontend's.
 
 ### 7. Permissions and approvals
 
