@@ -671,6 +671,8 @@ export interface ComposerHint {
   readonly busyEnter: BusyEnter
   /** Unsent session-scoped image count, when any are staged. */
   readonly images?: number
+  /** Unsent session-scoped generic file count, when any are staged. */
+  readonly files?: number
 }
 
 /**
@@ -711,16 +713,26 @@ export function composerHintRow(hint: ComposerHint, inner: number): string {
   // else — `menu` rather than `commands` because that surface carries local
   // commands, the agent's own, and user-invocable skills, and a skill is not a
   // command.
-  const image = hint.images === undefined || hint.images < 1
-    ? undefined
-    : `${String(hint.images)} ${hint.images === 1 ? 'image' : 'images'}`
+  // Both staged kinds are ONE segment, not two. The ladder sheds whole segments,
+  // and a second segment would mean a second rung to fit — which on a narrow
+  // pane is exactly where the staged count, the one thing that changes what
+  // pressing enter does, would be the first thing lost.
+  const counts = [
+    hint.images === undefined || hint.images < 1
+      ? undefined
+      : `${String(hint.images)} ${hint.images === 1 ? 'image' : 'images'}`,
+    hint.files === undefined || hint.files < 1
+      ? undefined
+      : `${String(hint.files)} ${hint.files === 1 ? 'file' : 'files'}`,
+  ].filter((segment): segment is string => segment !== undefined)
+  const staged = counts.length === 0 ? undefined : counts.join(' · ')
   const rungs: readonly (readonly string[])[] = hint.busy
-    ? image === undefined
+    ? staged === undefined
       ? [[`type to ${hint.busyEnter}`], []]
-      : [[image, `type to ${hint.busyEnter}`], [image], []]
-    : image === undefined
+      : [[staged, `type to ${hint.busyEnter}`], [staged], []]
+    : staged === undefined
       ? [['ask anything', '/ menu'], ['ask anything'], []]
-      : [[image, 'ask anything', '/ menu'], [image, 'ask anything'], [image], []]
+      : [[staged, 'ask anything', '/ menu'], [staged, 'ask anything'], [staged], []]
   const separator = paint(HINT_SEPARATOR, 'chrome')
   for (const segments of rungs) {
     const width = displayWidth(PROMPT)

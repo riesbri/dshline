@@ -8,6 +8,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
+import { isAttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
 import { stripAnsi, type Key } from '@dshline/renderer'
@@ -87,6 +88,10 @@ async function fixture(options: {
         mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
       },
       saveImages: saves,
+      // The real predicate, from the real package. dshline asks the store
+      // whether a failure is an attachment failure, and every store extending
+      // the abstract `AttachmentStore` inherits this concrete method.
+      isAttachmentError,
     } as never)
   }
 
@@ -260,7 +265,7 @@ describe('image attachment submission', () => {
     expect(f.agent.followup).not.toHaveBeenCalled()
     expect(f.saves).not.toHaveBeenCalled()
     expect(f.frame()).toContain('Please inspect it')
-    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('image file could not be read')
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('the attachment could not be read')
 
     failure = undefined
     f.dispatch()?.({ kind: 'key', name: 'enter' })
@@ -279,7 +284,7 @@ describe('image attachment submission', () => {
     submit(f.dispatch(), 'inspect')
     await flush()
     const output = f.commits.flat().map(stripAnsi).join('\n')
-    expect(output).toContain('image file cannot be read by this profile')
+    expect(output).toContain('file cannot be read by this profile')
     expect(output).not.toContain('/private/secret.png')
     expect(f.frame()).toContain('inspect')
   })
@@ -291,7 +296,7 @@ describe('image attachment submission', () => {
     submit(f.dispatch(), 'inspect')
     await flush()
     const output = f.commits.flat().map(stripAnsi).join('\n')
-    expect(output).toContain('image file could not be read')
+    expect(output).toContain('the attachment could not be read')
     expect(output).not.toContain('/private/secret.png')
   })
 
@@ -457,13 +462,13 @@ describe('image attachment submission', () => {
     await flush()
     expect(f.reads).toHaveBeenCalledOnce()
     expect(f.frame()).toContain('second prompt')
-    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('still being attached')
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('still being sent')
 
     f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
     await flush()
     expect(f.agent.followup).not.toHaveBeenCalled()
     expect(f.saves).not.toHaveBeenCalled()
-    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('image attachment cancelled')
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('attachment cancelled')
   })
 
   it('aborts an in-flight image read before requesting app exit', async () => {
@@ -546,7 +551,7 @@ describe('image attachment submission', () => {
     await flush()
     expect(f.agent.followup).not.toHaveBeenCalled()
     expect(f.frame()).toContain('inspect this')
-    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('image attachment cancelled')
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('attachment cancelled')
   })
 
   it('does not let a late durable save cross a session transition', async () => {
@@ -590,7 +595,7 @@ describe('image attachment submission', () => {
     f.dispatch()?.({ kind: 'key', name: 'ctrl-c' })
     await flush()
     expect(f.frame()).toContain('/vision inspect')
-    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('Image attachment cancelled')
+    expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('Attachment admission cancelled')
   })
 
   it('does not let a late image-command settlement redraw or alter the old session', async () => {

@@ -10,13 +10,14 @@
  * attributed to the abstract base or to a production deployment.
  *
  * The assertions cover the base-owned ordered references, count/aggregate
- * admission, caller-correctable admission errors, and no writes after a failed
- * validation—the shapes the production `/image` path consumes.
+ * admission, caller-correctable admission errors, no writes after a failed
+ * validation, and the base class's own verbatim-file refusal — the shapes the
+ * production `/image` and `/attach` paths consume.
  * @module
  */
 
 import { Context } from '@deepseek-ai/cordis'
-import AttachmentStore, { AttachmentId, isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
+import AttachmentStore, { AttachmentId, isAttachmentError, isImageAdmissionError } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
@@ -136,5 +137,31 @@ describe('capability: attachments', () => {
     expect(isImageAdmissionError(error)).toBe(true)
     expect((error as { code: string }).code).toBe('UNSUPPORTED_IMAGE_TYPE')
     expect(store.stored).toHaveLength(0)
+  })
+
+  it('answers a verbatim file request with a stable code when the backend has none', async () => {
+    // The abstract class is where generic files become OPTIONAL: `saveFileStream`
+    // is a concrete default that rejects, so a backend written only for images
+    // still satisfies the contract and a profile using it keeps working. This is
+    // the exact code dshline maps to "this profile's attachment provider does
+    // not support generic files", so if upstream renames it, the frontend's
+    // message silently degrades to a generic one — this fails by name instead.
+    const store = new MemoryAttachmentStore(new Context())
+    const error = await store.saveFileStream({
+      data: (async function* () { yield Uint8Array.of(1, 2, 3) })(),
+      name: 'probe.log',
+    }).then(() => undefined, (thrown: unknown) => thrown)
+    expect(isAttachmentError(error)).toBe(true)
+    expect((error as { code: string }).code).toBe('ATTACHMENT_FILES_UNSUPPORTED')
+    // Nothing was stored, and the image half of the store is untouched.
+    expect(store.stored).toEqual([])
+  })
+
+  it('still admits an image batch on a backend with no verbatim file storage', async () => {
+    // The other half of optionality: a profile that cannot store files must not
+    // lose the capability it does have. Files are refused at their own seam.
+    const store = new MemoryAttachmentStore(new Context())
+    await expect(store.saveImages([input('image/png', 'still-works.png')]))
+      .resolves.toHaveLength(1)
   })
 })

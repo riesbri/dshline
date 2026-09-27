@@ -272,6 +272,31 @@ describe("the empty composer's hint", () => {
     expect(hint({ busy: true, busyEnter: 'steer', images: 1 })).toBe('\u203a 1 image \u00b7 type to steer')
   })
 
+  it('names staged generic files beside staged images, as one segment', () => {
+    // One segment, not two. The ladder sheds whole segments, and a second
+    // segment would mean a second rung to fit — which on a narrow pane is where
+    // the staged count, the one thing that changes what enter does, would be
+    // the first thing lost.
+    expect(hint({ busy: false, busyEnter: 'queue', files: 1 }))
+      .toBe('\u203a 1 file \u00b7 ask anything \u00b7 / menu')
+    expect(hint({ busy: false, busyEnter: 'queue', files: 2 }))
+      .toBe('\u203a 2 files \u00b7 ask anything \u00b7 / menu')
+    expect(hint({ busy: false, busyEnter: 'queue', images: 1, files: 1 }))
+      .toBe('\u203a 1 image \u00b7 1 file \u00b7 ask anything \u00b7 / menu')
+    // Still one row, and the staged counts are what survives to the narrow end.
+    expect(hint({ busy: false, busyEnter: 'queue', images: 1, files: 1 }, 26))
+      .toBe('\u203a 1 image \u00b7 1 file')
+    expect(hint({ busy: false, busyEnter: 'queue', images: 1, files: 1 }, 24))
+      .toBe('\u203a 1 image \u00b7 1 file')
+    expect(hint({ busy: false, busyEnter: 'queue', images: 1, files: 1 }, 20))
+      .toBe('\u203a ')
+    expect(hint({ busy: true, busyEnter: 'steer', files: 3 }))
+      .toBe('\u203a 3 files \u00b7 type to steer')
+    // A zero count is the absence of a count, not a second segment.
+    expect(hint({ busy: false, busyEnter: 'queue', images: 0, files: 0 }))
+      .toBe('\u203a ask anything \u00b7 / menu')
+  })
+
   it('advertises no key it cannot be sure the terminal sends', () => {
     // `ctrl-enter` is decodable only under an enhanced encoding and is
     // byte-identical to enter everywhere else, with nothing to probe. Naming it
