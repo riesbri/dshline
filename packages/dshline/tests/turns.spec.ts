@@ -625,12 +625,53 @@ describe('the turns presenter', () => {
 })
 
 describe('the turns module boundary', () => {
-  it('contains no second fold of session events', () => {
-    // The projection stays the only authority: reading these names from source
-    // fails the day someone reaches for the raw log instead of the snapshot.
+  /**
+   * The turns source with every comment removed.
+   *
+   * These rules are about CALLS, not about words: a module that explains in
+   * prose why it does not use a deprecated reader must not fail for having said
+   * so. Stripping comments makes the guard measure the thing it was written to
+   * measure, and keeps a future explanatory note from having to avoid naming the
+   * API it is explaining.
+   * @returns the concatenated comment-free source of the turns module.
+   */
+  function code(): string {
     const root = fileURLToPath(new URL('../src/turns', import.meta.url))
-    const source = sourceFiles(root).map(path => readFileSync(path, 'utf8')).join('\n')
-    expect(source).not.toMatch(/session\/event|session\.append|snapshotEvents|eventAt|sessionQuery|sessionController|ctx\.agents|ctx\.commands|inheritedEventCount|turn\/end/u)
+    return sourceFiles(root)
+      .map(path => readFileSync(path, 'utf8')
+        .replaceAll(/\/\*[\s\S]*?\*\//gu, '')
+        .replaceAll(/^[ \t]*\/\/.*$/gmu, ''))
+      .join('\n')
+  }
+
+  it('never folds the session log itself', () => {
+    // The projection stays the only authority for turn identity, and Harness
+    // stays the only authority for changed files. Reaching for the raw log — the
+    // readers upstream deprecated for exactly this reason — would make this
+    // module a second transcript model.
+    expect(code()).not.toMatch(/snapshotEvents|eventAt|ownEvents|session\.append|sessionController|ctx\.agents|ctx\.commands|inheritedEventCount/u)
+  })
+
+  it('correlates workspace-change announcements without reading the log', () => {
+    // The one event-derived state this module owns, and it is owned through the
+    // attachment's live FEED rather than by reading history. `observe` is the
+    // whole of the live path, and the historical path is the INJECTED `history`
+    // port — a call on the dependency the attachment resolved, never a name this
+    // module looked up for itself.
+    const source = code()
+    expect(source).toMatch(/observe\(event: SessionEvent\)/u)
+    expect(source).toMatch(/history\.readSession\(this\.spec\.sessionId\)/u)
+    // And it is the ONLY historical read: one call site, so a second one is a
+    // diff the reader cannot see being paid twice.
+    expect(source.match(/\.readSession\(/gu)).toHaveLength(1)
+    expect(source).not.toMatch(/sessionQuery|listEvents|readEvent/u)
+  })
+
+  it('never names a Host service directly', () => {
+    // The module reads only what the presenter hands it. A `ctx.` here would
+    // mean a surface had reached past its own dependency list to a seam the
+    // attachment never resolved.
+    expect(code()).not.toMatch(/ctx\./u)
   })
 })
 

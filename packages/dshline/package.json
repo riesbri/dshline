@@ -43,6 +43,7 @@
     "@deepseek-ai/dsh-authorization": "0.1.7-rc.2",
     "@deepseek-ai/dsh-session-stats": "0.1.7-rc.2",
     "@deepseek-ai/dsh-session-turn-outline": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-workspace-changes": "0.1.7-rc.2",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@dshline/renderer": "workspace:^",
     "yaml": "^2.9.1"

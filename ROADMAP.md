@@ -395,7 +395,42 @@ Expose the authority Harness defines; do not invent a frontend policy. A useful
 human control needs the owning capability's lifecycle, authorization,
 scheduling, and model-awareness contract — the same rule demonstrated by Work.
 
-### 8. More asynchronous capabilities
+### 8. Turn workspace changes — merged
+
+`/turns` now shows what each top-level turn changed and opens a bounded
+per-file comparison from the terminal. This is a projection of
+`ctx.workspaceChanges`, not a Git feature of this frontend, and the distinction
+is the whole design:
+
+- Harness snapshots the working tree around each turn, appends one
+  `workspace/changes` event naming it, counts the lines, computes the hunks, and
+  serves the summary and each comparison from the process that recorded them.
+  dshline runs no Git, reads no file, and stores no summary, no hunk, and no
+  changed-file list.
+- The seam is addressed by the **announcing event's sequence**, not by the turn
+  number, and Harness publishes no index from one to the other. The one state
+  this frontend owns is that correlation: a per-attachment fold of the
+  `workspace/changes` events it observes live, plus — only when a reader
+  explicitly opens a turn that fold never saw — one `ctx.sessionQuery.readSession`
+  pass. Neither path is a second transcript model, and neither is taken from the
+  live `Session`, whose synchronous readers upstream deprecated for new callers.
+- Annotations are carried through rather than flattened: a binary or oversized
+  file is labelled with Harness's own refusal instead of an empty `+0 -0`, a
+  summary Harness capped says how many files it holds out of how many changed,
+  and a comparison whose line diff timed out upstream is labelled coarse.
+- Annotations are also what keeps an honest list. A turn with no record carries
+  no column, and a durable announcement whose summary this Host can no longer
+  serve is stated — the reopened-session and restarted-Host case — rather than
+  silently reading as a turn that changed nothing.
+- Comparisons are disclosure-gated. A summary is an in-memory lookup Harness
+  already made, so the outline reads one per row it actually draws; a
+  comparison is a Git read, and it is issued only by `enter` on one file.
+  Closing the inspector aborts the read it started.
+- Recording is not free, and the row that enables it is a composition row like
+  any other: `/plugins` can turn `workspace-changes` off, and every other
+  `/turns` behaviour survives.
+
+### 9. More asynchronous capabilities
 
 After the relevant upstream contracts are ready, present more Harness-owned
 asynchronous work:
@@ -405,8 +440,7 @@ asynchronous work:
   their published members, owned through this session's own durable
   `tool-workflow/*` records
 - later, Agent Teams when their upstream contract is mature enough
-
-### 9. TUI extensibility
+### 10. TUI extensibility
 
 Only after several internal capability adapters have proven the vocabulary for
 lifecycle, authority, and layout should dshline consider a public contribution
@@ -414,7 +448,7 @@ API. A possible small `dshline-api` is a future option, not a current
 commitment. `TuiSlots` and overlays remain experimental pre-1.0, and persistent
 third-party rows need a global live-region layout budget first.
 
-### 10. Worktrees — merged
+### 11. Worktrees — merged
 
 The fifth generic capability adapter presents the WORKING DIRECTORY, which is
 the question `/sessions` never asked. It reads one authority — the same one
@@ -514,6 +548,24 @@ does not promise is that any older prerelease generation keeps working.
 
 ## Current limitations
 
+- **A turn's workspace changes are only comparable while the process that
+  recorded them is running.** Harness serves each summary from the Host that
+  captured it, so a conversation reopened in a new process has durable
+  `workspace/changes` events and no served summary. The outline cannot mark a
+  turn it has no live record of, and the turn's own view says *Changed-file
+  comparison unavailable in this Host* rather than showing nothing a reader
+  could mistake for a turn that changed no files. Rebuilding the comparison from
+  the files on disk is not a smaller gap: what those files hold now is not what
+  that turn wrote. A durable export of the summaries would close it, and that is
+  Harness's to own.
+- **Workspace-change recording costs Git work on every turn.** The recorder
+  snapshots the working tree at each turn's start and end through a private Git
+  index, copies each file a file tool edits, and keeps a temporary directory per
+  session. The repository's own index, objects, work tree, and refs are not
+  touched, and none of it reaches the model, but a large untracked work tree
+  without a `.gitignore` costs real temporary space for the life of the session.
+  The row is an ordinary composition row, so `/plugins` can turn it off and every
+  other `/turns` behaviour survives.
 - **A theme reaches new rows only.** `/theme` chooses among five shipped palettes and repaints the live region; rows already committed to native scrollback keep the colours they were printed with, because committed output is never rewritten. Applying one is confirmed by a single line drawn in the new palette. User-authored palettes are not supported yet: the role vocabulary a theme is written against is still internal, and publishing it before real palettes have exercised it would freeze a contract nothing has tested.
 - **`ctrl-o` affects new output only.** Committed native scrollback is never
   reformatted; a truncated tool card can instead open a bounded inspector, at any

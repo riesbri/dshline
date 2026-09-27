@@ -95,6 +95,9 @@ const EXPECTED_DISABLED = [
   'tool-web',
 ]
 
+/** The preset declarations this bundle ships, as `<name>.patch.yml` beside the patch. */
+const SHIPPED_PRESETS = ['standard', 'minimal'] as const
+
 /** Rows this file explicitly keeps host-plane (never disabled), and why. */
 const DELIBERATELY_NOT_DISABLED = [
   // A process singleton with a cross-session query surface; a preset row
@@ -280,6 +283,69 @@ describe('cordis.patch.yml: the session-turn-outline row', () => {
       peerDependenciesMeta?: Record<string, unknown>
     }
     const name = findRow(loadPatch()).name
+    expect(manifest.dependencies?.[name]).toBe(HARNESS_VERSION)
+    expect(manifest.peerDependencies?.[name]).toBeUndefined()
+    expect(manifest.devDependencies?.[name]).toBeUndefined()
+    expect(manifest.optionalDependencies?.[name]).toBeUndefined()
+    expect(manifest.peerDependenciesMeta?.[name]).toBeUndefined()
+  })
+})
+
+/**
+ * `/turns` reads `ctx.workspaceChanges`, and `dsh-base` does not mount the
+ * recorder that provides it. This bundle inserts it host-plane, beside
+ * `session-stats` and `session-turn-outline`, for the same reasons: it
+ * registers no tool and no prompt section, it appends a log-only event no model
+ * request carries, and it is keyed by session rather than by agent. Upstream
+ * mounts it in the same host roster of its own web bundle.
+ *
+ * The row is NOT free, so the properties asserted here are the ones a reader
+ * would want to be able to check: it is one ordinary composition row they can
+ * switch off through `/plugins`, and dropping it leaves a working terminal.
+ */
+describe('cordis.patch.yml: the workspace-changes row', () => {
+  function findRow(patch: readonly PatchEntry[]): { readonly id: string; readonly name: string; readonly disabled?: unknown; readonly config?: unknown } {
+    const row = patch.flatMap(entry => entry.insert ?? []).find(candidate => candidate.id === 'workspace-changes')
+    if (row === undefined) throw new Error('workspace-changes row not found')
+    return row
+  }
+
+  it('inserts the official Harness package, not a dshline equivalent', () => {
+    expect(findRow(loadPatch()).name).toBe('@deepseek-ai/dsh-workspace-changes')
+  })
+
+  it('mounts it unconditionally, with no capability probe', () => {
+    const row = findRow(loadPatch())
+    expect(row.disabled).toBeUndefined()
+    // Its bounds are Harness's own shipped defaults, and a config block here
+    // would be dshline inventing knobs for a plugin it does not own.
+    expect(row.config).toBeUndefined()
+  })
+
+  it('keeps it host-plane rather than behind an agent preset', () => {
+    // Mounting it per preset would record every turn once per mounted preset,
+    // and would make a session's change history a function of which preset it
+    // happens to run — the same reason `session-stats` stays host-plane.
+    expect(EXPECTED_DISABLED).not.toContain('workspace-changes')
+    expect(disabledIds(loadPatch())).not.toContain('workspace-changes')
+    for (const preset of SHIPPED_PRESETS) {
+      const source = readFileSync(new URL(`../presets/${preset}.patch.yml`, import.meta.url), 'utf8')
+      expect(source).not.toContain('dsh-workspace-changes')
+    }
+  })
+
+  it('ships the package its own row names as a real dependency', () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as {
+      dependencies?: Record<string, string>
+      devDependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      optionalDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, unknown>
+    }
+    const name = findRow(loadPatch()).name
+    // Unconditional in the composition, so it is ordinary in the manifest. A
+    // peer entry would print an unmet-peer warning for every profile that ever
+    // switches the row off, which is exactly the profile this row is for.
     expect(manifest.dependencies?.[name]).toBe(HARNESS_VERSION)
     expect(manifest.peerDependencies?.[name]).toBeUndefined()
     expect(manifest.devDependencies?.[name]).toBeUndefined()
