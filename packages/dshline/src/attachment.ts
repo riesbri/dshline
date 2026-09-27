@@ -2751,9 +2751,10 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // no log read of its own. `workspace/changes` is a non-surface durable event,
     // so `isTranscriptEvent` already returned it, and the `workspace-changes`
     // adapter correlates a turn to its announcement by sequence — a pairing no
-    // other fold carries. Folding it here means a reopened session's earlier
-    // turns are marked before the first frame is painted, rather than a second
-    // read racing one that had to report "still looking" until it finished.
+    // other fold carries. Folding it here is what makes a reopened session's
+    // earlier turns correct on its FIRST frame: the durable prefix is already in
+    // hand, synchronously, so an unmatched turn is a settled answer rather than
+    // one waiting on a read of its own.
     for (const event of replayed) turnChanges.observe(event)
     const columns = terminal.columns()
     const lines = replayed.flatMap(event => project(event, columns))

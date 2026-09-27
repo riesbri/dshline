@@ -81,8 +81,9 @@ export async function fileDiffRows(
     diff = await request(file, signal)
   } catch (error: unknown) {
     // Checked FIRST, because an aborted read is the caller's own decision and
-    // not a Harness failure: the subprocess seam rejects an aborted spawn, and
-    // `readSession`-backed cancellation is not an exception at all.
+    // not a Harness failure: the subprocess seam REJECTS an aborted spawn rather
+    // than resolving an empty comparison, so without this an ordinary close of
+    // the inspector would report to the reader that reading the file failed.
     if (signal.aborted) return { kind: 'cancelled' }
     return { kind: 'failed', message: error instanceof Error ? error.message : String(error) }
   }

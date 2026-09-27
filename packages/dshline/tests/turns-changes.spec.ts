@@ -418,6 +418,20 @@ describe('the changed-file list', () => {
     expect(driver.rows(80, 24).join('\n')).toContain('src/file-0.ts')
   })
 
+  it('reports the complete count even in the one-row backstop', () => {
+    // The narrow-terminal fallback is a whole phrase, and it is the one place a
+    // reader has nothing else to cross-check against. Saying the listed count
+    // there would under-report a capped summary in precisely the frame where the
+    // truncation note beside it has no room to appear.
+    const capped = summary(1, [file('a.ts', 1, 0), file('b.ts', 1, 0)], { total: 700, added: 384, deleted: 91 })
+    // Three rows is the frame's own fixed-row count, so the kernel substitutes
+    // the backstop; 30 columns fits the phrase, which a narrower terminal could
+    // not show at all.
+    const shown = filesSurface({ kind: 'summary', seq: 4, summary: capped }).rows(30, 3).join('\n')
+    expect(shown).toContain('Changed files 700')
+    expect(shown).not.toContain('Changed files 2 ')
+  })
+
   it('draws nothing but a backstop on a terminal too small to frame', () => {
     expect(filesSurface({ kind: 'unmounted' }).rows(12, 24).join('\n')).toContain('esc')
     expect(filesSurface({ kind: 'unserved', seq: 1 }).rows(12, 24).join('\n')).toContain('esc')

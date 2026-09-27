@@ -1,14 +1,14 @@
 /**
  * Bounded live-region presentation of the authoritative Harness `turnOutline`.
  *
- * THREE surfaces, and the count is the navigation model. The outline is one
- * bounded surface; Enter pushes a read-only inspection surface over it, and that
- * surface's Enter pushes a changed-file list over itself, which in turn pushes a
- * per-file comparison. Every level is its own surface in the shared overlay
- * stack, so Escape pops exactly the top one and lands back on the level beneath
- * without a special "escape sometimes means back" state anywhere. None of them
- * writes the transcript: the native scrollback stays the transcript, and `/turns`
- * draws only the bounded index it can bound.
+ * FOUR surfaces, and the count is the navigation model. The outline is one
+ * bounded surface; Enter pushes a read-only inspection surface over it, that
+ * surface's Enter pushes a changed-file list over itself, and the list's Enter
+ * pushes a per-file comparison. Every level is its own surface in the shared
+ * overlay stack, so Escape pops exactly the top one and lands back on the level
+ * beneath without a special "escape sometimes means back" state anywhere. None
+ * of them writes the transcript: the native scrollback stays the transcript,
+ * and `/turns` draws only the bounded index it can bound.
  *
  * Nothing here folds the log or owns turn state. Every paint re-reads the
  * current authoritative reading and resolves the selected turn by its stable
@@ -777,20 +777,27 @@ function filesCompact(current: TurnChangesReading): string {
     case 'unserved':
       return 'Changes unavailable'
     case 'summary':
+      // `total`, for the same reason the outline's mark uses it: a summary this
+      // Host cannot cap is the one that would be truncated here, and a backstop
+      // that said "500" for a 700-file change would under-report it in the one
+      // place a reader on a narrow terminal has to trust.
       return current.summary.total === 0
         ? 'No changed files'
-        : `Changed files ${String(current.summary.files.length)}`
+        : `Changed files ${String(current.summary.total)}`
   }
 }
 
 /**
  * Build the changed-file list's bounded body.
  *
- * The states that are not a list are given their own words rather than an empty
- * frame, because each of them is a different fact: no capability mounted, a read
- * in flight, a read that failed, no announcement, an announcement this Host can
- * no longer serve, and — the one a list must not blur into any of the others — a
- * summary Harness returned with zero files in it.
+ * Every state that is not a list gets its own words rather than an empty frame,
+ * because each is a different fact: no capability mounted, no announcement, an
+ * announcement this Host can no longer serve, and — the one a list must not blur
+ * into any of the others — a summary Harness returned with zero files in it.
+ * There is deliberately no "still looking" state: every announcement this
+ * attachment owns was resolved before the first frame, so an unmatched turn is
+ * an answer that will not change, and marking it would assert a fact Harness
+ * never published.
  * @param current - the turn's changed-file reading.
  * @param files - the listed files, in Harness order.
  * @param focus - the aimed file index, as a key.
