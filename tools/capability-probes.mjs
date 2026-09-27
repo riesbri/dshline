@@ -80,6 +80,14 @@ export const CAPABILITY_PROBES = [
     note: 'real `@deepseek-ai/dsh-session-turn-outline` unit over a real Session store and projection registry, plus dshline outline/inspection presentation over that cut; no transcript paging, fork, or Web transport is claimed',
   },
   {
+    name: 'workspaceChanges',
+    files: [
+      'packages/dshline/tests/capability/workspace-changes.probe.spec.ts',
+      'packages/dshline/tests/turns-changes.spec.ts',
+    ],
+    note: 'real `@deepseek-ai/dsh-workspace-changes` over a real Session store, local subprocess runtime, and real git repository — the announcement’s own seq (not the turn’s) addresses the summary, a file index addresses the comparison, and disposal drops the served summary while the event stays durable; dshline’s correlation, list, and comparison rendering over the same typed values, including the refusals upstream owns. The recorder’s own capture and comparison policy — git snapshots, file-tool whole-file captures, `binary`/`oversized` refusals, and the `coarse` degradation — is upstream’s and is not claimed here',
+  },
+  {
     name: 'workflows',
     files: ['packages/dshline/tests/capability/workflow.probe.spec.ts'],
     note: 'real abstract WorkflowEngine dispatch and dshline Work observation over local event fixtures; no concrete backend, script, or child run',

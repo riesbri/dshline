@@ -116,6 +116,7 @@ import { createCachePresenter } from './cache/presenter.ts'
 import { contextReading, ContextSurveyor, contextPressureTokens } from './context/model.ts'
 import { createContextPresenter } from './context/presenter.ts'
 import { createTurnsPresenter } from './turns/presenter.ts'
+import { WorkspaceChangesAdapter } from './turns/changes.ts'
 import { turnReading } from './turns/model.ts'
 import { currentSessionReading } from './session/model.ts'
 import { createCurrentSessionHubPresenter } from './session/presenter.ts'
@@ -806,11 +807,34 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // `/turns` reads the same generic projection cut as Context, Cache, and
   // Todos: the Harness `turnOutline` unit owns turn identity and previews, and
   // this presenter only decides what bounded rows a terminal shows of them.
+  //
+  // The workspace-change ADAPTER is session-scoped for the same reason the
+  // projection observer above is: `workspace/changes` announcements are events of
+  // THIS session, and their summaries live on the Host process that recorded
+  // them. Built here, owned by this attachment's scope, and folded from the two
+  // places this attachment already receives durable events — the live feed below
+  // and the resume replay further down. A `ctx.effect` would keep a previous
+  // session's announcements alive after the reader moved on.
+  const workspaceChanges = ctx.get('workspaceChanges')
+  // Built even when the composition mounts no such row, so a profile that drops
+  // it and one that mounts it share one teardown path; only the SEAM is optional.
+  const turnChanges = new WorkspaceChangesAdapter({
+    sessionId: agent.session.id,
+    ...workspaceChanges === undefined ? {} : { changes: workspaceChanges },
+  })
+  // Owned BEFORE the presenter, and the scope disposes newest first, so the
+  // surfaces go down while the adapter they read still answers.
+  scope.own(() => { turnChanges.dispose() })
   const turnsPresenter = createTurnsPresenter({
     slots: ctx.tuiSlots,
     snapshot: () => projections.snapshot(),
     invalidate: () => { ctx.tuiSlots.invalidate() },
+    changes: turnChanges,
   })
+  // Surfaces are process-wide, so the presenter closes its own on teardown:
+  // without this an open `/turns` would keep taking keystrokes, and keep a
+  // comparison read in flight, over the NEXT session's terminal.
+  scope.own(() => { turnsPresenter.dispose() })
   const sessionNavigator = sessionQuery === undefined ? undefined : new SessionNavigator({
     query: sessionQuery,
     invalidate: () => { ctx.tuiSlots.invalidate() },
@@ -1852,6 +1876,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // enable during a turn either blank or partial; the preference owns only
     // presentation, and a fresh attachment still starts without invented data.
     timer.observe(event)
+    // The one fold in this listener that needs no timer, no redraw, and no
+    // reading: a `workspace/changes` announcement names its turn, and the durable
+    // log is the only place that pairing exists. Cheap enough to run for every
+    // event, and it draws nothing — `/turns` reads the fold when it paints.
+    turnChanges.observe(event)
     if (event.type === 'turn/start') turnStartedAt = event.time
     if (event.type === 'turn/end') turnStartedAt = undefined
     // A tool call starts executing the moment the model's request settles, so a
@@ -2718,6 +2747,15 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // a reopened session navigates what was actually submitted — direct prompts
     // and recorded slash commands — rather than only what this process has seen.
     for (const line of historyLines(replayed)) history.record(line)
+    // The THIRD fold of this same durable array, and the reason `/turns` needs
+    // no log read of its own. `workspace/changes` is a non-surface durable event,
+    // so `isTranscriptEvent` already returned it, and the `workspace-changes`
+    // adapter correlates a turn to its announcement by sequence — a pairing no
+    // other fold carries. Folding it here is what makes a reopened session's
+    // earlier turns correct on its FIRST frame: the durable prefix is already in
+    // hand, synchronously, so an unmatched turn is a settled answer rather than
+    // one waiting on a read of its own.
+    for (const event of replayed) turnChanges.observe(event)
     const columns = terminal.columns()
     const lines = replayed.flatMap(event => project(event, columns))
     // Only the cards need clearing. A log can end mid-turn with a call whose

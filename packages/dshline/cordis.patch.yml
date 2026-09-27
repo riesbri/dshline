@@ -58,6 +58,42 @@
     - id: session-turn-outline
       name: '@deepseek-ai/dsh-session-turn-outline'
 
+# The files each top-level turn changed (`ctx.workspaceChanges`), which `/turns`
+# reads in its turn rows and inspects on demand. The plugin snapshots the working
+# tree around every turn through the `subprocess` capability, appends one
+# `workspace/changes` event naming the turn, and serves the summary and each
+# file's comparison from THIS Host process while the Session lives.
+#
+# Host-plane and unconditional, on the same reasoning as the two rows above: it
+# registers no tool and no prompt section, it appends a log-only event no model
+# request ever carries, and it is keyed by session rather than by agent, so an
+# agent preset is the wrong owner and would record every turn once per mounted
+# preset. Upstream mounts it in `packages/bundle/web-app/cordis.patch.yml` in
+# the same host roster, beside these two rows, for its own changed-files card;
+# this row is that same treatment for a terminal reader.
+#
+# `dsh-base` does not carry this row, so a plain TUI or headless assembly serves
+# no `workspaceChanges` key at all. A profile that drops it keeps everything
+# else: `/turns` behaves exactly as it did before, and says in one line that this
+# composition mounts no workspace-change records rather than folding the log a
+# second time.
+#
+# WHAT IT COSTS, because it is not free and the choice to make it is a reader's:
+# a `git add --all` into a private index and a `write-tree` at each turn's start,
+# a `diff-tree` at its end, a whole-file copy around each file-tool edit, a
+# temporary directory per Session that is removed when that Session is disposed,
+# and one awaited `settled()` before every tool call so a snapshot can never race
+# a mutation. All of it runs git in the user's repository through a private index
+# — normally leaving the repository's own index, object store, work tree, and
+# refs unchanged. "Normally" is upstream's own word: the plugin's README records
+# that a `core.splitIndex` repository writes `sharedindex.*` files, and that
+# git-lfs runs its clean filter and stores objects under `.git/lfs`. None of it
+# enters a model request. A reader who wants none of it disables this one row
+# through `/plugins`; the rows above it are not affected.
+- insert:
+    - id: workspace-changes
+      name: '@deepseek-ai/dsh-workspace-changes'
+
 # The authorization seam (`ctx.authorization`): the flows that OBTAIN a
 # credential by asking a human, which is the half of provider setup no
 # settings document can supply. `/connect` reads it, and reading it is the

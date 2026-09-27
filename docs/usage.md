@@ -1270,9 +1270,65 @@ scrollback stays the transcript, and the outline is a view over Harness's
 Inspection is read-only. A turn's prompt or response preview can be empty — a
 turn can open with no eligible prompt, and a completed turn can carry no
 assistant text — so the surface says the preview is not recorded rather than
-guessing whether the turn is still running. Harness owns turn identity, the
+guessingly whether the turn is still running. Harness owns turn identity, the
 `turn/start` boundary, the previews, and the completed-turn fold, so a profile
 that mounts no turn outline says so; there is no fallback fold.
+
+#### Changed files
+
+A turn Harness recorded workspace changes for carries a mark in the outline —
+`Δ 8 · +384 -91` — and `enter` on that turn's inspection view opens its changed
+files. The file count is Harness's complete `total`, not the number it chose to
+list: when a summary is capped, the outline still reports the whole change. `enter` on a file opens Harness's comparison of that file between
+the turn's start and its end: the hunk headings, the added and removed lines,
+and the surrounding context.
+
+```text
+Changed files
+
+  src/attachment.ts                 +62  -18
+› tests/file-attachment-flow.ts    +143  -12
+  docs/architecture.md              +28   -9
+
+↑↓ move · ↵ inspect · esc back
+```
+
+Inside the comparison, `↑` / `↓` scroll and `home` / `end` jump to the ends;
+`esc` or `ctrl-c` returns to the file list, and `esc` there returns to the turn.
+Nothing here is a Git application: dshline runs no Git, reads no file, and keeps
+no copy of a comparison. Harness records what each turn changed, counts the
+lines, and computes the hunks; this interface only draws them.
+
+The mark is drawn only where Harness published something, and the absences stay
+distinguishable. A turn with no record carries no column at all rather than a
+fabricated `Δ 0 files`; a file Harness reports as binary or as too large to read
+is labelled as that instead of being shown as an empty edit; a summary Harness
+truncated says how many files it holds out of how many changed; and a comparison
+Harness's own line comparison timed out on is labelled coarse rather than
+presented as an exact hunk.
+
+**A reopened session keeps the evidence and loses the comparison.** Harness
+keeps each summary in the process that recorded it, so a conversation reopened
+in a new process has `workspace/changes` events in its durable log and no served
+summary behind them. Opening such a turn says *Changed-file comparison
+unavailable in this Host* rather than showing nothing, which a reader could not
+tell apart from a turn that changed no files. dshline does not rebuild the
+comparison from the files on disk: what those files hold now is not what that
+turn wrote.
+
+**What recording costs.** Harness records a turn by snapshotting the working
+tree at its start and its end through a private Git index, so this costs a
+`git add` and a `write-tree` per turn, a `diff-tree` at its end, a copy of each
+file a file tool edits, and a temporary directory per session that is removed
+when the session closes. The private index and private object directory leave
+the repository's own index, object store, work tree, and refs normally
+unchanged — with two exceptions Harness's own documentation records: a
+`core.splitIndex` repository writes `sharedindex.*` files, and Git LFS runs its
+clean filter and stores objects under `.git/lfs`. None of it reaches the model. A
+profile that mounts no
+`workspace-changes` row keeps every other `/turns` behaviour and says in one
+line that this composition mounts no workspace-change records; `/plugins` can
+also turn that one row off.
 
 ### Skills
 
