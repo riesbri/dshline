@@ -210,7 +210,7 @@ function codeOf(error: unknown): string | undefined {
 }
 
 /**
- * Attachment failure codes whose own message is safe to show.
+ * A failure the attachment capability authored, and the words it used.
  *
  * The adopted attachment error class documents its message as carrying no raw
  * bytes and no host paths, so a failure it authored can be printed exactly as
@@ -218,16 +218,17 @@ function codeOf(error: unknown): string | undefined {
  * one into "could not be read" would throw away a diagnostic that names the
  * actual fault.
  *
- * Whether a failure IS an attachment failure is not decided here. This module
- * once kept a local copy of the whole published `AttachmentErrorCode` union to
- * answer that, which made a frontend the authority on a vocabulary Harness owns
- * and would have silently misclassified every code added after the copy was
- * taken — a new upstream code would have fallen through to the filesystem
- * wording. The store's own `isAttachmentError` is asked instead, which is the
- * same call upstream's own `FileUploads.commit()` makes, and a failure it
- * recognises is shown whatever its code happens to be.
+ * Whether a failure IS an attachment failure is not decided here, and this
+ * function used to be where it was: it kept a local copy of the whole published
+ * `AttachmentErrorCode` union, which made a frontend the authority on a
+ * vocabulary Harness owns and would have silently misclassified every code added
+ * after the copy was taken — a new upstream code would have fallen through to
+ * the filesystem wording, reporting a storage fault as an unreadable file. The
+ * store's own `isAttachmentError` is asked instead, which is the same call
+ * upstream's own `FileUploads.commit()` makes, and a failure it recognises is
+ * shown whatever its code happens to be.
  * @param error - an admission failure.
- * @param attachments - the store that authored, or owns, the capability.
+ * @param attachments - the store that owns attachment-error identity.
  * @returns the authored message, or undefined when the failure is not one of ours.
  */
 export function attachmentAuthoredMessage(error: unknown, attachments: AttachmentStore): string | undefined {

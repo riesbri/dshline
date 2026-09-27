@@ -841,7 +841,14 @@ describe('failure handling', () => {
     expect(f.frame()).toContain('2 files')
   })
 
-  it('sends nothing when an image in a mixed batch fails to store', async () => {
+  it('sends nothing when a mixed batch fails AFTER the image was durably published', async () => {
+    // The two-pass order, stated exactly: images are read and committed first,
+    // then the file streams. So here the IMAGE is already a durable object when
+    // the file's read fails — which is precisely the case that must still send
+    // nothing, and precisely the case that leaves a durable-but-unreachable
+    // object behind for the provider's retention to collect. An earlier version
+    // of this test was named for the image failing to store, which is the
+    // opposite of what happens and would have taught the wrong transaction.
     const f = await fixture({ serve: () => ({ code: 'FS_IO_ERROR', message: 'io' }) })
     submit(f.dispatch(), '/image pictures/a.png')
     submit(f.dispatch(), '/attach trace.json')
@@ -1129,6 +1136,20 @@ describe('delegated conversations', () => {
     expect(f.output()).toContain('delegated conversations do not accept file attachments')
     expect(f.frame()).not.toContain('1 file')
     expect(f.windows).not.toHaveBeenCalled()
+  })
+
+  it('gives the delegation reason, not a capability one, when both would apply', async () => {
+    // Eligibility is checked first on purpose. A profile that mounts no
+    // attachment store AND runs a delegated conversation has two true reasons
+    // to refuse; only the second one is the reason that will still be there
+    // after the profile is fixed, and reporting the first would send the
+    // reader to edit their composition for a conversation that was never
+    // eligible.
+    const f = await fixture({ origin: 'subagent', capabilities: false })
+    submit(f.dispatch(), '/attach report.pdf')
+    await flush()
+    expect(f.output()).toContain('delegated conversations do not accept file attachments')
+    expect(f.output()).not.toContain('attachment and filesystem services')
   })
 
   it('leaves images alone, because upstream admits image parts to subagents today', async () => {

@@ -980,6 +980,16 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
           draw()
           return
         }
+        // Eligibility BEFORE capability. A delegated child conversation takes no
+        // generic file at all, so leading with "the services are missing" would
+        // be a lie about this profile in the one case where its services are
+        // present and perfectly working. Both refusals are truthful; only one
+        // of them names the reason that will not change.
+        if (isDelegated()) {
+          commit([paint('✗ delegated conversations do not accept file attachments', 'error')])
+          draw()
+          return
+        }
         // Checked at staging as well as at send, for the same reason `/image`
         // does: a capability that is absent right now will be reported now,
         // where the drafts are being created, instead of at the prompt where
@@ -987,14 +997,6 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
         // a profile can recompose between the two.
         if (ctx.get('attachments') === undefined || ctx.get('fs') === undefined) {
           commit([paint('✗ file attachment needs this profile\'s attachment and filesystem services', 'error')])
-          draw()
-          return
-        }
-        // Eligibility before capability: a delegated child conversation takes no
-        // generic file at all, so saying the SERVICES are missing would be a
-        // lie about this profile when they are present and perfectly working.
-        if (isDelegated()) {
-          commit([paint('✗ delegated conversations do not accept file attachments', 'error')])
           draw()
           return
         }
