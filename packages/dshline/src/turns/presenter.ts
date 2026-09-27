@@ -117,14 +117,12 @@ export function createTurnsPresenter(deps: TurnsPresenterDeps): TurnsPresenter {
   /**
    * Push the changed-file list over the turn inspection surface.
    *
-   * Enter here is the reader's DISCLOSURE, and it is the only moment that may
-   * start the one historical log read. A turn this Host never recorded has no
-   * live announcement, so without this call its changed files would be
-   * indistinguishable from a turn that changed nothing.
+   * Enter here is the reader's disclosure, and the only thing it does beyond
+   * opening the list: nothing. There is no read to start, because the adapter
+   * already resolved every announcement this attachment owns.
    * @param turn - the addressed turn's Harness-assigned number.
    */
   const openFiles = (turn: number): void => {
-    if (deps.changes !== undefined) deps.changes.requestHistory(turn)
     mount(close => createTurnFilesOverlay({
       reading: () => change(turn),
       open: openDiff,

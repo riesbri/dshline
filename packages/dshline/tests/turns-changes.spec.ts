@@ -39,6 +39,7 @@ import { displayWidth, stripAnsi } from '@dshline/renderer'
 import type { TuiOverlay, TuiSlots } from '../src/slots.ts'
 import type { ChangedFileRow, TurnChangesReading, WorkspaceChangesSeam } from '../src/turns/changes.ts'
 import { changedFileRow, WorkspaceChangesAdapter } from '../src/turns/changes.ts'
+import { isTranscriptEvent } from '../src/resume.ts'
 import { createFileDiffOverlay } from '../src/turns/diff-overlay.ts'
 import type { TurnReading } from '../src/turns/model.ts'
 import { turnChangesMark } from '../src/turns/model.ts'
@@ -91,6 +92,26 @@ function announcement(turn: number, seq: number): SessionEvent {
   return { type: 'workspace/changes', seq: SessionSeq(seq), time: 0, data: { turn } } as unknown as SessionEvent
 }
 
+/**
+ * The durable array an attachment's existing resume replay walks.
+ *
+ * Shaped to the real contract rather than to this feature's convenience: two
+ * turns, one of which announced its changes and one of which did not, in log
+ * order — and filtered by `resume.ts`'s own `isTranscriptEvent`, exactly as the
+ * replay applies it. A change to that filter, which would silently drop these
+ * events from the replay and with them from every reopened session, fails HERE
+ * rather than as a mark that quietly stopped appearing.
+ */
+function replayedLog(): readonly SessionEvent[] {
+  return [
+    { type: 'turn/start', seq: SessionSeq(0), time: 0, data: { turn: 1 } } as unknown as SessionEvent,
+    announcement(1, 12),
+    { type: 'turn/end', seq: SessionSeq(13), time: 0, data: { turn: 1 } } as unknown as SessionEvent,
+    { type: 'turn/start', seq: SessionSeq(14), time: 0, data: { turn: 2 } } as unknown as SessionEvent,
+    { type: 'turn/end', seq: SessionSeq(15), time: 0, data: { turn: 2 } } as unknown as SessionEvent,
+  ].filter(isTranscriptEvent)
+}
+
 /** The rows a person would see, at a given geometry. */
 function rows(overlay: TuiOverlay, columns = 80, terminalRows = 24): string[] {
   return overlay.render(columns, terminalRows).map(stripAnsi)
@@ -117,37 +138,48 @@ describe('the turn mark', () => {
   it('marks a turn only where Harness published something', () => {
     const served = { kind: 'summary', seq: 4, summary: summary(1, [file('a.ts', 3, 1)]) } as const
     expect(turnChangesMark(served)).toBe('Δ 1 · +3 -1')
-    // Three different absences, two of which must be silent and one of which
-    // must speak: a composition with no capability and a turn with no
-    // announcement are both "nothing to show", while an announcement this Host
-    // cannot serve is evidence, not absence.
+    // Two absences, both silent, and one fact that must speak: a composition
+    // with no capability and a turn with no announcement are both "nothing to
+    // show", while an announcement this Host cannot serve is evidence, not
+    // absence — and evidence is what a reader needs it to be.
     expect(turnChangesMark({ kind: 'unmounted' })).toBeUndefined()
     expect(turnChangesMark({ kind: 'none' })).toBeUndefined()
     expect(turnChangesMark({ kind: 'unserved', seq: 9 })).toBe('Δ –')
-    expect(turnChangesMark({ kind: 'pending' })).toBe('Δ ?')
-    expect(turnChangesMark({ kind: 'failed' })).toBe('Δ ?')
+  })
+
+  it('counts `total`, so a capped summary never under-reports the change', () => {
+    // Harness caps `files` at `maxFiles` and keeps counting into `total`. An
+    // outline that showed the listed count would tell a reader that a 700-file
+    // change touched 500 of them, which is false in the direction that matters.
+    const capped = {
+      kind: 'summary',
+      seq: 4,
+      summary: summary(1, [file('a.ts', 10, 1), file('b.ts', 5, 0)], {
+        total: 700,
+        // Upstream sums these over the WHOLE list before applying the cap, so
+        // they are complete even though `files` is not.
+        added: 384,
+        deleted: 91,
+      }),
+    } as const
+    expect(turnChangesMark(capped)).toBe('Δ 700 · +384 -91')
+    expect(turnChangesMark(capped)).not.toContain('2')
   })
 })
 
 describe('announcement correlation', () => {
-  it('answers unmounted, and reads nothing, without the capability', () => {
-    const read = vi.fn()
-    const adapter = new WorkspaceChangesAdapter({
-      sessionId: SESSION,
-      history: { readSession: read },
-      invalidate: () => {},
-    })
+  it('answers unmounted, and has no read of its own, without the capability', () => {
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION })
     expect(adapter.mounted).toBe(false)
     expect(adapter.reading(1)).toEqual({ kind: 'unmounted' })
-    // A profile that drops the row must cost nothing at all: not a log read, not
-    // a summary lookup, and no throw out of a paint.
-    expect(read).not.toHaveBeenCalled()
-    expect(adapter.requestHistory(1)).toBe(false)
+    // A profile that drops the row costs nothing: there is no log read, no
+    // summary lookup, and no throw out of a paint. The whole design is a
+    // transient index over events the attachment already receives.
   })
 
   it('serves a summary by the announcing event seq, and never by the turn number', () => {
     const seam = seamOver(summary(1, [file('a.ts', 1, 0)]), { at: 4 })
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     adapter.observe(announcement(1, 4))
     // The turn NUMBER is 1 and its `turn/start` seq would be 0: addressing the
     // service with either is the mistake this pairing exists to prevent.
@@ -158,7 +190,7 @@ describe('announcement correlation', () => {
 
   it('keeps the newest announcement for a turn, as upstream states', () => {
     const seam = seamOver(summary(1, [file('a.ts')]), { at: 9 })
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     adapter.observe(announcement(1, 4))
     adapter.observe(announcement(1, 9))
     expect(adapter.reading(1)).toMatchObject({ kind: 'summary', seq: 9 })
@@ -167,7 +199,7 @@ describe('announcement correlation', () => {
 
   it('never mixes one turn’s announcement into another’s', () => {
     const seam = seamOver(summary(2, [file('b.ts')]), { at: 7 })
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     adapter.observe(announcement(2, 7))
     expect(adapter.reading(2)).toMatchObject({ kind: 'summary', seq: 7 })
     // Turn 1 was never announced, and the fact that turn 2 was says nothing
@@ -177,7 +209,7 @@ describe('announcement correlation', () => {
 
   it('ignores a subagent announcement, which is never a top-level turn', () => {
     const seam = seamOver(summary(1, [file('a.ts')]), { at: 4 })
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     // The recorder does not create one for a subagent session, and a payload
     // that is not a positive integer is not a turn identity to correlate with.
     adapter.observe(announcement(0, 4))
@@ -189,79 +221,70 @@ describe('announcement correlation', () => {
     // The event is durable; the summary is not. This is the reopened session,
     // and the restarted Host, in one fixture.
     const seam: WorkspaceChangesSeam = { summary: () => undefined, diff: async () => undefined }
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     adapter.observe(announcement(1, 12))
     expect(adapter.reading(1)).toEqual({ kind: 'unserved', seq: 12 })
   })
 
-  it('reconstructs a pre-attachment announcement from the log, once, on request', async () => {
+  it('resolves a replayed announcement with no read of its own and no wait', () => {
+    // THE property this architecture exists for. The attachment's existing
+    // resume replay already walks the whole durable log; `workspace/changes` is
+    // a non-surface durable event, so it arrives in that array. Folding that
+    // array is the entire historical path — there is nothing to await, so an
+    // unmatched turn is a settled `none` rather than a "still looking" mark.
     const seam = seamOver(summary(1, [file('a.ts', 2, 0)]), { at: 12 })
-    const read = vi.fn(async () => ({ events: [announcement(1, 12)] }))
-    const adapter = new WorkspaceChangesAdapter({
-      sessionId: SESSION,
-      changes: seam,
-      history: { readSession: read },
-      invalidate: () => {},
-    })
-    // Before the read, absence is UNKNOWN, and the reader is told so rather than
-    // shown a confident "no changes".
-    expect(adapter.reading(1)).toEqual({ kind: 'pending' })
-    expect(adapter.requestHistory(1)).toBe(true)
-    await vi.waitFor(() => { expect(adapter.reading(1).kind).not.toBe('pending') })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
+    for (const event of replayedLog()) adapter.observe(event)
+    // Synchronously, before any frame is painted.
     expect(adapter.reading(1)).toMatchObject({ kind: 'summary', seq: 12 })
-    // ONE read answers every turn: a second turn must not re-read the log.
-    expect(adapter.requestHistory(2)).toBe(false)
-    expect(read).toHaveBeenCalledTimes(1)
-    expect(read).toHaveBeenCalledWith(SESSION)
+    // A turn the replayed log says nothing about is a settled absence, and it
+    // carries no mark — which is the whole correction to the previous shape.
+    expect(adapter.reading(2)).toEqual({ kind: 'none' })
   })
 
-  it('reports a failed historical read as itself, not as an absence', async () => {
-    const seam = seamOver(summary(1, [file('a.ts')]), { at: 4 })
-    const adapter = new WorkspaceChangesAdapter({
-      sessionId: SESSION,
-      changes: seam,
-      history: { readSession: () => Promise.reject(new Error('log unreadable')) },
-      invalidate: () => {},
-    })
-    expect(adapter.requestHistory(1)).toBe(true)
-    await vi.waitFor(() => { expect(adapter.reading(1).kind).toBe('failed') })
-  })
-
-  it('rejects an attempt to start a second read while one is in flight', () => {
-    const adapter = new WorkspaceChangesAdapter({
-      sessionId: SESSION,
-      changes: seamOver(undefined),
-      history: { readSession: () => new Promise(() => {}) },
-      invalidate: () => {},
-    })
-    expect(adapter.requestHistory(1)).toBe(true)
-    expect(adapter.requestHistory(2)).toBe(false)
-  })
-
-  it('drops a historical settlement that lands after teardown', async () => {
-    let release: (() => void) | undefined
-    const invalidate = vi.fn()
+  it('folds the same event twice without moving the answer', () => {
+    // The two sources overlap by construction: an event already in the replay
+    // snapshot is one the live listener never delivered, and a reader can walk
+    // `/turns` while a replay is still settling. Idempotence is what makes the
+    // fold safe to run from both.
     const seam = seamOver(summary(1, [file('a.ts')]), { at: 12 })
-    const adapter = new WorkspaceChangesAdapter({
-      sessionId: SESSION,
-      changes: seam,
-      history: { readSession: () => new Promise(resolve => { release = () => { resolve({ events: [announcement(1, 12)] }) } }) },
-      invalidate,
-    })
-    adapter.requestHistory(1)
-    adapter.dispose()
-    release?.()
-    await Promise.resolve()
-    await Promise.resolve()
-    // A session was torn down while its log was still being read. The next
-    // attachment must not see this one's evidence, and nothing may repaint.
-    expect(invalidate).not.toHaveBeenCalled()
-    expect(adapter.reading(1)).toEqual({ kind: 'unmounted' })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
+    const event = replayedLog().find(candidate => candidate.type === 'workspace/changes') as SessionEvent
+    adapter.observe(event)
+    adapter.observe(event)
+    expect(adapter.reading(1)).toMatchObject({ kind: 'summary', seq: 12 })
+    expect(seam.diff).not.toHaveBeenCalled()
+  })
+
+  it('takes the newest announcement across the replay and the live feed', () => {
+    // Upstream states the latest event for one turn replaces earlier ones, and
+    // an in-turn record can be superseded by the one taken after `turn/end`.
+    const seam = seamOver(summary(1, [file('a.ts')]), { at: 9 })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
+    adapter.observe(announcement(1, 4))
+    adapter.observe(announcement(1, 9))
+    expect(adapter.reading(1)).toMatchObject({ kind: 'summary', seq: 9 })
+    // And an OLDER announcement arriving later never replaces a newer one, so
+    // the fold is order-insensitive for any event the two sources can deliver.
+    adapter.observe(announcement(1, 4))
+    expect(adapter.reading(1)).toMatchObject({ kind: 'summary', seq: 9 })
+  })
+
+  it('states an unserved replayed announcement rather than an empty list', () => {
+    // A reopened session keeps the event in its log and loses the summary with
+    // the process that recorded it. That is a fact about this Host, and the
+    // file list says so instead of reading as a turn that changed nothing.
+    const seam = seamOver(undefined)
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
+    for (const event of replayedLog()) adapter.observe(event)
+    expect(adapter.reading(1)).toEqual({ kind: 'unserved', seq: 12 })
+    expect(flowed(filesSurface(adapter.reading(1)).rows()))
+      .toContain('Changed-file comparison unavailable in this Host')
   })
 
   it('answers nothing for any turn once disposed', async () => {
     const seam = seamOver(summary(1, [file('a.ts')]), { at: 4 })
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     adapter.observe(announcement(1, 4))
     adapter.dispose()
     expect(adapter.reading(1)).toEqual({ kind: 'unmounted' })
@@ -301,10 +324,21 @@ describe('the outline rows', () => {
     expect(narrow.some(row => row.includes('second'))).toBe(true)
   })
 
-  it('escapes a mark derived from upstream numbers rather than trusting them', () => {
-    const hostile = { kind: 'summary', seq: 1, summary: summary(1, [file('a')], { total: 5, added: 3, deleted: 2 }) } as const
-    expect(outline({ reading: () => turns, changes: () => hostile }).rows()
-      .some(row => row.includes('Δ 1 · +3 -2'))).toBe(true)
+  it('carries Harness’s complete totals through the mark unchanged', () => {
+    // `total`, `added`, and `deleted` are Harness's own numbers over the WHOLE
+    // change. The mark reports them as published — it does not recompute a count
+    // from the listed files, which is what made a capped summary under-report.
+    const complete = {
+      kind: 'summary',
+      seq: 1,
+      summary: summary(1, [file('a.ts', 3, 1), file('b.ts', 1, 1)], {
+        total: 5,
+        added: 3,
+        deleted: 2,
+      }),
+    } as const
+    expect(outline({ reading: () => turns, changes: () => complete }).rows()
+      .some(row => row.includes('Δ 5 · +3 -2'))).toBe(true)
   })
 })
 
@@ -346,8 +380,6 @@ describe('the changed-file list', () => {
 
   it('distinguishes every other state from one another', () => {
     expect(filesSurface({ kind: 'unmounted' }).rows().join('\n')).toContain('mounts no workspace-change records')
-    expect(filesSurface({ kind: 'pending' }).rows().join('\n')).toContain('Checking this session')
-    expect(filesSurface({ kind: 'failed' }).rows().join('\n')).toContain('could not be read')
     expect(filesSurface({ kind: 'none' }).rows().join('\n')).toContain('announced no workspace changes')
   })
 
@@ -610,7 +642,7 @@ describe('lifetime', () => {
     const closed: string[] = []
     const slots = fakeSlots()
     const seam = seamOver(summary(1, [file('a.ts')]), { at: 4, diff: { kind: 'binary', path: 'a', display: 'a' } })
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     adapter.observe(announcement(1, 4))
     const presenter = createTurnsPresenter({
       slots,
@@ -635,7 +667,7 @@ describe('lifetime', () => {
 
   it('keeps a previous session’s adapter from answering for the next one', () => {
     const seam = seamOver(summary(1, [file('a.ts')]), { at: 4 })
-    const first = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam, invalidate: () => {} })
+    const first = new WorkspaceChangesAdapter({ sessionId: SESSION, changes: seam })
     first.observe(announcement(1, 4))
     first.dispose()
     const second = new WorkspaceChangesAdapter({ sessionId: SessionId('other'), changes: seam, invalidate: () => {} })

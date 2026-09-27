@@ -199,12 +199,12 @@ function announcement(session: Session, turn: number): { seq: number } | undefin
 
 describe('capability: workspaceChanges', () => {
   it('answers unmounted for a composition that mounts no such row', () => {
-    const adapter = new WorkspaceChangesAdapter({ sessionId: SessionId('no-row'), invalidate: () => {} })
+    const adapter = new WorkspaceChangesAdapter({ sessionId: SessionId('no-row') })
     expect(adapter.mounted).toBe(false)
-    expect(adapter.reading(1)).toEqual({ kind: 'unmounted' })
     // `/turns` must still work in that profile, so the adapter answers rather
-    // than throwing and takes no read at all.
-    expect(adapter.requestHistory(1)).toBe(false)
+    // than throwing, and — with no read of its own anywhere in the design — it
+    // costs that composition nothing at all.
+    expect(adapter.reading(1)).toEqual({ kind: 'unmounted' })
   })
 
   it('serves a summary by the ANNOUNCING EVENT seq, and not by the turn seq', async () => {
@@ -243,7 +243,6 @@ describe('capability: workspaceChanges', () => {
       const adapter = new WorkspaceChangesAdapter({
         sessionId: session.id,
         changes: ctx.workspaceChanges,
-        invalidate: () => {},
       })
       for (const event of session.snapshotEvents()) adapter.observe(event)
       expect(adapter.reading(1).kind).toBe('summary')

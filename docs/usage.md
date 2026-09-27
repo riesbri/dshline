@@ -1277,8 +1277,9 @@ that mounts no turn outline says so; there is no fallback fold.
 #### Changed files
 
 A turn Harness recorded workspace changes for carries a mark in the outline —
-`Δ 8 files · +384 -91` — and `enter` on that turn's inspection view opens its
-changed files. `enter` on a file opens Harness's comparison of that file between
+`Δ 8 · +384 -91` — and `enter` on that turn's inspection view opens its changed
+files. The file count is Harness's complete `total`, not the number it chose to
+list: when a summary is capped, the outline still reports the whole change. `enter` on a file opens Harness's comparison of that file between
 the turn's start and its end: the hunk headings, the added and removed lines,
 and the surrounding context.
 
@@ -1319,8 +1320,12 @@ turn wrote.
 tree at its start and its end through a private Git index, so this costs a
 `git add` and a `write-tree` per turn, a `diff-tree` at its end, a copy of each
 file a file tool edits, and a temporary directory per session that is removed
-when the session closes. The repository's own index, objects, work tree, and
-refs are not touched, and none of it reaches the model. A profile that mounts no
+when the session closes. The private index and private object directory leave
+the repository's own index, object store, work tree, and refs normally
+unchanged — with two exceptions Harness's own documentation records: a
+`core.splitIndex` repository writes `sharedindex.*` files, and Git LFS runs its
+clean filter and stores objects under `.git/lfs`. None of it reaches the model. A
+profile that mounts no
 `workspace-changes` row keeps every other `/turns` behaviour and says in one
 line that this composition mounts no workspace-change records; `/plugins` can
 also turn that one row off.

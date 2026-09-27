@@ -143,13 +143,21 @@ export function neighbourSeq(
 /**
  * The compact changed-file mark one outline row carries, or nothing.
  *
- * A row is marked ONLY when Harness actually published something, which is the
+ * A row is marked ONLY where Harness actually published something, which is the
  * whole honesty rule for this column. `none` and `unmounted` both draw nothing,
  * because a turn with no announcement and a composition with no capability are
  * the same visual fact — this session has no changed-file record to show — and
- * inventing a `Δ 0 files` for either would state that Harness looked and
- * found nothing. `unserved` is the exception: there the evidence IS durable and
- * only the comparison is gone, so the row says so instead of falling silent.
+ * inventing a `Δ 0 files` for either would state that Harness looked and found
+ * nothing. `unserved` is the exception: there the evidence IS durable and only
+ * the comparison is gone, so the row says so instead of falling silent.
+ *
+ * The count is `summary.total`, never `summary.files.length`. Harness caps
+ * `files` at its `maxFiles` bound while `total` keeps counting every changed
+ * file, so a 700-file change capped at 500 would otherwise be REPORTED AS 500 —
+ * and an outline that under-reports a change is worse than one that shows no
+ * mark at all. The line totals are already complete: upstream sums `added` and
+ * `deleted` over the whole list before applying the cap, so both are carried
+ * through exactly as published.
  * @param reading - the turn's authoritative changed-file reading.
  * @returns the row's mark, or undefined when the row carries none.
  */
@@ -158,12 +166,11 @@ export function turnChangesMark(reading: TurnChangesReading): string | undefined
     case 'unmounted':
     case 'none':
       return undefined
-    case 'pending':
-    case 'failed':
-      return 'Δ ?'
     case 'unserved':
       return 'Δ –'
-    case 'summary':
-      return `Δ ${String(reading.summary.files.length)} · +${String(reading.summary.added)} -${String(reading.summary.deleted)}`
+    case 'summary': {
+      const { total, added, deleted } = reading.summary
+      return `Δ ${String(total)} · +${String(added)} -${String(deleted)}`
+    }
   }
 }

@@ -84,9 +84,12 @@
 # temporary directory per Session that is removed when that Session is disposed,
 # and one awaited `settled()` before every tool call so a snapshot can never race
 # a mutation. All of it runs git in the user's repository through a private index
-# — the repository's own index, objects, work tree, and refs stay untouched — and
-# none of it enters a model request. A reader who wants none of it disables this
-# one row through `/plugins`; the rows above it are not affected.
+# — normally leaving the repository's own index, object store, work tree, and
+# refs unchanged. "Normally" is upstream's own word: the plugin's README records
+# that a `core.splitIndex` repository writes `sharedindex.*` files, and that
+# git-lfs runs its clean filter and stores objects under `.git/lfs`. None of it
+# enters a model request. A reader who wants none of it disables this one row
+# through `/plugins`; the rows above it are not affected.
 - insert:
     - id: workspace-changes
       name: '@deepseek-ai/dsh-workspace-changes'

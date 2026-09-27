@@ -811,25 +811,19 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // The workspace-change ADAPTER is session-scoped for the same reason the
   // projection observer above is: `workspace/changes` announcements are events of
   // THIS session, and their summaries live on the Host process that recorded
-  // them. Built here, owned by this attachment's scope, and folded from the
-  // attachment's own event feed — a `ctx.effect` would keep a previous session's
-  // announcements and pending reads alive after the reader moved on.
+  // them. Built here, owned by this attachment's scope, and folded from the two
+  // places this attachment already receives durable events — the live feed below
+  // and the resume replay further down. A `ctx.effect` would keep a previous
+  // session's announcements alive after the reader moved on.
   const workspaceChanges = ctx.get('workspaceChanges')
   // Built even when the composition mounts no such row, so a profile that drops
   // it and one that mounts it share one teardown path; only the SEAM is optional.
   const turnChanges = new WorkspaceChangesAdapter({
     sessionId: agent.session.id,
     ...workspaceChanges === undefined ? {} : { changes: workspaceChanges },
-    // The historical read that recovers an announcement this attachment never
-    // observed. Optional like every other corpus read: a profile without
-    // `ctx.sessionQuery` can still answer for every turn this Host recorded, and
-    // says so for the rest rather than guessing.
-    ...sessionQuery === undefined ? {} : { history: sessionQuery },
-    invalidate: () => { ctx.tuiSlots.invalidate() },
   })
   // Owned BEFORE the presenter, and the scope disposes newest first, so the
-  // surfaces go down while the adapter they read still answers. Disposal drops
-  // the event fold and the pending read's generation.
+  // surfaces go down while the adapter they read still answers.
   scope.own(() => { turnChanges.dispose() })
   const turnsPresenter = createTurnsPresenter({
     slots: ctx.tuiSlots,
@@ -2753,6 +2747,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     // a reopened session navigates what was actually submitted — direct prompts
     // and recorded slash commands — rather than only what this process has seen.
     for (const line of historyLines(replayed)) history.record(line)
+    // The THIRD fold of this same durable array, and the reason `/turns` needs
+    // no log read of its own. `workspace/changes` is a non-surface durable event,
+    // so `isTranscriptEvent` already returned it, and the `workspace-changes`
+    // adapter correlates a turn to its announcement by sequence — a pairing no
+    // other fold carries. Folding it here means a reopened session's earlier
+    // turns are marked before the first frame is painted, rather than a second
+    // read racing one that had to report "still looking" until it finished.
+    for (const event of replayed) turnChanges.observe(event)
     const columns = terminal.columns()
     const lines = replayed.flatMap(event => project(event, columns))
     // Only the cards need clearing. A log can end mid-turn with a call whose

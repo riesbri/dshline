@@ -653,18 +653,26 @@ describe('the turns module boundary', () => {
   })
 
   it('correlates workspace-change announcements without reading the log', () => {
-    // The one event-derived state this module owns, and it is owned through the
-    // attachment's live FEED rather than by reading history. `observe` is the
-    // whole of the live path, and the historical path is the INJECTED `history`
-    // port — a call on the dependency the attachment resolved, never a name this
-    // module looked up for itself.
+    // The one event-derived state this module owns, and it is a TRANSIENT index
+    // over durable events the attachment already receives: `observe` is fed by
+    // the live `session/event` feed and by the attachment's existing resume
+    // replay. Nothing in this module reads history for itself, so there is no
+    // second whole-log read beside `resume.ts`'s legacy one, and no state that
+    // could be "still looking" when a reader opens a turn.
     const source = code()
     expect(source).toMatch(/observe\(event: SessionEvent\)/u)
-    expect(source).toMatch(/history\.readSession\(this\.spec\.sessionId\)/u)
-    // And it is the ONLY historical read: one call site, so a second one is a
-    // diff the reader cannot see being paid twice.
-    expect(source.match(/\.readSession\(/gu)).toHaveLength(1)
-    expect(source).not.toMatch(/sessionQuery|listEvents|readEvent/u)
+    expect(source).not.toMatch(/snapshotEvents|eventAt|ownEvents|readSession|listEvents|readEvent|sessionQuery/u)
+    // And the ADAPTER has no corpus seam and no redraw request left to inject,
+    // so there is exactly one place a durable event enters this feature. Scoped
+    // to the adapter module rather than the whole directory: `invalidate` is
+    // this repository's name for a redraw request on every bounded surface, and
+    // `diff()` is asynchronous because HARNESS's seam is, not because this module
+    // reads anything of its own.
+    const adapter = readFileSync(
+      fileURLToPath(new URL('../src/turns/changes.ts', import.meta.url)),
+      'utf8',
+    ).replaceAll(/\/\*[\s\S]*?\*\//gu, '').replaceAll(/^\s*\/\/.*$/gmu, '')
+    expect(adapter).not.toMatch(/History|readSession|invalidate/u)
   })
 
   it('never names a Host service directly', () => {

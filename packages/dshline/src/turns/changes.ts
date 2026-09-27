@@ -1,7 +1,7 @@
 /**
  * Session-scoped reading of Harness's per-turn workspace-change records.
  *
- * Harness owns what changed and how to compare it. `@deepseek-ai/dsh-workspace-changes`
+ * Harness owns what changed and how it is compared. `@deepseek-ai/dsh-workspace-changes`
  * snapshots the working tree around each top-level turn, appends one
  * `workspace/changes` event naming the turn, and keeps the summary and its
  * per-file comparisons **on this Host, for this Session's lifetime**, served
@@ -12,22 +12,29 @@
  * THE PART THAT IS ACTUALLY HARD IS CORRELATION, and it is why this file
  * exists. A summary is addressed by the sequence number of the `workspace/changes`
  * EVENT, while `/turns` addresses a turn by its Harness-assigned turn number, and
- * the service publishes no index from one to the other. So the announcement has to
- * be correlated out of the durable log, and there are exactly two sources:
+ * the service publishes no index from one to the other. The one state this
+ * frontend owns is that pairing: `turn -> the newest announcement's seq`.
  *
- *   - LIVE. The attachment's own `session/event` feed. Cheap, and it covers every
- *     turn this Host recorded — which is every turn whose summary this Host can
- *     serve.
- *   - HISTORICAL. A turn whose announcement predates this attachment: a reopened
- *     session, or the same durable session resumed twice in one process, where the
- *     second recorder starts with an empty record map while the log still carries
- *     the first run's events. Ignoring this would make a reopened session show
- *     nothing at all, which no reader can tell apart from a turn that changed no
- *     files. It is therefore read — but only when a reader explicitly opens such a
- *     turn, through the one asynchronous corpus read, and never from the live
- *     `Session` object, because `snapshotEvents()` is deprecated upstream for NEW
- *     production callers: dshline's own replay path (`resume.ts`) is legacy debt
- *     this feature does not copy.
+ * It is a TRANSIENT index over durable Harness events, and it is fed from the
+ * two places the attachment already receives them — not from a read of its own:
+ *
+ *   - the attachment's live `session/event` feed, for announcements appended
+ *     while this attachment watches;
+ *   - the attachment's EXISTING resume replay, which already walks the whole
+ *     durable log to rebuild a reopened session's transcript. `workspace/changes`
+ *     is a non-surface durable event, so `transcriptEvents()` already returns
+ *     it, and the replay that folds those events into the transcript is the
+ *     natural place to fold them here too.
+ *
+ * That second source is the whole of the reopened-session story, and it is why
+ * this module needs no read of its own. An earlier shape of this feature kept a
+ * `ctx.sessionQuery.readSession()` pass for announcements the live feed had not
+ * seen, and reported those turns as `pending` until it settled — which put a
+ * `Δ ?` on every unmatched row of a reopened `/turns` before anyone had opened
+ * anything. A turn whose announcement has not been found is not evidence that
+ * Harness published one, and the durable log the replay already read is the
+ * authority that settles it. Reusing that boundary also keeps this feature from
+ * adding a second synchronous whole-log reader beside `resume.ts`'s legacy one.
  *
  * Announcements are durable while summaries are not, and that asymmetry is why
  * {@link TurnChangesReading} separates "announced but unserved" from "never
@@ -36,8 +43,7 @@
  * current contents of a file.
  *
  * Nothing is attached to process lifetime. A resumed attachment builds a new
- * adapter, and {@link WorkspaceChangesAdapter.dispose} drops the fold, the pending
- * read, and the generation that would let a late settlement publish.
+ * adapter, and {@link WorkspaceChangesAdapter.dispose} drops the fold with it.
  * @module dshline/turns/changes
  */
 
@@ -91,34 +97,19 @@ export interface WorkspaceChangesSeam {
 }
 
 /**
- * The one corpus read that recovers an announcement this attachment never saw.
+ * What a terminal may truthfully say about one turn's workspace changes.
  *
- * `listEvents` is deliberately not used even though it is the cheaper call: a
- * `SessionEventRecord` carries `seq`, `type`, `time`, and `surface` and NO
- * payload, so the announced `turn` would be unreachable and every record would
- * need a second round trip to become usable. `readSession` is the single read
- * that returns payloads, and it is asked once.
+ * There is no "still looking" state, and that is deliberate. Every announcement
+ * `/turns` can need is already known by the time the first frame is painted —
+ * the replay resolves the durable prefix and the live feed resolves the rest —
+ * so an unknown turn is unknown for a reason that will not change, and saying
+ * otherwise would put a mark on a row nobody has evidence for.
  */
-export interface WorkspaceChangesHistory {
-  /**
-   * The session's complete raw log, read and replay-validated as one detached
-   * observation.
-   * @param sessionId - the live-preferred session to read.
-   * @returns the cloned log, in sequence order.
-   */
-  readSession(sessionId: SessionId): Promise<{ readonly events: readonly SessionEvent[] }>
-}
-
-/** What a terminal may truthfully say about one turn's workspace changes. */
 export type TurnChangesReading =
   /** This composition mounts no `workspaceChanges` service at all. */
   | { readonly kind: 'unmounted' }
-  /** No `workspace/changes` event announced this turn, as far as the log shows. */
+  /** No `workspace/changes` event announced this turn. */
   | { readonly kind: 'none' }
-  /** The historical log read for this turn has not settled yet. */
-  | { readonly kind: 'pending' }
-  /** The historical read for this turn failed. */
-  | { readonly kind: 'failed' }
   /**
    * An announcement exists, but this Host can no longer serve its summary.
    *
@@ -141,33 +132,24 @@ export interface WorkspaceChangesAdapterSpec {
   readonly sessionId: SessionId
   /** Harness's service, or undefined when the composition mounts no such row. */
   readonly changes?: WorkspaceChangesSeam
-  /** The corpus read that recovers pre-attachment announcements, when mounted. */
-  readonly history?: WorkspaceChangesHistory
-  /** Redraw after a read settles or a live announcement lands. */
-  readonly invalidate: () => void
 }
 
 /**
  * Session-scoped correlation of `workspace/changes` announcements to turns, and
  * the only caller of `ctx.workspaceChanges.diff` in dshline.
  *
- * One adapter belongs to one attachment. The live fold is a map from turn number
- * to the newest announcement's sequence; the newest wins because Harness states
- * that the latest event for one turn replaces earlier ones, and an in-turn record
- * can be superseded by the one taken after `turn/end`.
+ * One adapter belongs to one attachment. Newest announcement per turn wins,
+ * because Harness states that the latest event for one turn replaces earlier
+ * ones and an in-turn record can be superseded by the one taken after
+ * `turn/end`.
  */
 export class WorkspaceChangesAdapter {
   /** Newest announcement per Harness-assigned turn number. */
   private readonly announced = new Map<number, number>()
-  /** Whether the one historical log read has been started, settled, or refused. */
-  private historyState: 'unread' | 'reading' | 'ready' | 'failed' = 'unread'
-  /** Turn numbers a reader explicitly opened, so one turn starts at most one read. */
-  private readonly checked = new Set<number>()
-  private historyGeneration = 0
   private disposed = false
 
   /**
-   * @param spec - the session, the optional seams, and the redraw request.
+   * @param spec - the session and the optional seam.
    */
   constructor(private readonly spec: WorkspaceChangesAdapterSpec) {}
 
@@ -179,27 +161,42 @@ export class WorkspaceChangesAdapter {
   /**
    * Fold one durable event of THIS session.
    *
-   * Nothing else is derived from the log, and no payload is rewritten: the turn
+   * Called from the two places the attachment already receives them: the live
+   * `session/event` feed, and the resume replay that rebuilds a reopened
+   * session's transcript. Idempotent, and safe to call with the same event twice
+   * — the two sources overlap by construction, because an event already in the
+   * replay snapshot is one the live listener never delivered.
+   *
+   * Nothing else is derived from the log and no payload is rewritten: the turn
    * is Harness's own. An announcement naming a turn the outline has not heard of
    * yet is still recorded, because the outline catches up on its next
    * projection cut and dropping the announcement here would lose it for good.
-   * @param event - one event from the attachment's `session/event` feed.
+   *
+   * A FORK-INHERITED prefix would be recorded the same way and then looked up
+   * under this Session's own id, where it resolves to nothing — because the
+   * recorder that wrote it belonged to another Session. That is the honest
+   * answer rather than a wrong one, and it cannot arise in practice: the
+   * recorder declines every subagent session, and a forked child is exactly
+   * that, while the attached session is always created fresh or restored whole.
+   * @param event - one event from the live feed or the replayed prefix.
    */
   observe(event: SessionEvent): void {
     if (this.disposed || event.type !== WORKSPACE_CHANGES_EVENT) return
     const turn = announcedTurn(event)
     if (turn === undefined) return
-    this.announce(turn, Number(event.seq))
+    const current = this.announced.get(turn)
+    // Newest wins, and a live observation is never older than a replayed one:
+    // the replay snapshot is taken after the listener is registered, so an event
+    // both sources saw is the SAME event, and its sequence decides.
+    if (current === undefined || Number(event.seq) > current) this.announced.set(turn, Number(event.seq))
   }
 
   /**
    * Read the announcement-backed state of one turn.
    *
-   * A turn with a live announcement is answered immediately and synchronously —
-   * `summary()` is an in-memory lookup on Harness's side, so the outline can ask
-   * for the rows it actually draws without a read of its own. The historical read
-   * is requested only through {@link requestHistory}, never from here, so a paint
-   * can never start I/O.
+   * Synchronous and allocation-free, because `summary()` is an in-memory lookup
+   * on Harness's side over a record it already built: the outline asks for the
+   * rows it actually draws and pays a map lookup each, never a read of its own.
    * @param turn - the Harness-assigned turn number from the outline.
    * @returns what may truthfully be presented for that turn right now.
    */
@@ -210,13 +207,8 @@ export class WorkspaceChangesAdapter {
     // stale surface still resolving turns against evidence nobody owns.
     if (this.disposed || changes === undefined) return { kind: 'unmounted' }
     const seq = this.announced.get(turn)
-    if (seq !== undefined) return this.served(seq)
-    if (this.spec.history === undefined) return { kind: 'none' }
-    if (this.historyState === 'failed') return { kind: 'failed' }
-    // Before the log has been read, absence is UNKNOWN rather than zero: a turn
-    // with no announcement anywhere is a settled negative only once the log says so.
-    if (this.historyState !== 'ready') return { kind: 'pending' }
-    return { kind: 'none' }
+    if (seq === undefined) return { kind: 'none' }
+    return this.served(seq)
   }
 
   /**
@@ -239,76 +231,16 @@ export class WorkspaceChangesAdapter {
   }
 
   /**
-   * Start the one historical read, if this turn needs it and none is running.
+   * Release the fold.
    *
-   * Called when the reader OPENS a turn, never while a list is being painted: a
-   * paint that could start a whole-log read would make opening `/turns` cost
-   * something the reader did not ask to inspect.
-   * @param turn - the turn the reader explicitly opened.
-   * @returns whether this call started a read.
-   */
-  requestHistory(turn: number): boolean {
-    const history = this.spec.history
-    // No capability, no announcement can exist to find, so a composition that
-    // dropped the row must not pay for a whole-log read to prove it.
-    if (this.disposed || history === undefined || this.spec.changes === undefined) return false
-    // Already live, already read, already failed, or already asked about this
-    // exact turn: one read answers every turn, and re-asking would restart it.
-    if (this.announced.has(turn) || this.checked.has(turn)) return false
-    if (this.historyState !== 'unread') return false
-    this.checked.add(turn)
-    this.historyState = 'reading'
-    const generation = (this.historyGeneration += 1)
-    void history.readSession(this.spec.sessionId).then(log => {
-      if (this.disposed || generation !== this.historyGeneration) return
-      for (const event of log.events) this.remember(event)
-      this.historyState = 'ready'
-      this.spec.invalidate()
-    }).catch(() => {
-      if (this.disposed || generation !== this.historyGeneration) return
-      this.historyState = 'failed'
-      this.spec.invalidate()
-    })
-    return true
-  }
-
-  /**
-   * Release the fold, the pending read, and the generation that guards it.
-   *
-   * A late settlement is dropped rather than published: the attachment that
-   * asked for it is gone, and its redraw callback would otherwise paint the NEXT
-   * session's terminal with this one's evidence.
+   * A new attachment builds a new adapter, so nothing here can survive into the
+   * next session's terminal: the map is dropped and every later read answers for
+   * nothing.
    */
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.historyGeneration += 1
     this.announced.clear()
-    this.checked.clear()
-  }
-
-  /**
-   * Record one announcement, newest sequence per turn winning.
-   *
-   * A historical log is never allowed to REPLACE a sequence the live feed
-   * already gave: the feed observed an event happening, and no later read of a
-   * log can be newer than that.
-   * @param turn - the announced turn number.
-   * @param seq - the announcing event's sequence number.
-   */
-  private announce(turn: number, seq: number): void {
-    const current = this.announced.get(turn)
-    if (current === undefined || seq > current) this.announced.set(turn, seq)
-  }
-
-  /**
-   * Fold one event of a historical log, ignoring every type but an announcement.
-   * @param event - one raw log event.
-   */
-  private remember(event: SessionEvent): void {
-    if (event.type !== WORKSPACE_CHANGES_EVENT) return
-    const turn = announcedTurn(event)
-    if (turn !== undefined) this.announce(turn, Number(event.seq))
   }
 
   /**

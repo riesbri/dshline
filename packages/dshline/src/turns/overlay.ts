@@ -371,9 +371,8 @@ function inspectionFooter(
  * Whether Enter on a turn's inspection surface should open its file list.
  *
  * The footer and the key handler both ask THIS, so a key can never mean
- * something the footer did not advertise. `pending` counts: a historical read is
- * in flight, the list will say so, and keeping the disclosure gesture the same
- * whether the answer is already known or not is the point.
+ * something the footer did not advertise — and a key that opened a view the
+ * footer never offered is as wrong as one that fails to open a view it did.
  * @param reading - the turn's changed-file reading.
  * @returns whether the file list is worth opening.
  */
@@ -773,10 +772,6 @@ function filesCompact(current: TurnChangesReading): string {
   switch (current.kind) {
     case 'unmounted':
       return 'No change records'
-    case 'pending':
-      return 'Checking history'
-    case 'failed':
-      return 'History unreadable'
     case 'none':
       return 'No changes'
     case 'unserved':
@@ -815,15 +810,6 @@ function fileRows(
   switch (current.kind) {
     case 'unmounted':
       return [mutedRow('This profile mounts no workspace-change records.', width)]
-    case 'pending':
-      return [mutedRow('Checking this session’s log for an earlier record…', width)]
-    case 'failed':
-      return [
-        mutedRow('This session’s history could not be read.', width),
-        '',
-        mutedRow('Harness may have recorded changes for this turn that dshline', width),
-        mutedRow('cannot see, so this is not evidence that it changed nothing.', width),
-      ]
     case 'none':
       return [mutedRow('Harness announced no workspace changes for this turn.', width)]
     case 'unserved':

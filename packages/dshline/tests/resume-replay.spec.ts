@@ -27,6 +27,11 @@ import PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
 import type { Config } from '@deepseek-ai/dsh-permission-presets'
 import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import * as SessionTurnOutline from '@deepseek-ai/dsh-session-turn-outline'
+// The `workspace/changes` Session event's payload type, so a test can append a
+// real one rather than a hand-built stand-in. Type-only: the recorder itself is
+// not mounted here, and nothing in this test needs it to be.
+import type {} from '@deepseek-ai/dsh-workspace-changes/types'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import { stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
@@ -160,6 +165,27 @@ interface Fixture {
 async function fixture(options: {
   readonly session?: SessionSource
   readonly sessionQuery?: { readonly readSession: (id: unknown) => unknown }
+  /**
+   * Harness's workspace-change seam, provided exactly as a composition with the
+   * recorder row mounted would provide it.
+   */
+  readonly workspaceChanges?: {
+    summary: (id: unknown, seq: number) => unknown
+    diff: (id: unknown, seq: number, index: number, signal: AbortSignal) => Promise<unknown>
+  }
+  /** Mount the real `turnOutline` projection, so `/turns` has turns to draw. */
+  readonly turnOutline?: boolean
+  /**
+   * Build the attached Session through the store, after the plugins are up.
+   *
+   * A projection registry needs a REAL Session, so a workspace-change fixture
+   * cannot hand this fixture a stand-in event list: it constructs a durable
+   * source, appends the announcement to it, and seeds a second Session from the
+   * source's log. The seeded Session therefore holds the announcement in its
+   * prefix while the attachment's live listener never saw it — which is the
+   * resumed shape this test is about, produced by the store rather than faked.
+   */
+  readonly seedSession?: (ctx: RealContext) => Session
   readonly reasoningVisible?: boolean
   readonly busyEnter?: 'queue' | 'steer'
   /**
@@ -179,8 +205,18 @@ async function fixture(options: {
   // replay works with the service absent, and the boundary test proves it is
   // never consulted when present.
   if (options.sessionQuery !== undefined) ctx.provide('sessionQuery', options.sessionQuery as never)
+  if (options.workspaceChanges !== undefined) ctx.provide('workspaceChanges', options.workspaceChanges as never)
+  // Mounted only for the workspace-change replay proof: `/turns` reads the
+  // `turnOutline` projection, and a durable `workspace/changes` event only turns
+  // into a visible mark if the outline has a turn to attach it to.
+  if (options.turnOutline === true) {
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SessionTurnOutline)
+  }
 
   let session = options.session
+  if (options.seedSession !== undefined) session = options.seedSession(ctx)
   let source: Session | undefined
   if (options.resumedPermission !== undefined) {
     const { config, preset } = options.resumedPermission
@@ -275,9 +311,39 @@ async function flush(): Promise<void> {
   await new Promise<void>(resolve => setImmediate(resolve))
 }
 
+/**
+ * A real resumed Session whose durable prefix holds one completed turn, and
+ * optionally the `workspace/changes` announcement a previous Host recorded for it.
+ *
+ * Seeded through the store rather than stubbed, because the projection registry
+ * reads the log and a stand-in event list is not one.
+ * @param ctx - the context whose store mints the sessions.
+ * @param announce - whether to record a workspace-change announcement.
+ * @returns the Session an attachment would resume.
+ */
+function seededWithAnnouncement(ctx: RealContext, announce: boolean): Session {
+  const source = ctx.sessions.create(SessionId(`ws-source-${String(announce)}`))
+  source.append('turn/start', { turn: 1 })
+  source.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: PAST_PROMPT }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  if (announce) source.append('workspace/changes', { turn: 1 })
+  source.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  return ctx.sessions.create(SessionId(`ws-resumed-${String(announce)}`), {
+    seed: source.snapshotEvents(),
+  })
+}
+
 /** The most recent composed frame, as the terminal would show it. */
 function latest(frames: Array<{ lines: string[] }>): string {
   return stripAnsi((frames.at(-1)?.lines ?? []).join('\n'))
+}
+
+/** Recompose the live region, which is what a keystroke asks the window to do. */
+function composeLatest(frames: Array<{ lines: string[] }>): void {
+  const last = frames.at(-1)
+  if (last !== undefined) last.lines = [...last.lines]
 }
 
 /** The status row of the most recent composed frame. */
@@ -332,6 +398,62 @@ describe('replaying a resumed transcript from its live Session', () => {
     // Session replays regardless.
     expect(stripAnsi(commits.flat().join('\n'))).toContain(PAST_PROMPT)
     expect(readSession).not.toHaveBeenCalled()
+  })
+
+  it('shows a replayed turn’s changed files, with no read of the log of its own', async () => {
+    // The end-to-end proof of the property that replaced a second whole-log
+    // read, and the one a unit test over the adapter could not give. The replay
+    // already walks the durable log, `workspace/changes` is a non-surface
+    // durable event so it arrives in that array, and folding it there is the
+    // WHOLE historical path. A reader who resumes a session must see the mark
+    // on the first frame — not after opening a turn, and not never.
+    const readSession = vi.fn((): never => {
+      throw new Error('sessionQuery.readSession must not be consulted for an owned Agent')
+    })
+    const { frames, dispatch } = await fixture({
+      seedSession: ctx => seededWithAnnouncement(ctx, true),
+      sessionQuery: { readSession },
+      workspaceChanges: { summary: () => undefined, diff: async () => undefined },
+      turnOutline: true,
+    })
+    // The local-command registry is wired asynchronously, so the composer only
+    // answers `/turns` once the attachment's own setup has settled.
+    await flush()
+    typeText(dispatch(), '/turns')
+    press(dispatch(), { kind: 'key', name: 'enter' })
+    // Submitting a command is asynchronous, and the surface paints on the
+    // invalidation it schedules rather than inside the keystroke.
+    await flush()
+
+    // The durable announcement reached the adapter through the replayed array,
+    // and the durable event alone is enough to mark the turn even though this
+    // Host can no longer serve its summary.
+    expect(latest(frames)).toContain('Δ –')
+    // Which required no corpus read at all: the service that would have been
+    // consulted is mounted, and it throws if touched.
+    expect(readSession).not.toHaveBeenCalled()
+  })
+
+  it('marks no turn that the replayed log says nothing about', async () => {
+    // The other half of the correction: a turn with no announcement carries no
+    // mark. The previous shape reported these as "still looking" and drew a
+    // `Δ ?` on every unmatched row of a reopened outline, which stated a fact
+    // Harness never published.
+    const { frames, dispatch } = await fixture({
+      seedSession: ctx => seededWithAnnouncement(ctx, false),
+      workspaceChanges: { summary: () => undefined, diff: async () => undefined },
+      turnOutline: true,
+    })
+    await flush()
+    typeText(dispatch(), '/turns')
+    press(dispatch(), { kind: 'key', name: 'enter' })
+    // Submitting a command is asynchronous, and the surface paints on the
+    // invalidation it schedules rather than inside the keystroke.
+    await flush()
+
+    const outline = latest(frames)
+    expect(outline).toContain(PAST_PROMPT)
+    expect(outline).not.toContain('Δ')
   })
 
   it('keeps the empty-session banner for a genuinely empty live Session', async () => {

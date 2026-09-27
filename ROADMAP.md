@@ -409,11 +409,17 @@ is the whole design:
   changed-file list.
 - The seam is addressed by the **announcing event's sequence**, not by the turn
   number, and Harness publishes no index from one to the other. The one state
-  this frontend owns is that correlation: a per-attachment fold of the
-  `workspace/changes` events it observes live, plus — only when a reader
-  explicitly opens a turn that fold never saw — one `ctx.sessionQuery.readSession`
-  pass. Neither path is a second transcript model, and neither is taken from the
-  live `Session`, whose synchronous readers upstream deprecated for new callers.
+  this frontend owns is that correlation, and it is a transient index over
+  durable Harness events fed from the two places the attachment already receives
+  them: its live `session/event` feed, and the existing resume replay that walks
+  the whole log to rebuild a reopened session's transcript. `workspace/changes` is
+  a non-surface durable event, so that replay already returns it; folding the
+  same array is the whole historical path, and this feature adds no read of its
+  own beside `resume.ts`'s legacy one.
+- Reusing that boundary is also why an unmatched turn is a settled answer rather
+  than a pending one. A `Δ ?` mark for a turn nobody has evidence for would
+  state a fact Harness never published, which is the one thing this column must
+  never do.
 - Annotations are carried through rather than flattened: a binary or oversized
   file is labelled with Harness's own refusal instead of an empty `+0 -0`, a
   summary Harness capped says how many files it holds out of how many changed,
@@ -561,9 +567,12 @@ does not promise is that any older prerelease generation keeps working.
 - **Workspace-change recording costs Git work on every turn.** The recorder
   snapshots the working tree at each turn's start and end through a private Git
   index, copies each file a file tool edits, and keeps a temporary directory per
-  session. The repository's own index, objects, work tree, and refs are not
-  touched, and none of it reaches the model, but a large untracked work tree
-  without a `.gitignore` costs real temporary space for the life of the session.
+  session. A private index and a private object directory leave the repository's
+  own index, object store, work tree, and refs normally unchanged — upstream
+  records two exceptions, a `core.splitIndex` repository writing `sharedindex.*`
+  files and Git LFS storing objects under `.git/lfs` — and none of it reaches a
+  model, but a large untracked work tree without a `.gitignore` costs real
+  temporary space for the life of the session.
   The row is an ordinary composition row, so `/plugins` can turn it off and every
   other `/turns` behaviour survives.
 - **A theme reaches new rows only.** `/theme` chooses among five shipped palettes and repaints the live region; rows already committed to native scrollback keep the colours they were printed with, because committed output is never rewritten. Applying one is confirmed by a single line drawn in the new palette. User-authored palettes are not supported yet: the role vocabulary a theme is written against is still internal, and publishing it before real palettes have exercised it would freeze a contract nothing has tested.
@@ -613,9 +622,10 @@ does not promise is that any older prerelease generation keeps working.
   start the agent again by itself once the aborted turn settled. The count is
   reported and `↑` brings a discarded prompt back.
 - **`@path` inserts text, not an attachment.** Completion names a path for the
-  model to read; `/image` is the explicit gesture that durably attaches supported
-  raster content. Harness exposes a durable file-attachment contract, but dshline
-  does not stage files yet.
+  model to read. Attaching bytes is always an explicit gesture, and there are
+  two: `/image` for supported raster content and `/attach` for any file, both
+  staged through the same ordered draft ledger so staging order is message
+  order. A `@path` mention is never an attachment, and never claims to be one.
 - **Tool calls are not reviewed by default.** The Harness deployment decides
   sandbox and approval policy; see [Usage → Permissions and the sandbox](docs/usage.md#permissions-and-the-sandbox).
 - **A goal can start without a `/goal` command.** `/goal <objective>` starts a
