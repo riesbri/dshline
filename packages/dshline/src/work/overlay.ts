@@ -695,10 +695,12 @@ function overviewRows(snapshot: WorkSnapshot, width: number, tick: number): Stag
   if (!snapshot.available && snapshot.workflows.length === 0) {
     return [muted('Jobs and subagents are not installed in this profile.', width)]
   }
-  // A workflow presents its own members, so a child a live member already shows
-  // is not repeated in the flat Subagents section. The join is Harness's own
-  // `childId`, never a name or a timing coincidence, and the same rule decides
-  // the status line's subagent count so the two can never disagree.
+  // A workflow presents its own members, so a child one of them already shows is
+  // not repeated in the flat Subagents section. "Presents" follows the member and
+  // its open child, not the run's reported state: a run that has reported a result
+  // can still owe a member's ending. The join is Harness's own `childId`, never a
+  // name or a timing coincidence, and the same rule decides the status line's
+  // subagent count so the two can never disagree.
   const loose = looseSubagents(snapshot)
   if (snapshot.workflows.length === 0 && loose.length === 0 && snapshot.jobs.length === 0) {
     return [muted('No active workflows, jobs, or subagents.', width)]
@@ -1411,9 +1413,9 @@ function compactFallback(
   }
   const workflows = snapshot.workflows.length
   // The same presentation corpus the framed overview draws, not the raw
-  // authority array: a live workflow member is already counted as its workflow,
-  // and counting the full `snapshot.subagents` here would report one Harness
-  // child as two pieces of work in a frame too small to show either row.
+  // authority array: a member a workflow presents is already counted as that
+  // workflow, and counting the full `snapshot.subagents` here would report one
+  // Harness child as two pieces of work in a frame too small to show either row.
   const subagents = looseSubagents(snapshot).length
   const jobs = snapshot.jobs.length
   const counts = [

@@ -429,7 +429,7 @@ export function workflowClaimedChildren(workflows: readonly WorkflowWorkItem[]):
  * under its workflow and also counted as a loose subagent would report two
  * pieces of work where Harness published one child.
  * @param snapshot - current work projection.
- * @returns the subagent epochs no live workflow member claims.
+ * @returns the subagent epochs no workflow member claims.
  */
 export function looseSubagents(snapshot: WorkSnapshot): readonly SubagentWorkItem[] {
   const claimed = workflowClaimedChildren(snapshot.workflows)
@@ -445,12 +445,20 @@ export function looseSubagents(snapshot: WorkSnapshot): readonly SubagentWorkIte
  * column for. The two readers in this module are therefore separate on purpose,
  * one feeding the other: {@link workSummary} counts a `WorkSnapshot`, and
  * `HarnessWork.summary()` counts the same three things straight from the
- * services.
+ * services — and both take the subagent count from {@link looseSubagents}, so
+ * the two cannot reach a different answer about the same moment.
  */
 export interface WorkCounts {
   /** Owned workflow runs, each counting once. */
   readonly workflows: number
-  /** Active subagents no running workflow already presents. */
+  /**
+   * Active subagents no workflow currently presents.
+   *
+   * "Presents" is the run's own presentation, and it does not end when the run
+   * reports a result: an unsettled durable member with a live child is still
+   * presented under that workflow, so it is claimed. See
+   * {@link workflowClaimedChildren}.
+   */
   readonly subagents: number
   /** Active jobs. */
   readonly jobs: number
