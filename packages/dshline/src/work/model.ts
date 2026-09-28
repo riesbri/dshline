@@ -427,24 +427,62 @@ export function looseSubagents(snapshot: WorkSnapshot): readonly SubagentWorkIte
 }
 
 /**
+ * The three counts a status line prints about active work.
+ *
+ * A count, not a row: a footer segment says `2 subagents`, and every fact it
+ * would take to build those rows — a child's activity fold, its route, its
+ * projection cut, a member's label — is presentation detail the segment has no
+ * column for. The two readers in this module are therefore separate on purpose,
+ * one feeding the other: {@link workSummary} counts a `WorkSnapshot`, and
+ * `HarnessWork.summary()` counts the same three things straight from the
+ * services.
+ */
+export interface WorkCounts {
+  /** Owned workflow runs, each counting once. */
+  readonly workflows: number
+  /** Active subagents no running workflow already presents. */
+  readonly subagents: number
+  /** Active jobs. */
+  readonly jobs: number
+}
+
+/**
  * Build the optional work summary without abbreviating its counts.
  *
- * Counts what `/work` would SHOW, so the status line and the overview cannot
- * disagree: a workflow counts once as its own authority, and its live members
- * are counted there rather than a second time as subagents.
- * @param snapshot - current work projection.
+ * The ONE place the three counts become status text, so a reader that counted
+ * them a different way and one that built the rows first cannot disagree: a
+ * workflow counts once as its own authority, and its live members are counted
+ * there rather than a second time as subagents.
+ * @param counts - the three counts as the authorities report them.
  * @returns a whole-segment status label, or undefined when there is no work.
  */
-export function workSummary(snapshot: WorkSnapshot): string | undefined {
-  const workflows = snapshot.workflows.length
-  const subagents = looseSubagents(snapshot).length
-  const jobs = snapshot.jobs.length
+export function formatWorkCounts(counts: WorkCounts): string | undefined {
+  const { workflows, subagents, jobs } = counts
   if (workflows === 0 && subagents === 0 && jobs === 0) return undefined
   const parts: string[] = []
   if (workflows > 0) parts.push(`${String(workflows)} ${workflows === 1 ? 'workflow' : 'workflows'}`)
   if (subagents > 0) parts.push(`${String(subagents)} ${subagents === 1 ? 'subagent' : 'subagents'}`)
   if (jobs > 0) parts.push(`${String(jobs)} ${jobs === 1 ? 'job' : 'jobs'}`)
   return parts.join(' · ')
+}
+
+/**
+ * Build the optional work summary from a full work projection.
+ *
+ * Counts what `/work` would SHOW, so the status line and the overview cannot
+ * disagree: the rows are counted exactly as the overlay presents them, and the
+ * text is {@link formatWorkCounts}'s. Callers that need a row — the overlay, a
+ * lifecycle plan — read the snapshot; the status line counts instead, through
+ * `HarnessWork.summary()`.
+ * @param snapshot - current work projection.
+ * @returns a whole-segment status label, or undefined when there is no work.
+ */
+export function workSummary(snapshot: WorkSnapshot): string | undefined {
+  return formatWorkCounts({
+    workflows: snapshot.workflows.length,
+    subagents: looseSubagents(snapshot).length,
+    jobs: snapshot.jobs.length,
+  })
 }
 
 /**

@@ -755,3 +755,166 @@ describe('untrusted candidates and racing lookups', () => {
     expect(composer.value).toBe('@packages/')
   })
 })
+
+describe('overlapping directory reads', () => {
+  /**
+   * Directory reads that resolve only when the test releases them.
+   *
+   * Keyed by directory rather than by a single slot, so two CONCURRENT reads can
+   * be released independently — which is the only way to show that they are
+   * independent reads and not one shared answer.
+   */
+  function slow(): {
+    readonly sources: CompletionSources
+    readonly listed: string[]
+    release: (directory: string, entries: { name: string; directory: boolean }[]) => void
+  } {
+    const listed: string[] = []
+    const pending = new Map<string, ((entries: { name: string; directory: boolean }[]) => void)[]>()
+    return {
+      listed,
+      // Oldest first per directory, so two reads of the SAME directory can both be
+      // released — otherwise an implementation that does not share them would hang
+      // here rather than fail on the assertion that matters.
+      release: (directory, entries) => { pending.get(directory)?.shift()?.(entries) },
+      sources: {
+        commands: () => COMMANDS,
+        commandArguments: async name => ARGUMENTS[name] ?? [],
+        paths: directory => {
+          listed.push(directory)
+          return new Promise(resolve => {
+            const waiting = pending.get(directory) ?? []
+            waiting.push(resolve)
+            pending.set(directory, waiting)
+          })
+        },
+      },
+    }
+  }
+
+  it('reads one directory once for several prefixes typed into it', async () => {
+    // `@packages/d`, `s`, `h` are three refreshes of ONE directory, and the last
+    // two were asking a filesystem for an answer the first was already fetching.
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: '@packages/d' })
+    const { sources, listed, release } = slow()
+    const completion = createCompletion(composer, sources, () => {})
+    const first = completion.refresh()
+    composer.handle({ kind: 'text', text: 's' })
+    const second = completion.refresh()
+    composer.handle({ kind: 'text', text: 'h' })
+    const third = completion.refresh()
+    expect(listed).toEqual(['packages'])
+
+    release('packages', [{ name: 'dshline', directory: true }])
+    await Promise.all([first, second, third])
+    // One shared read, and the NEWEST generation is the one that offers it: the
+    // older refreshes dropped their answer exactly as they did before.
+    expect(rows(completion)).toEqual(['packages/dshline/'])
+  })
+
+  it('keeps a read that fails, and offers nothing for it', async () => {
+    // A directory that cannot be listed offers nothing rather than failing the
+    // keystroke — the production `paths` answers `[]` for an unreadable directory,
+    // and that is the shape the shared read has to survive.
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: '@packages/d' })
+    const completion = createCompletion(composer, {
+      commands: () => COMMANDS,
+      paths: async () => [],
+    }, () => {})
+    await completion.refresh()
+    expect(completion.active).toBe(false)
+  })
+
+  it('does not share a read across different directories', async () => {
+    // Coalescing is per directory. A walk into `packages/` while the root listing
+    // is still in flight is a DIFFERENT question, and answering it from the root
+    // read would offer the wrong children.
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: '@p' })
+    const { sources, listed, release } = slow()
+    const completion = createCompletion(composer, sources, () => {})
+    const root = completion.refresh()
+    composer.handle({ kind: 'text', text: 'ackages/' })
+    const inside = completion.refresh()
+    expect(listed).toEqual(['', 'packages'])
+
+    // Released out of order on purpose.
+    release('packages', [{ name: 'renderer', directory: true }])
+    await inside
+    // The root read lands LAST and is the older generation, so it is dropped: the
+    // candidates standing are the inner directory's, which is the token on screen.
+    release('', [{ name: 'packages', directory: true }])
+    await root
+    expect(rows(completion)).toEqual(['packages/renderer/'])
+  })
+
+  it('asks again for a directory after its read settled', async () => {
+    // The entry is the walk in flight, never the answer: a file created between two
+    // looks at the same directory must be offered, and nothing here can know when
+    // that happens.
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: '@packages/d' })
+    const { sources, listed, release } = slow()
+    const completion = createCompletion(composer, sources, () => {})
+    const first = completion.refresh()
+    release('packages', [{ name: 'dshline', directory: true }])
+    await first
+    expect(listed).toEqual(['packages'])
+
+    composer.handle({ kind: 'text', text: 's' })
+    const second = completion.refresh()
+    expect(listed).toEqual(['packages', 'packages'])
+    release('packages', [{ name: 'dshline', directory: true }, { name: 'dsh-agent', directory: true }])
+    await second
+    expect(rows(completion)).toEqual(['packages/dsh-agent/', 'packages/dshline/'])
+  })
+
+  it('retries a directory whose read failed', async () => {
+    // The shared entry is removed on a rejection too, or one refused directory
+    // would refuse every later look at it for the life of the attachment.
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: '@packages/d' })
+    let attempt = 0
+    const listed: string[] = []
+    const completion = createCompletion(composer, {
+      commands: () => COMMANDS,
+      paths: directory => {
+        listed.push(directory)
+        attempt += 1
+        return attempt === 1
+          ? Promise.reject(new Error('unreadable'))
+          : Promise.resolve([{ name: 'dshline', directory: true }])
+      },
+    }, () => {})
+    await expect(completion.refresh()).rejects.toThrow('unreadable')
+    expect(listed).toEqual(['packages'])
+
+    composer.handle({ kind: 'text', text: 's' })
+    await completion.refresh()
+    expect(listed).toEqual(['packages', 'packages'])
+    expect(rows(completion)).toEqual(['packages/dshline/'])
+  })
+
+  it('cannot revive candidates through a shared read after invalidate()', async () => {
+    // `invalidate()` advances the generation, and the shared read is still a
+    // lookup that has to drop its answer: a read shared by two refreshes is no
+    // more entitled to land than one that is not shared.
+    const composer = new Composer()
+    composer.handle({ kind: 'text', text: '@packages/d' })
+    const { sources, release } = slow()
+    const completion = createCompletion(composer, sources, () => {})
+    const pending = completion.refresh()
+    composer.handle({ kind: 'text', text: 's' })
+    const second = completion.refresh()
+    completion.invalidate()
+    // Both refreshes read the same directory; releasing each in turn is what a
+    // non-shared implementation would need, and one read is what the sharing saves.
+    release('packages', [{ name: 'dshline', directory: true }])
+    release('packages', [{ name: 'dshline', directory: true }])
+    await Promise.all([pending, second])
+    expect(completion.active).toBe(false)
+    expect(render(completion)).toEqual([])
+  })
+})

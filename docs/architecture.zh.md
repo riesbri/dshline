@@ -96,7 +96,7 @@ Harness projection registry drives, caches, and notifies
 dshline presentation adapter
 ```
 
-对于权威投影状态，读取 `ctx.sessionProjections.snapshot(session)`，并用 `ctx.sessionProjections.onChanged(...)` 订阅。注册表在已提交事件上驱动已注册的纯单元，给 `snapshot()` 一个同步一致的切面，并且只在单元变化时发出变更。dshline 内部的、会话作用域的观察器为确切的 `Session` 订阅一次，在该同步驱动落定后在一个微任务中合并失效，并把所有值留在注册表中供适配器通过 `snapshot()` 读取。它不是第二个投影存储。投影键的存在是进程级的，而不是每会话的能力信号：任何组合注册的键都可能出现在每个会话快照中。请解释投影值（例如 Todo 列表或 `null`），而不是把 `todos` 的存在当作这个确切 agent 启用了 Todo 的证据。这是内部架构模式，**不是**稳定的公共 `ProjectionAdapter` 接口。
+对于权威投影状态，读取 `ctx.sessionProjections.snapshot(session)`，并用 `ctx.sessionProjections.onChanged(...)` 订阅。注册表在已提交事件上驱动已注册的纯单元，给 `snapshot()` 一个同步一致的切面，并且只在单元变化时发出变更。dshline 内部的、会话作用域的观察器为确切的 `Session` 订阅一次，在该同步驱动落定后在一个微任务中合并失效，并把所有值留在注册表中供适配器通过 `snapshot()` 读取。它不是第二个投影存储。投影键的存在是进程级的，而不是每会话的能力信号：任何组合注册的键都可能出现在每个会话快照中。请解释投影值（例如 Todo 列表或 `null`），而不是把 `todos` 的存在当作这个确切 agent 启用了 Todo 的证据。热路径上的读取者也可以用第二个参数点明自己需要的单元：带键的切面在同一个 `asOfSeq` 位置上物化同样的完整状态，只生成被点名的客户端可见视图，因此状态栏列出它绘制的五个单元，而不是为配置注册的所有单元付出生成与校验的代价。收窄读取并不是缓存：什么都不会被记住，移动的单元仍然触发同样的失效。这是内部架构模式，**不是**稳定的公共 `ProjectionAdapter` 接口。
 
 `todos` 是第二个证明。`@deepseek-ai/dsh-tool-todo` 提供面向模型的 `todo_write` 工具、持久的整列表 `todo/write` 事件，以及可选的 `todos` 投影。dshline 通过一个有界的 `/todos` 浮层与一个可选的 `todo completed/total` 状态段呈现其当前快照；它不拥有任何 Todo 变更、生命周期、折叠或持久化。Todo 项只有 `content` 以及 `pending`、`in_progress` 或 `completed` 状态；每次写入替换完整列表。投影在写入前是 `null`，包含最新列表，并在下一次 `turn/start` 时清空。预期路径是：
 

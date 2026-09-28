@@ -130,6 +130,7 @@ import { activeWorkCount, workSummary } from './work/model.ts'
 import type { WorkConversationTarget } from './work/model.ts'
 import { createSubagentsPresenter } from './subagents/presenter.ts'
 import { SessionProjectionObserver } from './projections/observer.ts'
+import { STATUS_PROJECTION_KEYS } from './projections/status-keys.ts'
 import { openSurface } from './surface.ts'
 import { goalInspection, goalReading } from './goals/model.ts'
 import { createGoalOverlay } from './goals/overlay.ts'
@@ -1656,10 +1657,13 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   }
 
   const status = createStatusView(() => {
-    // One direct projection snapshot per frame, shared by every consumer below.
-    // The registry validates each unit's view on the way out, so reading it
-    // twice would pay for that twice on a line redrawn by every spinner beat.
-    const projected = projections.snapshot()
+    // One projection snapshot per frame, shared by every consumer below, and
+    // narrowed to the units this line actually reads. The registry validates
+    // each unit's view on the way out, so an unkeyed read paid for every
+    // projection a profile registers on a line redrawn by every spinner beat;
+    // naming the five fields below leaves the rest unviewed. Same registry, same
+    // cut, same `asOfSeq` — see `./projections/status-keys.ts`.
+    const projected = projections.snapshot(STATUS_PROJECTION_KEYS)
     const selected = selection.current
     return {
       busy: agent.status === 'running',
@@ -1707,7 +1711,13 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       tokens: contextPressureTokens(contextReading(projected)),
       contextWindow: w.modelInfo.contextWindow,
       detail: cards.detail,
-      work: workSummary(work.snapshot()),
+      // The three COUNTS, read from the same authorities the rows come from and
+      // building no rows: a status segment says `2 subagents`, and paying for
+      // every child activity fold, route read, and child projection cut to
+      // reduce them to a number is work a line redrawn by every spinner beat
+      // should not do. The text comes from the formatter the full snapshot also
+      // uses, so the two paths cannot drift — see `HarnessWork.summary()`.
+      work: work.summary(),
       pending: pendingUserInput(agent.inbox),
       todo: todoSummary(todoReading(projected)),
       plan: planActive,

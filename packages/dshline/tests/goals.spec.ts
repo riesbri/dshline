@@ -290,7 +290,10 @@ describe('the Goal authority split', () => {
     // dshline one, and not what this counts.
     const source = code(new URL('../src/attachment.ts', import.meta.url))
     const frame = source.slice(source.indexOf('const status = createStatusView('), source.indexOf('const streamView'))
-    expect(frame.match(/projections\.snapshot\(\)/gu)).toHaveLength(1)
+    // The call is matched without its argument list on purpose: what this asserts
+    // is that the status frame takes ONE projection snapshot and shares it, which
+    // holds whether the read names the units it needs or takes every view.
+    expect(frame.match(/projections\.snapshot\(/gu)).toHaveLength(1)
     expect(frame).toContain('goal: goalReading(projected, goalActivation)')
     expect(source.match(/get\('goals'\)/gu)).toHaveLength(1)
     expect(source).toContain('ctx.get(\'goals\')?.get(agent)?.activation')

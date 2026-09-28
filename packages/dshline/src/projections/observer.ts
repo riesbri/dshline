@@ -7,7 +7,14 @@
  */
 
 import type { Session } from '@deepseek-ai/dsh-session'
-import type { ProjectionSnapshot, SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import type {
+  ProjectionSnapshot,
+  SessionProjectionMap,
+  SessionProjectionRegistry,
+} from '@deepseek-ai/dsh-session-projection'
+
+/** One registered client-visible projection unit, by name. */
+export type ProjectionKey = Extract<keyof SessionProjectionMap, string>
 
 /** Inputs the shared session-projection observer needs from the runner. */
 export interface SessionProjectionObserverSpec {
@@ -55,10 +62,20 @@ export class SessionProjectionObserver {
 
   /**
    * Read the registry's authoritative current cut for this exact session.
+   *
+   * `keys` narrows which client-visible VIEWS are produced and validated, which
+   * is the whole cost of an unkeyed read on a line redrawn by every spinner beat:
+   * every unit a profile has registered is folded, viewed, and passed through its
+   * own `viewSchema` on the way out, whether or not this caller reads a field of
+   * it. Naming the units a consumer actually reads therefore buys nothing in
+   * authority — the cut is the registry's, state materialization still covers
+   * every unit, and the same `asOfSeq` position — while leaving the units nobody
+   * reads unviewed.
+   * @param keys - the units this consumer reads, or every unit when omitted.
    * @returns the snapshot, or undefined when the optional registry is absent.
    */
-  snapshot(): ProjectionSnapshot | undefined {
-    return this.spec.registry?.snapshot(this.spec.session)
+  snapshot(keys?: readonly ProjectionKey[]): ProjectionSnapshot | undefined {
+    return this.spec.registry?.snapshot(this.spec.session, keys)
   }
 
   /** Stop observing and suppress an already-queued redraw. */

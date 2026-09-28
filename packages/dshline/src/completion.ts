@@ -88,7 +88,53 @@ export interface CompletionSources {
    * @returns each child's name and whether it is itself a directory.
    * @throws nothing a caller must handle; an unreadable directory yields no entries.
    */
-  paths(directory: string): Promise<readonly { readonly name: string; readonly directory: boolean }[]>
+  paths(directory: string): Promise<readonly PathEntry[]>
+}
+
+/** One child of a listed directory, as completion offers it. */
+export interface PathEntry {
+  /** The child's own name, without its parent's path. */
+  readonly name: string
+  /** Whether the child is a directory, which is what keeps its separator. */
+  readonly directory: boolean
+}
+
+/**
+ * Share one in-flight directory read between the lookups that overlap it.
+ *
+ * Typing `@packages/d`, then `s`, then `h` is three refreshes of ONE directory,
+ * and each was a `resolve` plus a `listDir` of it: two of the three were already
+ * in flight when the next keystroke superseded them, so their I/O happened and
+ * their answers were dropped. On a remote or slow filesystem that is the cost of
+ * typing, paid per character.
+ *
+ * So overlapping lookups of the same directory share one read. The entry is
+ * removed the moment that read SETTLES, on failure as well as success: a settled
+ * directory listing is not remembered, because a file created a second later would
+ * never be offered, and there is no invalidation event for the filesystem to
+ * hang one on. What is shared is work in flight, and only work in flight.
+ * @param read - the caller's own directory read, with its own policy and errors.
+ * @returns a read that shares an in-flight one for the same directory.
+ */
+function dedupeDirectoryReads(
+  read: (directory: string) => Promise<readonly PathEntry[]>,
+): (directory: string) => Promise<readonly PathEntry[]> {
+  const inFlight = new Map<string, Promise<readonly PathEntry[]>>()
+  return directory => {
+    const shared = inFlight.get(directory)
+    if (shared !== undefined) return shared
+    const reading = read(directory)
+    inFlight.set(directory, reading)
+    const release = (): void => {
+      // Only ever this read's own entry: a directory whose read settled, was
+      // asked for again, and is now in flight a second time keeps THAT one.
+      if (inFlight.get(directory) === reading) inFlight.delete(directory)
+    }
+    // Both outcomes, and the returned promise is the caller's: a rejection they
+    // do not handle is theirs, exactly as it was before the read was shared.
+    void reading.then(release, release)
+    return reading
+  }
 }
 
 /** The token under the cursor, and which kind of completion it wants. */
@@ -191,6 +237,12 @@ export function createCompletion(
   redraw: () => void,
   rowsBelow: () => number = () => 1,
 ): Completion {
+  // One read per directory per moment, shared by the refreshes that overlap it.
+  // Wrapping here rather than at the call site means the guarantee belongs to
+  // completion, which is what causes the overlap: every keystroke re-asks for a
+  // directory it is already reading. Matching, sorting, and the hidden-file rule
+  // are untouched — a shared read is the same read, asked once.
+  const available: CompletionSources = { ...sources, paths: dedupeDirectoryReads(sources.paths) }
   let candidates: readonly Candidate[] = []
   let token: Token | undefined
   let cursor = 0
@@ -245,10 +297,10 @@ export function createCompletion(
     // here and the result, because the caller draws when this resolves.
     clear()
     const next = found.kind === 'command'
-      ? commandCandidates(found.text, sources)
+      ? commandCandidates(found.text, available)
       : found.kind === 'argument'
-        ? await argumentCandidates(found, sources)
-        : await pathCandidates(found.text, sources)
+        ? await argumentCandidates(found, available)
+        : await pathCandidates(found.text, available)
     // A newer refresh started while this one was reading a directory.
     if (generation !== mine) return
     token = next.length === 0 ? undefined : found

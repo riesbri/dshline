@@ -171,8 +171,14 @@ a second projection store. Projection-key presence is process-wide, not a
 per-session capability signal: a key registered by any composition can appear
 in every session snapshot. Interpret the projection value (for example, a Todo
 list or `null`) rather than treating the presence of `todos` as proof that this
-exact agent has Todos enabled. This is an internal architecture pattern, **not**
-a stable public `ProjectionAdapter` interface.
+exact agent has Todos enabled. A hot reader may also name the units it needs as
+the second argument: a keyed cut materializes the same complete state at the
+same `asOfSeq` position and produces only the named client-visible views, so the
+status line names the five it draws instead of paying to view and validate every
+unit a profile has registered. Narrowing a read is not caching it — nothing is
+remembered, and a unit that moves still drives the same invalidation. This is an
+internal architecture pattern, **not** a stable public `ProjectionAdapter`
+interface.
 
 `todos` is the second proof. `@deepseek-ai/dsh-tool-todo` supplies the
 model-facing `todo_write` tool, durable whole-list `todo/write` events, and the

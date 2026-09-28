@@ -142,6 +142,34 @@ export class HarnessWorkflows {
   }
 
   /**
+   * How the owned runs divide a status line's three counts.
+   *
+   * The two facts a footer segment needs, derived from the same records and the
+   * same rules {@link items} applies to a full row — a run counts once whatever
+   * it is doing, and only a RUNNING run with an unsettled member that has a live
+   * epoch claims that child — without building a run, a member, or the child
+   * rows they would join to.
+   *
+   * `live` is the set of child ids with an open lifecycle epoch, passed IN rather
+   * than read here: joining a member to a child is the subagent projection's
+   * authority, and taking the set from it is what keeps this a count of the same
+   * children the rows are built from. It is why `claimed` can never exceed the
+   * number of live epochs it is subtracted from.
+   * @param live - durable child ids with an open lifecycle epoch right now.
+   * @returns the owned run count, and how many live children a run presents.
+   */
+  counts(live: ReadonlySet<string>): { readonly runs: number; readonly claimed: number } {
+    const claimed = new Set<string>()
+    for (const run of this.runs.values()) {
+      if (run.state !== 'running') continue
+      for (const member of run.members.values()) {
+        if (member.outcome === undefined && live.has(member.childId)) claimed.add(member.childId)
+      }
+    }
+    return { runs: this.runs.size, claimed: claimed.size }
+  }
+
+  /**
    * Read the owned workflow runs, joined to their live children.
    * @param subagents - every active subagent epoch, for the `childId` join.
    * @returns one row per owned run, members in record order.
