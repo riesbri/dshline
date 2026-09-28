@@ -76,7 +76,7 @@ native terminal
 
 技能是最后这条规则当前活生生的例子。`ctx.skills` 回答一个 agent 能看到哪些技能、其中哪些是 `userInvocable`，但真正解释人类 `/name` 手势的消费者是一个独立的包（`dsh-tool-skill`），而没有任何接口说明某个组合是否挂载了它。因此一个手工搭建的组合可以发布一个用户可调用的技能，而任何 `/name` 行都到达不了它。dshline 不推断这种就绪性——不解析预设 YAML，不检视 Cordis 的监听器注册，也不把一个名为 `skill` 的模型工具当作人类手势边界存在的证据；这些读的都是实现而非约定。它遵循 `userInvocable`，这与 Harness 自己的 Web 客户端遵循的约定相同（`session-controller` 的技能目录 Remote 仅按 `isUserInvocable` 过滤），并且这一缺口是向用户记录下来，而不是靠猜。一个权威的就绪性 seam 属于上游工作。
 
-一个 agent 能看到哪些技能同样是 Harness 的决定，而预设正是做出这一决定的地方之一。随包的 `standard` 声明在这里有一处**额外的终端配置文件差异**（见[预设](#预设组合属于-harness不属于-dshline)）：一个专用的、独立的 `@deepseek-ai/dsh-skill-filesystem` 实例 `skill-harness-authoring`，它唯一的根就是 `@deepseek-ai/dsh-agent-preset` 包本身随附的 `bundledSkillDir`——那三个第一方 Cordis 编写技能。
+一个 agent 能看到哪些技能同样是 Harness 的决定，而预设正是做出这一决定的地方之一。随包的 `standard` 声明在这里有一处**额外的终端配置文件差异**（见[预设](#预设组合属于-harness不属于-dshline)）：一个专用的、独立的 `@deepseek-ai/dsh-skill-filesystem` 实例 `skill-harness-authoring`，它唯一的根就是 `@deepseek-ai/dsh-agent-preset` 包本身随附的 `bundledSkillDir`——由该包拥有的第一方编写技能。
 
 用一个专用提供方，而不是在普通提供方上加一个 `customSkillDirs` 条目，是因为二者回答的是不同的问题。这些是由包拥有的基线技能，不是任何人配置出来的根，而已采纳的世代正是用 `source: bundled`、`BUNDLED_SKILL_RANK`（600），以及一次刻意绕过工作区 `ctx.fs` 的 Host 受信任读取来建模这一点的——因为该路径位于一个已安装的包内部，而不是位于工作区可能施加限制的范围内。它同时把这些技能放在用户根**之下**，而 rank 300 不会这样。它也不能是普通行上的 `bundledSkillDir`，因为显式取值会替换该实例的 `$DSH_BUNDLED_SKILL_DIR` 回退，从而删掉本部署作为自身基线技能打包的一切。
 
@@ -585,7 +585,7 @@ attachment 的按键路由，而它必须在没有预设的情况下也能解析
 **技能那几行又增加了一处。**上游自己的 `standard` 带一个空白的 `skill-filesystem` 行，dshline 的
 也仍然是空白的。在它旁边，`skill-harness-authoring` 以 `includeDefaultRoots: false` 和一个指向
 `@deepseek-ai/dsh-agent-preset` 随附 `skills/` 目录的 `bundledSkillDir` 挂载了同一提供方的第二个
-实例——与上游 `cordis`（Creator）预设暴露的是同样那三个技能。
+实例——与上游 `cordis`（Creator）预设暴露的是同样一组由包拥有的第一方编写技能。
 
 这里要把话说准，因为最容易的读法是错的：**`tool-cordis` 并不加载这些技能。**发现它们的是
 `skill-filesystem`，暴露并加载它们的是 `tool-skill`。上游 Creator 把这些编写技能与 `tool-cordis`、

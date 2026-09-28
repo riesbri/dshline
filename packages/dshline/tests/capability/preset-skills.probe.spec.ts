@@ -22,7 +22,7 @@
  *
  * so this file mounts that shape and asserts the catalog. Both providers are
  * configured from the declaration itself rather than restated here, and nothing
- * about the three skills is a fixture: the bodies are the bytes the published
+ * about the packaged skills is a fixture: the bodies are the bytes the published
  * package carries.
  *
  * The authoring provider contributes package-owned baseline skills, so it must
@@ -56,8 +56,9 @@ import type { SkillView } from '../../src/skills/model.ts'
  */
 const JS_EXPR_TAG = { tag: 'tag:yaml.org,2002:js', resolve: (source: string) => source }
 
-/** The three skills the adopted `@deepseek-ai/dsh-agent-preset` ships. */
+/** The explicit skill catalog the adopted `@deepseek-ai/dsh-agent-preset` ships. */
 const PACKAGED_SKILLS = [
+  'agent-experience',
   'cordis-composition-reference',
   'editing-cordis-compositions',
   'cordis-plugin-development',
@@ -117,7 +118,7 @@ let baseUrl: string
  * shipped row deliberately leaves both alone. That is correct, and this file
  * does not weaken it. What would be wrong is letting an inherited value decide
  * the result of a default case — on a machine or a CI runner that happens to
- * export one, the three packaged skills would no longer be the whole catalog and
+ * export one, the packaged skills would no longer be the whole catalog and
  * a test would fail for a reason that has nothing to do with this composition.
  *
  * So the suite saves, clears, and restores exactly this one variable. Nothing
@@ -251,7 +252,7 @@ describe('capability: skills · the authoring provider the standard preset decla
     expect(dir.endsWith(join('@deepseek-ai', 'dsh-agent-preset', 'skills'))).toBe(true)
   })
 
-  it('exposes the three packaged Cordis skills as bundled, from harness-authoring', async () => {
+  it('exposes the package-owned first-party authoring skills as bundled, from harness-authoring', async () => {
     const ctx = await catalogWith()
     try {
       const observed = await ctx.skills.snapshot({ cwd: project })
@@ -316,7 +317,7 @@ describe('capability: skills · the authoring provider the standard preset decla
   })
 
   it('surfaces them as user- and model-invocable, as their real frontmatter says', async () => {
-    // The three ship no `user-invocable` or `disable-model-invocation` field, so
+    // The packaged skills ship no `user-invocable` or `disable-model-invocation` field, so
     // Harness's own defaults decide. Asserting the ANSWER rather than a guess is
     // what lets `/skills` and the `/name` gesture keep treating them like any
     // other skill — and what makes the model-facing claim in the docs true
@@ -335,17 +336,17 @@ describe('capability: skills · the authoring provider the standard preset decla
 })
 
 describe('capability: skills · the bundled authoring root sits below every root a person owns', () => {
-  it('lets a project .dsh/skills skill of the same name win', async () => {
-    await writeProjectSkill('.dsh', 'cordis-composition-reference', 'The project copy')
+  it.each(PACKAGED_SKILLS)('lets a project .dsh/skills skill override %s', async name => {
+    await writeProjectSkill('.dsh', name, 'The project copy')
     const ctx = await catalogWith()
     try {
       const observed = await ctx.skills.snapshot({ cwd: project })
-      const winner = observed.skills.find(skill => skill.name === 'cordis-composition-reference')
+      const winner = observed.skills.find(skill => skill.name === name)
       // Rank 100 against rank 600. Asserting `source` rather than mere presence
       // is the whole point: BOTH candidates exist, and only the source says which
       // one survived.
       expect(winner?.source).toBe('project-dsh')
-      const loaded = await ctx.skills.get('cordis-composition-reference', { cwd: project })
+      const loaded = await ctx.skills.get(name, { cwd: project })
       expect(loaded?.content).toContain('The project copy')
       expect(loaded?.content).not.toContain('Loader YAML dialect')
     } finally {
@@ -353,41 +354,41 @@ describe('capability: skills · the bundled authoring root sits below every root
     }
   })
 
-  it('lets a project .agents/skills skill of the same name win', async () => {
-    await writeProjectSkill('.agents', 'editing-cordis-compositions', 'The shared-agents copy')
+  it.each(PACKAGED_SKILLS)('lets a project .agents/skills skill override %s', async name => {
+    await writeProjectSkill('.agents', name, 'The shared-agents copy')
     const ctx = await catalogWith()
     try {
       const winner = (await ctx.skills.snapshot({ cwd: project }))
-        .skills.find(skill => skill.name === 'editing-cordis-compositions')
+        .skills.find(skill => skill.name === name)
       expect(winner?.source).toBe('project-agents')
     } finally {
       await ctx.fiber.dispose()
     }
   })
 
-  it('lets a ~/.dsh/skills skill of the same name win', async () => {
+  it.each(PACKAGED_SKILLS)('lets a ~/.dsh/skills skill override %s', async name => {
     // THE case that distinguishes this design from a `customSkillDirs` entry,
     // which sits at rank 300 and would LOSE this. A packaged baseline skill must
     // not outrank something a person wrote in their own home.
-    await writeSkill(join(dshHome, 'skills'), 'cordis-plugin-development', 'The user copy')
+    await writeSkill(join(dshHome, 'skills'), name, 'The user copy')
     const ctx = await catalogWith()
     try {
       const winner = (await ctx.skills.snapshot({ cwd: project }))
-        .skills.find(skill => skill.name === 'cordis-plugin-development')
+        .skills.find(skill => skill.name === name)
       expect(winner?.source).toBe('user-dsh')
-      const loaded = await ctx.skills.get('cordis-plugin-development', { cwd: project })
+      const loaded = await ctx.skills.get(name, { cwd: project })
       expect(loaded?.content).toContain('The user copy')
     } finally {
       await ctx.fiber.dispose()
     }
   })
 
-  it('lets a ~/.agents/skills skill of the same name win', async () => {
-    await writeSkill(join(agentsHome, 'skills'), 'cordis-composition-reference', 'The agents-home copy')
+  it.each(PACKAGED_SKILLS)('lets a ~/.agents/skills skill override %s', async name => {
+    await writeSkill(join(agentsHome, 'skills'), name, 'The agents-home copy')
     const ctx = await catalogWith()
     try {
       const winner = (await ctx.skills.snapshot({ cwd: project }))
-        .skills.find(skill => skill.name === 'cordis-composition-reference')
+        .skills.find(skill => skill.name === name)
       expect(winner?.source).toBe('user-agents')
     } finally {
       await ctx.fiber.dispose()
@@ -493,7 +494,7 @@ describe('capability: skills · the ordinary provider keeps its own bundled chan
 })
 
 describe('capability: skills · /skills needs no special case for them', () => {
-  it('offers all three as ordinary, launchable rows labelled bundled', async () => {
+  it('offers all packaged skills as ordinary, launchable rows labelled bundled', async () => {
     // The last link in the chain: the summaries Harness really produced, run
     // through dshline's own presentation functions. If surfacing these needed
     // anything, it would show up HERE — a name the interface had to know, a
@@ -510,11 +511,11 @@ describe('capability: skills · /skills needs no special case for them', () => {
         expect(row.shadowed).toBe(false)
         // `bundled`, not `custom`: the source Harness resolved. The label is an
         // existing bucket in `sourceLabel`, not a dshline category invented for
-        // these three.
+        // these skills.
         expect(sourceLabel(row.skill.source)).toBe('bundled')
         expect(invocationLabel(row.skill)).toBe('you + model')
       }
-      // And the `/` menu reaches the same three through the same rule.
+      // And the `/` menu reaches the same skills through the same rule.
       expect(slashCandidates([], views).map(candidate => candidate.name).sort())
         .toEqual([...PACKAGED_SKILLS].sort())
     } finally {

@@ -819,6 +819,7 @@ Changed files
 
 **`standard` 预设还自带 DeepSeek 自己的技能。** 除了你自己写的那些，`standard` 还暴露来自已安装的 `@deepseek-ai/dsh-agent-preset` 包本身的第一方技能：
 
+- `agent-experience` —— 编写或修改面向模型的工具定义，以及设计技能、上下文加载与多步骤工作流，让信息易于发现、上下文得到高效利用
 - `cordis-composition-reference` —— Cordis bundle patch 与 agent preset 的方言，以及每个可安装插件包提供什么
 - `editing-cordis-compositions` —— 创建、修改与校验一个 preset
 - `cordis-plugin-development` —— 在本配置文件中添加、启用、禁用或配置插件、bundle、工具、页面或 MCP 连接
@@ -832,7 +833,7 @@ Changed files
 | `skill-filesystem` | 你的项目与用户技能，以及本部署自己打包的技能 |
 | `skill-harness-authoring` | 仅限于 `@deepseek-ai/dsh-agent-preset` 内部的技能 |
 
-因为这两行彼此独立，在 `/plugins` 里关掉 `skill-harness-authoring`，恰好会移除这三个，而你自己写的每一个技能都原封不动。
+因为这两行彼此独立，在 `/plugins` 里关掉 `skill-harness-authoring`，恰好会移除这些由包拥有的技能，而你自己写的每一个技能都原封不动。
 
 **技能从哪里被找到。** 对于你掌控的技能，Harness 自己的文件系统提供方扫描以下根目录，其中提供某个名字的第一个根获胜：
 
@@ -848,9 +849,9 @@ Harness 的编写技能排序在每一个**项目与用户**根之后，因此�
 
 本部署自己的打包根与 Harness 编写提供方使用的都是 Harness 的 bundled 排序。二者可以共存，而本界面刻意不对两个打包提供方之间的先后另作规定：两个同名打包技能你会得到哪一个，是 Harness 的事，而不是这里作出的保证。
 
-`/skills` 把这三个标注为 **`bundled`**，因为对于由包拥有的根，那就是 Harness 所解析出的来源。它不是 dshline 的分类，也不意味着你的安装打包了什么自己的东西。
+`/skills` 把这些由包拥有的技能标注为 **`bundled`**，因为对于由包拥有的根，那就是 Harness 所解析出的来源。它不是 dshline 的分类，也不意味着你的安装打包了什么自己的东西。
 
-**包的归属与模型能力是两件事。**Harness 拥有技能正文；dshline 的 `standard` 决定暴露那个能找到它们的提供方；`tool-skill` 拥有加载它们的职责。而由于这三个都是模型可调用的，每一个新建的 `standard` 会话都会在 Harness 持久的 `<available_skills>` 目录中收到它们的**名称与描述**——那是每个会话几行上下文，而不是零。它们的**完整正文不会被发送**，直到有东西索取：要么是你显式的 `/<skill-name>` 那一行，要么是模型调用技能工具。任何技能都是如此；这三个并没有被特殊对待。
+**包的归属与模型能力是两件事。**Harness 拥有技能正文；dshline 的 `standard` 决定暴露那个能找到它们的提供方；`tool-skill` 拥有加载它们的职责。而由于这些由包拥有的技能都是模型可调用的，每一个新建的 `standard` 会话都会在 Harness 持久的 `<available_skills>` 目录中收到它们的**名称与描述**——那是每个会话几行上下文，而不是零。它们的**完整正文不会被发送**，直到有东西索取：要么是你显式的 `/<skill-name>` 那一行，要么是模型调用技能工具。任何技能都是如此；这些由包拥有的技能并没有被特殊对待。
 
 > [!IMPORTANT]
 > 一个技能可能描述某个本预设并未挂载对应工具的操作。`standard` 是**刻意**不附带 Creator 的工具的——没有 `tool-cordis`，因此既没有 `cordis_inspect_list` 也没有 `cordis_inspect_query`，而 `tool-plugin-manager` 保持禁用——所以上面某个技能可能会要求 agent 做本配置文件做不到的事。技能文本属于 Harness，按原样展示，而不是被裁剪以掩盖这一落差：暴露一个技能并不意味着该技能提到的一切在这里都可用。`/plugins` 才是你查看运行中 agent 实际组合了什么的地方。

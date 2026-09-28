@@ -128,7 +128,7 @@ describe('shipped preset declarations activate', () => {
     const names = rows.map(row => row.name)
     // The rows the adopted generation's own standard declaration carries and a
     // terminal session has always had. Each was verified against
-    // `packages/bundle/web-app/presets/standard.patch.yml` at 0.1.7-rc.2.
+    // `packages/bundle/web-app/presets/standard.patch.yml` at 0.2.0-rc.1 (unchanged from 0.1.7-rc.2).
     for (const name of [
       '@deepseek-ai/dsh-persona',
       '@deepseek-ai/dsh-tool-bash',
@@ -192,12 +192,12 @@ describe('shipped preset declarations activate', () => {
 })
 
 /**
- * The dedicated `skill-harness-authoring` row: the three first-party Cordis
+ * The dedicated `skill-harness-authoring` row: the package-owned first-party
  * authoring skills `@deepseek-ai/dsh-agent-preset` ships, contributed by this
  * preset as baseline knowledge rather than as a root a person configured.
  *
  * Upstream's own `standard` has neither row beyond the bare ordinary provider;
- * upstream's `cordis` (Creator) preset reaches the same three skills by adding a
+ * upstream's `cordis` (Creator) preset reaches the same authoring skills by adding a
  * `customSkillDirs` entry to ITS single provider. dshline takes the skills and
  * not Creator's capabilities, and represents them the way the adopted Harness
  * generation models package-owned skills: a second, isolated provider instance
@@ -210,7 +210,7 @@ describe('shipped preset declarations activate', () => {
  * entry, which changes precedence and the source the UI reports — fails here.
  *
  * Structural only. That the expression resolves to the installed package, and
- * that the real provider then serves those three skills and loses every name a
+ * that the real provider then serves those authoring skills and loses every name a
  * project or user root claims, is `preset-skills.probe.spec.ts`'s job; a string
  * check cannot stand in for it.
  */
@@ -313,7 +313,7 @@ describe('shipped standard: the harness-authoring skill provider', () => {
 
   it('leaves minimal alone: minimal is not a second way to get the packaged skills', () => {
     // `minimal` exists to be switched TO, not tuned. The authoring provider there
-    // would make the deliberately small preset carry three Cordis skills a person
+    // would make the deliberately small preset carry packaged authoring skills a person
     // never asked for, and would spread one decision across two presets.
     const rows = rowsOf(declaration('../../presets/minimal.patch.yml'))
     expect(rows.filter(row => row.id === 'skill-filesystem')).toHaveLength(1)

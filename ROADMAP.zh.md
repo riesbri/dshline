@@ -165,7 +165,7 @@ Connect 仍在前面：
   携带的终端配置文件差异（`command-goal` 保留在 Host 侧）。dshline 的 `standard` 并不是上游声明的
   逐字节副本；维护规则是：从已采纳的上游声明出发，让每一处差异都显式、细小并且有测试覆盖
 - 这些差异之一是一个专用的 `skill-harness-authoring` 提供方，与普通的 `skill-filesystem` 行并列，
-  贡献 `@deepseek-ai/dsh-agent-preset` 随附的那三个第一方 Cordis 编写技能。它使用 Harness 自己的
+  贡献 `@deepseek-ai/dsh-agent-preset` 随附、由该包拥有的第一方编写技能。它使用 Harness 自己的
   打包技能语义——`bundledSkillDir`、`source: bundled`、rank 600、Host 受信任——因此这些技能的排序
   *低于*项目与用户技能，同名时让位给任何人亲手写下的版本。单独成行还意味着 `/plugins` 可以在不
   牺牲某人自己技能的前提下去掉它们。这是第一方技能知识，而不是 Creator 能力：`tool-cordis` 与
