@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createMarkdownRenderer, renderInline, renderMarkdown, stripAnsi } from '../src/index.ts'
+import { createMarkdownRenderer, escapeControls, paint, renderInline, renderMarkdown, stripAnsi } from '../src/index.ts'
 
 /** Rendered lines with styling removed, so structure is readable in assertions. */
 function plain(source: string): string[] {
@@ -148,6 +148,302 @@ describe('delimiter flanking', () => {
   })
 })
 
+/**
+ * What each of these rendered before the inline scanner started walking the line
+ * by index, captured from the pattern-based implementation and kept byte for byte.
+ *
+ * The optimisation this replaced matched every construct against the remaining
+ * SUFFIX, which is correct and slow: the interesting question is not what changed
+ * but whether anything else did, and a table of exact output answers that in one
+ * assertion. Escapes are spelled `\e` so a row stays readable; the roles are part
+ * of the expectation, because `stripAnsi` hides a role that was applied wrongly.
+ */
+const EQUIVALENCE: readonly (readonly [string, string])[] = [
+  // Prose, arithmetic, and emphasis that closes.
+  ['just a sentence.', 'just a sentence.'],
+  ['', ''],
+  [' ', ' '],
+  ['a', 'a'],
+  ['2 * 3 = 6', '2 * 3 = 6'],
+  ['5 ** 2', '5 ** 2'],
+  ['a * b * c', 'a * b * c'],
+  ['**bold**', '\\e[1mbold\\e[0m'],
+  ['*italic*', '\\e[3mitalic\\e[0m'],
+  ['_italic_', '\\e[3mitalic\\e[0m'],
+  ['~~struck~~', '\\e[2mstruck\\e[0m'],
+  ['a **b c** d', 'a \\e[1mb c\\e[0m d'],
+  ['x*y*z', 'x\\e[3my\\e[0mz'],
+  ['**bold** and *italic* and ~~struck~~', '\\e[1mbold\\e[0m and \\e[3mitalic\\e[0m and \\e[2mstruck\\e[0m'],
+  ['__bold text__', '\\e[1mbold text\\e[0m'],
+  ['**a**b**c**', '\\e[1ma\\e[0mb\\e[1mc\\e[0m'],
+  ['***both***', '***both***'],
+  ['*a*b*c*', '\\e[3ma\\e[0mb\\e[3mc\\e[0m'],
+  ['~~a~~b~~', '\\e[2ma\\e[0mb~~'],
+  ['a~~b~~c', 'a\\e[2mb\\e[0mc'],
+  ['snake_case_name', 'snake_case_name'],
+
+  // Identifiers, paths, and delimiters that must stay literal.
+  ['MY_CONST_NAME', 'MY_CONST_NAME'],
+  ['a_b_c', 'a_b_c'],
+  ['some_var and other_var', 'some_var and other_var'],
+  ['file_name.ts', 'file_name.ts'],
+  ['src/my_module/index_test.py', 'src/my_module/index_test.py'],
+  ['__init__', '__init__'],
+  ['__all__ and __name__', '__all__ and __name__'],
+  ['_private', '_private'],
+  ['a_', 'a_'],
+  ['_a', '_a'],
+  ['__', '__'],
+  ['_', '_'],
+  ['2 * 3 * 4', '2 * 3 * 4'],
+  ['** 2', '** 2'],
+  ['a * b', 'a * b'],
+  ['_ ', '_ '],
+  [' _ ', ' _ '],
+  ['* ', '* '],
+  [' *', ' *'],
+  ['~~', '~~'],
+  ['~~x', '~~x'],
+  ['x~~', 'x~~'],
+  ['a **dangling', 'a **dangling'],
+  ['a *dangling', 'a *dangling'],
+  ['a _dangling', 'a _dangling'],
+  ['a ~~dangling', 'a ~~dangling'],
+  ['**', '**'],
+  ['****', '****'],
+  ['*****', '*****'],
+  ['**_', '**_'],
+  ['_**', '_**'],
+
+  // Code spans, including runs that do not match.
+  ['`code`', '\\e[36mcode\\e[0m'],
+  ['call `readFile` first', 'call \\e[36mreadFile\\e[0m first'],
+  ['`**not bold**`', '\\e[36m**not bold**\\e[0m'],
+  ['`a` `b`', '\\e[36ma\\e[0m \\e[36mb\\e[0m'],
+  ['``a`b``', '`\\e[36ma\\e[0mb``'],
+  ['`', '`'],
+  ['``', '``'],
+  ['```', '```'],
+  ['````', '````'],
+  ['`unterminated', '`unterminated'],
+  ['a `b', 'a `b'],
+  ['`a`b`c`', '\\e[36ma\\e[0mb\\e[36mc\\e[0m'],
+  ['` `', '\\e[36m \\e[0m'],
+  ['`\\e[2J`', '\\e[36m^[[2J\\e[0m'],
+  ['`` ` ``', '`\\e[36m \\e[0m ``'],
+  ['a``b``c', 'a\\e[36mb\\e[0mc'],
+  ['`a``b`', '\\e[36ma\\e[0m\\e[36mb\\e[0m'],
+
+  // Links that close.
+  ['[text](target)', '\\e[36mtext\\e[0m\\e[90m (target)\\e[0m'],
+  ['see [docs](https://example.com)', 'see \\e[36mdocs\\e[0m\\e[90m (https://example.com)\\e[0m'],
+  ['[a](b)c', '\\e[36ma\\e[0m\\e[90m (b)\\e[0mc'],
+  ['x[y](z)w', 'x\\e[36my\\e[0m\\e[90m (z)\\e[0mw'],
+  ['[a](b) [c](d)', '\\e[36ma\\e[0m\\e[90m (b)\\e[0m \\e[36mc\\e[0m\\e[90m (d)\\e[0m'],
+  ['[nested [x]](y)', '[nested [x]](y)'],
+  ['[a](b(c))', '\\e[36ma\\e[0m\\e[90m (b(c)\\e[0m)'],
+
+  // Links that do not, for one reason or another.
+  ['[a]( )', '[a]( )'],
+  ['[a](b c)', '[a](b c)'],
+  ['[](x)', '[](x)'],
+  ['[]()', '[]()'],
+  ['[a]()', '[a]()'],
+  ['[a](b', '[a](b'],
+  ['[', '['],
+  ['[]', '[]'],
+  ['[a', '[a'],
+  ['[a]', '[a]'],
+  ['[a](', '[a]('],
+  ['[a](b', '[a](b'],
+  ['[a](b ', '[a](b '],
+  ['[a]b](c)', '[a]b](c)'],
+  ['[[', '[['],
+  ['[[a', '[[a'],
+  ['[[[a]]', '[[[a]]'],
+  ['[a[b](c)', '\\e[36ma[b\\e[0m\\e[90m (c)\\e[0m'],
+  ['[a](b)[c', '\\e[36ma\\e[0m\\e[90m (b)\\e[0m[c'],
+  ['][', ']['],
+  ['a[b]c(d)e', 'a[b]c(d)e'],
+  ['[a](b)]', '\\e[36ma\\e[0m\\e[90m (b)\\e[0m]'],
+  ['[a]]](b)', '[a]]](b)'],
+  ['[[a]](b)', '[[a]](b)'],
+
+  // Delimiters mixed inside one another: none of them nest.
+  ['[a](<b>)', '\\e[36ma\\e[0m\\e[90m (<b>)\\e[0m'],
+  ['[a](b"c")', '\\e[36ma\\e[0m\\e[90m (b"c")\\e[0m'],
+  ['[**a**](b)', '\\e[36m**a**\\e[0m\\e[90m (b)\\e[0m'],
+  ['[`a`](b)', '\\e[36m`a`\\e[0m\\e[90m (b)\\e[0m'],
+  ['*[a](b)*', '\\e[3m[a](b)\\e[0m'],
+  ['`[a](b)`', '\\e[36m[a](b)\\e[0m'],
+  ['[a](b)*c*', '\\e[36ma\\e[0m\\e[90m (b)\\e[0m\\e[3mc\\e[0m'],
+  ['_[a](b)_', '\\e[3m[a](b)\\e[0m'],
+  ['~~[a](b)~~', '\\e[2m[a](b)\\e[0m'],
+  ['[a](b`c`d)', '\\e[36ma\\e[0m\\e[90m (b`c`d)\\e[0m'],
+  ['[a](**b**)', '\\e[36ma\\e[0m\\e[90m (**b**)\\e[0m'],
+  ['[*a*](b)', '\\e[36m*a*\\e[0m\\e[90m (b)\\e[0m'],
+  ['[a[b](c)d](e)', '\\e[36ma[b\\e[0m\\e[90m (c)\\e[0md](e)'],
+
+  // Supplementary-plane and non-Latin text around a delimiter.
+  ['`[a](', '`[a]('],
+  ['\u{10400}_name_', '\u{10400}_name_'],
+  ['\u{1d400}_x_', '\u{1d400}_x_'],
+  ['\u{1f600}_x_', '\u{1f600}\\e[3mx\\e[0m'],
+  ['**\u{10400}**', '\\e[1m\u{10400}\\e[0m'],
+  ['[café](naïve)', '\\e[36mcafé\\e[0m\\e[90m (naïve)\\e[0m'],
+  ['`\u{1f600}`', '\\e[36m\u{1f600}\\e[0m'],
+  ['\u{10400}[a](b)', '\u{10400}\\e[36ma\\e[0m\\e[90m (b)\\e[0m'],
+  ['[a](b)\u{10400}', '\\e[36ma\\e[0m\\e[90m (b)\\e[0m\u{10400}'],
+  ['é**a**é', 'é\\e[1ma\\e[0mé'],
+  ['中文**粗体**', '中文\\e[1m粗体\\e[0m'],
+
+  // Control characters, which are shown rather than obeyed.
+  ['a b', 'a b'],
+  ['before \\e[2J after', 'before ^[[2J after'],
+  ['a\rb', 'a^Mb'],
+  ['a\u{0}b', 'a^@b'],
+  ['[t\\e[2J](u\\e[2J)', '\\e[36mt^[[2J\\e[0m\\e[90m (u^[[2J)\\e[0m'],
+  ['`\\e[2J`', '\\e[36m^[[2J\\e[0m'],
+  ['**\\e[1m**', '\\e[1m^[[1m\\e[0m'],
+
+  // Whitespace at the edges of a construct.
+  ['[a] (b)', '[a] (b)'],
+  ['*  a  *', '*  a  *'],
+  ['**  **', '**  **'],
+  ['`  `', '\\e[36m  \\e[0m'],
+  ['[ a ]( b )', '[ a ]( b )'],
+  [' \n ', ' \n '],
+  ['a\nb', 'a\nb'],
+]
+
+describe('inline equivalence', () => {
+  /**
+   * Put the SGR bytes back. Both columns of the table spell them `\e`, because a
+   * literal escape in a test file is invisible in a diff and invisible in a
+   * failure message, and `\e` is not a JavaScript escape either — it is the
+   * letter e, which is how a table full of styling becomes a table full of `e`.
+   */
+  const bytes = (row: string): string => row.replace(/\\e/g, '\u001b')
+
+  /**
+   * Whether the block layer may claim a line for itself — a heading, quote, bullet,
+   * ordered marker, fence, or rule — in which case the row it produces is
+   * deliberately not the inline rendering and the table says nothing about it.
+   *
+   * Deliberately conservative. A line this wrongly calls a block construct is
+   * merely left uncovered by the check below; it is still covered inline, and
+   * every block branch has its own test where a heading or a list really belongs.
+   */
+  const claimedByTheBlockLayer = (source: string): boolean =>
+    /^[\s#>\-+*~`\d]/u.test(source) || /^[-*_ \t]+$/u.test(source)
+
+  it.each(EQUIVALENCE)('renders %j exactly as it did', (source, expected) => {
+    expect(renderInline(bytes(source))).toBe(bytes(expected))
+  })
+
+  it('reaches the same rows through the block renderer', () => {
+    // The same sources through `line()`, so the whole path a reply takes is
+    // covered rather than only the inline half of it.
+    let checked = 0
+    for (const [source, expected] of EQUIVALENCE) {
+      if (claimedByTheBlockLayer(source)) continue
+      const rows = createMarkdownRenderer().line(bytes(source))
+      expect(rows, source).toHaveLength(1)
+      expect(rows[0], source).toBe(bytes(expected))
+      checked += 1
+    }
+    // A guard on the guard: if the block layer ever claims nearly everything, this
+    // stops being an equivalence check and starts being a loop over nothing.
+    expect(checked).toBeGreaterThan(EQUIVALENCE.length / 2)
+  })
+})
+
+describe('malformed inline markdown', () => {
+  const inline = (source: string): string => stripAnsi(renderInline(source))
+
+  /**
+   * Lines that must come back as the characters they went in as.
+   *
+   * The property is exact on purpose: escaping and nothing else. A matcher that is
+   * both faster and more willing is the obvious way to break this file, because
+   * "be permissive about a closing bracket" and "stop rescanning" look like the
+   * same change. Every one of these was already literal before the inline scanner
+   * became index-based, and has to stay literal after it.
+   */
+  const LITERAL: readonly (readonly [string, string])[] = [
+    ['a run of opening brackets', '['.repeat(64)],
+    ['a run of opening brackets and the tail behind them', `${'['.repeat(64)}tail`],
+    ['closing brackets with nothing opening them', ']'.repeat(64)],
+    ['link text that never closes', '[text'.repeat(16)],
+    ['a closed link followed by a paren and no target', '[text]('.repeat(16)],
+    ['brackets that never enclose a character', '[](('.repeat(16)],
+    ['a rejected bracket in front of one that would close', '[a]b]('.repeat(16)],
+    ['a rejected bracket in front of a complete link', '[a]b](c)'.repeat(16)],
+    ['a bracket run closed only at the end of the line', `${'['.repeat(32)}](x`],
+    ['an empty target', '[a]()'],
+    ['a target stopped by a space', '[a](b c)'.repeat(8)],
+    ['no text between the brackets', '[](a)'.repeat(8)],
+    ['an unterminated backtick run', '`'.repeat(64)],
+    ['an unterminated backtick run and its tail', `${'`'.repeat(30)}tail`],
+    ['a backtick run of two that never closes', '``'.repeat(20)],
+    ['a run of asterisks', '*'.repeat(64)],
+    ['a run of underscores', '_'.repeat(64)],
+    ['a run of double tildes', '~~'.repeat(24)],
+    ['underscores whose closers all touch a word', '_a_x '.repeat(16)],
+    ['dunder-shaped runs whose closers all touch a word', '__a_ '.repeat(16)],
+    ['an escape sequence inside a link that never closes', '[a\u001b[2J](b'],
+    ['a supplementary letter in front of an unfinished link', '\u{10400}[a]('],
+  ]
+
+  it.each(LITERAL)('keeps %s literal', (_name, source) => {
+    expect(renderInline(source)).toBe(escapeControls(source))
+  })
+
+  it('stops at the first bracket that closes, rather than looking for a later one', () => {
+    // The one place a faster search could have become a more willing parser: the
+    // closer is the first `]` because the link text may not contain one, so a
+    // scan that skipped a rejected candidate would find the `]` at the end and
+    // render a link out of `[a]b](c)`. It stayed literal before; it must now too.
+    expect(inline('[a]b](c)')).toBe('[a]b](c)')
+    expect(inline('[a](b)')).toBe('a (b)')
+  })
+
+  it('finds the link that a long run of brackets does end with', () => {
+    // The same shape as the literal case above, one closing bracket later. The
+    // bracket run is the link text here, so this is a link and has to read as one.
+    const brackets = '['.repeat(32)
+    expect(inline(`${brackets}](x)`)).toBe(`${brackets.slice(1)} (x)`)
+  })
+
+  it('lets a shorter backtick run close a longer one that cannot', () => {
+    // A closing run SHORTER than the opening one does not close it, so the span
+    // opens one character later. The point is that giving up on the long run does
+    // not lose the code span, which is what a "no equal-length run, so nothing
+    // here" shortcut would have done.
+    const opening = '`'.repeat(20)
+    const content = 'a'.repeat(20)
+    expect(renderInline(`${opening}${content}\``)).toBe(
+      `${opening.slice(1)}${paint(content, 'code')}`,
+    )
+  })
+
+  it('keeps a control sequence readable inside malformed markdown', () => {
+    // Escaping happens as the text is emitted, so an unterminated construct cannot
+    // become a hole in it — the one place a scanner that emitted spans lazily
+    // would be tempted to leave a gap.
+    const source = `[\u001b[2J${'('.repeat(32)}`
+    expect(inline(source)).toBe(`[^[[2J${'('.repeat(32)}`)
+    expect(renderInline(source)).not.toContain('\u001b')
+  })
+
+  it('leaves a supplementary-plane character before a delimiter literal', () => {
+    // The flanking test reads a whole code point, and a scan that indexed by UTF-16
+    // unit would see a lone surrogate there and decide the position was not a word.
+    expect(inline('\u{10400}_name_')).toBe('\u{10400}_name_')
+    expect(inline('\u{10400}_a_x_')).toBe('\u{10400}_a_x_')
+  })
+})
+
 describe('fenced blocks', () => {
   const fence = '```'
   const longer = '````'
@@ -223,6 +519,26 @@ describe('pathological input', () => {
     return performance.now() - started
   }
 
+  /**
+   * The fastest of several renders of one line.
+   *
+   * Best-of-N rather than mean, because the question is how the COST grows and a
+   * GC pause or a scheduling hiccup on a shared runner adds to a sample without
+   * saying anything about the shape of the curve. The first run also carries the
+   * cost of the code not being warm yet, which would otherwise be read as the
+   * price of the smallest line in the series.
+   * @param line - the line to render.
+   * @param runs - how many times to render it.
+   * @returns elapsed milliseconds.
+   */
+  function fastest(line: string, runs = 5): number {
+    let best = Infinity
+    for (let run = 0; run < runs; run += 1) {
+      best = Math.min(best, elapsed(line))
+    }
+    return best
+  }
+
   // Generous on purpose: the point is the difference between linear and quadratic,
   // not a benchmark. Before the patterns were bounded, 40k spaces took seconds;
   // after, it is sub-millisecond, so anything under this bound proves the class of
@@ -263,6 +579,69 @@ describe('pathological input', () => {
       `${'- '.repeat(8_000)}\n`,
     ]) {
       expect(elapsed(line), JSON.stringify(line.slice(0, 4))).toBeLessThan(BUDGET_MS)
+    }
+  })
+
+  /** A backtick, named so the shapes below read as shapes rather than as quoting. */
+  const TICK = '`'
+
+  /**
+   * Malformed shapes that used to rescan the remaining suffix on every character.
+   *
+   * Eight of these were quadratic before the inline scanner became index-based,
+   * measured at 2 ms to 250 ms for 20k characters and growing by four whenever
+   * the input doubled — which is the whole defect: the anchored link, code, and
+   * emphasis patterns were asked about a suffix already proved to hold nothing,
+   * once per character, while the loop moved on by one. A model emits half a link
+   * more often than it emits malformed markdown on purpose.
+   *
+   * The bracketed one is the exception, and it is here for the opposite reason.
+   * It was already linear, and it stays that way only as long as the link search
+   * does not skip a rejected `]` to find a later one — which is both the obvious
+   * way to make this search faster and the one that would also make the renderer
+   * more willing, so it is worth a timing test of its own.
+   */
+  const RESCANS: readonly (readonly [string, (size: number) => string])[] = [
+    ['a run of opening brackets', size => '['.repeat(size)],
+    ['a bracket run closed only at the very end', size => `${'['.repeat(size)}]`],
+    ['link text with no target', size => '[text'.repeat(Math.ceil(size / 5))],
+    ['a bracket, a paren, and no target', size => '[a]('.repeat(Math.ceil(size / 4))],
+    ['a bracket run followed by a broken target', size => `${'['.repeat(size / 2)}](x`],
+    ['rejected brackets in front of one that would close', size => '[a]b]('.repeat(Math.ceil(size / 6))],
+    ['an unterminated backtick run', size => `x${TICK.repeat(size)}`],
+    ['a backtick run no closing run can match', size => `x${TICK.repeat(size / 2)}${'a'.repeat(size / 2)}${TICK}`],
+    ['underscores that never close', size => '_a_x '.repeat(Math.ceil(size / 5))],
+  ]
+
+  /** Line length the growth check starts from; quadratic shapes are already seconds. */
+  const GROWTH_BASE = 65_536
+
+  /**
+   * Slack in the growth check, in milliseconds.
+   *
+   * Small enough that a quadratic line cannot hide behind it — the shapes above
+   * cost hundreds of milliseconds at this size — and large enough that a GC pause
+   * on a shared runner does not read as growth.
+   */
+  const GROWTH_SLACK_MS = 1
+
+  it.each(RESCANS)('renders %s in linear time', (name, build) => {
+    // A million characters settles it without depending on the machine: a linear
+    // pass needs a few milliseconds at any size, and the same shapes measured at
+    // 20k extrapolate to minutes here, so nothing about a slower runner can turn a
+    // rescan back into a pass.
+    expect(fastest(build(1_000_000), 3), name).toBeLessThan(BUDGET_MS)
+  })
+
+  it.each(RESCANS)('scales %s with the length of the line, not its square', (name, build) => {
+    // Each doubling may cost at most three times the last. Linear doubling is two
+    // and so keeps half the allowance in hand; rescanning the suffix is four and
+    // spends the whole step past it.
+    let previous = fastest(build(GROWTH_BASE))
+    for (const size of [GROWTH_BASE * 2, GROWTH_BASE * 4, GROWTH_BASE * 8]) {
+      const current = fastest(build(size))
+      expect(current, `${name} at ${size}`).toBeLessThan(3 * previous + GROWTH_SLACK_MS)
+      previous = current
     }
   })
 
