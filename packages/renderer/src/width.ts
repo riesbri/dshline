@@ -73,15 +73,19 @@ export function stripAnsi(text: string): string {
 
 /**
  * Columns `text` occupies once rendered, ignoring styling.
+ *
+ * The same scan the cuts use, for the same reason: `stripAnsi(text)` would copy
+ * the whole string just to measure it, and measuring is asked of a lot of text —
+ * every row of every box, and every candidate line before it is cut. A scan that
+ * carries its own cursor copies nothing, and a bare escape that completes no
+ * sequence is still measured as invisible, exactly as stripping left it.
  * @param text - the text to measure.
  * @returns the total column count.
  */
 export function displayWidth(text: string): number {
+  const scan = new TokenScan(text)
   let total = 0
-  for (const char of stripAnsi(text)) {
-    const code = char.codePointAt(0)
-    if (code !== undefined) total += codePointWidth(code)
-  }
+  while (scan.next()) total += scan.width
   return total
 }
 
@@ -110,12 +114,117 @@ function isEscape(token: Token): boolean {
 const RESET_PATTERN = /^\u001b\[0?m$/u
 
 /**
+ * One escape sequence, matched AT the cursor rather than searched for.
+ *
+ * The same grammar as {@link ANSI_PATTERN}, sticky so the scan can ask "is the
+ * character here the start of a sequence" once per position instead of collecting
+ * every sequence in the string before looking at the first one. `lastIndex` is
+ * set immediately before every `exec`, and no two scans interleave — the walk is
+ * synchronous and calls nothing that could re-enter it.
+ */
+const ESCAPE_AT = new RegExp(ANSI_PATTERN.source, 'yu')
+
+/**
+ * One step of a styled string, without materializing the string's tokens.
+ *
+ * A tokenizer that returns a `Token[]` is a decision made before anything is
+ * known about how much of the text the caller needs, and every measurement
+ * function here was paying for the whole string to answer a question about a
+ * prefix of it. This walks the text by index instead, and a caller that stops
+ * early never touches the rest of an ordinary line.
+ *
+ * The cost is BOUNDED, not constant, and the difference is worth stating because
+ * a scan is exactly the thing that cannot promise constant time. What a cut pays
+ * is the retained prefix, plus whatever it must read to establish where that
+ * prefix ends: the zero-width run after the budget belongs to the character
+ * before it and is part of the answer, and an escape whose terminator never
+ * arrives can only be measured by scanning forward for one. Styled text is full
+ * of the first and empty of the second, which is why cutting eighty columns out
+ * of a megabyte costs what cutting eighty columns out of a line does; a caller
+ * holding an unterminated escape is holding text no terminal can render, and
+ * the scan is what proves that.
+ *
+ * A token's own text is never copied; the caller reads the span it needs through
+ * {@link TokenScan.text}, or slices the prefix itself, which is exact because
+ * the tokens partition the string in order.
+ */
+class TokenScan {
+  /** Index where the current token starts. */
+  start = 0
+  /** Index just past the current token. */
+  end = 0
+  /** Visible columns the current token occupies. */
+  width = 0
+  /** Whether the current token is an escape rather than a character. */
+  escape = false
+  /** Index the next token starts at. */
+  private index = 0
+
+  /** @param source - the string to walk, which this scan never copies. */
+  constructor(private readonly source: string) {}
+
+  /**
+   * Advance to the next token.
+   * @returns false at the end of the string, leaving the current token as it was.
+   */
+  next(): boolean {
+    const { source } = this
+    const at = this.index
+    if (at >= source.length) return false
+    this.start = at
+    if (source.charCodeAt(at) === 0x1b) {
+      ESCAPE_AT.lastIndex = at
+      const match = ESCAPE_AT.exec(source)
+      // A lone escape that completes no sequence is still an escape for the
+      // open/closed question — it is what the pattern-based tokenizer produced,
+      // because the token's text starts with the escape either way.
+      this.end = match === null ? at + 1 : at + match[0].length
+      this.width = 0
+      this.escape = true
+      this.index = this.end
+      return true
+    }
+    // A surrogate pair is one token and one code point, so a supplementary-plane
+    // character is never half a token. `codePointAt` reads the pair — or a lone
+    // surrogate, exactly as iterating the string does — and the pair test is what
+    // decides how many units the token spans.
+    const first = source.charCodeAt(at)
+    const paired = first >= 0xd800 && first <= 0xdbff
+      && source.charCodeAt(at + 1) >= 0xdc00 && source.charCodeAt(at + 1) <= 0xdfff
+    this.end = at + (paired ? 2 : 1)
+    this.width = codePointWidth(source.codePointAt(at) ?? 0)
+    this.escape = false
+    this.index = this.end
+    return true
+  }
+
+  /** @returns the current token's own text. */
+  text(): string {
+    return this.source.slice(this.start, this.end)
+  }
+
+  /**
+   * Whether the current token is an escape that closes all styling.
+   * @returns true for `\u001b[0m` and `\u001b[m`, and for nothing else.
+   */
+  closesStyling(): boolean {
+    return RESET_PATTERN.test(this.text())
+  }
+}
+
+/**
  * Split styled text into escape sequences and characters.
  *
  * Measuring and cutting must agree with {@link displayWidth}, which ignores
  * escape sequences — counting `\u001b[90m` as four columns makes every styled
  * line wrap early, and cutting inside a sequence emits a fragment the terminal
  * interprets as garbage.
+ *
+ * Kept for the two consumers that genuinely need the whole string at once: a
+ * wrap walks every token in order and reorders them into rows, and a tail cut
+ * starts from the END. Neither can stop early, and both would pay more to be
+ * rewritten around a scan than the array costs. Everything that answers a
+ * question about a PREFIX uses {@link TokenScan} instead.
  * @param text - possibly styled text.
  * @returns tokens in order; escapes carry width zero.
  */
@@ -147,32 +256,43 @@ function tokenize(text: string): Token[] {
  */
 export function truncateToWidth(text: string, columns: number): string {
   if (columns <= 0) return ''
+  const scan = new TokenScan(text)
   let used = 0
-  let out = ''
-  /** Whether the last escape emitted opened styling rather than closing it. */
+  /** Whether the styling seen so far is open rather than closed. */
   let open = false
-  let cut = false
-  for (const token of tokenize(text)) {
-    if (token.width === 0) {
+  while (scan.next()) {
+    if (scan.width === 0) {
       // Only an escape changes what is OPEN; a combining mark or ZWJ does not,
       // and treating it as "styling is now open" would append a needless reset.
-      if (isEscape(token)) open = !RESET_PATTERN.test(token.text)
-      out += token.text
+      //
+      // Zero-width tokens are therefore NOT a stopping point, and that is the
+      // rule the scan is built around: reaching the budget is not the end of the
+      // prefix. Everything zero-width between the last retained character and
+      // the first one that does not fit belongs to the output — a combining mark
+      // and a variation selector complete the character beside them, and an SGR
+      // decides whether a reset is owed. Only a token that would push the total
+      // PAST the budget ends the walk, and the first one does.
+      if (scan.escape) open = !scan.closesStyling()
       continue
     }
-    if (used + token.width > columns) {
-      cut = true
-      break
+    if (used + scan.width > columns) {
+      // The prefix is everything before this token, which is exact because the
+      // tokens partition the string: no concatenation is needed, and nothing
+      // after this position can change what is retained or whether styling is
+      // open.
+      const prefix = text.slice(0, scan.start)
+      // A cut discards everything after it, INCLUDING the reset that closed the
+      // styling — so a truncated coloured row would leave its colour open and
+      // the next thing drawn, a gutter or the composer, would inherit it. Closing
+      // here rather than at each call site is deliberate: every caller that
+      // truncates styled text has the same problem.
+      return open ? `${prefix}${RESET}` : prefix
     }
-    used += token.width
-    out += token.text
+    used += scan.width
   }
-  // A cut discards everything after it, INCLUDING the reset that closed the
-  // styling — so a truncated coloured row would leave its colour open and the
-  // next thing drawn, a gutter or the composer, would inherit it. Closing here
-  // rather than at each call site is deliberate: every caller that truncates
-  // styled text has the same problem.
-  return cut && open ? `${out}${RESET}` : out
+  // Nothing was cut, and the tokens partition the string, so the input is the
+  // answer — the same bytes, and this time the same object.
+  return text
 }
 
 /**
@@ -248,22 +368,23 @@ export function chunkToWidth(text: string, columns: number): string[] {
     let used = 0
     /** Every escape seen so far, replayed so a break does not lose styling. */
     let open = ''
-    for (const token of tokenize(paragraph)) {
-      if (token.width === 0) {
+    const scan = new TokenScan(paragraph)
+    while (scan.next()) {
+      if (scan.width === 0) {
         // A break may not orphan a zero-width CHARACTER: a combining mark stays
         // with the base it follows, so only escape sequences join the set that
         // is replayed onto the next row.
-        if (isEscape(token)) open = RESET_PATTERN.test(token.text) ? '' : open + token.text
-        row += token.text
+        if (scan.escape) open = scan.closesStyling() ? '' : open + scan.text()
+        row += scan.text()
         continue
       }
-      if (used + token.width > budget) {
+      if (used + scan.width > budget) {
         out.push(open === '' ? row : `${row}${RESET}`)
         row = open
         used = 0
       }
-      row += token.text
-      used += token.width
+      row += scan.text()
+      used += scan.width
     }
     out.push(open === '' ? row : `${row}${RESET}`)
   }

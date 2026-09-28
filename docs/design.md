@@ -209,6 +209,8 @@ The ranges are generated from the Unicode Character Database 17.0.0 by `tools/ge
 
 `displayWidth` ignores escape sequences, so wrapping and truncating must ignore them too. Both split text into zero-width escape sequences and visible characters, never cut in the middle of a sequence, and re-open any active color on a continuation row. A colored line that measures wider than it draws would wrap too early, and would take every framed row with it.
 
+A cut reads only as far as its answer. The line is walked by index instead of being tokenized up front, and the walk ends at the first token that would push the total past the budget — not when the budget is reached, because a combining mark, a variation selector, or an escape that follows the last visible character is still part of the answer. Beyond that it reads only what it must, to establish where the answer ends: an escape whose terminator never arrives can only be measured by scanning forward for one, and that is text no terminal can render.
+
 Cutting also closes what it opened. Discarding the reset code at the end of a shortened line left its color switched on, and the next thing drawn inherited it — a dimmed reasoning line bleeding into the input line below.
 
 ## Untrusted text is made safe before it is drawn
