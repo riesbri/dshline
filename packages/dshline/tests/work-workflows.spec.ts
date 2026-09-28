@@ -355,14 +355,35 @@ describe('workflow marks and counts', () => {
     expect(activeWorkCount(snapshot)).toBe(2)
   })
 
-  it('counts every subagent again once its workflow settles', () => {
+  it('keeps presenting a member until its own durable ending says otherwise', () => {
+    // A run that has reported its result is not the same as a run whose members
+    // have ended. Child endings can be SYNTHESIZED while `dispose()` reaches
+    // quiescence, so a settled run can still owe one, and until it does the
+    // workflow's own row is presenting that child — which is what the claim
+    // follows. The previous rule released the claim on the live `workflow/end`
+    // observation and so counted the same child twice for the length of that
+    // window: once under the workflow that was still showing it, and once as a
+    // loose subagent.
     const claimed = subagentItem({ id: 'child-1', runId: 'epoch-1' })
     const settled: WorkSnapshot = {
       ...EMPTY,
       workflows: [workflowItem({ state: 'completed', members: [memberItem({ subagent: claimed })] })],
       subagents: [claimed],
     }
-    expect(workSummary(settled)).toBe('1 workflow · 1 subagent')
+    expect(workSummary(settled)).toBe('1 workflow')
+    // The row above it presents the child, so the two still agree.
+    expect(settled.workflows[0]?.members[0]?.subagent?.id).toBe('child-1')
+    expect(looseSubagents(settled)).toEqual([])
+    // The member's own ending is what releases the claim, and then it is loose.
+    const ended: WorkSnapshot = {
+      ...EMPTY,
+      workflows: [workflowItem({
+        state: 'completed',
+        members: [memberItem({ outcome: 'completed', subagent: undefined })],
+      })],
+      subagents: [claimed],
+    }
+    expect(workSummary(ended)).toBe('1 workflow · 1 subagent')
   })
 })
 

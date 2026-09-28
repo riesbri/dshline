@@ -52,9 +52,19 @@ import type {
   WorkInterruptResult,
   WorkSnapshot,
 } from './model.ts'
+import { formatWorkCounts } from './model.ts'
 
 /** The two projection units a live local child's Work row reads, and no others. */
 const CHILD_PROJECTION_KEYS = ['subagentTiming', 'tokenUsage'] as const
+
+/**
+ * A registry view Work still presents: `running` or `stopping`.
+ *
+ * Narrowed from {@link JobView} by the one filter every job reader shares, so
+ * `state` is a lifecycle a row can be built from rather than a re-test at each
+ * call site.
+ */
+type ActiveJobView = JobView & { readonly status: 'running' | 'stopping' }
 
 /**
  * The edge distance `listDescendants` reports for a child of the requested
@@ -175,6 +185,22 @@ export class HarnessWork {
   private readonly jobObservations = new Set<JobOutputObservation>()
   private readonly workflows: HarnessWorkflows | undefined
   private listingGeneration = 0
+  /**
+   * The descendant walk in flight, or undefined when none is.
+   *
+   * Present only for the duration of the walk, and the reason a second lifecycle
+   * edge does not start another one: the key is the projection, so there is
+   * nothing to distinguish two equivalent reads by. Cleared when the walk settles
+   * — on failure as well as success — so a rejected walk leaves the next edge free
+   * to ask again.
+   */
+  private listing: Promise<void> | undefined
+  /** Whether a lifecycle edge asked for a read while one was already in flight. */
+  private listingAgain = false
+  /** The signal of the walk in flight, for a teardown that abandons it. */
+  private listingAbort: AbortController | undefined
+  /** Whether {@link HarnessWork.dispose} has run, so no walk may start after it. */
+  private disposed = false
 
   constructor(private readonly capabilities: WorkCapabilities) {
     const { jobs, subagents, agent, onSubagentStart, onSubagentEnd } = capabilities
@@ -265,7 +291,15 @@ export class HarnessWork {
 
   /** Stop listening to capability changes and release every child observer. */
   dispose(): void {
+    // Advancing the generation abandons a walk in flight: its result is compared
+    // against this counter and dropped, so nothing late can enrich this projection
+    // or repaint the next attachment. Marking the teardown also stops the walk's
+    // own trailing read, and the signal stops the walk itself, since the seam
+    // checks it around each catalog read.
+    this.disposed = true
     this.listingGeneration += 1
+    this.listingAgain = false
+    this.listingAbort?.abort()
     this.workflows?.dispose()
     // Containment, not ownership. The overlay disposes its Job observer the
     // moment a detail stage closes, so this set is normally empty; it exists so
@@ -298,6 +332,36 @@ export class HarnessWork {
       subagents: active,
       jobs: jobs === undefined ? [] : this.jobItems(jobs, agent),
     }
+  }
+
+  /**
+   * Read the status line's work segment, counting without building a row.
+   *
+   * The same three counts `workSummary` takes off a full snapshot, taken from
+   * the same authorities and formatted by the same `formatWorkCounts` — so
+   * `/work` and the footer cannot disagree, and the footer gets them without the
+   * enrichment only an overlay has columns for. For every live subagent that
+   * means no activity fold, no `requestHeader()` route read, no child projection
+   * cut, and no `inheritedEventCount`; for every owned run, no member sort and no
+   * child join; for every job, no row object.
+   *
+   * Live by construction: each call reads the current registry list, the current
+   * lifecycle epochs, and the current durable workflow records, so a permission
+   * change, a job settling, a subagent starting or ending, and a workflow member
+   * moving all show on the very next paint. Nothing is remembered between calls,
+   * which is the point — a count that could go stale would be a second lifecycle
+   * model next to the three authorities it counts.
+   * @returns a whole-segment status label, or undefined when there is no work.
+   */
+  summary(): string | undefined {
+    const live = new Set<string>()
+    for (const run of this.liveSubagents.values()) live.add(run.id)
+    const workflows = this.workflows?.counts(live) ?? { runs: 0, claimed: 0 }
+    return formatWorkCounts({
+      workflows: workflows.runs,
+      subagents: live.size - workflows.claimed,
+      jobs: this.activeJobCount(),
+    })
   }
 
   /**
@@ -462,12 +526,47 @@ export class HarnessWork {
    * built from it could never name a durable conversation to open. Depth one
    * is this parent's direct child; the traversal reads deeper only because the
    * seam publishes no direct-children-only form of these rows.
+   *
+   * One walk at a time, and at most one more behind it. A burst of lifecycle
+   * edges used to start a walk per edge, every one but the last running to
+   * completion to be thrown away — on a slow or remote catalog that is the whole
+   * cost of the burst, spent on results nobody reads. So a request arriving
+   * while a walk is in flight records that a read is owed rather than starting a
+   * second, and the settled walk starts exactly one. A burst of N edges now
+   * costs two walks, and the walk that is APPLIED is still the one that began
+   * after the last edge, because {@link listingGeneration} counts requests
+   * rather than starts.
    */
   private refreshSubagents(): void {
     const subagents = this.capabilities.subagents
     if (subagents === undefined) return
-    const generation = ++this.listingGeneration
-    void subagents.listDescendants(this.capabilities.agent.session.id)
+    this.listingGeneration += 1
+    if (this.listing !== undefined) {
+      this.listingAgain = true
+      return
+    }
+    this.startListing(subagents)
+  }
+
+  /**
+   * Walk the descendant catalog, applying it only if it answers the newest request.
+   *
+   * The generation is read BEFORE the call and compared after it, which is the
+   * whole of what keeps a superseded walk from being applied; nothing is cached
+   * beyond the walk in flight, and the next edge asks again.
+   * @param subagents - the runtime whose catalog is the authority for these facts.
+   */
+  private startListing(subagents: SubagentRuntime): void {
+    const generation = this.listingGeneration
+    // The seam takes a real signal and checks it around each catalog read, so a
+    // teardown can stop the walk rather than let a recursive read finish for a
+    // projection that no longer exists. It is used for nothing else: superseding a
+    // walk is a discarded result either way, and the coalescing above is what
+    // actually removes the duplicate work.
+    const abort = new AbortController()
+    this.listingAbort = abort
+    this.listing = subagents
+      .listDescendants(this.capabilities.agent.session.id, abort.signal)
       .then(entries => {
         if (generation !== this.listingGeneration) return
         this.discovered.clear()
@@ -475,8 +574,21 @@ export class HarnessWork {
         this.capabilities.invalidate()
       })
       // Discovery is optional enrichment. The lifecycle edges remain useful if a
-      // profile intentionally lacks the projection or persistence services.
+      // profile intentionally lacks the projection or persistence services, and a
+      // walk this projection abandoned is the same case: no label, no residency, no
+      // lineage, and a row that keeps its lifecycle edge alone.
       .catch(() => {})
+      .then(() => {
+        this.listing = undefined
+        this.listingAbort = undefined
+        if (!this.listingAgain) return
+        this.listingAgain = false
+        // A read an edge asked for while this one was walking. Not started after
+        // disposal: there is nothing left to enrich, and the next attachment must
+        // not be redrawn by this one.
+        if (this.disposed) return
+        this.startListing(subagents)
+      })
   }
 
   /**
@@ -509,8 +621,28 @@ export class HarnessWork {
     })
   }
 
+  /** Turn the active registry views into the rows the overlay presents. */
+  private jobItems(jobs: JobRegistry, agent: Agent): JobWorkItem[] {
+    return this.activeJobViews(jobs, agent).map(view => ({
+      id: String(view.id),
+      source: 'job' as const,
+      kind: view.kind,
+      label: view.label,
+      state: view.status,
+      startedAt: view.startedAt,
+      // The producer's own progress line, carried verbatim. Opaque text, not
+      // a counter: the producer owns what `127/203` or `compiling crate_x`
+      // means, so inventing a denominator or a percentage from it would be
+      // dshline claiming a fact Harness never published.
+      ...view.progress === undefined ? {} : { progress: view.progress },
+      ...view.detail === undefined ? {} : { detail: view.detail },
+      ownership: view.owner === agent.session.id ? 'this-session' as const : 'unowned' as const,
+    }))
+  }
+
   /**
-   * Project the ACTIVE jobs only, never consuming a producer's output cursor.
+   * The ACTIVE jobs, as the registry publishes them, never consuming a producer's
+   * output cursor.
    *
    * The active filter is the product's own decision and is not a limitation of
    * the seam: the registry keeps a settled record listed until its owner is
@@ -518,32 +650,22 @@ export class HarnessWork {
    * read it, and `/work` deliberately does not. A Job that settles disappears
    * here, takes its row with it, and takes its open detail stage with it too.
    */
-  private jobItems(jobs: JobRegistry, agent: Agent): JobWorkItem[] {
+  private activeJobViews(jobs: JobRegistry, agent: Agent): ActiveJobView[] {
     let views: JobView[]
     try {
       views = jobs.list(agent.session.id)
     } catch {
       return []
     }
-    return views
-      .filter((view): view is JobView & { status: 'running' | 'stopping' } => (
-        view.status === 'running' || view.status === 'stopping'
-      ))
-      .map(view => ({
-        id: String(view.id),
-        source: 'job' as const,
-        kind: view.kind,
-        label: view.label,
-        state: view.status,
-        startedAt: view.startedAt,
-        // The producer's own progress line, carried verbatim. Opaque text, not
-        // a counter: the producer owns what `127/203` or `compiling crate_x`
-        // means, so inventing a denominator or a percentage from it would be
-        // dshline claiming a fact Harness never published.
-        ...view.progress === undefined ? {} : { progress: view.progress },
-        ...view.detail === undefined ? {} : { detail: view.detail },
-        ownership: view.owner === agent.session.id ? 'this-session' as const : 'unowned' as const,
-      }))
+    return views.filter((view): view is ActiveJobView => (
+      view.status === 'running' || view.status === 'stopping'
+    ))
+  }
+
+  /** How many jobs the registry currently reports as active. */
+  private activeJobCount(): number {
+    const { jobs, agent } = this.capabilities
+    return jobs === undefined ? 0 : this.activeJobViews(jobs, agent).length
   }
 
   /**

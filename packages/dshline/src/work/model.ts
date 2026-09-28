@@ -391,19 +391,29 @@ export function workMark(item: WorkItem): WorkMark {
 }
 
 /**
- * Members of an owned, still-running workflow whose child is live right now.
+ * Members of an owned workflow whose child is live right now.
  *
  * Presentation uses this to show a workflow's own subagents under the workflow
- * instead of a second time in the flat Subagents section. It is a join on
- * Harness's `childId`, so the two rows are provably the same child; a settled
- * member releases its claim, and so does a settled run.
+ * instead of a second time in the flat Subagents section, and the status line's
+ * count uses it so the two cannot disagree. It is a join on Harness's `childId`,
+ * so the two rows are provably the same child, and a settled MEMBER releases
+ * its claim.
+ *
+ * The run's own state is deliberately not consulted, because this mirrors the
+ * join {@link WorkflowWorkItem} rows already carry: a member is presented under
+ * its workflow until that member's durable `agent-end` record says otherwise, and
+ * `state` only reports what the live `workflow/end` observation claimed — which
+ * can arrive while child endings are still being synthesized during `dispose()`.
+ * Gating on it made the same child count as loose for as long as that window
+ * lasted, while the row above it still presented it: one child, two pieces of
+ * work. The durable `tool-workflow/run-end` record is what ends a run's claim on
+ * everything it started.
  * @param workflows - the owned workflow rows.
  * @returns child session ids currently presented by a workflow.
  */
 export function workflowClaimedChildren(workflows: readonly WorkflowWorkItem[]): ReadonlySet<string> {
   const claimed = new Set<string>()
   for (const workflow of workflows) {
-    if (workflow.state !== 'running') continue
     for (const member of workflow.members) {
       if (member.outcome === undefined && member.subagent !== undefined) claimed.add(member.childId)
     }
@@ -419,7 +429,7 @@ export function workflowClaimedChildren(workflows: readonly WorkflowWorkItem[]):
  * under its workflow and also counted as a loose subagent would report two
  * pieces of work where Harness published one child.
  * @param snapshot - current work projection.
- * @returns the subagent epochs no live workflow member claims.
+ * @returns the subagent epochs no workflow member claims.
  */
 export function looseSubagents(snapshot: WorkSnapshot): readonly SubagentWorkItem[] {
   const claimed = workflowClaimedChildren(snapshot.workflows)
@@ -427,24 +437,70 @@ export function looseSubagents(snapshot: WorkSnapshot): readonly SubagentWorkIte
 }
 
 /**
+ * The three counts a status line prints about active work.
+ *
+ * A count, not a row: a footer segment says `2 subagents`, and every fact it
+ * would take to build those rows — a child's activity fold, its route, its
+ * projection cut, a member's label — is presentation detail the segment has no
+ * column for. The two readers in this module are therefore separate on purpose,
+ * one feeding the other: {@link workSummary} counts a `WorkSnapshot`, and
+ * `HarnessWork.summary()` counts the same three things straight from the
+ * services — and both take the subagent count from {@link looseSubagents}, so
+ * the two cannot reach a different answer about the same moment.
+ */
+export interface WorkCounts {
+  /** Owned workflow runs, each counting once. */
+  readonly workflows: number
+  /**
+   * Active subagents no workflow currently presents.
+   *
+   * "Presents" is the run's own presentation, and it does not end when the run
+   * reports a result: an unsettled durable member with a live child is still
+   * presented under that workflow, so it is claimed. See
+   * {@link workflowClaimedChildren}.
+   */
+  readonly subagents: number
+  /** Active jobs. */
+  readonly jobs: number
+}
+
+/**
  * Build the optional work summary without abbreviating its counts.
  *
- * Counts what `/work` would SHOW, so the status line and the overview cannot
- * disagree: a workflow counts once as its own authority, and its live members
- * are counted there rather than a second time as subagents.
- * @param snapshot - current work projection.
+ * The ONE place the three counts become status text, so a reader that counted
+ * them a different way and one that built the rows first cannot disagree: a
+ * workflow counts once as its own authority, and its live members are counted
+ * there rather than a second time as subagents.
+ * @param counts - the three counts as the authorities report them.
  * @returns a whole-segment status label, or undefined when there is no work.
  */
-export function workSummary(snapshot: WorkSnapshot): string | undefined {
-  const workflows = snapshot.workflows.length
-  const subagents = looseSubagents(snapshot).length
-  const jobs = snapshot.jobs.length
+export function formatWorkCounts(counts: WorkCounts): string | undefined {
+  const { workflows, subagents, jobs } = counts
   if (workflows === 0 && subagents === 0 && jobs === 0) return undefined
   const parts: string[] = []
   if (workflows > 0) parts.push(`${String(workflows)} ${workflows === 1 ? 'workflow' : 'workflows'}`)
   if (subagents > 0) parts.push(`${String(subagents)} ${subagents === 1 ? 'subagent' : 'subagents'}`)
   if (jobs > 0) parts.push(`${String(jobs)} ${jobs === 1 ? 'job' : 'jobs'}`)
   return parts.join(' · ')
+}
+
+/**
+ * Build the optional work summary from a full work projection.
+ *
+ * Counts what `/work` would SHOW, so the status line and the overview cannot
+ * disagree: the rows are counted exactly as the overlay presents them, and the
+ * text is {@link formatWorkCounts}'s. Callers that need a row — the overlay, a
+ * lifecycle plan — read the snapshot; the status line counts instead, through
+ * `HarnessWork.summary()`.
+ * @param snapshot - current work projection.
+ * @returns a whole-segment status label, or undefined when there is no work.
+ */
+export function workSummary(snapshot: WorkSnapshot): string | undefined {
+  return formatWorkCounts({
+    workflows: snapshot.workflows.length,
+    subagents: looseSubagents(snapshot).length,
+    jobs: snapshot.jobs.length,
+  })
 }
 
 /**

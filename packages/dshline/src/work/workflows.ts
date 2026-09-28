@@ -142,6 +142,43 @@ export class HarnessWorkflows {
   }
 
   /**
+   * How the owned runs divide a status line's three counts.
+   *
+   * The two facts a footer segment needs, derived from the same records and the
+   * same rule {@link items} applies when it joins a member to its child — an
+   * UNSETTLED member whose child session still has an open lifecycle epoch claims
+   * that child, and nothing else does — without building a run, a member, or the
+   * child rows they would join to.
+   *
+   * Deliberately NOT gated on the run's live state. `state` is 'running' only
+   * until the live `workflow/end` observation lands, and that observation is
+   * enrichment, whereas membership and a member's outcome are durable records.
+   * Upstream keeps member listeners alive through `dispose()` because child
+   * endings can be SYNTHESIZED while a run reaches quiescence, so a run that has
+   * reported its result can still owe a member's ending — and a child still live
+   * under such a member is presented by the workflow's own row, which is what
+   * makes it claimed rather than loose. The durable `tool-workflow/run-end`
+   * record is what takes the run out of this map.
+   *
+   * `live` is the set of child ids with an open lifecycle epoch, passed IN rather
+   * than read here: joining a member to a child is the subagent projection's
+   * authority, and taking the set from it is what keeps this a count of the same
+   * children the rows are built from. It is why `claimed` can never exceed the
+   * number of live epochs it is subtracted from.
+   * @param live - durable child ids with an open lifecycle epoch right now.
+   * @returns the owned run count, and how many live children a run presents.
+   */
+  counts(live: ReadonlySet<string>): { readonly runs: number; readonly claimed: number } {
+    const claimed = new Set<string>()
+    for (const run of this.runs.values()) {
+      for (const member of run.members.values()) {
+        if (member.outcome === undefined && live.has(member.childId)) claimed.add(member.childId)
+      }
+    }
+    return { runs: this.runs.size, claimed: claimed.size }
+  }
+
+  /**
    * Read the owned workflow runs, joined to their live children.
    * @param subagents - every active subagent epoch, for the `childId` join.
    * @returns one row per owned run, members in record order.
