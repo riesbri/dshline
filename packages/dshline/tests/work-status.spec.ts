@@ -33,9 +33,13 @@ import type { SubagentRunEndInfo, SubagentRunInfo, SubagentRuntime } from '@deep
 import { HarnessWork } from '../src/work/index.ts'
 import type { WorkCapabilities } from '../src/work/index.ts'
 import { workSummary } from '../src/work/model.ts'
+import type { WorkflowMeta, WorkflowObservation } from '@deepseek-ai/dsh-workflow/types'
 
 /** The session every count in this file belongs to. */
 const ROOT = SessionId('root')
+
+/** The validated meta a live run publishes on every one of its events. */
+const META: WorkflowMeta = { name: 'repo-audit', description: 'Audit Work', phases: [] }
 
 /** The exact listener `HarnessWork` registers for a `subagent/start` edge. */
 type StartListener = Parameters<NonNullable<WorkCapabilities['onSubagentStart']>>[0]
@@ -177,6 +181,8 @@ interface Driver {
   end: (id: string, runId: string) => void
   /** Append a durable workflow record to the attached session's log. */
   append: (event: SessionEvent) => void
+  /** Deliver live workflow enrichment for a run this session already owns. */
+  observe: (runId: string, observation: WorkflowObservation) => void
   /** Forget the recorded enrichment, so one read can be measured alone. */
   reset: () => void
   /** The instrumentation itself, shared with the doubles that fill it. */
@@ -191,6 +197,11 @@ function record(type: string, data: unknown): SessionEvent {
 /** Open an owned run in the attached session's log. */
 function runStart(runId: string, name = 'audit'): SessionEvent {
   return record('tool-workflow/run-start', { runId, name })
+}
+
+/** The durable record that takes a run out of the projection entirely. */
+function runEnd(runId: string): SessionEvent {
+  return record('tool-workflow/run-end', { runId })
 }
 
 /** Publish one member of an owned run, bound to a durable child session. */
@@ -218,6 +229,7 @@ function driver(options: DriverOptions = {}): Driver {
   let started: StartListener | undefined
   let ended: EndListener | undefined
   let append: (session: Session, event: SessionEvent) => void = () => {}
+  let observe: (runId: string, observation: WorkflowObservation) => void = () => {}
   const agent = {
     session: { id: ROOT, header: { cwd: '/ws' } },
     ctx,
@@ -250,6 +262,13 @@ function driver(options: DriverOptions = {}): Driver {
             append = listener
             return () => { append = () => {} }
           },
+          // The live `workflow/*` feed, which is ENRICHMENT: it may report a run's
+          // result before the durable records of its members' endings exist, and a
+          // test has to be able to reproduce that ordering.
+          onWorkflowObservation: listener => {
+            observe = (runId, observation) => { listener(runId, META, observation) }
+            return () => { observe = () => {} }
+          },
           invalidate: () => {},
         },
       },
@@ -276,6 +295,7 @@ function driver(options: DriverOptions = {}): Driver {
       ended?.(info)
     },
     append: event => { append(agent.session, event) },
+    observe: (runId, observation) => { observe(runId, observation) },
     reset: () => { enrichment.routes = 0; enrichment.projections = 0; enrichment.inherited = 0 },
     enrichment,
   }
@@ -452,6 +472,62 @@ describe('the status line work segment', () => {
     const drive = driver({ subagents: false, workflows: false })
     await settled()
     expect(drive.work.summary()).toBeUndefined()
+    expect(drive.work.summary()).toBe(workSummary(drive.work.snapshot()))
+    drive.work.dispose()
+  })
+})
+
+describe('a run that reports its result before its members end', () => {
+  /**
+   * One durable member, a live child, and the settlement order upstream allows.
+   *
+   * `state` comes from the live `workflow/end` observation, while membership and a
+   * member's ending are durable records, and child endings can be synthesized
+   * while `dispose()` reaches quiescence — so a run can report a result and still
+   * owe a member's ending. The claim follows the member, not the report.
+   * @param reason - the terminal reason the run reports.
+   * @returns a driver part-way through that ordering, claim still held.
+   */
+  async function midSettlement(reason: 'completed' | 'cancelled'): Promise<Driver> {
+    const drive = driver({})
+    await settled()
+    drive.append(runStart('run-1'))
+    drive.append(agentStart('run-1', 'child'))
+    drive.start('child', 'r1')
+    expect(drive.work.summary()).toBe('1 workflow')
+    // The live result, with no durable member ending yet and the child still live.
+    drive.observe('run-1', { kind: 'end', stopReason: reason, agentsStarted: 1 })
+    return drive
+  }
+
+  it('keeps the child claimed while its member has not ended', async () => {
+    const drive = await midSettlement('completed')
+    // The workflow's own row still presents that child, so the count must not also
+    // offer it as loose: that is one Harness child reported as two pieces of work.
+    expect(drive.work.summary()).toBe('1 workflow')
+    expect(drive.work.summary()).toBe(workSummary(drive.work.snapshot()))
+    expect(drive.work.snapshot().workflows[0]?.members[0]?.subagent?.id).toBe('child')
+    drive.work.dispose()
+  })
+
+  it('keeps the child claimed for a cancellation too', async () => {
+    // Cancellation is where synthesized member endings are most likely, so the live
+    // report and the durable records are furthest apart here.
+    const drive = await midSettlement('cancelled')
+    expect(drive.work.summary()).toBe('1 workflow')
+    expect(drive.work.summary()).toBe(workSummary(drive.work.snapshot()))
+    drive.work.dispose()
+  })
+
+  it('releases the claim when the member ends, and the run when it ends', async () => {
+    const drive = await midSettlement('completed')
+    // The durable member ending releases the claim, not the live report above.
+    drive.append(agentEnd('run-1'))
+    expect(drive.work.summary()).toBe('1 workflow · 1 subagent')
+    expect(drive.work.summary()).toBe(workSummary(drive.work.snapshot()))
+    // And the durable run ending takes the workflow away entirely.
+    drive.append(runEnd('run-1'))
+    expect(drive.work.summary()).toBe('1 subagent')
     expect(drive.work.summary()).toBe(workSummary(drive.work.snapshot()))
     drive.work.dispose()
   })

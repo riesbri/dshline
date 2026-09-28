@@ -13,7 +13,14 @@ nothing is remembered. `contextBreakdown` is left out on purpose, because the
 footer's token figure is `contextPressure` alone and the composition belongs to
 `/context`, which still reads it.
 
-The work segment takes the same shape. `workSummary(work.snapshot())` built
+The work segment takes the same shape. A workflow's claim on its own live children now follows the durable member
+records rather than the live `workflow/end` report, in both count paths. A run
+that has reported its result can still owe a member's ending — child endings are
+synthesized while `dispose()` reaches quiescence — and until it does, the
+workflow's own row is presenting that child, so counting it as a loose subagent
+as well reported one Harness child as two pieces of work.
+
+`workSummary(work.snapshot())` built
 fully enriched Work rows — a child activity fold, a `requestHeader()` route
 read, a keyed child projection cut, an inherited-event count per live subagent, a
 member sort and child join per workflow run, a row per job — and then reduced

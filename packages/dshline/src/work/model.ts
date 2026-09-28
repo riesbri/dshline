@@ -391,19 +391,29 @@ export function workMark(item: WorkItem): WorkMark {
 }
 
 /**
- * Members of an owned, still-running workflow whose child is live right now.
+ * Members of an owned workflow whose child is live right now.
  *
  * Presentation uses this to show a workflow's own subagents under the workflow
- * instead of a second time in the flat Subagents section. It is a join on
- * Harness's `childId`, so the two rows are provably the same child; a settled
- * member releases its claim, and so does a settled run.
+ * instead of a second time in the flat Subagents section, and the status line's
+ * count uses it so the two cannot disagree. It is a join on Harness's `childId`,
+ * so the two rows are provably the same child, and a settled MEMBER releases
+ * its claim.
+ *
+ * The run's own state is deliberately not consulted, because this mirrors the
+ * join {@link WorkflowWorkItem} rows already carry: a member is presented under
+ * its workflow until that member's durable `agent-end` record says otherwise, and
+ * `state` only reports what the live `workflow/end` observation claimed — which
+ * can arrive while child endings are still being synthesized during `dispose()`.
+ * Gating on it made the same child count as loose for as long as that window
+ * lasted, while the row above it still presented it: one child, two pieces of
+ * work. The durable `tool-workflow/run-end` record is what ends a run's claim on
+ * everything it started.
  * @param workflows - the owned workflow rows.
  * @returns child session ids currently presented by a workflow.
  */
 export function workflowClaimedChildren(workflows: readonly WorkflowWorkItem[]): ReadonlySet<string> {
   const claimed = new Set<string>()
   for (const workflow of workflows) {
-    if (workflow.state !== 'running') continue
     for (const member of workflow.members) {
       if (member.outcome === undefined && member.subagent !== undefined) claimed.add(member.childId)
     }

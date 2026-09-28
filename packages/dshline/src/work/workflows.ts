@@ -145,10 +145,20 @@ export class HarnessWorkflows {
    * How the owned runs divide a status line's three counts.
    *
    * The two facts a footer segment needs, derived from the same records and the
-   * same rules {@link items} applies to a full row — a run counts once whatever
-   * it is doing, and only a RUNNING run with an unsettled member that has a live
-   * epoch claims that child — without building a run, a member, or the child
-   * rows they would join to.
+   * same rule {@link items} applies when it joins a member to its child — an
+   * UNSETTLED member whose child session still has an open lifecycle epoch claims
+   * that child, and nothing else does — without building a run, a member, or the
+   * child rows they would join to.
+   *
+   * Deliberately NOT gated on the run's live state. `state` is 'running' only
+   * until the live `workflow/end` observation lands, and that observation is
+   * enrichment, whereas membership and a member's outcome are durable records.
+   * Upstream keeps member listeners alive through `dispose()` because child
+   * endings can be SYNTHESIZED while a run reaches quiescence, so a run that has
+   * reported its result can still owe a member's ending — and a child still live
+   * under such a member is presented by the workflow's own row, which is what
+   * makes it claimed rather than loose. The durable `tool-workflow/run-end`
+   * record is what takes the run out of this map.
    *
    * `live` is the set of child ids with an open lifecycle epoch, passed IN rather
    * than read here: joining a member to a child is the subagent projection's
@@ -161,7 +171,6 @@ export class HarnessWorkflows {
   counts(live: ReadonlySet<string>): { readonly runs: number; readonly claimed: number } {
     const claimed = new Set<string>()
     for (const run of this.runs.values()) {
-      if (run.state !== 'running') continue
       for (const member of run.members.values()) {
         if (member.outcome === undefined && live.has(member.childId)) claimed.add(member.childId)
       }
