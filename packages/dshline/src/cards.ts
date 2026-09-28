@@ -686,14 +686,14 @@ export class ToolCards extends PendingToolCalls {
     // The final newline terminates the last line rather than starting an empty one.
     // Keeping it added a blank row inside the frame, and at the compact boundary it
     // also reported one line as hidden when nothing had been.
-    const all = escapeControls(output.replace(/\n$/u, '')).split('\n')
+    const raw = output.endsWith('\n') ? output.slice(0, -1) : output
     // Anchored to the END, unlike every other body here. What a command was run to
     // find out is at the bottom of its output — the failure, the summary, the exit
     // line — so keeping the first six rows of `pnpm test` keeps the banner and
     // throws away the answer. The marker leads the body for the same reason: it
     // describes what is above the rows beneath it.
-    const { rows, elided } = this.limitTail(all, detail)
-    const body = rows.map(row => truncateToWidth(paint(row, 'subdued'), width - BOX_CHROME_COLUMNS))
+    const { rows, elided } = rawLines(raw, rowBudget(detail), 'tail')
+    const body = rows.map(row => truncateToWidth(paint(escapeControls(row), 'subdued'), width - BOX_CHROME_COLUMNS))
     if (elided > 0) body.unshift(paint(elisionMarker(detail, `… ${String(elided)} earlier lines`), 'muted'))
     return {
       rows: box(body, {
@@ -1014,12 +1014,11 @@ export class ToolCards extends PendingToolCalls {
   private body(text: string, columns: number, isError: boolean, detail: RenderDetail, budget: number = rowBudget(detail)): Rendered {
     const trimmed = text.trim()
     if (trimmed === '' || detail === 'hidden') return { rows: [], truncated: false }
-    const all = escapeControls(trimmed).split('\n')
-    const { rows, elided } = this.limit(all, budget)
+    const { rows, elided } = rawLines(trimmed, budget, 'head')
     const role = isError ? 'error' : 'subdued'
     const out = rows.map((row, index) => (index === 0
-      ? `${BODY_INDENT}${paint(MARK.body, 'chrome')} ${truncateToWidth(paint(row, role), columns - 4)}`
-      : `${BODY_INDENT}  ${truncateToWidth(paint(row, role), columns - 4)}`))
+      ? `${BODY_INDENT}${paint(MARK.body, 'chrome')} ${truncateToWidth(paint(escapeControls(row), role), columns - 4)}`
+      : `${BODY_INDENT}  ${truncateToWidth(paint(escapeControls(row), role), columns - 4)}`))
     if (elided > 0) out.push(`${BODY_INDENT}  ${paint(elisionMarker(detail, `… ${String(elided)} more lines`), 'muted')}`)
     return { rows: out, truncated: elided > 0 }
   }
@@ -1035,24 +1034,43 @@ export class ToolCards extends PendingToolCalls {
     if (rows.length <= budget) return { rows, elided: 0 }
     return { rows: rows.slice(0, budget), elided: rows.length - budget }
   }
+}
 
-  /**
-   * Cut a body to a detail level's row budget, keeping its END.
-   *
-   * A command's answer is its last rows — the summary, the failing assertion, the
-   * exit line — so head-anchoring a shell result keeps the banner and drops what
-   * was asked for. This is the wrong rule for a file read or a search, where the
-   * top IS the answer, which is why it is a second method rather than a flag on
-   * {@link limit}.
-   * @param rows - every row the body could show.
-   * @param detail - the detail level being drawn.
-   * @returns the retained trailing rows and how many earlier ones were dropped.
-   */
-  private limitTail(rows: readonly string[], detail: RenderDetail): { rows: readonly string[]; elided: number } {
-    const budget = rowBudget(detail)
-    if (rows.length <= budget) return { rows, elided: 0 }
-    return { rows: rows.slice(rows.length - budget), elided: rows.length - budget }
+/**
+ * Select raw lines before escaping: omitted output needs only a newline count,
+ * not allocated line strings or expanded tabs. Tab expansion resets at each
+ * newline, so escaping the retained lines separately preserves its column origin.
+ *
+ * Exact elision counts still require scanning the source; only retained lines
+ * are sliced and subsequently formatted. Scanning backwards for a tail avoids
+ * maintaining a rolling array of every line passed on the way to the last ones.
+ * @param text - raw text, with the caller's trimming policy already applied.
+ * @param budget - maximum number of lines to retain.
+ * @param anchor - which end of the output survives the budget.
+ * @returns retained lines in source order and the exact omitted count.
+ */
+function rawLines(text: string, budget: number, anchor: 'head' | 'tail'): { rows: string[]; elided: number } {
+  const rows: string[] = []
+  const head = anchor === 'head'
+  let boundary = head ? 0 : text.length
+  let count = 0
+  for (;;) {
+    // lastIndexOf clamps a negative position to zero: an exhausted prefix must
+    // not rediscover a newline at zero instead of emitting its empty first line.
+    const next = head
+      ? text.indexOf('\n', boundary)
+      : boundary === 0 ? -1 : text.lastIndexOf('\n', boundary - 1)
+    if (rows.length < budget) {
+      rows.push(head
+        ? text.slice(boundary, next < 0 ? text.length : next)
+        : text.slice(next + 1, boundary))
+    }
+    count += 1
+    if (next < 0) break
+    boundary = head ? next + 1 : next
   }
+  if (!head) rows.reverse()
+  return { rows, elided: count - rows.length }
 }
 
 /**
