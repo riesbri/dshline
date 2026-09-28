@@ -527,6 +527,10 @@ describe('pathological input', () => {
    * saying anything about the shape of the curve. The first run also carries the
    * cost of the code not being warm yet, which would otherwise be read as the
    * price of the smallest line in the series.
+   *
+   * The line must already exist. Building a megabyte of input is itself
+   * super-linear under memory pressure, so a caller that passes a builder here
+   * measures the allocator and reports a green implementation as quadratic.
    * @param line - the line to render.
    * @param runs - how many times to render it.
    * @returns elapsed milliseconds.
@@ -613,32 +617,51 @@ describe('pathological input', () => {
     ['underscores that never close', size => '_a_x '.repeat(Math.ceil(size / 5))],
   ]
 
-  /** Line length the growth check starts from; quadratic shapes are already seconds. */
+  /** Line length the growth check starts from. */
   const GROWTH_BASE = 65_536
+
+  /**
+   * The largest line either check renders, 256k characters.
+   *
+   * Chosen so that a REGRESSION fails instead of hanging. A quadratic render of
+   * this length is about six seconds, comfortably inside a test run, while a
+   * quadratic render of a million is about six MINUTES — and a synchronous one
+   * cannot be interrupted, because a blocked event loop cannot run the timeout
+   * that would report it. So a million here would not fail CI, it would park the
+   * job. The margin the scan needs is the other way round anyway: at 256k it
+   * finishes in microseconds, which is five orders of magnitude under the budget,
+   * while a restored rescan is twelve times over it.
+   */
+  const LARGEST = GROWTH_BASE * 4
 
   /**
    * Slack in the growth check, in milliseconds.
    *
-   * Small enough that a quadratic line cannot hide behind it — the shapes above
-   * cost hundreds of milliseconds at this size — and large enough that a GC pause
-   * on a shared runner does not read as growth.
+   * It is a millisecond against samples that are either microseconds — where it
+   * is everything, and a GC pause on a shared runner must not read as growth — or
+   * seconds, where it is nothing and a quadratic step cannot hide behind it. That
+   * is the shape worth having: the allowance only dilutes the check when there is
+   * no signal left to read.
    */
   const GROWTH_SLACK_MS = 1
 
   it.each(RESCANS)('renders %s in linear time', (name, build) => {
-    // A million characters settles it without depending on the machine: a linear
-    // pass needs a few milliseconds at any size, and the same shapes measured at
-    // 20k extrapolate to minutes here, so nothing about a slower runner can turn a
-    // rescan back into a pass.
-    expect(fastest(build(1_000_000), 3), name).toBeLessThan(BUDGET_MS)
+    const line = build(LARGEST)
+    expect(fastest(line, 2), name).toBeLessThan(BUDGET_MS)
   })
 
   it.each(RESCANS)('scales %s with the length of the line, not its square', (name, build) => {
     // Each doubling may cost at most three times the last. Linear doubling is two
     // and so keeps half the allowance in hand; rescanning the suffix is four and
     // spends the whole step past it.
+    //
+    // Every line is built BEFORE it is timed, and that is load-bearing rather than
+    // tidy: building 256k of brackets is itself super-linear under a shared
+    // runner's memory pressure, so a check that times `build(size)` measures the
+    // allocator instead of the renderer — and reports a green implementation as
+    // quadratic. This exact mistake failed the first run of this file on CI.
     let previous = fastest(build(GROWTH_BASE))
-    for (const size of [GROWTH_BASE * 2, GROWTH_BASE * 4, GROWTH_BASE * 8]) {
+    for (const size of [GROWTH_BASE * 2, LARGEST]) {
       const current = fastest(build(size))
       expect(current, `${name} at ${size}`).toBeLessThan(3 * previous + GROWTH_SLACK_MS)
       previous = current
