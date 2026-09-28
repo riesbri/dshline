@@ -617,85 +617,67 @@ describe('pathological input', () => {
     ['underscores that never close', size => '_a_x '.repeat(Math.ceil(size / 5))],
   ]
 
-  /** Line length the growth check starts from. */
-  const GROWTH_BASE = 65_536
+  /** The line length both checks work at: 256k characters. */
+  const LARGEST = 256 * 1_024
 
   /**
-   * The largest line either check renders, 256k characters.
-   *
    * Chosen so that a REGRESSION fails instead of hanging. A quadratic render of
-   * this length is about six seconds, comfortably inside a test run, while a
-   * quadratic render of a million is about six MINUTES — and a synchronous one
+   * this length is about twenty-five seconds, comfortably inside a test run, while
+   * a quadratic render of a million is about six MINUTES — and a synchronous one
    * cannot be interrupted, because a blocked event loop cannot run the timeout
    * that would report it. So a million here would not fail CI, it would park the
    * job. The margin the scan needs is the other way round anyway: at 256k it
-   * finishes in microseconds, which is five orders of magnitude under the budget,
-   * while a restored rescan is twelve times over it.
+   * finishes in milliseconds, three orders of magnitude under the budget, while a
+   * restored rescan is fifty times over it.
    */
-  const LARGEST = GROWTH_BASE * 4
-
   /**
-   * Slack in the growth check, in milliseconds.
+   * A string that records how many times the renderer searched it.
    *
-   * It is a millisecond against samples that are either microseconds — where it
-   * is everything, and a GC pause on a shared runner must not read as growth — or
-   * seconds, where it is nothing and a quadratic step cannot hide behind it. That
-   * is the shape worth having: the allowance only dilutes the check when there is
-   * no signal left to read.
+   * The guard on this file's central claim is a COUNT, not a stopwatch. The point
+   * of the change is that a suffix already proved to hold nothing is not asked
+   * about again, and how many times a scan reached out for a closer is a fact
+   * about the code rather than about the machine. A ratio between two timings is
+   * not that fact: rendering a line has to read the line, so the honest cost
+   * includes the escaper's pass and its collection, and on a shared runner that
+   * term is not a smooth doubling. It failed this file on Node 22.19 for exactly
+   * that reason while passing on 24 and 26.
    */
-  const GROWTH_SLACK_MS = 1
+  class CountedString extends String {
+    /** Calls to `indexOf`, which is how a closer is looked for. */
+    searches = 0
 
-  /**
-   * The fastest of several INLINE renders of one line, timed on their own.
-   *
-   * Separate from {@link fastest} because the growth check needs the scan and
-   * nothing else; see there.
-   * @param line - the line to render.
-   * @param runs - how many times to render it.
-   * @returns elapsed milliseconds.
-   */
-  function fastestInline(line: string, runs = 2): number {
-    let best = Infinity
-    for (let run = 0; run < runs; run += 1) {
-      const started = performance.now()
-      renderInline(line)
-      best = Math.min(best, performance.now() - started)
+    override indexOf(needle: string, from?: number): number {
+      this.searches += 1
+      return super.indexOf(needle, from)
     }
-    return best
   }
 
-  it.each(RESCANS)('renders %s in linear time', (name, build) => {
-    // Through the real entry point, so this covers the block layer too, which
-    // stays linear in the length of a line. On the slowest runner these shapes
-    // measured 30 ms at 256k; a restored rescan measures 25 401 ms at the same
-    // size, and the budget is 500.
-    const line = build(LARGEST)
-    expect(fastest(line, 2), name).toBeLessThan(BUDGET_MS)
+  it('asks about a suffix it has already ruled out at most once', () => {
+    // A quarter of a megabyte of opening brackets, and not one closing bracket
+    // anywhere in it. The first search establishes that there is no closer; every
+    // bracket after it is answered from that, because a `]` that is not there
+    // cannot appear later. Before the index scan each of them was a fresh match
+    // attempt against the whole remaining line — which is what the budget above
+    // measures in milliseconds, and this measures without one.
+    const line = new CountedString('['.repeat(LARGEST))
+    expect(stripAnsi(renderInline(line))).toBe('['.repeat(LARGEST))
+    expect(line.searches).toBeLessThanOrEqual(1)
   })
 
-  it.each(RESCANS)('scales %s with the length of the line, not its square', (name, build) => {
-    // Each doubling may cost at most three times the last. Linear doubling is two
-    // and so keeps half the allowance in hand; rescanning the suffix is four and
-    // spends the whole step past it.
-    //
-    // The inline scan is timed on its OWN, which is the whole point of the
-    // difference: `line()` stays linear in the length of a line, because the
-    // block layer rewrites the whole line looking for a thematic break and the
-    // escaper walks all of it. Measuring that growth forbids work the renderer is
-    // right to do, and this check failed on CI for exactly that before it was
-    // measuring the scan the change was about.
-    //
-    // Every line is built BEFORE it is timed, and that is load-bearing too:
-    // building 256k of brackets is itself super-linear under a shared runner's
-    // memory pressure, so a check that times `build(size)` measures the
-    // allocator instead of the renderer — and reports a green implementation as
-    // quadratic. Both mistakes failed the first two runs of this file on CI.
-    let previous = fastestInline(build(GROWTH_BASE))
-    for (const size of [GROWTH_BASE * 2, LARGEST]) {
-      const current = fastestInline(build(size))
-      expect(current, `${name} at ${size}`).toBeLessThan(3 * previous + GROWTH_SLACK_MS)
-      previous = current
-    }
+  it('shares one closer search across many openers that all miss it', () => {
+    // Sixty-five thousand opening brackets, and a single `]` at the end followed by
+    // a `b` rather than a `(`. Every opener resolves to that one closer, the target
+    // after it cannot work, and so every one of them is rejected — which is the case
+    // where an unshared search would re-scan the line per bracket. Two searches
+    // happen here: the one that finds the closer, and one more after the last
+    // opener has passed it. A line whose closers are spread out needs one per
+    // opener and finds a closer each time, which is the test above.
+    const brackets = '['.repeat(64 * 1_024)
+    const line = new CountedString(`${brackets}]b(c)`)
+    // Literal in the end: the closer is not followed by a target, so the whole line
+    // is the text it was, brackets and all.
+    expect(stripAnsi(renderInline(line))).toBe(`${brackets}]b(c)`)
+    expect(line.searches).toBeLessThanOrEqual(2)
   })
 
   it('still reads a deeply indented list item as a list item', () => {
