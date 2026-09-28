@@ -32,11 +32,12 @@
  * @module
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { createRequire } from 'node:module'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { parse } from 'yaml'
@@ -106,8 +107,20 @@ let agentsHome: string
 /** A fake deployment-bundled root, standing in for `$DSH_BUNDLED_SKILL_DIR`. */
 let deploymentBundled: string
 
+/**
+ * The directory the shipped `standard.patch.yml` actually lives in.
+ *
+ * This is the Loader origin the include carrier hands a preset row in a real
+ * profile, derived from this spec's own location — the same directory
+ * `shippedConfig` reads the declaration from — so the two cannot drift apart.
+ */
+const SHIPPED_PRESET_DIR = fileURLToPath(new URL('../../presets/', import.meta.url))
+
 /** The `baseUrl` shape the Loader evaluates a preset row under. */
 let baseUrl: string
+
+/** `NODE_PATH` as this process found it, and whether it was there. See `beforeAll`. */
+let inheritedNodePath: string | undefined
 
 /**
  * `DSH_BUNDLED_SKILL_DIR` as this process found it, and whether it was there.
@@ -139,11 +152,32 @@ beforeAll(async () => {
     await mkdir(dir, { recursive: true })
   }
   // The Loader evaluates a preset row with the BASE URL of the composition
-  // resolving it, which the adopted generation anchors at the config-tree root
-  // (`typert-loader` requires it, and the CLI's profile boot supplies an include
-  // root to give it one). A profile root is therefore the realistic value, and a
-  // file URL is what `createRequire` needs.
-  baseUrl = pathToFileURL(`${scratch}/`).href
+  // resolving it. That value is not a caller-chosen root: the include carrier
+  // that reads a patch file sets it to that FILE'S OWN DIRECTORY —
+  // `this.ctx.baseUrl = new URL('.', pathToFileURL(this.filename)).href` in
+  // `vendor/include/src/index.ts` of the adopted generation. dshline's bundle
+  // manifest declares `./presets/standard.patch.yml`, so in a real profile the
+  // authoring row's `createRequire(baseUrl)` starts from inside the installed
+  // `@dshline/dshline` package and walks up to
+  // `@dshline/dshline/node_modules/@deepseek-ai/dsh-agent-preset`, which is
+  // there because that package is a declared runtime dependency of this one.
+  //
+  // Modelling anything else — a scratch directory, a profile root — resolves
+  // from a place the package was never installed, and can therefore only ever
+  // succeed by reaching sideways into a package manager's hidden hoist. That
+  // is not a property of the shipped plugin: the hidden hoist holds a linked
+  // package nowhere, so the same code passed against a registry install and
+  // failed against a source-linked one, which is precisely the seam the
+  // `Harness target` lane exists to test. Anchoring on the real origin makes
+  // this exercise production resolution rather than an accident of layout.
+  baseUrl = pathToFileURL(`${SHIPPED_PRESET_DIR}/`).href
+  // Vitest hands every worker a NODE_PATH pointing at pnpm's hidden hoist, and
+  // that is the only reason a wrong origin could ever have resolved. Clear it
+  // for the life of this file, exactly as DSH_BUNDLED_SKILL_DIR is cleared
+  // below, so a passing case proves the package resolved from where production
+  // resolves it rather than from the test runner's environment.
+  inheritedNodePath = process.env.NODE_PATH
+  delete process.env.NODE_PATH
 })
 
 afterEach(async () => {
@@ -167,6 +201,13 @@ afterAll(async () => {
     delete process.env.DSH_BUNDLED_SKILL_DIR
   } else {
     process.env.DSH_BUNDLED_SKILL_DIR = inheritedBundledDir
+  }
+  // NODE_PATH is restored for the same reason, and with the same care about
+  // leaving it absent when it was absent.
+  if (inheritedNodePath === undefined) {
+    delete process.env.NODE_PATH
+  } else {
+    process.env.NODE_PATH = inheritedNodePath
   }
   if (scratch !== undefined) await rm(scratch, { recursive: true, force: true })
 })
@@ -240,6 +281,30 @@ async function writeProjectSkill(root: string, name: string, description: string
 }
 
 describe('capability: skills · the authoring provider the standard preset declares', () => {
+  it('resolves the shipped expression from the origin the Loader would use', async () => {
+    // Two claims, and the second is the one that used to be false.
+    //
+    // 1. The origin is the shipped preset file's own directory — what the
+    //    include carrier sets — and not somewhere invented. If this ever stops
+    //    being true, the case below is proving something production never does.
+    // 2. The package resolves from there by ordinary Node resolution, with
+    //    NODE_PATH deleted for this whole file. That is the claim a registry
+    //    install made true and a source-linked checkout made false, because the
+    //    hidden hoist is the only place a wrong origin could find the package,
+    //    and a linked package is never hoisted there. Asserting it directly is
+    //    what stops this file from quietly leaning on the test runner again.
+    expect(baseUrl).toBe(pathToFileURL(`${SHIPPED_PRESET_DIR}/`).href)
+    expect(process.env.NODE_PATH, 'the test runner must not be supplying the answer').toBeUndefined()
+
+    const resolved = createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')
+    // Reachable as a declared dependency of THIS package, from this package's
+    // own node_modules — the path production walks, not a store-level alias.
+    expect(realpathSync(dirname(resolved))).toBe(
+      realpathSync(join(SHIPPED_PRESET_DIR, '..', 'node_modules', '@deepseek-ai', 'dsh-agent-preset')),
+    )
+    expect(packagedRoot()).toBe(join(dirname(resolved), 'skills'))
+  })
+
   it('resolves the shipped expression to the installed package\'s own skills directory', async () => {
     // Not "the expression mentions the right words": the Loader's `!!js` value
     // is source text, so the only meaningful check is what it evaluates to in a
@@ -248,7 +313,13 @@ describe('capability: skills · the authoring provider the standard preset decla
     const manifestPath = await realpath(join(dir, '..', 'package.json'))
     const declared = JSON.parse(await readFile(manifestPath, 'utf8')) as { name?: string }
     expect(declared.name).toBe('@deepseek-ai/dsh-agent-preset')
-    expect(dir.endsWith(join('@deepseek-ai', 'dsh-agent-preset', 'skills'))).toBe(true)
+    // That package's OWN `skills` root, identified by sitting beside its own
+    // manifest rather than by the path spelling. A registry install supplies it
+    // from `node_modules/@deepseek-ai/dsh-agent-preset`; a source-linked
+    // checkout supplies the same package from `packages/preset/agent-preset`.
+    // Requiring the store spelling proved nothing about the plugin and failed
+    // the one lane whose whole subject is a source-linked Harness.
+    expect(await realpath(dir)).toBe(join(dirname(manifestPath), 'skills'))
   })
 
   it('exposes the three packaged Cordis skills as bundled, from harness-authoring', async () => {
