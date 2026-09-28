@@ -645,7 +645,30 @@ describe('pathological input', () => {
    */
   const GROWTH_SLACK_MS = 1
 
+  /**
+   * The fastest of several INLINE renders of one line, timed on their own.
+   *
+   * Separate from {@link fastest} because the growth check needs the scan and
+   * nothing else; see there.
+   * @param line - the line to render.
+   * @param runs - how many times to render it.
+   * @returns elapsed milliseconds.
+   */
+  function fastestInline(line: string, runs = 2): number {
+    let best = Infinity
+    for (let run = 0; run < runs; run += 1) {
+      const started = performance.now()
+      renderInline(line)
+      best = Math.min(best, performance.now() - started)
+    }
+    return best
+  }
+
   it.each(RESCANS)('renders %s in linear time', (name, build) => {
+    // Through the real entry point, so this covers the block layer too, which
+    // stays linear in the length of a line. On the slowest runner these shapes
+    // measured 30 ms at 256k; a restored rescan measures 25 401 ms at the same
+    // size, and the budget is 500.
     const line = build(LARGEST)
     expect(fastest(line, 2), name).toBeLessThan(BUDGET_MS)
   })
@@ -655,14 +678,21 @@ describe('pathological input', () => {
     // and so keeps half the allowance in hand; rescanning the suffix is four and
     // spends the whole step past it.
     //
-    // Every line is built BEFORE it is timed, and that is load-bearing rather than
-    // tidy: building 256k of brackets is itself super-linear under a shared
-    // runner's memory pressure, so a check that times `build(size)` measures the
+    // The inline scan is timed on its OWN, which is the whole point of the
+    // difference: `line()` stays linear in the length of a line, because the
+    // block layer rewrites the whole line looking for a thematic break and the
+    // escaper walks all of it. Measuring that growth forbids work the renderer is
+    // right to do, and this check failed on CI for exactly that before it was
+    // measuring the scan the change was about.
+    //
+    // Every line is built BEFORE it is timed, and that is load-bearing too:
+    // building 256k of brackets is itself super-linear under a shared runner's
+    // memory pressure, so a check that times `build(size)` measures the
     // allocator instead of the renderer — and reports a green implementation as
-    // quadratic. This exact mistake failed the first run of this file on CI.
-    let previous = fastest(build(GROWTH_BASE))
+    // quadratic. Both mistakes failed the first two runs of this file on CI.
+    let previous = fastestInline(build(GROWTH_BASE))
     for (const size of [GROWTH_BASE * 2, LARGEST]) {
-      const current = fastest(build(size))
+      const current = fastestInline(build(size))
       expect(current, `${name} at ${size}`).toBeLessThan(3 * previous + GROWTH_SLACK_MS)
       previous = current
     }
