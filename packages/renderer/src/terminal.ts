@@ -79,12 +79,16 @@ const ENHANCED_KEYS_OFF = '\u001b[<u'
  *
  * The request above is not the only way to say it, and the alternative is not a
  * rarity: a terminal multiplexer is a terminal emulator, so it consumes this one
- * instead of forwarding it. tmux 3.7c was measured ignoring `CSI > 1 u` written by
- * a pane's program — its `pane_key_mode` stayed at the default — and kept sending
- * a bare carriage return for shift-enter, so a frontend behind tmux submitted an
- * unfinished prompt on the one gesture that exists to avoid submitting one. tmux
- * honours the request below instead, from the moment its `extended-keys` option is
- * on, and answers in an encoding this renderer's decoder already reads.
+ * instead of forwarding it, and the current supported tmux releases do not honour
+ * that pane request. Measured on tmux 3.7c: `CSI > 1 u` written by a pane's
+ * program left `pane_key_mode` at its default, and a modified enter still arrived
+ * as a bare carriage return, so a frontend behind tmux submitted an unfinished
+ * prompt on the one gesture that exists to avoid submitting one. tmux honours the
+ * request below instead, from the moment its `extended-keys` option is on, and
+ * answers in an encoding this renderer's decoder already reads. That the pane
+ * request is currently ignored is the premise here, not a permanent fact: a tmux
+ * that learns to honour it would make `multiplexer.spec.ts` fail its negative
+ * proof, which is the signal to reconsider this rather than to relax the test.
  *
  * Level 1, and not 2, because it is the smaller promise: only keys that have no
  * legacy encoding change, so every key that already arrives unchanged still does.

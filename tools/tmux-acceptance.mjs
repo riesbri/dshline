@@ -133,10 +133,36 @@ function check(name, ok, detail = '') {
   process.stdout.write(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail === '' ? '' : `  — ${detail}`}\n`)
 }
 
-/** Run `tmux` against an isolated server. */
+/**
+ * Run `tmux` against an isolated server.
+ * @param {string} socket - the isolated server's name.
+ * @param {string[]} args - the tmux arguments after `-L <socket>`.
+ * @returns {string} tmux's stdout, or `''` when the command failed.
+ */
 function tmux(socket, args) {
   const result = spawnSync('tmux', ['-L', socket, ...args], { encoding: 'utf8', timeout: 20000 })
   return result.status === 0 ? result.stdout : ''
+}
+
+/**
+ * Kill an isolated server and take its socket file with it.
+ *
+ * `kill-server` stops the server but does not always unlink the socket, and this
+ * script exists to be run repeatedly against one machine. The path is read from
+ * the server while it still answers, rather than derived from `TMUX_TMPDIR`, which
+ * tmux computes its own way and which does not always match the OS temp dir.
+ * @param {string} socket - the isolated server's name.
+ */
+function killServer(socket) {
+  const path = tmux(socket, ['display-message', '-p', '#{socket_path}']).trim()
+  spawnSync('tmux', ['-L', socket, 'kill-server'], { encoding: 'utf8', timeout: 20000 })
+  if (path === '') return
+  try {
+    rmSync(path, { force: true })
+  } catch {
+    // A socket another process has already claimed, or a platform that will not
+    // unlink one. Neither is worth failing an acceptance run over.
+  }
 }
 
 /** Poll until `check` holds, so nothing here depends on a guessed sleep. */
@@ -234,8 +260,8 @@ try {
   tmux(OUTER, ['send-keys', '-t', 'pty2', '-l', 'still-typing'])
   check('input reaches the program after reattach', await waitFor(() => screen().includes('still-typing'), 10000, 'the typed text to appear'))
 } finally {
-  spawnSync('tmux', ['-L', OUTER, 'kill-server'], { encoding: 'utf8', timeout: 10000 })
-  spawnSync('tmux', ['-L', INNER, 'kill-server'], { encoding: 'utf8', timeout: 10000 })
+  killServer(OUTER)
+  killServer(INNER)
   rmSync(workspace, { recursive: true, force: true })
 }
 

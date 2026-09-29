@@ -191,7 +191,7 @@ export DSH_HARNESS=~/path/to/deepseek-harness
 
 默认情况下，终端为 `shift-enter` 发送的字节与 `enter` 完全相同，因此没有程序能区分它们。为让差异可见，本界面启动时会向你的终端请求一个额外的键盘特性：kitty 键盘协议的最低选项，名为*转义码消歧（disambiguate escape codes）*。支持它的终端（kitty、Ghostty、WezTerm、foot、较新的 iTerm2 与 Alacritty、Konsole）随后把修改过的 `enter` 报告为自己的序列。
 
-同一个特性也会用 xterm 的写法再请求一次，即 `modifyOtherKeys` 第 1 级。这不是双保险：终端**多路复用器**本身就是终端模拟器，它会自行回应键盘请求而不是把请求转发出去，并且它不认识 kitty 那条请求。在 tmux 之下，被采纳的是第二种写法。两种写法都会发给每一个终端——两种都不实现的终端会同时忽略它们，而请求本身不花费任何代价。参见[通过 SSH 与 tmux 使用 dshline](#using-dshline-through-ssh-and-tmux)。
+同一个特性也会用 xterm 的写法再请求一次，即 `modifyOtherKeys` 第 1 级。这不是双保险：终端**多路复用器**本身就是终端模拟器，它会自行回应键盘请求而不是把请求转发出去，而当前受支持的 tmux 版本都不采纳窗格发出的那条请求。在 tmux 之下，被采纳的是第二种写法。两种写法都会发给每一个终端——两种都不实现的终端会同时忽略它们，而请求本身不花费任何代价。参见[通过 SSH 与 tmux 使用 dshline](#using-dshline-through-ssh-and-tmux)。
 
 在原生 Windows 上，它还会请求 *win32-input-mode*，即 Windows 控制台报告按键修饰键的自身方式。在不支持 kitty 键盘协议的 Windows 控制台路径上——包括 Windows Terminal 1.24 及更早版本——正是它让修改过的按键仍可区分。不支持该模式的控制台会忽略这个请求，一切照旧。
 

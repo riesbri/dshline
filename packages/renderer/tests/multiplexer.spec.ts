@@ -80,12 +80,38 @@ function measureSupport(): Support {
       ? { supported: true }
       : { supported: false, reason: `${version.stdout.trim()} does not let a program request extended keys (that arrived in 3.5; pane_key_mode reported ${JSON.stringify(mode)})` }
   } finally {
-    spawnSync('tmux', ['-L', name, 'kill-server'], { timeout: 10000 })
+    kill(name)
     rmSync(dirname(config), { recursive: true, force: true })
   }
 }
 
+/**
+ * When set, this environment PROMISES the capability, so its absence is a failure.
+ *
+ * The honest skip is right for a developer and for a stock CI image: tmux 3.4 is
+ * a real generation, and "this suite did not run here" is the truthful answer.
+ * But the same skip makes a broken install indistinguishable from a correct one —
+ * a lane that meant to prove the supported path would go green having proved
+ * nothing, which is the one outcome a lane like that must never have.
+ *
+ * So the contract is inverted by one variable, read here and nowhere else. It is
+ * a test-only switch by construction: no production module reads the environment,
+ * and this file is the only reader anywhere in the repository, so a runtime
+ * behaviour cannot be changed by setting it. Named to match the `DSH_*` variables
+ * the project already uses, and phrased as a requirement rather than a mode,
+ * because that is what it is.
+ */
+const REQUIRED = process.env.DSH_REQUIRE_TMUX_EXTENDED_KEYS === '1'
+
 const support = measureSupport()
+if (!support.supported && REQUIRED) {
+  // Thrown, not skipped: this is the case a false green would hide.
+  throw new Error(
+    `DSH_REQUIRE_TMUX_EXTENDED_KEYS=1 and this environment cannot run the suite — ${support.reason}. `
+    + 'The multiplexer lane promises a tmux that lets a program request extended keys; install the pinned '
+    + 'release rather than letting the suite skip.',
+  )
+}
 const describeMultiplexer = support.supported ? describe : describe.skip
 if (!support.supported) {
   // Said out loud, because a silently skipped suite is indistinguishable from one
@@ -169,9 +195,27 @@ function tmux(socket: string, args: string[]): string {
   return result.status === 0 ? result.stdout : ''
 }
 
-/** Kill an isolated server, tolerating one that is already gone. */
+/**
+ * Kill an isolated server and take its socket file with it.
+ *
+ * `kill-server` stops the server but does not always unlink the socket, and this
+ * file creates one per test run in a directory that outlives all of them. Left
+ * alone that is a socket file per run forever, which is untidy on a laptop and
+ * meaningless on an ephemeral CI runner. The path is read from the server while it
+ * is still answering rather than guessed from `TMUX_TMPDIR`, which tmux derives
+ * its own way.
+ * @param socket - the isolated server's name.
+ */
 function kill(socket: string): void {
+  const path = spawnSync('tmux', ['-L', socket, 'display-message', '-p', '#{socket_path}'], { encoding: 'utf8', timeout: 10000 }).stdout?.trim() ?? ''
   spawnSync('tmux', ['-L', socket, 'kill-server'], { encoding: 'utf8', timeout: 10000 })
+  if (path === '') return
+  try {
+    rmSync(path, { force: true })
+  } catch {
+    // A socket another process has already claimed, or a platform that will not
+    // unlink one. Neither is worth failing a test over.
+  }
 }
 
 /** Poll `check` until it holds, rather than sleeping a guessed interval. */
