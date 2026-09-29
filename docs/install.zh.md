@@ -274,6 +274,8 @@ no terminal here to ask on.
 
 在本仓库检出的目录下运行 `node tools/keyprobe.mjs` 并按下该按键。它会打印你的终端发送的字节以及本项目解码出的按键；结果为空是一个值得报告的缺陷。
 
+如果你通过 SSH 连接并在 tmux 之中运行，快捷键也可能是没能穿过这条连接，而问题并不在本项目里：探针还会报告多路复用器是什么，以及它是否接受了"可区分的修改键"请求。[通过 SSH 与 tmux 使用 dshline](usage.zh.md#using-dshline-through-ssh-and-tmux) 解释了这意味着什么，以及哪一项设置（如果有）能改变它。
+
 ## 卸载
 
 这会同时移除包和配置文件对它的引用：

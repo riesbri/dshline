@@ -75,6 +75,34 @@ const ENHANCED_KEYS_ON = '\u001b[>1u'
 const ENHANCED_KEYS_OFF = '\u001b[<u'
 
 /**
+ * Ask for the SAME property through xterm's `modifyOtherKeys`, level 1.
+ *
+ * The request above is not the only way to say it, and the alternative is not a
+ * rarity: a terminal multiplexer is a terminal emulator, so it consumes this one
+ * instead of forwarding it. tmux 3.7c was measured ignoring `CSI > 1 u` written by
+ * a pane's program — its `pane_key_mode` stayed at the default — and kept sending
+ * a bare carriage return for shift-enter, so a frontend behind tmux submitted an
+ * unfinished prompt on the one gesture that exists to avoid submitting one. tmux
+ * honours the request below instead, from the moment its `extended-keys` option is
+ * on, and answers in an encoding this renderer's decoder already reads.
+ *
+ * Level 1, and not 2, because it is the smaller promise: only keys that have no
+ * legacy encoding change, so every key that already arrives unchanged still does.
+ * That was measured, not assumed: under level 2 tmux also re-encodes `ctrl-c` as
+ * `CSI 27 ; 5 ; 99 ~`, where under level 1 it stays the single byte `0x03`.
+ *
+ * Unconditional, like the request above, and for the same reason: a terminal that
+ * does not implement it ignores it, and one that implements both encodes the same
+ * keys in a form this decoder already reads. That is what keeps this out of the
+ * renderer's control flow — there is no `if (inside a multiplexer)` to scatter
+ * around, and nothing to detect at runtime.
+ */
+const EXTENDED_KEYS_ON = '\u001b[>4;1m'
+
+/** Level 0 is modifyOtherKeys off, which is the state every terminal starts in. */
+const EXTENDED_KEYS_OFF = '\u001b[>4;0m'
+
+/**
  * Ask a Windows console to report every key as an input record.
  *
  * The kitty protocol above is the right request everywhere else and is sent
@@ -119,10 +147,10 @@ function isWindowsConsole(): boolean {
 export function terminalModes(): { on: string; off: string } {
   const windowsConsole = isWindowsConsole()
   return {
-    on: `${PASTE_ON}${ENHANCED_KEYS_ON}${windowsConsole ? WIN32_KEYS_ON : ''}`,
+    on: `${PASTE_ON}${ENHANCED_KEYS_ON}${EXTENDED_KEYS_ON}${windowsConsole ? WIN32_KEYS_ON : ''}`,
     // Undone in the reverse order they were asked for, and the console mode first:
     // every one of these changes how the next program reads its input.
-    off: `${windowsConsole ? WIN32_KEYS_OFF : ''}${ENHANCED_KEYS_OFF}${PASTE_OFF}`,
+    off: `${windowsConsole ? WIN32_KEYS_OFF : ''}${EXTENDED_KEYS_OFF}${ENHANCED_KEYS_OFF}${PASTE_OFF}`,
   }
 }
 
