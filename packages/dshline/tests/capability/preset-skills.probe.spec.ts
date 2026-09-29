@@ -32,11 +32,12 @@
  * @module
  */
 
-import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { readFileSync, realpathSync } from 'node:fs'
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { parse } from 'yaml'
@@ -96,6 +97,64 @@ function evaluate(expression: string, baseUrl: string): string {
   return new Function('baseUrl', `return (${expression})`)(baseUrl) as string
 }
 
+/**
+ * What a child interpreter reports about the packaged authoring root.
+ *
+ * Paths are realpath'd in the child, so the caller compares identities rather
+ * than spellings: a registry install and a source-linked checkout place the same
+ * package in different directories, and this must hold for both.
+ */
+interface FreshResolution {
+  /** The child's `NODE_PATH`, or null when it had none. */
+  nodePath: string | null
+  /** The resolved `package.json`. */
+  manifest: string
+  /** The resolved package's real directory. */
+  dir: string
+  /** The `name` its own manifest declares. */
+  name: string
+  /** The real directory of the `skills/` root beside it. */
+  skills: string
+}
+
+/**
+ * Resolve the packaged authoring root from a NEW Node process started without
+ * `NODE_PATH`.
+ *
+ * This is the only way to prove the shipped expression resolves without a
+ * package manager's hidden hoist, and in-process attempts do not: Node
+ * assembles its global search paths once during startup, so deleting
+ * `process.env.NODE_PATH` afterwards leaves `createRequire().resolve()` fully
+ * able to use them. A registry install's hoist would then answer for a wrong
+ * origin exactly as it always did, and the case would pass while proving
+ * nothing. A fresh interpreter has no such memory.
+ *
+ * The child repeats production's own shape — `createRequire(baseUrl).resolve(…)`
+ * from the Loader origin — and reports what it found as JSON.
+ * @param origin - the Loader origin to resolve from: a file URL.
+ * @returns the child's report and its exit status.
+ */
+function resolveInFreshProcess(origin: string): { status: number | null, report: FreshResolution | undefined } {
+  const env = { ...process.env }
+  delete env.NODE_PATH
+  const source = `
+    const { createRequire } = require('node:module')
+    const { readFileSync, realpathSync } = require('node:fs')
+    const { dirname, join } = require('node:path')
+    const manifest = createRequire(${JSON.stringify(origin)}).resolve('@deepseek-ai/dsh-agent-preset/package.json')
+    const dir = realpathSync(dirname(manifest))
+    process.stdout.write(JSON.stringify({
+      nodePath: process.env.NODE_PATH ?? null,
+      manifest,
+      dir,
+      name: JSON.parse(readFileSync(manifest, 'utf8')).name,
+      skills: realpathSync(join(dir, 'skills')),
+    }))
+  `
+  const child = spawnSync(process.execPath, ['-e', source], { env, encoding: 'utf8' })
+  return { status: child.status, report: child.status === 0 ? JSON.parse(child.stdout) as FreshResolution : undefined }
+}
+
 /** A scratch directory tree. */
 let scratch: string
 
@@ -106,6 +165,15 @@ let agentsHome: string
 
 /** A fake deployment-bundled root, standing in for `$DSH_BUNDLED_SKILL_DIR`. */
 let deploymentBundled: string
+
+/**
+ * The directory the shipped `standard.patch.yml` actually lives in.
+ *
+ * This is the Loader origin the include carrier hands a preset row in a real
+ * profile, derived from this spec's own location — the same directory
+ * `shippedConfig` reads the declaration from — so the two cannot drift apart.
+ */
+const SHIPPED_PRESET_DIR = fileURLToPath(new URL('../../presets/', import.meta.url))
 
 /** The `baseUrl` shape the Loader evaluates a preset row under. */
 let baseUrl: string
@@ -140,11 +208,32 @@ beforeAll(async () => {
     await mkdir(dir, { recursive: true })
   }
   // The Loader evaluates a preset row with the BASE URL of the composition
-  // resolving it, which the adopted generation anchors at the config-tree root
-  // (`typert-loader` requires it, and the CLI's profile boot supplies an include
-  // root to give it one). A profile root is therefore the realistic value, and a
-  // file URL is what `createRequire` needs.
-  baseUrl = pathToFileURL(`${scratch}/`).href
+  // resolving it. That value is not a caller-chosen root: the include carrier
+  // that reads a patch file sets it to that FILE'S OWN DIRECTORY —
+  // `this.ctx.baseUrl = new URL('.', pathToFileURL(this.filename)).href` in
+  // `vendor/include/src/index.ts` of the adopted generation. dshline's bundle
+  // manifest declares `./presets/standard.patch.yml`, so in a real profile the
+  // authoring row's `createRequire(baseUrl)` starts from inside the installed
+  // `@dshline/dshline` package and walks up to
+  // `@dshline/dshline/node_modules/@deepseek-ai/dsh-agent-preset`, which is
+  // there because that package is a declared runtime dependency of this one.
+  //
+  // Modelling anything else — a scratch directory, a profile root — resolves
+  // from a place the package was never installed, and can therefore only ever
+  // succeed by reaching sideways into a package manager's hidden hoist. That
+  // is not a property of the shipped plugin: the hidden hoist holds a linked
+  // package nowhere, so the same code passed against a registry install and
+  // failed against a source-linked one, which is precisely the seam the
+  // `Harness target` lane exists to test. Anchoring on the real origin makes
+  // this exercise production resolution rather than an accident of layout.
+  //
+  // What that claim needs, and cannot get from this process, is proof the
+  // resolution does not depend on a hidden-hoist search path. Deleting
+  // `process.env.NODE_PATH` here would NOT be that proof: Node builds its global
+  // search paths once at startup, and `createRequire().resolve()` keeps using
+  // them after the variable is gone. `resolveInFreshProcess()` below spawns a
+  // new interpreter instead, which is the only clean boundary for this.
+  baseUrl = pathToFileURL(`${SHIPPED_PRESET_DIR}/`).href
 })
 
 afterEach(async () => {
@@ -241,6 +330,41 @@ async function writeProjectSkill(root: string, name: string, description: string
 }
 
 describe('capability: skills · the authoring provider the standard preset declares', () => {
+  it('resolves the shipped expression from the origin the Loader would use', () => {
+    // Two claims, and the second is the one that used to be unproven.
+    //
+    // 1. The origin is the shipped preset file's own directory — what the
+    //    include carrier sets — and not somewhere invented. A cheap guard on
+    //    the assignment in `beforeAll`, so a later edit to it fails here with a
+    //    plain message instead of surfacing as a confusing resolution error.
+    //    It is NOT the proof; the child process is.
+    // 2. A Node process that NEVER had NODE_PATH resolves the package from
+    //    there. That is the claim a registry install made true and a
+    //    source-linked checkout made false, and it cannot be checked from
+    //    inside this worker: Node fixes its global search paths at startup, so
+    //    unsetting the variable here changes nothing the resolver can see, and
+    //    a hidden hoist would answer for a wrong origin just as it always did.
+    expect(baseUrl).toBe(pathToFileURL(`${SHIPPED_PRESET_DIR}/`).href)
+
+    const { status, report } = resolveInFreshProcess(baseUrl)
+    expect(status, 'a fresh process with no NODE_PATH must resolve the packaged root').toBe(0)
+    // The child reports its own environment, so "no NODE_PATH" is established
+    // where the resolution actually happened rather than assumed here.
+    expect(report?.nodePath).toBeNull()
+    // The manifest is the real one, named by itself, not merely found at a
+    // path that looks plausible.
+    expect(report?.name).toBe('@deepseek-ai/dsh-agent-preset')
+    // And it is reached as THIS package's declared dependency, from this
+    // package's own node_modules — the relationship production walks. Stated as
+    // a realpath identity, because a registry install and a source-linked
+    // checkout serve that same dependency from different directories and the
+    // claim has to hold for both.
+    expect(report?.dir).toBe(
+      realpathSync(join(SHIPPED_PRESET_DIR, '..', 'node_modules', '@deepseek-ai', 'dsh-agent-preset')),
+    )
+    expect(report?.skills).toBe(join(report?.dir ?? '', 'skills'))
+  })
+
   it('resolves the shipped expression to the installed package\'s own skills directory', async () => {
     // Not "the expression mentions the right words": the Loader's `!!js` value
     // is source text, so the only meaningful check is what it evaluates to in a
@@ -249,7 +373,13 @@ describe('capability: skills · the authoring provider the standard preset decla
     const manifestPath = await realpath(join(dir, '..', 'package.json'))
     const declared = JSON.parse(await readFile(manifestPath, 'utf8')) as { name?: string }
     expect(declared.name).toBe('@deepseek-ai/dsh-agent-preset')
-    expect(dir.endsWith(join('@deepseek-ai', 'dsh-agent-preset', 'skills'))).toBe(true)
+    // That package's OWN `skills` root, identified by sitting beside its own
+    // manifest rather than by the path spelling. A registry install supplies it
+    // from `node_modules/@deepseek-ai/dsh-agent-preset`; a source-linked
+    // checkout supplies the same package from `packages/preset/agent-preset`.
+    // Requiring the store spelling proved nothing about the plugin and failed
+    // the one lane whose whole subject is a source-linked Harness.
+    expect(await realpath(dir)).toBe(join(dirname(manifestPath), 'skills'))
   })
 
   it('exposes the package-owned first-party authoring skills as bundled, from harness-authoring', async () => {

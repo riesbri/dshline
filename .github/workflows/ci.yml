@@ -260,11 +260,24 @@ jobs:
       # It runs through vitest's transpile-only execution, so a type-only
       # upstream change can leave it green and still fail the typecheck above —
       # two independent signals on purpose.
+      #
+      # `exit "${PIPESTATUS[0]}"` is the whole reason this step is a block and
+      # not a one-liner, and it is the same line the typecheck step above uses.
+      # A pipeline reports the status of its LAST command, so `... | tee` handed
+      # GitHub tee's success no matter what capability-report.mjs decided: a
+      # report printing `✗ skills` was recorded as a successful step, the
+      # verdict read CAPABILITY_OUTCOME=success, and the lane went green on a
+      # failed probe. That is not hypothetical — it hid a real one on `main`.
+      # The verdict still runs (`continue-on-error`), so the report and the
+      # step summary keep their diagnostics; only the step's OUTCOME changes,
+      # which is exactly what the verdict reads.
       - id: capability
         continue-on-error: true
         env:
           TARGET_VERSION: ${{ steps.target.outputs.version }}
-        run: node tools/capability-report.mjs "target ($TARGET_VERSION)" | tee capability.txt
+        run: |
+          node tools/capability-report.mjs "target ($TARGET_VERSION)" | tee capability.txt
+          exit "${PIPESTATUS[0]}"
 
       - name: target verdict
         if: always()
