@@ -42,15 +42,18 @@
  * spawned. Nothing here branches on a provider either: what is contained is a
  * WRITE SHAPE, not a vendor.
  *
- * Reconfirmed against `0.1.6-alpha.2`, the adopted generation:
- * `subagent-codex/src/run.ts` still calls `writeFileSync(process.stderr.fd,
- * bytes)` and `subagent-codex` changed only its `package.json` between
- * `0.1.6-alpha.1` and `0.1.6-alpha.2`. That generation adds no
- * diagnostics/subprocess/Host seam a consumer could route a delegated child's
- * stderr through, so the containment below is still the narrowest one the
- * public architecture allows. This is a defect workaround for the ONE current
- * generation, not support for `0.1.6-alpha.1`; the record in `HARNESS_COMPAT`
- * forces the question to be asked again at the next adoption.
+ * Reconfirmed against `0.2.0-rc.1`, the adopted generation, at revision
+ * `4878cdabd87d4041bdaff61d04c966883b9fd07a`:
+ * `packages/subagent/subagent-codex/src/run.ts:261` still calls
+ * `writeFileSync(process.stderr.fd, bytes)`. Its Git blob is unchanged from
+ * `0.1.7-rc.2` (`477b4f420553e8a52c2fbccc464d7561b239c443`):
+ * `12abd405e3b24858a3ae5fc00e8c0be341821bab` at both revisions.
+ * The subprocess seam still offers `pipe | inherit | collect`, not a Host-owned
+ * diagnostic sink this forward uses, so the containment below remains necessary.
+ * Inherited stderr in other backends is NOT contained by this shim; this is
+ * only the raw property-resolving write shape above, not general fd-2 capture.
+ * This is a defect workaround for the ONE current generation, not support for
+ * the previous one; `HARNESS_COMPAT` forces review again at the next adoption.
  *
  * ## Why the descriptor and not the stream
  *

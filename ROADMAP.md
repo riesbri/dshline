@@ -316,8 +316,8 @@ every change through the seam that owns it — `ctx.configEditor` for a row,
   copy of upstream's; the maintenance rule is to start from the adopted upstream
   declaration and keep every difference explicit, small, and tested
 - one of those differences is a dedicated `skill-harness-authoring` provider
-  beside the ordinary `skill-filesystem` row, contributing the three first-party
-  Cordis authoring skills `@deepseek-ai/dsh-agent-preset` ships. It uses
+  beside the ordinary `skill-filesystem` row, contributing the package-owned
+  first-party authoring skills `@deepseek-ai/dsh-agent-preset` ships. It uses
   Harness's own packaged-skill semantics — `bundledSkillDir`, `source: bundled`,
   rank 600, Host-trusted — so those skills rank *below* project and user skills
   and lose a shared name to anything a person wrote. A separate row also means

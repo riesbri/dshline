@@ -1342,6 +1342,9 @@ type the line that invokes one.
 you have written yourself, `standard` exposes the first-party skills that come
 from the installed `@deepseek-ai/dsh-agent-preset` package itself:
 
+- `agent-experience` — writing or changing model-facing tool definitions and
+  designing skills, context loading, and multi-step workflows for discoverability
+  and efficient context use
 - `cordis-composition-reference` — the Cordis bundle-patch and agent-preset
   dialect, and what each installable plugin package provides
 - `editing-cordis-compositions` — creating, changing, and validating a preset
@@ -1361,8 +1364,8 @@ ordinary one. `/plugins` therefore lists two rows:
 | `skill-harness-authoring` | only the skills inside `@deepseek-ai/dsh-agent-preset` |
 
 Because the two rows are independent, switching off `skill-harness-authoring`
-in `/plugins` removes exactly these three and leaves every skill you wrote
-where it was.
+in `/plugins` removes exactly these package-owned skills and leaves every skill
+you wrote where it was.
 
 **Where skills are found.** For the skills you control, Harness's own filesystem
 provider scans these roots, and the first one to supply a name wins:
@@ -1386,19 +1389,19 @@ defines no separate ordering between two bundled providers: which of two bundled
 skills with the same name you would get is Harness's business, not a guarantee
 made here.
 
-`/skills` labels these three **`bundled`**, because that is the source Harness
-resolved for a package-owned root. It is not a dshline category and it does not
+`/skills` labels these package-owned skills **`bundled`**, because that is the
+source Harness resolved for a package-owned root. It is not a dshline category and it does not
 mean your installation bundles anything of its own.
 
 **Package ownership and model capability are separate things.** Harness owns
 the skill bodies; dshline's `standard` chooses to expose the provider that finds
-them; `tool-skill` owns loading them. And because all three are model-invocable,
+them; `tool-skill` owns loading them. And because these skills are model-invocable,
 every new `standard` session receives their **names and descriptions** in
 Harness's durable `<available_skills>` catalog — that is a few lines of context
 per session, not zero. Their **full bodies are not sent** until something asks
 for them: either your explicit `/<skill-name>` line, or the model calling the
 skill tool. The same is true of any skill; nothing special is done for these
-three.
+package-owned skills.
 
 > [!IMPORTANT]
 > A skill can describe an operation whose tool this preset does not mount.

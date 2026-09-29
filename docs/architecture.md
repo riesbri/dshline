@@ -121,7 +121,7 @@ one of the places it is made. The shipped `standard` declaration carries an
 [Presets](#presets-composition-is-harnesss-not-dshlines)): a second,
 dedicated `@deepseek-ai/dsh-skill-filesystem` instance, `skill-harness-authoring`,
 whose only root is the `bundledSkillDir` the `@deepseek-ai/dsh-agent-preset`
-package already ships — the three first-party Cordis authoring skills.
+package already ships — its package-owned first-party authoring skills.
 
 A dedicated provider rather than a `customSkillDirs` entry on the ordinary one,
 because the two answer different questions. These are package-owned baseline
@@ -1334,8 +1334,8 @@ row to match upstream without checking the terminal reason it is absent.
 `skill-filesystem` row, and dshline's still does, unchanged. Beside it,
 `skill-harness-authoring` mounts a second instance of the same provider with
 `includeDefaultRoots: false` and a `bundledSkillDir` pointing at the `skills/`
-directory `@deepseek-ai/dsh-agent-preset` ships — the same three skills upstream's
-`cordis` (Creator) preset exposes.
+directory `@deepseek-ai/dsh-agent-preset` ships — the same package-owned
+first-party authoring skills upstream's `cordis` (Creator) preset exposes.
 
 Stated correctly, because the obvious reading is wrong: **`tool-cordis` does not
 load these skills.** `skill-filesystem` discovers them and `tool-skill` exposes

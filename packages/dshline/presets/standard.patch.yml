@@ -13,7 +13,7 @@
           #
           # A preset is now an ordinary `@deepseek-ai/dsh-agent-preset` declaration in a
           # Cordis composition, and this file is its `config.plugins`. It starts from the
-          # released 0.1.7-rc.2 standard declaration
+          # released 0.2.0-rc.1 standard declaration
           # (`packages/bundle/web-app/presets/standard.patch.yml` in deepseek-harness) and
           # carries the terminal-profile differences a terminal session has always needed.
           # The tool set is the one a terminal session has run, and every row here is one
@@ -33,7 +33,7 @@
           # dedicated `skill-harness-authoring` provider next to the ordinary skill rows.
           # Upstream `standard` carries the ordinary bare `skill-filesystem` row, and does
           # NOT add this authoring provider or its `@deepseek-ai/dsh-agent-preset` root.
-          # Upstream `cordis` exposes the same three package skills, as part of the Creator
+          # Upstream `cordis` exposes the same package-owned authoring skills, as part of the Creator
           # composition, configured as one more root on its single provider.
           # What that is actually about, stated correctly because the obvious reading is
           # wrong: `tool-cordis` does not load these skills. `skill-filesystem` discovers
