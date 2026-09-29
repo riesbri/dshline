@@ -13,7 +13,11 @@
  * separate question (`harness-sync.yml`), and its own spec.
  */
 
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
@@ -117,6 +121,87 @@ describe('the adopted target lane is deterministic', () => {
     // still turn a failure into a red job.
     expect(job).toMatch(/if \[ "\$TYPECHECK_OUTCOME" != "success" \] \|\| \[ "\$CAPABILITY_OUTCOME" != "success" \]/)
     expect(job).toContain('exit 1')
+  })
+})
+
+describe('the capability step cannot report success for a capability report that failed', () => {
+  /**
+   * The `run:` script of one step in a job, with the block-scalar indentation
+   * removed, so it can be handed to a shell exactly as GitHub would.
+   * @param {string} job - the job's code block.
+   * @param {string} stepId - the step's `id:` value.
+   * @returns {string} the script, newline-joined.
+   */
+  function runScript(job, stepId) {
+    const step = job.split('\n      - ').find(candidate => candidate.includes(`id: ${stepId}`))
+    if (step === undefined) throw new Error(`no step with id: ${stepId}`)
+    const block = /\n\s*run: \|\n([\s\S]*)$/u.exec(step)
+    if (block === null) throw new Error(`step ${stepId} has no \`run: |\` block`)
+    const indent = block[1].split('\n').find(line => line.trim() !== '')?.match(/^ */u)[0].length ?? 0
+    return block[1].split('\n').map(line => line.slice(indent)).join('\n')
+  }
+
+  it('exits non-zero when the reporter fails, and still writes capability.txt', async () => {
+    // The bug this guards is behavioural, not textual: a pipeline reports the
+    // status of its LAST command, so `report | tee capability.txt` handed GitHub
+    // tee's success while the report printed `✗ skills`, and the verdict step
+    // read CAPABILITY_OUTCOME=success and let the lane go green. Searching for
+    // the token `PIPESTATUS` would not have caught a differently-shaped
+    // mistake, so this runs the step's ACTUAL script with the reporter swapped
+    // for one that fails.
+    const job = extractJob(await readWorkflow(), 'harness-target')
+    const script = runScript(job, 'capability')
+
+    // A reporter that writes a report and fails, standing in for
+    // capability-report.mjs when it renders a `✗` line. mkdtemp's alphabet
+    // contains nothing the shell would treat specially, so this path needs no
+    // quoting beyond the double quotes JSON.stringify supplies.
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-capability-step-'))
+    try {
+      const stub = join(dir, 'failing-report.sh')
+      writeFileSync(stub, 'echo "Harness compatibility · target (0.0.0)"\necho "✗ skills"\nexit 1\n')
+      const exercised = script.replace(
+        // Only the reporter command, NOT the rest of the line: the `| tee
+        // capability.txt` downstream is part of what is under test.
+        /node tools\/capability-report\.mjs[^\n|]*/u,
+        `sh ${JSON.stringify(stub)}`,
+      )
+      expect(exercised, 'the reporter command must be the one substituted').not.toBe(script)
+
+      const result = spawnSync('bash', ['-c', exercised], { cwd: dir, encoding: 'utf8' })
+      // The step's own status is what GitHub records, and what `steps.capability.outcome`
+      // — the value the verdict reads — is taken from.
+      expect(result.status, 'a failing capability report must fail the step').not.toBe(0)
+      // The diagnostics that make continue-on-error worth having must survive.
+      const report = readFileSync(join(dir, 'capability.txt'), 'utf8')
+      expect(report).toContain('✗ skills')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves no step whose exit status would be tee\'s rather than its producer\'s', async () => {
+    // The general form of the same invariant, so a future step added to this
+    // lane cannot reintroduce it. The hazard is precise: a step whose LAST
+    // command is a `... | tee <file>` pipeline reports tee's status, not its
+    // producer's. A step that pipes into tee and then goes on to decide its own
+    // status — the verdict step does, with its `if` — is not affected, so this
+    // looks at the final command rather than at any pipeline anywhere.
+    const job = extractJob(await readWorkflow(), 'harness-target')
+    for (const step of job.split('\n      - ')) {
+      const name = /(?:^|\n)\s*(?:-\s+)?(?:id|name):\s*(.+)$/mu.exec(step)?.[1].trim() ?? 'unnamed step'
+      const inline = /\n\s*run:\s*(\S.*)$/mu.exec(step)?.[1]
+      const block = /\n\s*run: \|\n([\s\S]*)$/u.exec(step)
+      let last
+      if (block !== null) {
+        const lines = block[1].split('\n').filter(line => line.trim() !== '')
+        last = lines[lines.length - 1]?.trim()
+      } else {
+        last = inline
+      }
+      if (last === undefined || !/\|\s*tee\b/.test(last)) continue
+      expect(step, `${name} ends on a tee pipeline, so it would report tee's status`).toContain('PIPESTATUS')
+    }
   })
 })
 
