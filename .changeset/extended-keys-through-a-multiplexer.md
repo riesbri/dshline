@@ -23,7 +23,11 @@ byte. Verified on tmux 3.7c — under level 2 tmux also re-encodes `ctrl-c` as
 `CSI 27 ; 5 ; 99 ~`, where under level 1 it stays the single byte `0x03`.
 
 Both requests go to every terminal, because a terminal that implements neither
-ignores both and asking costs nothing. There is no tmux branch anywhere in the
+ignores both and asking costs nothing. That includes tmux older than 3.5,
+which has no way for a program to ask at all: the capability arrived in 3.5,
+and before that `extended-keys` only makes tmux send extended keys unasked.
+The usage page now carries that matrix, because "set this option" is not a
+useful answer on a release where the option cannot help. There is no tmux branch anywhere in the
 renderer and nothing new to detect at runtime: the same two sequences are sent
 whether or not a multiplexer is present, and both are released in reverse order on
 exit, so no keyboard mode survives this process.

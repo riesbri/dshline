@@ -2405,6 +2405,20 @@ arrives as its own key. With it off, dshline's request is ignored and a modified
 `shift-enter` **sends the message**. No setting inside dshline changes that; it
 is the multiplexer's decision to make.
 
+Which tmux can do this at all depends on its version, because being *allowed to
+ask* is what changed:
+
+| tmux | how a program in a pane gets distinguishable modified keys |
+| --- | --- |
+| before 3.5 | it cannot ask. `extended-keys` plus a terminal known to support extended keys makes tmux send them unasked, and that is all there is |
+| 3.5 to 3.6 | a program can ask, with the `extended-keys` option on. The format reported to the pane is fixed |
+| 3.7 and later | the same, plus `extended-keys-format` to choose between the two encodings |
+
+On anything older than 3.5 the setting above changes nothing, and dshline's
+request is ignored the way it is on a terminal that does not implement it —
+which is a supported path, not a broken one. Everything else on this page works
+identically there.
+
 Every other key is unaffected either way. `enter`, `ctrl-c`, `ctrl-d`, `ctrl-r`,
 the arrows, `home`, `end`, `delete` and `tab` arrive as the bytes they always
 did, and the extra mode is released when dshline exits, so the next program in

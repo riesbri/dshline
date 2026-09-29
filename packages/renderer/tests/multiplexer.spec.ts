@@ -17,14 +17,81 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { Key } from '../src/keys.ts'
 import { decodeKeys } from '../src/keys.ts'
 import { terminalModes } from '../src/terminal.ts'
 
-/** Whether a tmux this test can drive is present at all. */
-const hasTmux = process.platform !== 'win32'
-  && spawnSync('tmux', ['-V'], { encoding: 'utf8', timeout: 5000 }).status === 0
+/** Why this suite is or is not running, so a skip says something useful. */
+type Support = { supported: true } | { supported: false, reason: string }
+
+/**
+ * Ask this tmux whether it lets a program REQUEST distinguishable modified keys.
+ *
+ * Measured, never assumed, and deliberately not a version check. The capability
+ * arrived in tmux 3.5 ("Revamp extended keys support ... support mode 2 as well
+ * as mode 1"); before that a program could not ask for it at all, and tmux
+ * reported no state to ask about — `pane_key_mode` simply does not exist, so the
+ * format expands to an empty string. Ubuntu 24.04, which CI runs on, ships tmux
+ * 3.4. A version comparison would have to be maintained against every release and
+ * would still be a guess about a build; asking the running program is the only
+ * answer that cannot be wrong.
+ *
+ * The whole question is one throwaway server and one `printf`, so the cost of
+ * being honest about it is a few hundred milliseconds on a machine that has tmux
+ * and nothing at all on one that does not.
+ * @returns whether the negotiation this file tests exists here, and if not why.
+ */
+function measureSupport(): Support {
+  if (process.platform === 'win32') return { supported: false, reason: 'not a POSIX platform' }
+  const version = spawnSync('tmux', ['-V'], { encoding: 'utf8', timeout: 10000 })
+  if (version.status !== 0) return { supported: false, reason: 'tmux is not installed' }
+  const name = `dsh-mux-probe-${String(process.pid)}`
+  const ask = (args: string[]): string => spawnSync('tmux', ['-L', name, ...args], { encoding: 'utf8', timeout: 10000 }).stdout ?? ''
+  // The gate a user would set, written into a configuration file of its own
+  // rather than assumed: tmux 3.7 ships `extended-keys` off, and with it off no
+  // request is honoured on ANY version, which would make this probe report the
+  // wrong reason for the wrong thing.
+  const config = join(mkdtempSync(join(tmpdir(), 'dsh-mux-cfg-')), 'tmux.conf')
+  writeFileSync(config, 'set -g extended-keys on\n')
+  try {
+    // `extended-keys on` is the gate a user would set; the program then asks for
+    // level 1 the way the frontend does, and tmux reports the mode it settled on.
+    // Written from Node rather than `printf`, and hex rather than escapes, so no
+    // layer between here and the pane can reinterpret the sequence: the whole
+    // point of the probe is that the bytes are exactly the ones the frontend
+    // sends. The single quotes keep the shell out of it entirely.
+    const request = `node -e 'process.stdout.write(Buffer.from("${Buffer.from('\u001b[>4;1m', 'latin1').toString('hex')}", "hex")); setTimeout(() => {}, 5000)'`
+    const started = spawnSync('tmux', ['-L', name, '-f', config, 'new-session', '-d', '-s', 'probe', '-x', '80', '-y', '24',
+      request], { timeout: 10000 })
+    if (started.status !== 0) return { supported: false, reason: 'could not start an isolated tmux server' }
+    // Polled rather than asked once: the pane program has to start and tmux has to
+    // read what it wrote, and asking before either has happened reports a tmux
+    // that works as one that does not. A supporting tmux reaches `Ext 1` in
+    // milliseconds; a window of a few seconds is generous, and nothing here is
+    // waiting on anything slower than a process launch.
+    let mode = ''
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      mode = ask(['display-message', '-p', '-t', 'probe', '#{pane_key_mode}']).trim()
+      if (mode !== '' && mode !== 'VT10x') break
+      spawnSync('sleep', ['0.1'], { timeout: 5000 })
+    }
+    return mode === 'Ext 1'
+      ? { supported: true }
+      : { supported: false, reason: `${version.stdout.trim()} does not let a program request extended keys (that arrived in 3.5; pane_key_mode reported ${JSON.stringify(mode)})` }
+  } finally {
+    spawnSync('tmux', ['-L', name, 'kill-server'], { timeout: 10000 })
+    rmSync(dirname(config), { recursive: true, force: true })
+  }
+}
+
+const support = measureSupport()
+const describeMultiplexer = support.supported ? describe : describe.skip
+if (!support.supported) {
+  // Said out loud, because a silently skipped suite is indistinguishable from one
+  // that quietly stopped running.
+  process.stderr.write(`multiplexer.spec: skipped — ${support.reason}\n`)
+}
 
 /**
  * What the multiplexer is configured to do.
@@ -214,7 +281,7 @@ afterAll(() => {
   if (workspace !== '') rmSync(workspace, { recursive: true, force: true })
 })
 
-describe.skipIf(!hasTmux)('through a terminal multiplexer', () => {
+describeMultiplexer('through a terminal multiplexer', () => {
   it('is told the request was accepted, and modified enter arrives distinguishably', async () => {
     // The regression this file exists for. tmux is a terminal emulator: it answers
     // a key request itself rather than forwarding it, and it does not understand
@@ -270,7 +337,18 @@ describe.skipIf(!hasTmux)('through a terminal multiplexer', () => {
       for (const [index, key] of burst.entries()) await harness.press(key, path, index + 1)
       const run = harness.result()
       expect(run.keyMode).toBe('VT10x')
-      expect(run.chunks).toEqual(['0d', '1b5b41', '1b5b317e', '1b5b347e', '1b5b337e', '09'])
+      // Everything except the very first byte is asserted exactly, because those
+      // are escape sequences and this harness cannot alter them.
+      expect(run.chunks.slice(1)).toEqual(['1b5b41', '1b5b317e', '1b5b347e', '1b5b337e', '09'])
+      // Enter is deliberately NOT asserted byte for byte. The outer tmux runs its
+      // pane in COOKED mode, so the line discipline between the two servers may
+      // map the carriage return this test wrote into a line feed before the inner
+      // one sees it — which is a property of this fixture, not of tmux or of this
+      // frontend, and it varied between runs. What matters is that both bytes are
+      // the same key, which is exactly the claim being made: nothing that used to
+      // work has moved. (In a real session dshline's own pty is in raw mode, so
+      // the byte is the carriage return.)
+      expect(['0d', '0a']).toContain(run.chunks[0])
       expect(keysOf(run)).toEqual([
         { kind: 'key', name: 'enter' },
         { kind: 'key', name: 'up' },
