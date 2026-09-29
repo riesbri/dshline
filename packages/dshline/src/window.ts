@@ -21,6 +21,7 @@
  * @module dshline/window
  */
 
+import { posix, win32 } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, ModelSelectionRef, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
@@ -375,6 +376,16 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
     screen.close()
     terminal.close()
   }, 'dshline: terminal ownership')
+
+  // Identify the WINDOW's launch workspace, not an Agent that /sessions may
+  // replace (even with one from another directory). Metadata moves no cells,
+  // so it needs no Screen update and is written once, outside all redraws.
+  const paths = process.platform === 'win32' ? win32 : posix
+  // Explicit -C values can be relative or end in /. or /..; resolve only the
+  // display spelling, without changing Harness's workspace/path identity.
+  const titlePath = startup.cwd === '' ? '' : paths.resolve(startup.cwd)
+  const workspace = paths.basename(titlePath) || paths.parse(titlePath).root || 'workspace'
+  terminal.setTitle(`dshline · ${workspace}`)
 
   // Every redraw request funnels here — slot invalidations, session events,
   // the spinner tick, resize — so the scheduler sees each burst whole. One

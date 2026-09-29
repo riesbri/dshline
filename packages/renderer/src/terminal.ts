@@ -27,8 +27,41 @@ export interface Terminal extends ScreenTarget {
   onKey(listener: (key: Key) => void): () => void
   /** Observe terminal resizes; returns the removal disposer. */
   onResize(listener: () => void): () => void
-  /** Restore the terminal to the state it was acquired in. Idempotent. */
+  /**
+   * Set terminal title metadata without touching cells or scrollback.
+   *
+   * C0/C1 controls and DEL are removed; at most 120 Unicode code points survive.
+   * The previous title is not saved or restored: title stacks are not portable.
+   * An empty sanitized title clears it; calls after close are ignored.
+   * @param title - untrusted title text, not pre-escaped or styled.
+   * @returns nothing; writes one OSC 2 sequence while owned.
+   */
+  setTitle(title: string): void
+  /** Restore input modes and release ownership, not the previous title. Idempotent. */
   close(): void
+}
+
+/** Metadata, not transcript: even all-astral titles stay below 255 UTF-16 units. */
+const MAX_TITLE_CODE_POINTS = 120
+
+/**
+ * OSC payloads cannot use visible-text escaping, which deliberately keeps LF.
+ * Drop every terminal control before framing, and stop at whole code points.
+ * @param title - untrusted terminal metadata.
+ * @returns a bounded payload with no OSC/ST introducers or terminators.
+ */
+function titlePayload(title: string): string {
+  let payload = ''
+  let count = 0
+  for (const char of title) {
+    const code = char.codePointAt(0)!
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) continue
+    // A lone surrogate is not Unicode text; preserve the same replacement UTF-8
+    // output would use, rather than letting malformed input reach the encoder.
+    payload += code >= 0xd800 && code <= 0xdfff ? '\ufffd' : char
+    if (++count === MAX_TITLE_CODE_POINTS) break
+  }
+  return payload
 }
 
 /** Default columns when the stream reports none, matching the classic width. */
@@ -231,6 +264,12 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
   let closed = false
   return {
     write: chunk => { output.write(chunk) },
+    setTitle: title => {
+      if (closed) return
+      // OSC 2 changes only the title, not the icon label (OSC 0). BEL is the
+      // shortest accepted terminator in xterm, Ghostty, tmux and Windows VT.
+      output.write(`\u001b]2;${titlePayload(title)}\u0007`)
+    },
     columns: () => output.columns ?? FALLBACK_COLUMNS,
     rows: () => output.rows ?? FALLBACK_ROWS,
     onKey: listener => {

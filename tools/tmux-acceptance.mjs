@@ -7,7 +7,8 @@
  *
  *   finished output becomes pane history · the live region is the only thing
  *   redrawn · a resize never rewrites history · a detached session survives and
- *   comes back · quitting returns the pane to a usable shell
+ *   comes back · standard terminal titles become pane titles · quitting returns
+ *   the pane to a usable shell
  *
  * It runs against isolated tmux servers on their own sockets with generated
  * configuration files, so the developer's own server and `~/.tmux.conf` are never
@@ -63,6 +64,12 @@ const SIZES = [[120, 40], [80, 24], [50, 12], [30, 8], [20, 6], [12, 4], [120, 4
 /** How many finished lines the pane commits before anything is streamed. */
 const COMMITTED = 120
 
+/** The exact title tmux must receive, including non-ASCII workspace text. */
+const PANE_TITLE = 'dshline · acceptance 工作🚀'
+
+/** Controls must be removed, not interpreted as an OSC terminator or command. */
+const TITLE_INPUT = 'dshline · acceptance \u001b\u0007\u009c\u0085工作🚀'
+
 /**
  * What runs in the pane: the real `Screen`, driven through the whole lifecycle.
  *
@@ -73,9 +80,14 @@ const COMMITTED = 120
 const FIXTURE = `
 import { appendFileSync, writeFileSync } from 'node:fs'
 import { Screen } from ${JSON.stringify(join(RENDERER, 'screen.js'))}
+import { acquireTerminal } from ${JSON.stringify(join(RENDERER, 'terminal.js'))}
 
 const dir = process.argv[2]
 const log = text => appendFileSync(dir + '/fixture.log', text)
+const terminal = acquireTerminal({ input: process.stdin, output: process.stdout })
+terminal.setTitle(${JSON.stringify(TITLE_INPUT)})
+// The existing reattach check relies on cooked-mode echo, not a key listener.
+terminal.close()
 const screen = new Screen({
   write: chunk => process.stdout.write(chunk),
   columns: () => process.stdout.columns ?? 80,
@@ -202,6 +214,13 @@ try {
     `TERM=xterm-256color tmux -L ${INNER} attach-session -t app`])
   await waitFor(() => tmux(OUTER, ['display-message', '-p', '-t', 'pty', '#{pane_current_command}']).trim() === 'tmux', 20000, 'the client to attach')
   await waitFor(() => screen().includes('TALL REGION COLLAPSED'), 20000, 'the streaming turn to finish')
+
+  // Read tmux's metadata, not captured cells: OSC titles are not screen text.
+  check('the standard terminal title becomes pane_title without controls', await waitFor(
+    () => tmux(INNER, ['display-message', '-p', '-t', 'app', '#{pane_title}']).trim() === PANE_TITLE,
+    5000,
+    'the sanitized Unicode pane title',
+  ))
 
   // 1. Finished output is pane history, in order, exactly once.
   const before = history()
