@@ -304,6 +304,8 @@ That is the frontend refusing to start without a real terminal, which happens wh
 
 Run `node tools/keyprobe.mjs` from a checkout of this repository and press the key. It prints the bytes your terminal sends and the key this project decodes them into; an empty result is a bug worth reporting.
 
+If you are connected over SSH and running inside tmux, the shortcut may be getting through the connection rather than failing in this project: the probe also reports what the multiplexer is and whether it accepted the request for distinguishable modified keys. [Using dshline through SSH and tmux](usage.md#using-dshline-through-ssh-and-tmux) explains what that means and which setting, if any, changes it.
+
 ## Uninstalling
 
 This removes both the package and the profile's reference to it:

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalStreams } from '../src/index.ts'
 import { acquireTerminal, isInteractive } from '../src/index.ts'
+// Deliberately NOT from the package root: `terminalModes` is a seam for the
+// keyprobe diagnostic rather than something the renderer promises its callers, so
+// a test that reached for it through the public entry point would be asking for an
+// export this project has decided not to have.
+import { terminalModes } from '../src/terminal.ts'
 
 /** Streams that claim to be, or not to be, a terminal. */
 function streams(input: boolean, output: boolean): TerminalStreams {
@@ -94,6 +99,59 @@ describe('acquireTerminal()', () => {
     expect(fake.written.join('')).toContain('\u001b[>1u')
     terminal.close()
     expect(fake.written.join('')).toContain('\u001b[<u')
+  })
+
+  it('asks for the same thing a second way, and takes that back too', () => {
+    // A terminal multiplexer is a terminal emulator: it answers `CSI > 1 u` itself
+    // and does not forward it, which was measured on tmux 3.7c — the request left
+    // its `pane_key_mode` at the default and shift-enter still arrived as a bare
+    // carriage return, so a frontend behind it submitted an unfinished prompt.
+    // `CSI > 4 ; 1 m` is the request tmux does honour, and it is sent everywhere
+    // for the same reason the kitty one is: a terminal that does not implement it
+    // ignores it, so asking costs nothing and a tmux-shaped path gains the gesture.
+    const fake = fakeStreams(false)
+    const terminal = acquireTerminal({ input: fake.input, output: fake.output })
+    expect(fake.written.join('')).toContain('\u001b[>4;1m')
+    terminal.close()
+    // Level 0 is how the resource starts; anything else leaves a mode behind.
+    expect(fake.written.join('')).toContain('\u001b[>4;0m')
+  })
+
+  it('emits the modes as exact byte strings, in a fixed order', () => {
+    // Asserted literally rather than by containment: these are protocol bytes, and
+    // the ORDER is part of the contract because the teardown reverses it.
+    withPlatform('linux', () => {
+      expect(terminalModes()).toEqual({
+        on: '\u001b[?2004h\u001b[>1u\u001b[>4;1m',
+        off: '\u001b[>4;0m\u001b[<u\u001b[?2004l',
+      })
+    })
+  })
+
+  it('emits the Windows console mode around the others, unchanged by the new request', () => {
+    // The console host answers its own protocol, so its mode is asked for last and
+    // taken back first. The two keyboard requests either side of it are the same
+    // bytes a POSIX terminal is sent.
+    withPlatform('win32', () => {
+      expect(terminalModes()).toEqual({
+        on: '\u001b[?2004h\u001b[>1u\u001b[>4;1m\u001b[?9001h',
+        off: '\u001b[?9001l\u001b[>4;0m\u001b[<u\u001b[?2004l',
+      })
+    })
+  })
+
+  it('leaves no keyboard mode behind when the same terminal is closed twice', () => {
+    // The one invariant that outranks the rest: no mode may survive this process.
+    // A second close that re-emitted the release would be harmless, but a close
+    // that skipped it would hand the next program a keyboard nobody asked for.
+    const fake = fakeStreams(false)
+    const terminal = acquireTerminal({ input: fake.input, output: fake.output })
+    terminal.close()
+    const afterFirst = fake.written.length
+    terminal.close()
+    expect(fake.written).toHaveLength(afterFirst)
+    const written = fake.written.join('')
+    expect(written.lastIndexOf('\u001b[>4;0m')).toBeGreaterThan(written.lastIndexOf('\u001b[>4;1m'))
   })
 
   /** Run `body` with `process.platform` reporting `platform`. */

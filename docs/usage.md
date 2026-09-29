@@ -205,6 +205,8 @@ long as the session runs, and `/enter` says it could not be stored.
 
 By default, a terminal sends exactly the same bytes for `shift-enter` as for `enter`, so no program can tell them apart. To make the difference visible, this interface asks your terminal for one extra keyboard feature on startup: the lowest option of the kitty keyboard protocol, called *disambiguate escape codes*. Terminals that support it (kitty, Ghostty, WezTerm, foot, recent iTerm2 and Alacritty, Konsole) then report a modified `enter` as its own sequence.
 
+The same property is also asked for in xterm's spelling, `modifyOtherKeys` level 1. That is not belt and braces: a terminal **multiplexer** is a terminal emulator, so it answers a key request itself instead of forwarding it, and the current supported tmux releases do not honour that pane request. Through tmux, the second spelling is the one that is honoured. Both are sent to every terminal, because a terminal that implements neither simply ignores both and the request costs nothing. See [Using dshline through SSH and tmux](#using-dshline-through-ssh-and-tmux).
+
 On native Windows it also asks for *win32-input-mode*, the Windows console's own way of reporting a key's modifiers. That is what keeps a modified key distinguishable on the Windows console paths that do not support the kitty keyboard protocol, Windows Terminal 1.24 and earlier among them. A console that does not implement the mode ignores the request, and nothing changes.
 
 That request has a side effect worth knowing about. On a terminal that supports it, `esc`, `alt`, and `ctrl` combinations also stop arriving in their old form: `ctrl-c` becomes the sequence `CSI 99 ; 5 u` instead of the single byte `0x03`. This project reads both forms, so every shortcut in the table above works either way. The details are in [Design → Keyboard input is read in both formats](design.md#keyboard-input-is-read-in-both-formats).
@@ -2336,6 +2338,132 @@ working directories rather than between conversations, use
 [`/worktrees`](#worktrees); to work in two of them at once, open two terminals,
 each rooted in its own directory — which is also how the sessions each one
 creates reach the other's `/worktrees` list.
+
+## Using dshline through SSH and tmux
+
+dshline is a plain terminal program. It draws into whatever pane it was handed
+and reads keys from it, and it has no idea whether that pane belongs to tmux. It
+does not manage sessions, windows or panes, never shells out to `tmux`, and never
+edits your `.tmux.conf`. Everything below is your configuration, not state
+dshline keeps.
+
+### Surviving a dropped connection
+
+A turn belongs to the process, not to the SSH connection that started it. tmux is
+the usual way to keep that process alive:
+
+```sh
+tmux new-session -A -s dev     # create it, or rejoin it if it is already there
+dshline
+```
+
+Detach with `ctrl-b d`, reconnect, and run the same line again. The turn that was
+running is still running and everything it printed is still on screen.
+
+That is tmux holding a process, which is a different thing from dshline
+persisting a session. A dshline session that ended, ended — tmux or no tmux. To
+come back to a *finished* conversation, use [`/sessions`](#sessions).
+
+### Where the transcript lives
+
+Under tmux, output dshline has finished with becomes **tmux pane history** rather
+than the outer terminal emulator's own scrollback. From the application's side
+nothing changes: it still writes finished rows and never rewrites them. The
+scrollback you reach with `ctrl-b [` is just tmux's now, and how much of it there
+is comes from tmux's `history-limit` — 2000 lines by default:
+
+```tmux
+set -g history-limit 50000
+```
+
+Raise it if you want a long session to stay fully scrollable. Nothing else is
+needed; a default tmux already keeps dshline's finished output correctly.
+
+### Modified enter under tmux
+
+A modified `enter` only reaches the program if something in the chain can tell it
+apart from a plain one, and there are three links:
+
+```text
+your terminal  →  tmux  →  dshline
+```
+
+dshline asks its terminal for that at startup, in the two spellings described
+under [About shift-enter](#about-shift-enter). A terminal answers either one. A
+multiplexer also answers — **itself**, rather than by forwarding the request to
+your terminal — and which spelling it honours is its own `extended-keys` option,
+which tmux 3.7 ships `off`:
+
+```tmux
+set -g extended-keys on
+```
+
+With it on, tmux accepts dshline's request and reports a modified `enter`
+distinctly, so `shift-enter` and `alt-enter` insert a newline and `ctrl-enter`
+arrives as its own key. With it off, dshline's request is ignored and a modified
+`enter` arrives as the same bare carriage return as a plain one — which means
+`shift-enter` **sends the message**. No setting inside dshline changes that; it
+is the multiplexer's decision to make.
+
+Which tmux can do this at all depends on its version, because being *allowed to
+ask* is what changed:
+
+| tmux | how a program in a pane gets distinguishable modified keys |
+| --- | --- |
+| before 3.5 | it cannot ask. `extended-keys` plus a terminal known to support extended keys makes tmux send them unasked, and that is all there is |
+| 3.5 to 3.6 | a program can ask, with the `extended-keys` option on. The format reported to the pane is fixed |
+| 3.7 and later | the same, plus `extended-keys-format` to choose between the two encodings |
+
+On anything older than 3.5 the setting above changes nothing, and dshline's
+request is ignored the way it is on a terminal that does not implement it —
+which is a supported path, not a broken one. Everything else on this page works
+identically there.
+
+Every other key is unaffected either way. `enter`, `ctrl-c`, `ctrl-d`, `ctrl-r`,
+the arrows, `home`, `end`, `delete` and `tab` arrive as the bytes they always
+did, and the extra mode is released when dshline exits, so the next program in
+the pane reads your keyboard normally.
+
+One caveat about the first link, so the setting is not oversold: tmux 3.7 parses
+the key reports it is given, but it does not send a request asking your terminal
+to start producing them. If your terminal is in its default keyboard mode, a
+modified `enter` never reaches tmux as more than a carriage return, and the
+setting above cannot recover it. That link is between you and your terminal, and
+no configuration here changes it.
+
+If `shift-enter` sends instead of breaking the line, run the probe:
+
+```sh
+pnpm build && node tools/keyprobe.mjs
+```
+
+It prints the environment, asks tmux what it is, and then shows the raw bytes of
+each key you press beside the key this project decoded. The line that answers the
+question above is `tmux accepted it as: …` — `Ext 1` means the request was
+taken, `VT10x` means it was ignored.
+
+### Resizing
+
+Resizing the pane redraws only the live region: the streaming reply, the composer
+and the status line. Finished output above is never rewritten, so narrowing the
+pane reflows the transcript inside tmux's own history rather than in dshline.
+Narrow panes work; under roughly 20 columns the layout is tight and some
+overlays step aside.
+
+### Copying to the clipboard on the machine you came from
+
+tmux can forward a copy you make in copy mode to the clipboard of the machine you
+connected **from**, which is the part that matters over SSH:
+
+```tmux
+set -s set-clipboard external
+```
+
+`external` rather than `on` is deliberate. With `on`, any program in the pane can
+also push text to your local clipboard on its own; with `external`, only a copy
+you make yourself is sent. dshline does not write your tmux configuration, does
+not enable this for you, and never puts model output on your clipboard by itself —
+use tmux's own copy mode for the text you want to keep.
 
 ## If it refuses to start
 

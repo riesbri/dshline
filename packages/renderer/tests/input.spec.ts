@@ -226,6 +226,64 @@ describe('decodeKeys()', () => {
   })
 })
 
+describe('the encoding a terminal multiplexer sends', () => {
+  // Byte-exact strings captured from tmux 3.7c on the way into a pane, with the
+  // frontend's own `CSI > 4 ; 1 m` request in force. tmux answers a modified key
+  // in xterm's `CSI 27 ; modifiers ; code ~` form, which is the encoding this
+  // decoder has always read, so the cases below are the real chain rather than a
+  // hypothetical one. Nothing here is new decoding — it is the guarantee that the
+  // multiplexer path lands on the same keys the direct path does.
+  const SHIFT_ENTER = '\u001b[27;2;13~'
+  const CTRL_ENTER = '\u001b[27;5;13~'
+  const CTRL_C = '\u001b[27;5;99~'
+
+  it('reads the three modified enters the frontend offers', () => {
+    expect(decodeKeys(SHIFT_ENTER)).toEqual([{ kind: 'key', name: 'newline' }])
+    expect(decodeKeys(CTRL_ENTER)).toEqual([{ kind: 'key', name: 'ctrl-enter' }])
+    // Alt keeps its legacy ESC CR through a multiplexer, and the legacy form is
+    // still a deliberate newline: requesting more must not cost the fallback.
+    expect(decodeKeys('\u001b\r')).toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('reads a ctrl gesture the multiplexer chose to re-encode', () => {
+    // Under modifyOtherKeys level 1 tmux leaves ctrl-c as one byte, but level 2
+    // re-encodes it. Both must land on the same key, or a tmux user loses the
+    // interrupt on a configuration they did not choose.
+    expect(decodeKeys(CTRL_C)).toEqual([{ kind: 'key', name: 'ctrl-c' }])
+  })
+
+  it('keeps a multiplexer sequence whole when the read splits it after the ESC', () => {
+    const decoder = createKeyDecoder()
+    expect(decoder.push('\u001b')).toEqual([])
+    expect(decoder.push('[27;2;13~')).toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('keeps one whole when the split lands inside the parameters', () => {
+    // The parameters are where the modifiers live, so a boundary here is the one
+    // that would silently turn a modified key into dropped bytes.
+    const decoder = createKeyDecoder()
+    expect(decoder.push('\u001b[27;2')).toEqual([])
+    expect(decoder.push(';13~')).toEqual([{ kind: 'key', name: 'newline' }])
+  })
+
+  it('reads several keys delivered in one read, in order', () => {
+    // What a paste-rate burst or an SSH link delivering a short queue looks like.
+    expect(decodeKeys(`${SHIFT_ENTER}${CTRL_ENTER}${CTRL_C}`)).toEqual([
+      { kind: 'key', name: 'newline' },
+      { kind: 'key', name: 'ctrl-enter' },
+      { kind: 'key', name: 'ctrl-c' },
+    ])
+  })
+
+  it('reads a burst that mixes a multiplexer key with text either side of it', () => {
+    expect(decodeKeys(`ab${SHIFT_ENTER}cd`)).toEqual([
+      { kind: 'text', text: 'ab' },
+      { kind: 'key', name: 'newline' },
+      { kind: 'text', text: 'cd' },
+    ])
+  })
+})
+
 describe('win32-input-mode reports', () => {
   // What a Windows console sends once it has been asked for input records:
   // `CSI vk ; scan ; char ; down ; control ; repeat _`. These are captured from
