@@ -128,7 +128,8 @@ describe('shipped preset declarations activate', () => {
     const names = rows.map(row => row.name)
     // The rows the adopted generation's own standard declaration carries and a
     // terminal session has always had. Each was verified against
-    // `packages/bundle/web-app/presets/standard.patch.yml` at 0.2.0-rc.1 (unchanged from 0.1.7-rc.2).
+    // `packages/bundle/web-app/presets/standard.patch.yml` at 0.2.0-rc.2 (git blob
+    // 0b898bf7, byte-identical to 0.2.0-rc.1's and to 0.1.7-rc.2's).
     for (const name of [
       '@deepseek-ai/dsh-persona',
       '@deepseek-ai/dsh-tool-bash',

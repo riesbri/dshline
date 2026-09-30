@@ -13,8 +13,9 @@
           #
           # A preset is now an ordinary `@deepseek-ai/dsh-agent-preset` declaration in a
           # Cordis composition, and this file is its `config.plugins`. It starts from the
-          # released 0.2.0-rc.1 standard declaration
-          # (`packages/bundle/web-app/presets/standard.patch.yml` in deepseek-harness) and
+          # released 0.2.0-rc.2 standard declaration
+          # (`packages/bundle/web-app/presets/standard.patch.yml` in deepseek-harness, git blob
+          # 0b898bf7740306cf7bbb50eb37bfbbf75fa03c68 — byte-identical to 0.2.0-rc.1's) and
           # carries the terminal-profile differences a terminal session has always needed.
           # The tool set is the one a terminal session has run, and every row here is one
           # this bundle DISABLES in `cordis.patch.yml` above, because `dsh-base` ships the
@@ -326,6 +327,15 @@
 
           # ── remaining model-facing rows ─────────────────────────────────────────────
 
+          # Upstream 0.2.0-rc.2 gave this tool a `config` (`mode: legacy | timed`,
+          # `timeout`) for the first time; this row declares none, which selects the
+          # documented `legacy` default — the blocking tool dshline has always answered.
+          # Deliberate, not an oversight: `timed` is the opt-in that lets a foreground
+          # wait expire and continue the turn, and dshline's answerer does not claim that
+          # wait (it reads no `request.wait`). Its overlays still dismiss correctly when
+          # one closes, through the waterfall signal `askOne` already honours. Adopting
+          # `timed` is a UX decision for its own pull request, not a consequence of this
+          # generation.
           - id: tool-ask-user
             name: '@deepseek-ai/dsh-tool-ask-user'
 
