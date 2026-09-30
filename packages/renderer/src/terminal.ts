@@ -27,8 +27,41 @@ export interface Terminal extends ScreenTarget {
   onKey(listener: (key: Key) => void): () => void
   /** Observe terminal resizes; returns the removal disposer. */
   onResize(listener: () => void): () => void
-  /** Restore the terminal to the state it was acquired in. Idempotent. */
+  /**
+   * Set terminal title metadata without touching cells or scrollback.
+   *
+   * C0/C1 controls and DEL are removed; at most 120 Unicode code points survive.
+   * The previous title is not saved or restored: title stacks are not portable.
+   * An empty sanitized title clears it; calls after close are ignored.
+   * @param title - untrusted title text, not pre-escaped or styled.
+   * @returns nothing; writes one OSC 2 sequence while owned.
+   */
+  setTitle(title: string): void
+  /** Restore input modes and release ownership, not the previous title. Idempotent. */
   close(): void
+}
+
+/** Metadata, not transcript: even all-astral titles stay below 255 UTF-16 units. */
+const MAX_TITLE_CODE_POINTS = 120
+
+/**
+ * OSC payloads cannot use visible-text escaping, which deliberately keeps LF.
+ * Drop every terminal control before framing, and stop at whole code points.
+ * @param title - untrusted terminal metadata.
+ * @returns a bounded payload with no OSC/ST introducers or terminators.
+ */
+function titlePayload(title: string): string {
+  let payload = ''
+  let count = 0
+  for (const char of title) {
+    const code = char.codePointAt(0)!
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) continue
+    // A lone surrogate is not Unicode text; preserve the same replacement UTF-8
+    // output would use, rather than letting malformed input reach the encoder.
+    payload += code >= 0xd800 && code <= 0xdfff ? '\ufffd' : char
+    if (++count === MAX_TITLE_CODE_POINTS) break
+  }
+  return payload
 }
 
 /** Default columns when the stream reports none, matching the classic width. */
@@ -75,6 +108,38 @@ const ENHANCED_KEYS_ON = '\u001b[>1u'
 const ENHANCED_KEYS_OFF = '\u001b[<u'
 
 /**
+ * Ask for the SAME property through xterm's `modifyOtherKeys`, level 1.
+ *
+ * The request above is not the only way to say it, and the alternative is not a
+ * rarity: a terminal multiplexer is a terminal emulator, so it consumes this one
+ * instead of forwarding it, and the current supported tmux releases do not honour
+ * that pane request. Measured on tmux 3.7c: `CSI > 1 u` written by a pane's
+ * program left `pane_key_mode` at its default, and a modified enter still arrived
+ * as a bare carriage return, so a frontend behind tmux submitted an unfinished
+ * prompt on the one gesture that exists to avoid submitting one. tmux honours the
+ * request below instead, from the moment its `extended-keys` option is on, and
+ * answers in an encoding this renderer's decoder already reads. That the pane
+ * request is currently ignored is the premise here, not a permanent fact: a tmux
+ * that learns to honour it would make `multiplexer.spec.ts` fail its negative
+ * proof, which is the signal to reconsider this rather than to relax the test.
+ *
+ * Level 1, and not 2, because it is the smaller promise: only keys that have no
+ * legacy encoding change, so every key that already arrives unchanged still does.
+ * That was measured, not assumed: under level 2 tmux also re-encodes `ctrl-c` as
+ * `CSI 27 ; 5 ; 99 ~`, where under level 1 it stays the single byte `0x03`.
+ *
+ * Unconditional, like the request above, and for the same reason: a terminal that
+ * does not implement it ignores it, and one that implements both encodes the same
+ * keys in a form this decoder already reads. That is what keeps this out of the
+ * renderer's control flow — there is no `if (inside a multiplexer)` to scatter
+ * around, and nothing to detect at runtime.
+ */
+const EXTENDED_KEYS_ON = '\u001b[>4;1m'
+
+/** Level 0 is modifyOtherKeys off, which is the state every terminal starts in. */
+const EXTENDED_KEYS_OFF = '\u001b[>4;0m'
+
+/**
  * Ask a Windows console to report every key as an input record.
  *
  * The kitty protocol above is the right request everywhere else and is sent
@@ -119,10 +184,10 @@ function isWindowsConsole(): boolean {
 export function terminalModes(): { on: string; off: string } {
   const windowsConsole = isWindowsConsole()
   return {
-    on: `${PASTE_ON}${ENHANCED_KEYS_ON}${windowsConsole ? WIN32_KEYS_ON : ''}`,
+    on: `${PASTE_ON}${ENHANCED_KEYS_ON}${EXTENDED_KEYS_ON}${windowsConsole ? WIN32_KEYS_ON : ''}`,
     // Undone in the reverse order they were asked for, and the console mode first:
     // every one of these changes how the next program reads its input.
-    off: `${windowsConsole ? WIN32_KEYS_OFF : ''}${ENHANCED_KEYS_OFF}${PASTE_OFF}`,
+    off: `${windowsConsole ? WIN32_KEYS_OFF : ''}${EXTENDED_KEYS_OFF}${ENHANCED_KEYS_OFF}${PASTE_OFF}`,
   }
 }
 
@@ -199,6 +264,12 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
   let closed = false
   return {
     write: chunk => { output.write(chunk) },
+    setTitle: title => {
+      if (closed) return
+      // OSC 2 changes only the title, not the icon label (OSC 0). BEL is the
+      // shortest accepted terminator in xterm, Ghostty, tmux and Windows VT.
+      output.write(`\u001b]2;${titlePayload(title)}\u0007`)
+    },
     columns: () => output.columns ?? FALLBACK_COLUMNS,
     rows: () => output.rows ?? FALLBACK_ROWS,
     onKey: listener => {

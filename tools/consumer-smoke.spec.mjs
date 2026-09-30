@@ -1,6 +1,13 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { observeUntilReady, parseBootEvidence } from './consumer-smoke.mjs'
+import { observeUntilReady, packAndInstallProfile, parseBootEvidence } from './consumer-smoke.mjs'
+
+const execFileAsync = promisify(execFile)
 
 const VERSION = '0.7.1'
 
@@ -21,6 +28,73 @@ const QUITS_ON_CTRL_D = `
   process.stdin.resume()
   process.stdin.on('data', (chunk) => { if (chunk.includes(4)) process.exit(0) })
 `
+
+describe('packAndInstallProfile()', () => {
+  it.skipIf(process.platform === 'win32')('uses the current packed renderer through the packed frontend even when the initial install succeeds', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-packed-profile-test-'))
+    try {
+      // Same version, different code: release versions cannot identify whether
+      // this commit's renderer answered the frontend's package-name import.
+      const fixture = async (folder, manifest, source) => {
+        const dir = join(root, folder, 'package')
+        await mkdir(dir, { recursive: true })
+        await writeFile(join(dir, 'package.json'), JSON.stringify({ type: 'module', exports: './index.js', ...manifest }))
+        await writeFile(join(dir, 'index.js'), source)
+        return dir
+      }
+      const tar = async (folder) => {
+        const tarball = join(root, `${folder}.tgz`)
+        await execFileAsync('tar', ['-czf', tarball, '-C', join(root, folder), 'package'])
+        return tarball
+      }
+      const rendererManifest = { name: '@dshline/renderer', version: VERSION }
+      await fixture('registry', rendererManifest, 'export const terminal = {}\n')
+      const oldRenderer = await tar('registry')
+      const rendererDir = await fixture('current', rendererManifest,
+        'export const terminal = { setTitle: () => "current packed renderer" }\n')
+      await fixture('frontend', {
+        name: '@dshline/dshline', version: VERSION,
+        dependencies: { '@dshline/renderer': `file:${oldRenderer}` },
+      }, 'import { terminal } from "@dshline/renderer"; export const boot = () => terminal.setTitle()\n')
+      const frontend = await tar('frontend')
+      const dshBin = join(root, 'dsh.mjs')
+      await writeFile(dshBin, `#!${process.execPath}
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
+const args = process.argv.slice(2)
+if (args.slice(0, 4).join(' ') !== 'plugin --profile dshline add') process.exit(2)
+const profile = join(process.env.DSH_HOME, 'profiles', 'dshline')
+await mkdir(profile, { recursive: true })
+const manifest = join(profile, 'package.json')
+try { await readFile(manifest) } catch {
+  await writeFile(manifest, JSON.stringify({ name: 'profile-fixture', private: true }))
+  await writeFile(join(profile, 'pnpm-workspace.yaml'), "packages:\\n  - '.'\\n")
+}
+const store = process.env.CONSUMER_SMOKE_STORE_DIR
+const result = spawnSync('pnpm', ['add', '--offline', '--ignore-scripts', ...(store ? ['--store-dir', store] : []), args.at(-1)], { cwd: profile, stdio: 'inherit' })
+await appendFile(join(profile, 'adds.jsonl'), JSON.stringify({ code: result.status, tarball: args.at(-1) }) + '\\n')
+process.exit(result.status ?? 1)
+`)
+      await chmod(dshBin, 0o755)
+      const home = join(root, 'home')
+      const packedDir = join(root, 'packed-renderer')
+      const rendererTarball = await packAndInstallProfile(dshBin, home, frontend, rendererDir, packedDir)
+      const profile = join(home, 'profiles', 'dshline')
+      const adds = (await readFile(join(profile, 'adds.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+      expect(adds).toEqual([{ code: 0, tarball: frontend }, { code: 0, tarball: frontend }])
+      expect(await readdir(packedDir)).toEqual([rendererTarball.slice(packedDir.length + 1)])
+      // Import from the installed frontend, not a top-level renderer: only this
+      // proves the transitive dependency override (rather than a separate add).
+      const entry = pathToFileURL(join(profile, 'node_modules', '@dshline', 'dshline', 'index.js')).href
+      const result = await execFileAsync(process.execPath, ['--input-type=module', '-e',
+        `import { boot } from ${JSON.stringify(entry)}; console.log(boot())`])
+      expect(result.stdout.trim()).toBe('current packed renderer')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 30_000)
+})
 
 describe('parseBootEvidence()', () => {
   it('recognizes the banner and readiness in a cursor-addressed stream', () => {

@@ -13,6 +13,7 @@ vi.mock('@dshline/renderer', async importOriginal => {
       columns: () => 80,
       rows: () => 24,
       write: () => {},
+      setTitle: () => {},
       onKey: () => () => {},
       onResize: () => () => {},
       close: () => {},

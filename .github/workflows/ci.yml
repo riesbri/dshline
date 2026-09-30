@@ -8,6 +8,8 @@ name: ci
 #   Is this repository commit correct against the exact adopted target?
 #
 #   Core              is dshline itself correct?                      BLOCKING
+#   Terminal tmux     does the renderer work through a modern          BLOCKING
+#                     multiplexer, the one Core cannot answer?
 #   Harness target    does it work against the exact upstream source
 #                     revision it claims to support (HARNESS_TARGET)?  BLOCKING
 #   Harness published does the packed bundle boot beside the exact target? BLOCKING once npm carries the target
@@ -139,6 +141,105 @@ jobs:
 
       - name: launcher resolution and the .cmd shim hand-off
         run: pnpm exec vitest run packages/dshline/tests/launcher-policy.spec.ts packages/dshline/tests/launcher-bootstrap.spec.ts
+
+  tmux-modern:
+    # The one question Core cannot answer about the renderer's terminal input.
+    #
+    # `multiplexer.spec.ts` measures whether the tmux in front of it lets a
+    # program REQUEST distinguishable modified keys, and skips honestly when it
+    # does not. That is right for a developer and right for a stock runner:
+    # ubuntu-24.04 ships tmux 3.4, and being able to ask arrived in 3.5, so
+    # skipping there is a true statement rather than a failure.
+    #
+    # It is also the wrong answer for a lane whose entire job is to prove the
+    # supported path. A skip there and a green tick look identical, so a broken
+    # install step would pass while proving nothing. This lane therefore pins a
+    # tmux that CAN, prints what it installed, and runs with
+    # DSH_REQUIRE_TMUX_EXTENDED_KEYS=1, which turns that skip into a failure.
+    #
+    # tmux is pinned by the COMMIT the `3.7c` tag names, not by a version
+    # comparison: a commit is immutable, where a tag or a dist-tag is a pointer
+    # somebody else can move, and this repository already refuses merge gates
+    # keyed on those. The version string is then asserted, so a checkout that
+    # somehow produced something else fails here rather than quietly testing a
+    # different release than the one this lane is named for.
+    #
+    # Built from source rather than taken from apt because apt on this image is
+    # exactly the generation this lane exists to move past. No cache: the build
+    # is a few seconds against a fresh runner, and a cached prefix would make
+    # this job harder to reason about for no measurable gain.
+    name: Terminal · tmux modern
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # The immutable commit the upstream `3.7c` tag points at, and the human
+      # readable version this lane is named for. Both are recorded together so
+      # bumping one without the other is visible in the diff.
+      TMUX_REVISION: e476c1230b958df0cb12977517d24b3dc931375b
+      TMUX_VERSION: 3.7c
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: install the pinned tmux
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          # tmux links against libevent and ncurses and generates its own
+          # `configure`, so the autotools are build inputs rather than extras.
+          sudo apt-get install --no-install-recommends --yes \
+            autoconf automake libtool pkg-config libevent-dev libncurses-dev
+          mkdir -p "$RUNNER_TEMP/tmux-src" "$RUNNER_TEMP/tmux"
+          git init --quiet "$RUNNER_TEMP/tmux-src"
+          git -C "$RUNNER_TEMP/tmux-src" remote add origin https://github.com/tmux/tmux.git
+          # FETCH_HEAD, not a tag name: this is the exact commit the tag names,
+          # and a tag is a pointer that can be moved to something else.
+          git -C "$RUNNER_TEMP/tmux-src" fetch --quiet --depth 1 origin "$TMUX_REVISION"
+          git -C "$RUNNER_TEMP/tmux-src" checkout --quiet FETCH_HEAD
+          cd "$RUNNER_TEMP/tmux-src"
+          ./autogen.sh
+          ./configure --prefix="$RUNNER_TEMP/tmux"
+          make -j"$(nproc)"
+          make install
+          echo "$RUNNER_TEMP/tmux/bin" >> "$GITHUB_PATH"
+
+      # Asserted, not assumed. Without this the lane would happily test whatever
+      # `apt` had provided if the build above were removed, and report a green
+      # tick for a multiplexer that cannot do the thing.
+      - name: the pinned tmux is the one on PATH
+        run: |
+          set -euo pipefail
+          tmux -V
+          test "$(tmux -V)" = "tmux $TMUX_VERSION"
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - run: pnpm run build
+
+      # The suite is REQUIRED to execute here, not permitted to skip: the
+      # environment variable is what turns an unsupported tmux from an honest
+      # skip into a red job. Everything these tests need beyond `pnpm build` is
+      # the renderer, so nothing else is installed for them.
+      - name: the renderer under a modern multiplexer
+        env:
+          DSH_REQUIRE_TMUX_EXTENDED_KEYS: '1'
+        run: pnpm exec vitest run packages/renderer/tests/multiplexer.spec.ts
+
+      # The presentation invariants through the same multiplexer: history,
+      # a resize storm with a live region taller than the window, copy mode, and
+      # a detach followed by a reattach at a new size. It reads the BUILT
+      # renderer, which is why the build above is a separate step.
+      - name: scrollback, resize and reattach through the same multiplexer
+        run: node tools/tmux-acceptance.mjs
 
   docs:
     name: Docs · EN/ZH pairing
@@ -426,13 +527,14 @@ jobs:
   required:
     name: CI · required
     if: always()
-    needs: [core, windows-launcher, docs, harness-target, harness-published]
+    needs: [core, tmux-modern, windows-launcher, docs, harness-target, harness-published]
     runs-on: ubuntu-latest
     steps:
       - name: every blocking lane must have succeeded
         env:
           RESULTS: >-
             core=${{ needs.core.result }}
+            tmux-modern=${{ needs.tmux-modern.result }}
             windows-launcher=${{ needs.windows-launcher.result }}
             docs=${{ needs.docs.result }}
             harness-target=${{ needs.harness-target.result }}

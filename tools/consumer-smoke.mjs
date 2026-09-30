@@ -25,8 +25,8 @@
  * The two modes answer two different questions and are kept apart on purpose:
  *
  * - the default mode asks whether the plugin code IN THIS COMMIT installs and
- *   boots against this Harness line, so it installs the packed tarball (and
- *   substitutes a packed renderer when the registry cannot serve one yet);
+ *   boots against this Harness line, so it installs BOTH workspace packages
+ *   from tarballs, overriding the bundle's renderer dependency in the profile;
  * - `--bootstrap` asks whether THIS COMMIT'S WRAPPER implements the user
  *   lifecycle, so it runs the packed executable against a genuinely empty
  *   `DSH_HOME` and lets the first run install from the registry — the package a
@@ -50,7 +50,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { installArguments } from '../packages/dshline/bin/dshline.mjs'
@@ -193,7 +193,8 @@ async function run(command, args, options, description) {
   try {
     return await execFileAsync(command, args, { timeout: 600_000, ...options })
   } catch (error) {
-    const detail = [error.stderr, error.stdout, error.message].find(text => text !== undefined && text !== '') ?? ''
+    // Installer warnings on stderr must not hide Harness's actual stdout failure.
+    const detail = [error.stderr, error.stdout, error.message].filter(text => text !== undefined && text !== '').join('\n')
     throw new Error(`${description} failed (${command} ${args.join(' ')}):\n${String(detail).slice(-2000)}`)
   }
 }
@@ -323,31 +324,21 @@ async function installLauncher(consumerDir, launcherVersion) {
 }
 
 /**
- * Add the packed bundle to a fresh profile via the harness's own command.
+ * Pack the current renderer and install it with the packed bundle through Harness.
  *
- * The first attempt is the real consumer path: pnpm resolves the bundle's own
- * dependency on the renderer from the registry, exactly as an install from npm
- * would. Two things can make that attempt fail for reasons a consumer would not
- * hit, and each is recovered by appending one line to the profile's own
- * pnpm-workspace.yaml and trying once more — never by inventing profile state
- * this script does not understand, because the harness wrote everything except
- * the appended line:
- *
- * - pnpm's default store is not writable on this machine, so the configured
- *   store has to be named in the profile too;
- * - the renderer version this commit depends on is not on the registry yet,
- *   which is the state of things between a rename or a version bump and the
- *   publish that follows it. The locally packed renderer stands in, so the boot
- *   is still proved against the code in this tree. Which renderer answered is
- *   reported, so a substitution is never silent.
- * @param dshBin - the launcher executable inside the scratch prefix.
- * @param home - DSH_HOME for this run.
+ * Harness creates the profile on the first add, even if dependency resolution
+ * fails. Only then do we append ordinary pnpm settings and repeat that same add.
+ * A successful registry install is NOT evidence for this commit's renderer:
+ * fixed package versions stay unchanged until release, while their code changes.
+ * @param dshBin - the published launcher executable inside the scratch prefix.
+ * @param home - fresh DSH_HOME for this run.
  * @param tarball - the packed bundle to install.
- * @param rendererTarball - the packed renderer, used only if the registry
- *   cannot serve the version the bundle asks for.
- * @returns where the renderer came from, for the run's own report.
+ * @param rendererDir - the renderer workspace package to pack.
+ * @param destination - the directory receiving the renderer tarball.
+ * @returns the renderer tarball used by the profile's dependency override.
  */
-async function installProfile(dshBin, home, tarball, rendererTarball) {
+export async function packAndInstallProfile(dshBin, home, tarball, rendererDir, destination) {
+  const rendererTarball = await packPackage(rendererDir, destination, 'packing the renderer')
   const environment = {
     ...process.env,
     CI: 'true',
@@ -355,39 +346,27 @@ async function installProfile(dshBin, home, tarball, rendererTarball) {
     PATH: `${dirname(dshBin)}:${process.env.PATH ?? ''}`,
   }
   const attempt = () => run(dshBin, ['plugin', '--profile', PROFILE_NAME, 'add', tarball], { cwd: dirname(tarball), env: environment }, 'adding the plugin to a fresh profile')
+  const profileWorkspace = join(home, 'profiles', PROFILE_NAME, 'pnpm-workspace.yaml')
+  let existing
   try {
     await attempt()
-    return 'registry'
+    existing = await readFile(profileWorkspace, 'utf8')
   } catch (firstError) {
-    const profileWorkspace = join(home, 'profiles', PROFILE_NAME, 'pnpm-workspace.yaml')
-    let existing = ''
     try {
       existing = await readFile(profileWorkspace, 'utf8')
     } catch {
       throw firstError
     }
-    let repaired = existing
-    const configuredStore = (process.env.CONSUMER_SMOKE_STORE_DIR ?? '').trim()
-    if (configuredStore !== '' && !existing.includes('storeDir')) {
-      repaired += `storeDir: ${configuredStore}\n`
-    }
-    let renderer = 'registry'
-    if (rendererTarball !== undefined && !existing.includes('overrides:')) {
-      repaired += `overrides:\n  "${RENDERER_PACKAGE_NAME}": "file:${rendererTarball}"\n`
-      renderer = 'packed'
-    }
-    // Nothing left to try: the failure is the answer, not a machine quirk.
-    if (repaired === existing) throw firstError
-    await writeFile(profileWorkspace, repaired)
-    await attempt()
-    if (renderer === 'packed') {
-      process.stdout.write(
-        `renderer: the registry does not serve ${RENDERER_PACKAGE_NAME} for this bundle yet;`
-        + ' the locally packed renderer was used instead\n',
-      )
-    }
-    return renderer
   }
+  if (existing.includes('overrides:')) throw new Error('fresh Harness profile unexpectedly already has overrides')
+  const configuredStore = (process.env.CONSUMER_SMOKE_STORE_DIR ?? '').trim()
+  if (configuredStore !== '' && !existing.includes('storeDir')) {
+    existing += `storeDir: ${JSON.stringify(configuredStore)}\n`
+  }
+  existing += `overrides:\n  "${RENDERER_PACKAGE_NAME}": ${JSON.stringify(`file:${rendererTarball}`)}\n`
+  await writeFile(profileWorkspace, existing)
+  await attempt()
+  return rendererTarball
 }
 
 /**
@@ -750,12 +729,9 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
         )
       }
     } else {
-      // Packed unconditionally so the fallback exists before it is known to be
-      // needed; the registry is still preferred, and this is discarded unused
-      // once these versions are published.
-      const rendererTarball = await packPackage(RENDERER_DIR, join(workspace, 'renderer'), 'packing the renderer')
       const home = join(workspace, '.dsh')
-      const renderer = await installProfile(dshBin, home, tarball, rendererTarball)
+      const rendererTarball = await packAndInstallProfile(dshBin, home, tarball, RENDERER_DIR, join(workspace, 'renderer'))
+      process.stdout.write(`renderer: ${RENDERER_PACKAGE_NAME} (packed: ${rendererTarball})\n`)
       const profileManifest = JSON.parse(await readFile(join(home, 'profiles', PROFILE_NAME, 'package.json'), 'utf8'))
       if (!(PLUGIN_PACKAGE_NAME in (profileManifest.dependencies ?? {}))) {
         throw new Error(`profile manifest does not reference ${PLUGIN_PACKAGE_NAME}: ${JSON.stringify(profileManifest.dependencies ?? {})}`)
@@ -771,9 +747,13 @@ if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(
       if (code !== 0) {
         throw new Error(`ctrl-d exit was ${String(code)}, expected 0`)
       }
+      const title = `\u001b]2;dshline · ${basename(scratch)}\u0007`
+      if (!stdout.includes(title)) {
+        throw new Error(`packed startup did not emit the workspace OSC title ${JSON.stringify(title)}`)
+      }
       process.stdout.write(
         `smoke passed: profile loaded, banner showed ${PLUGIN_PACKAGE_NAME}@${bundleManifest.version},`
-        + ` renderer from ${renderer}, ctrl-d exited cleanly\n`,
+        + ' renderer from packed tarball, workspace title emitted, ctrl-d exited cleanly\n',
       )
     }
     await rm(workspace, { recursive: true, force: true }).catch(() => {})

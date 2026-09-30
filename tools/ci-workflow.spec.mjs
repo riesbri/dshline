@@ -22,7 +22,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /** Jobs whose result is a merge gate. Every job here is one. */
-const BLOCKING_JOBS = ['core', 'windows-launcher', 'docs', 'harness-target', 'harness-published']
+const BLOCKING_JOBS = ['core', 'tmux-modern', 'windows-launcher', 'docs', 'harness-target', 'harness-published']
 
 /**
  * Extract one top-level job's YAML block by name, with `#`-comment lines
@@ -86,6 +86,48 @@ describe('nothing mutable can gate a merge (.github/workflows/ci.yml)', () => {
       expect(extractJob(workflow, jobName), `${jobName} should not need an event filter any more`)
         .not.toMatch(/^\s{4}if:\s*github\.event_name/mu)
     }
+  })
+})
+
+describe('the modern tmux lane cannot pass by skipping', () => {
+  it('requires the capability rather than permitting a skip', async () => {
+    const job = extractJob(await readWorkflow(), 'tmux-modern')
+    // The whole reason this lane exists: the suite skips honestly on a stock
+    // runner's tmux 3.4, and a lane meant to prove the SUPPORTED path must turn
+    // that skip into a failure or a broken install step reads as a green tick.
+    expect(job).toContain('DSH_REQUIRE_TMUX_EXTENDED_KEYS')
+  })
+
+  it('pins tmux by an immutable commit, not by anything movable', async () => {
+    const job = extractJob(await readWorkflow(), 'tmux-modern')
+    // A commit is a fact; a tag or a dist-tag is a pointer somebody else moves,
+    // and this repository already refuses merge gates keyed on those.
+    expect(job).toMatch(/TMUX_REVISION:\s*[0-9a-f]{40}/)
+    expect(job).toContain('FETCH_HEAD')
+    expect(job).not.toMatch(/refs\/tags|ref:\s*\$\{\{\s*github/)
+  })
+
+  it('asserts the installed version rather than trusting the build step', async () => {
+    const job = extractJob(await readWorkflow(), 'tmux-modern')
+    // If the build above ever stops working, the job would otherwise fall back to
+    // whatever apt provides and report a tick for a multiplexer that cannot do
+    // the thing this lane exists to prove.
+    expect(job).toContain('tmux -V')
+    expect(job).toMatch(/test "\$\(tmux -V\)" = "tmux \$TMUX_VERSION"/)
+  })
+
+  it('runs the multiplexer suite and the acceptance script', async () => {
+    const job = extractJob(await readWorkflow(), 'tmux-modern')
+    expect(job).toContain('packages/renderer/tests/multiplexer.spec.ts')
+    expect(job).toContain('node tools/tmux-acceptance.mjs')
+  })
+
+  it('is a merge gate, through the one stable aggregator', async () => {
+    const workflow = await readWorkflowCode()
+    // Not a new required context: `CI · required` exists so branch protection
+    // names a contract rather than an inventory, and a lane that is not in its
+    // `needs` is not a gate however carefully it is written.
+    expect(extractJob(workflow, 'required')).toContain('tmux-modern=${{ needs.tmux-modern.result }}')
   })
 })
 
@@ -232,7 +274,7 @@ describe('the published consumer lane separates compatibility from distribution'
   it('keeps CI required dependent on the compatibility job, not a bootstrap verdict', async () => {
     const workflow = await readWorkflow()
     const required = extractJob(workflow, 'required')
-    expect(required).toContain('needs: [core, windows-launcher, docs, harness-target, harness-published]')
+    expect(required).toContain('needs: [core, tmux-modern, windows-launcher, docs, harness-target, harness-published]')
     const published = extractJob(workflow, 'harness-published')
     expect(published).toContain('id: packed')
     expect(published).toContain('id: bootstrap')
