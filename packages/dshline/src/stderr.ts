@@ -42,11 +42,11 @@
  * spawned. Nothing here branches on a provider either: what is contained is a
  * WRITE SHAPE, not a vendor.
  *
- * Reconfirmed against `0.2.0-rc.1`, the adopted generation, at revision
- * `4878cdabd87d4041bdaff61d04c966883b9fd07a`:
+ * Reconfirmed against `0.2.0-rc.2`, the adopted generation, at revision
+ * `639ed015397290b3745d163aafe02ffee4aa3f84`:
  * `packages/subagent/subagent-codex/src/run.ts:261` still calls
  * `writeFileSync(process.stderr.fd, bytes)`. Its Git blob is unchanged from
- * `0.1.7-rc.2` (`477b4f420553e8a52c2fbccc464d7561b239c443`):
+ * `0.2.0-rc.1` (`4878cdabd87d4041bdaff61d04c966883b9fd07a`):
  * `12abd405e3b24858a3ae5fc00e8c0be341821bab` at both revisions.
  * The subprocess seam still offers `pipe | inherit | collect`, not a Host-owned
  * diagnostic sink this forward uses, so the containment below remains necessary.
