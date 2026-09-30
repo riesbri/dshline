@@ -68,6 +68,70 @@ describe('acquireTerminal()', () => {
     return { input, output, log, listeners, written, isRaw: () => raw }
   }
 
+  it.each(['ascii', 'two words', 'café', '中文 日本語 한국어', '🚀👩‍💻', ''])('writes exact OSC 2 BEL bytes for %j', title => {
+    const fake = fakeStreams(false)
+    const terminal = acquireTerminal(fake)
+    terminal.setTitle(title)
+    expect(fake.written.at(-1)).toBe(`\u001b]2;${title}\u0007`)
+    terminal.close()
+  })
+
+  it('removes every C0/C1 control and DEL, including OSC and ST bytes', () => {
+    const fake = fakeStreams(false)
+    const terminal = acquireTerminal(fake)
+    const controls = Array.from({ length: 160 }, (_, code) => code)
+      .filter(code => code < 32 || code >= 127)
+      .map(code => String.fromCodePoint(code)).join('')
+    terminal.setTitle(`safe${controls}工作🚀`)
+    expect(fake.written.at(-1)).toBe('\u001b]2;safe工作🚀\u0007')
+    terminal.setTitle('a\u001b]52;c;evil\u0007b\u001b\\c\u009d2;evil\u009cd\n\r\te')
+    expect(fake.written.at(-1)).toBe('\u001b]2;a]52;c;evilb\\c2;evilde\u0007')
+    terminal.setTitle(controls)
+    expect(fake.written.at(-1)).toBe('\u001b]2;\u0007')
+    terminal.close()
+  })
+
+  it('bounds sanitized metadata to 120 whole code points, not UTF-16 units', () => {
+    const fake = fakeStreams(false)
+    const terminal = acquireTerminal(fake)
+    terminal.setTitle('a'.repeat(119) + '\u001b🚀overflow')
+    expect(fake.written.at(-1)).toBe(`\u001b]2;${'a'.repeat(119)}🚀\u0007`)
+    terminal.setTitle('🚀'.repeat(121))
+    expect(fake.written.at(-1)).toBe(`\u001b]2;${'🚀'.repeat(120)}\u0007`)
+    terminal.close()
+  })
+
+  it('replaces lone surrogates without damaging valid emoji', () => {
+    const fake = fakeStreams(false)
+    const terminal = acquireTerminal(fake)
+    terminal.setTitle('\ud800x\udc00🚀')
+    expect(fake.written.at(-1)).toBe('\u001b]2;�x�🚀\u0007')
+    terminal.close()
+  })
+
+  it('does not invent restoration, query titles, or write after ownership closes', () => {
+    const fake = fakeStreams(false)
+    const terminal = acquireTerminal(fake)
+    const modes = terminalModes()
+    terminal.setTitle('owned')
+    terminal.close()
+    terminal.close()
+    terminal.setTitle('too late')
+    expect(fake.written).toEqual([modes.on, '\u001b]2;owned\u0007', modes.off])
+  })
+
+  it('uses the same title protocol on Windows without changing mode cleanup', () => {
+    withPlatform('win32', () => {
+      const fake = fakeStreams(false)
+      const terminal = acquireTerminal(fake)
+      terminal.setTitle('dshline · 工作🚀')
+      terminal.close()
+      expect(fake.written).toEqual([
+        terminalModes().on, '\u001b]2;dshline · 工作🚀\u0007', terminalModes().off,
+      ])
+    })
+  })
+
   it('restores raw mode to TRUE when it was already raw before acquisition', () => {
     // The case that matters and that a `setRawMode(false)` teardown gets wrong:
     // this frontend may not be the first thing to have put the stream in raw mode,

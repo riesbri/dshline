@@ -1612,6 +1612,8 @@ dsh --profile dshline --resume <id>     # reopen a session directly
 
 dshline 是一个普通的终端程序。它把内容画进交给它的那个窗格，并从中读取按键；它并不知道那个窗格是否属于 tmux。它不管理会话、窗口或窗格，不会为了控制 tmux 而调用 `tmux`，也从不修改你的 `.tmux.conf`。下面全部是你的配置，不是 dshline 保留的状态。
 
+窗口启动时，dshline 用启动工作目录设置标准终端标题 `dshline · <工作目录的末级名称>`。终端可以将它显示为标签页或窗口标题；tmux 将它暴露为 `pane_title`。它在 `/sessions`、`/new` 和 `/worktrees` 之间保持不变，即使所附会话在别处工作。退出时不会恢复先前的标题：标题栈并不通用，因此 shell 平常的提示符或标题机制可能会替换它。
+
 ### 在连接中断后继续
 
 一轮工作属于进程，而不属于启动它的 SSH 连接。让该进程存活通常靠 tmux：

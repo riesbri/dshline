@@ -2347,6 +2347,8 @@ does not manage sessions, windows or panes, never shells out to `tmux`, and neve
 edits your `.tmux.conf`. Everything below is your configuration, not state
 dshline keeps.
 
+On window startup, dshline sets the standard terminal title to `dshline · <workspace basename>` using its launch workspace. Terminals may display it as the tab/window title; tmux exposes it as `pane_title`. It stays unchanged across `/sessions`, `/new`, and `/worktrees`, even if the attached session works elsewhere. The previous title is not restored on exit: title stacks are not portable, so your shell's normal prompt/title machinery may replace it.
+
 ### Surviving a dropped connection
 
 A turn belongs to the process, not to the SSH connection that started it. tmux is
