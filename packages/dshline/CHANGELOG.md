@@ -1,5 +1,21 @@
 # dshline
 
+## 0.24.0
+
+### Minor Changes
+
+- bdc0d92: Adopt DeepSeek Harness `0.2.0-rc.1`. The standard preset now exposes Harness's
+  packaged `agent-experience` authoring skill through the existing skill provider,
+  alongside the Cordis authoring skills. Project and user skills retain precedence.
+- 895875a: Adopt DeepSeek Harness `0.2.0-rc.2`.
+- a1db6a0: Identify terminal windows with `dshline · <workspace basename>` from the window's launch workspace, using an ordinary OSC 2 terminal title rather than a multiplexer API. The renderer's `Terminal.setTitle()` removes terminal controls and bounds metadata to 120 Unicode code points. The title stays stable across session changes; exit leaves it for the shell's normal title machinery rather than pretending to restore an unknown previous title.
+
+### Patch Changes
+
+- Updated dependencies [dbd5170]
+- Updated dependencies [a1db6a0]
+  - @dshline/renderer@0.24.0
+
 ## 0.23.0
 
 ### Minor Changes
