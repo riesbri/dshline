@@ -244,6 +244,56 @@ export class Composer {
   }
 
   /**
+   * {@link leadingNonWhitespaceChar}, kept for one {@link revision}.
+   *
+   * A frame asks this question on every redraw — including the ones a spinner
+   * timer causes when nothing was typed — and the walk stops at the first
+   * non-whitespace character, so it is already cheap. Caching it still matters
+   * for the case that is not cheap: a draft that opens with a long run of
+   * whitespace would be rescanned from the start on every redraw, in a view that
+   * has otherwise been kept free of whole-buffer work by {@link revision}.
+   *
+   * Keyed on {@link revision} rather than reset, because every mutation of
+   * `chars` goes through {@link touch} already: the validity of this cache is
+   * exactly the validity of the revision counter, so there is one invariant to
+   * maintain rather than two.
+   */
+  private leadingNonWhitespace: { rev: number; char: string | undefined } | undefined
+
+  /**
+   * The buffer's first character that is not whitespace.
+   *
+   * A structural fact about the BUFFER, which is all this package can know: where
+   * the leading whitespace run ends. It is offered so a caller that must classify
+   * a draft does not have to join a hundred thousand characters to ask whether the
+   * line opens with something other than whitespace. What any given leading
+   * character means to a consumer is the consumer's own business, and nothing
+   * here names a gesture or decides one.
+   *
+   * Whitespace is decided by `String.prototype.trim` applied to one character,
+   * which is the very test `trimStart()` applies to each character while it
+   * strips a leading run. So this is `value.trimStart()`'s first character, by
+   * construction rather than by a table that could drift from the platform's own
+   * definition — including the exotic members of the set, such as NBSP and the
+   * byte-order mark, which a hand-written list is exactly how a caller ends up
+   * disagreeing with its own routing.
+   * @returns the first non-whitespace character, or undefined when the buffer holds none.
+   */
+  get leadingNonWhitespaceChar(): string | undefined {
+    if (this.leadingNonWhitespace?.rev === this.rev) return this.leadingNonWhitespace.char
+    let char: string | undefined
+    for (let index = 0; index < this.chars.length; index += 1) {
+      const candidate = this.chars[index]
+      if (candidate !== undefined && candidate.trim() !== '') {
+        char = candidate
+        break
+      }
+    }
+    this.leadingNonWhitespace = { rev: this.rev, char }
+    return char
+  }
+
+  /**
    * The buffer as a reader sees it, with every folded span drawn as one token.
    *
    * This is the seam between what the composer HOLDS and what a terminal is shown.

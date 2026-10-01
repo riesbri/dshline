@@ -3,7 +3,7 @@
  * @module dshline/chrome
  */
 
-import { BOX_CHROME_COLUMNS, displayWidth, frame, paint } from '@dshline/renderer'
+import { BOX_CHROME_COLUMNS, displayWidth, frame, paint, type Role } from '@dshline/renderer'
 
 /** Widest the default readable chrome draws; the composer has its own terminal-following policy. */
 const MAX_COLUMNS = 100
@@ -38,6 +38,17 @@ export interface RootFrameOptions {
   readonly body: readonly string[]
   /** One-row help for the bottom border, already fitted (see fitFooterHelp). */
   readonly footer?: string
+  /**
+   * The semantic role the border glyphs wear.
+   *
+   * A role rather than a colour, so the caller says what the frame MEANS and the
+   * palette still decides what that looks like — the same rule every other paint
+   * call follows, and the reason this is not a free-form styling option. It
+   * defaults to {@link chrome}, which is what every frame drawn as structure
+   * wants, and one caller overriding it is what keeps this from being a bag:
+   * there is exactly one question here, and it has one answer per theme.
+   */
+  readonly borderRole?: Role
 }
 
 /**
@@ -64,11 +75,17 @@ export function composerFrameWidth(columns: number): number {
 /**
  * Draw dshline's shared visual root around already-prepared content.
  * @param options - terminal width, optional total frame width, right context, body
- *   rows, and optional footer help. A supplied width must fit the terminal and
- *   the caller must fit body and footer content to that width.
+ *   rows, optional footer help, and the border's semantic role. A supplied width
+ *   must fit the terminal and the caller must fit body and footer content to it.
  * @returns the framed rows, including the integrated top and bottom borders.
  */
 export function rootFrame(options: RootFrameOptions): string[] {
+  // Resolved once here rather than per border run: the frame calls `border`
+  // several times per row, and the role is a per-frame decision. Painting a
+  // border is what it always was — SGR codes are zero-width, and `frame()`
+  // measures the glyphs before they are styled, so choosing a different role
+  // cannot move a column, a row, or the cursor.
+  const borderRole = options.borderRole ?? 'chrome'
   return frame(options.body, {
     width: options.width ?? chromeWidth(options.columns),
     title: paint('dshline', 'banner'),
@@ -76,7 +93,7 @@ export function rootFrame(options: RootFrameOptions): string[] {
     // Help inside the bottom border stays muted, as the old external help rows
     // were; unstyled it would be the loudest text on the whole line.
     ...(options.footer === undefined ? {} : { footer: paint(options.footer, 'muted') }),
-    border: text => paint(text, 'chrome'),
+    border: text => paint(text, borderRole),
   })
 }
 

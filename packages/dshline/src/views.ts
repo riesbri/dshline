@@ -393,6 +393,38 @@ export function widthStableLabel(text: string, placeholder = '?'): string {
 }
 
 /**
+ * What the composer frame should say about the reader's shell, as two facts.
+ *
+ * Deliberately one object with two fields rather than two callbacks: they are two
+ * answers to ONE question — which mode is the input surface in — and a frame that
+ * has to combine them has to combine them somewhere. Doing it here means the
+ * precedence is written down once, next to the frame it affects, and cannot
+ * depend on the order two callbacks happened to be called in.
+ */
+export interface ComposerShellState {
+  /**
+   * A submitted foreground human shell operation currently owns shell interaction.
+   *
+   * That is an ownership claim, and it is the same claim `ctrl-c` acts on: while
+   * this is true an interrupt belongs to the shell rather than to the model, an
+   * overlay, or a quit.
+   */
+  readonly shellActive: boolean
+  /**
+   * The draft being edited will be executed locally if it is submitted.
+   *
+   * True from the moment the first meaningful `!` is typed, with nothing running
+   * and nothing submitted — the state a fast command would otherwise never be
+   * seen in. It says what ENTER WILL DO, which is not a claim about the text's
+   * appearance: the draft itself stays ordinary editable input.
+   */
+  readonly shellInput: boolean
+}
+
+/** A composer with no shell anywhere near it: the answer every layout test gets. */
+const NO_SHELL: ComposerShellState = { shellActive: false, shellInput: false }
+
+/**
  * The framed input line.
  *
  * The cursor is reported relative to this view because the frame means the
@@ -405,6 +437,10 @@ export function widthStableLabel(text: string, placeholder = '?'): string {
  *   paint, because both halves of it change while the frame stands. The default
  *   is the idle answer, which is what a caller with no agent to ask — every
  *   layout test here — is entitled to.
+ * @param shell - what the reader's shell is doing, as a presentation fact. Read
+ *   per paint and presentation only: the runner owns both fields, and this view
+ *   never learns what a shell gesture is, what runs one, or what it will print.
+ *   Defaults to "neither", so a caller with no shell at all is unaffected.
  * @returns the slot view.
  */
 export function createComposerView(
@@ -412,6 +448,7 @@ export function createComposerView(
   workspace: string,
   rowsBelow: () => number = () => 1,
   hint: () => ComposerHint = () => ({ busy: false, busyEnter: DEFAULT_BUSY_ENTER }),
+  shell: () => ComposerShellState = () => NO_SHELL,
 ): TuiSlotView {
   const label = basename(workspace) === '' ? workspace : basename(workspace)
   // The label names a session folder, so it is untrusted text. It is also drawn
@@ -530,6 +567,29 @@ export function createComposerView(
   }
 
   /**
+   * The semantic role this frame's border wears right now.
+   *
+   * Both shell facts are reported by the FRAME and by nothing else, for the same
+   * reason this project's own admission rules force: what the reader is typing is
+   * still editable input that they may change before submitting it, so colouring
+   * the draft — or the workspace label, or the gutter mark — would assert
+   * something about the text that the text does not say. The border is the one
+   * surface that can carry the mode without touching the geometry or the cursor.
+   *
+   * Precedence is one line and it is not arbitrary. An operation that exists
+   * corresponds to real ownership: `ctrl-c` interrupts it, a second submission is
+   * refused, and its result is still arriving. A draft that merely looks like a
+   * command is a reader's typing in progress, which is also exactly what the
+   * frame falls back to the moment that operation settles.
+   * @returns the border role for this frame.
+   */
+  const borderRole = (): Role => {
+    const state = shell()
+    if (state.shellActive) return 'shell-active'
+    return state.shellInput ? 'shell-input' : 'chrome'
+  }
+
+  /**
    * Content rows the frame may spend inside the live-region budget, shared by
    * render and cursor.
    *
@@ -626,6 +686,7 @@ export function createComposerView(
           width: composerFrameWidth(columns),
           context: paint(escapedLabel, 'composer-title'),
           body: [composerHintRow(hint(), composerInner(columns))],
+          borderRole: borderRole(),
         })
         return keepsSeparator(terminalRows) ? ['', ...prompt] : [...prompt]
       }
@@ -638,6 +699,7 @@ export function createComposerView(
         columns,
         context: frameTitle(shown.offset, shown.below),
         body: shown.rows,
+        borderRole: borderRole(),
       })
       // The same shed rule as the empty frame, so the cursor's own arithmetic in
       // cursor() can share it without either half learning the other's ladder.
