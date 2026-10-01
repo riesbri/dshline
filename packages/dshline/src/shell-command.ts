@@ -38,14 +38,14 @@ export function parseShellCommand(text: string): string | undefined {
  * about the same buffer.
  *
  * It reads that one character instead of the whole draft, which is what keeps
- * the frame free on a keystroke: {@link Composer.firstMeaningfulChar} stops at
- * the first character that is not whitespace, so a buffer holding a folded paste
+ * the frame free on a keystroke: {@link Composer.leadingNonWhitespaceChar} stops
+ * at the first character that is not whitespace, so a buffer holding a folded paste
  * of a hundred thousand characters costs the same as an empty one.
  * @param composer - the buffer being edited.
  * @returns whether submitting this draft would execute a local shell command.
  */
 export function isShellDraft(composer: Composer): boolean {
-  return composer.firstMeaningfulChar === BANG
+  return composer.leadingNonWhitespaceChar === BANG
 }
 
 function errorRows(error: unknown): string[] {

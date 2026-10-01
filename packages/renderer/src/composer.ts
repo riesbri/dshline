@@ -244,7 +244,7 @@ export class Composer {
   }
 
   /**
-   * {@link firstMeaningfulChar}, kept for one {@link revision}.
+   * {@link leadingNonWhitespaceChar}, kept for one {@link revision}.
    *
    * A frame asks this question on every redraw — including the ones a spinner
    * timer causes when nothing was typed — and the walk stops at the first
@@ -258,15 +258,17 @@ export class Composer {
    * exactly the validity of the revision counter, so there is one invariant to
    * maintain rather than two.
    */
-  private meaningful: { rev: number; char: string | undefined } | undefined
+  private leadingNonWhitespace: { rev: number; char: string | undefined } | undefined
 
   /**
    * The buffer's first character that is not whitespace.
    *
-   * What the buffer MEANS to a consumer that must classify the draft without
-   * reading it — this renderer names no gesture and decides none, but a caller
-   * asking "does this line begin with something other than whitespace?" should
-   * not have to join a hundred thousand characters to find out.
+   * A structural fact about the BUFFER, which is all this package can know: where
+   * the leading whitespace run ends. It is offered so a caller that must classify
+   * a draft does not have to join a hundred thousand characters to ask whether the
+   * line opens with something other than whitespace. What any given leading
+   * character means to a consumer is the consumer's own business, and nothing
+   * here names a gesture or decides one.
    *
    * Whitespace is decided by `String.prototype.trim` applied to one character,
    * which is the very test `trimStart()` applies to each character while it
@@ -277,8 +279,8 @@ export class Composer {
    * disagreeing with its own routing.
    * @returns the first non-whitespace character, or undefined when the buffer holds none.
    */
-  get firstMeaningfulChar(): string | undefined {
-    if (this.meaningful?.rev === this.rev) return this.meaningful.char
+  get leadingNonWhitespaceChar(): string | undefined {
+    if (this.leadingNonWhitespace?.rev === this.rev) return this.leadingNonWhitespace.char
     let char: string | undefined
     for (let index = 0; index < this.chars.length; index += 1) {
       const candidate = this.chars[index]
@@ -287,7 +289,7 @@ export class Composer {
         break
       }
     }
-    this.meaningful = { rev: this.rev, char }
+    this.leadingNonWhitespace = { rev: this.rev, char }
     return char
   }
 

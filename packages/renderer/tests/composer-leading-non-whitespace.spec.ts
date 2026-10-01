@@ -1,5 +1,5 @@
 /**
- * `Composer.firstMeaningfulChar`: classifying a draft without reading it.
+ * `Composer.leadingNonWhitespaceChar`: classifying a draft without reading it.
  *
  * The getter exists because its only plausible caller is one that must answer
  * "is this buffer shaped a particular way?" on every redraw, while the buffer
@@ -81,7 +81,7 @@ function typed(text: string): Composer {
   return composer
 }
 
-describe('firstMeaningfulChar', () => {
+describe('leadingNonWhitespaceChar', () => {
   it('is the first character trimStart leaves, for every buffer', () => {
     // The equivalence a consumer depends on, stated against the platform's own
     // definition rather than a transcription of it. `[...][0]` because the
@@ -93,10 +93,10 @@ describe('firstMeaningfulChar', () => {
       '\t\n\v\f\r !pwd', '  !', '!', '界!', '😀', ' x', '! !', ' !',
     ]) {
       const composer = typed(text)
-      expect(composer.firstMeaningfulChar, JSON.stringify(text)).toBe([...text.trimStart()][0])
+      expect(composer.leadingNonWhitespaceChar, JSON.stringify(text)).toBe([...text.trimStart()][0])
       // And the comparison a caller actually makes, which is the one that must
       // never contradict a caller's own `trimStart()` of the same line.
-      expect(composer.firstMeaningfulChar === '!', JSON.stringify(text))
+      expect(composer.leadingNonWhitespaceChar === '!', JSON.stringify(text))
         .toBe(text.trimStart().startsWith('!'))
     }
   })
@@ -109,24 +109,24 @@ describe('firstMeaningfulChar', () => {
     // routes.
     for (const space of WHITESPACE) {
       const composer = typed(`${space}${space}!rest`)
-      expect(composer.firstMeaningfulChar, JSON.stringify(space)).toBe('!')
+      expect(composer.leadingNonWhitespaceChar, JSON.stringify(space)).toBe('!')
       expect(composer.value.trimStart()[0], JSON.stringify(space)).toBe('!')
     }
   })
 
   it('stops at the characters that only look like whitespace', () => {
     for (const char of NOT_WHITESPACE) {
-      expect(typed(`${char}rest`).firstMeaningfulChar, JSON.stringify(char)).toBe(char)
-      expect(typed(`${char}`).firstMeaningfulChar, JSON.stringify(char)).toBe(char)
+      expect(typed(`${char}rest`).leadingNonWhitespaceChar, JSON.stringify(char)).toBe(char)
+      expect(typed(`${char}`).leadingNonWhitespaceChar, JSON.stringify(char)).toBe(char)
     }
-    expect(typed('!rest').firstMeaningfulChar).toBe('!')
-    expect(typed('arest').firstMeaningfulChar).toBe('a')
+    expect(typed('!rest').leadingNonWhitespaceChar).toBe('!')
+    expect(typed('arest').leadingNonWhitespaceChar).toBe('a')
   })
 
   it('answers for an empty and a whitespace-only buffer', () => {
-    expect(new Composer().firstMeaningfulChar).toBeUndefined()
-    expect(typed(' \t\n').firstMeaningfulChar).toBeUndefined()
-    expect(typed(WHITESPACE.join('')).firstMeaningfulChar).toBeUndefined()
+    expect(new Composer().leadingNonWhitespaceChar).toBeUndefined()
+    expect(typed(' \t\n').leadingNonWhitespaceChar).toBeUndefined()
+    expect(typed(WHITESPACE.join('')).leadingNonWhitespaceChar).toBeUndefined()
   })
 
   it('never touches the hidden text of a folded paste, and is stable across repeats', () => {
@@ -140,9 +140,9 @@ describe('firstMeaningfulChar', () => {
 
     composer.valueReads = 0
     composer.displayReads = 0
-    expect(composer.firstMeaningfulChar).toBe('l')
-    expect(composer.firstMeaningfulChar).toBe('l')
-    expect(composer.firstMeaningfulChar).toBe('l')
+    expect(composer.leadingNonWhitespaceChar).toBe('l')
+    expect(composer.leadingNonWhitespaceChar).toBe('l')
+    expect(composer.leadingNonWhitespaceChar).toBe('l')
     expect(composer.valueReads).toBe(0)
     expect(composer.displayReads).toBe(0)
   })
@@ -153,29 +153,29 @@ describe('firstMeaningfulChar', () => {
     // real keystrokes rather than direct assignments, because it is the
     // keystrokes that move the revision the cache is keyed on.
     const composer = new Composer()
-    expect(composer.firstMeaningfulChar).toBeUndefined()
+    expect(composer.leadingNonWhitespaceChar).toBeUndefined()
     composer.handle({ kind: 'text', text: 'hello' })
-    expect(composer.firstMeaningfulChar).toBe('h')
+    expect(composer.leadingNonWhitespaceChar).toBe('h')
     composer.handle({ kind: 'key', name: 'ctrl-u' })
-    expect(composer.firstMeaningfulChar).toBeUndefined()
+    expect(composer.leadingNonWhitespaceChar).toBeUndefined()
     composer.handle({ kind: 'text', text: '!git status' })
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
     composer.handle({ kind: 'key', name: 'ctrl-z' })
-    expect(composer.firstMeaningfulChar).toBeUndefined()
+    expect(composer.leadingNonWhitespaceChar).toBeUndefined()
     composer.handle({ kind: 'key', name: 'ctrl-y' })
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
     composer.handle({ kind: 'key', name: 'backspace' })
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
     composer.handle({ kind: 'key', name: 'home' })
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
     composer.handle({ kind: 'key', name: 'delete' })
-    expect(composer.firstMeaningfulChar).toBe('g')
+    expect(composer.leadingNonWhitespaceChar).toBe('g')
     composer.set('  !restored')
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
     composer.clear()
-    expect(composer.firstMeaningfulChar).toBeUndefined()
+    expect(composer.leadingNonWhitespaceChar).toBeUndefined()
     composer.handle({ kind: 'paste', text: ' \t!pasted' })
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
   })
 
   it('answers the same for a draft nobody has edited, which is what a redraw sees', () => {
@@ -183,8 +183,8 @@ describe('firstMeaningfulChar', () => {
     // must not depend on how many times the reader has moved.
     const composer = typed('!git status')
     for (let index = 0; index < 5; index += 1) composer.handle({ kind: 'key', name: 'left' })
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
     for (let index = 0; index < 5; index += 1) composer.handle({ kind: 'key', name: 'right' })
-    expect(composer.firstMeaningfulChar).toBe('!')
+    expect(composer.leadingNonWhitespaceChar).toBe('!')
   })
 })
