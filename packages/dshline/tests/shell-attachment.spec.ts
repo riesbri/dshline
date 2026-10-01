@@ -1,5 +1,5 @@
 /** Human shell gestures through the real composer, routing and attachment scope. */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { isAttachmentError } from '@deepseek-ai/dsh-attachment'
@@ -7,10 +7,11 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import type { ShellExecutor, ShellExecRequest, ShellExecSpec, ShellExecution, ShellRunResult } from '@deepseek-ai/dsh-shell'
-import { stripAnsi, paint, type Key } from '@dshline/renderer'
+import { stripAnsi, paint, setPalette, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { SkillCatalog } from '../src/skills/catalog.ts'
 import { TuiSlots } from '../src/slots.ts'
+import { DEFAULT_PALETTE } from '../src/theme.ts'
 import { pricingFrom } from '../src/usage.ts'
 import { createWindowExitRequest } from '../src/window.ts'
 import type { Window } from '../src/window.ts'
@@ -38,7 +39,7 @@ async function flush(): Promise<void> {
  * @param role - the semantic role to sample.
  * @returns its SGR parameter text.
  */
-function sgrOf(role: 'shell-active' | 'chrome' | 'success' | 'error'): string {
+function sgrOf(role: 'shell-input' | 'shell-active' | 'chrome' | 'success' | 'error'): string {
   return /^\u001b\[([0-9;]*)m/u.exec(paint('x', role))?.[1] ?? ''
 }
 
@@ -227,6 +228,8 @@ async function fixture(options: {
   } as unknown as AttachOutcome
   const attachment = attachSession(window, outcome)
   const press = (name: string) => { dispatch?.({ kind: 'key', name } as Key) }
+  const type = (text: string) => { dispatch?.({ kind: 'text', text }) }
+  const paste = (text: string) => { dispatch?.({ kind: 'paste', text }) }
   const submit = async (line: string, key: 'enter' | 'ctrl-enter' = 'enter') => {
     expect(dispatch).toBeDefined()
     dispatch?.({ kind: 'text', text: line })
@@ -247,7 +250,7 @@ async function fixture(options: {
     ctx, session, agent, inbox, commands, requests, prepare, prepareAborts, shell, policy, verify,
     setMode: (next: typeof mode) => { mode = next },
     reads, windows, saveImages, saveFileStream, event, commits, draws, window, exit, requestExit,
-    press, submit, attachment, disposeAgent,
+    press, submit, type, paste, attachment, disposeAgent,
     output: () => commits.flat().map(stripAnsi).join('\n'),
     frame: () => latest.map(stripAnsi).join('\n'),
     rawFrame: () => latest,
@@ -690,5 +693,231 @@ describe('assembled shell-active composer chrome', () => {
     expect(row).not.toContain(sgrOf('chrome'))
     expect(stripAnsi(row ?? '')).toContain('ctrl-c interrupt')
     expect(frameRole(f)).toBe(sgrOf('shell-active'))
+  })
+})
+
+/**
+ * The composer frame while the DRAFT is a shell command and nothing has run.
+ *
+ * Driven through the assembled attachment with real keystrokes rather than
+ * through a view told a boolean, because the claim is about the INPUT PATH: an
+ * actual `!` keystroke, arriving through the same dispatcher a terminal feeds,
+ * has to change the frame before enter is pressed. A view-level test would pass
+ * just as happily if nothing had ever been wired to the composer at all.
+ *
+ * The palette here tells `shell-input` apart from `shell-active`, which share
+ * amber in the shipped one. That is not a claim about appearance: it is what
+ * makes "the running operation wins over the draft being typed" observable at
+ * all, and it is the same freedom the two separate roles exist to preserve.
+ */
+describe('assembled shell-input composer chrome', () => {
+  /** Restores the shipped palette when the block is done with its own. */
+  let restore: (() => void) | undefined
+
+  beforeEach(() => {
+    restore = setPalette({
+      ...DEFAULT_PALETTE,
+      id: 'test-split-shell-roles',
+      roles: { ...DEFAULT_PALETTE.roles, 'shell-input': { ansi: [36] } },
+    }, 4)
+  })
+
+  afterEach(() => {
+    restore?.()
+    restore = undefined
+  })
+
+  it('takes the frame on the keystroke that types the bang, with nothing submitted', async () => {
+    const f = await fixture()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    f.type('!')
+    // The whole point of the pre-submit state: this is the frame a reader sees
+    // while `!pnpm test` is three keystrokes from being run.
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    expect(f.shell.execute).not.toHaveBeenCalled()
+    expect(f.requests).toHaveLength(0)
+    // Nothing was echoed either: a submitted command announces itself above the
+    // composer, and this one has not been submitted.
+    expect(f.output()).not.toContain('›')
+    // The draft is still a draft: drawn in the composer, in ordinary text.
+    expect(f.frame()).toContain('!')
+  })
+
+  it('holds it while the command is typed and drops it the moment the bang is deleted', async () => {
+    const f = await fixture()
+    f.type('!git status')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    // Delete the bang itself, which is the edit that has to change the MODE.
+    f.press('home')
+    f.press('delete')
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    expect(f.frame()).toContain('git status')
+    expect(f.shell.execute).not.toHaveBeenCalled()
+    f.type('!')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+  })
+
+  it('agrees with routing on every draft a reader can arrive at', async () => {
+    // Each case is typed into an empty composer, the frame is read, and the draft
+    // is cleared. The frame has to be right BEFORE anything is submitted, which
+    // is the whole claim; the last case then submits, and the promise has to
+    // hold: a process started and the model was told nothing.
+    const f = await fixture({ autoSettle: false })
+    for (const [text, expected] of [
+      ['  ', 'chrome'], ['hello !', 'chrome'], ['/foo!', 'chrome'], ['git status', 'chrome'],
+      ['!', 'shell-input'], ['   !', 'shell-input'], ['!git status', 'shell-input'],
+    ] as const) {
+      f.type(text)
+      expect(frameRole(f), JSON.stringify(text)).toBe(sgrOf(expected))
+      f.press('ctrl-u')
+      expect(f.frame()).toContain('›')
+    }
+    expect(f.shell.execute).not.toHaveBeenCalled()
+    f.type('!true')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('ctrl-u')
+    await f.submit('!true')
+    expect(f.requests).toHaveLength(1)
+    expect(f.agent.followup).not.toHaveBeenCalled()
+  })
+
+  it('takes a pasted draft the same way, including multiline source', async () => {
+    const f = await fixture()
+    f.paste('!printf a')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('ctrl-u')
+    f.paste('   !printf a')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('ctrl-u')
+    f.paste('note: a\n!printf a\nmore')
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    f.press('ctrl-u')
+    f.paste('\n  !printf a\nmore')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('ctrl-u')
+    f.paste('hello !world')
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    expect(f.shell.execute).not.toHaveBeenCalled()
+  })
+
+  it('follows undo of the typing and redo back into it', async () => {
+    const f = await fixture()
+    f.type('!git status')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('ctrl-z')
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    f.press('ctrl-y')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('home')
+    f.press('delete')
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    f.press('ctrl-z')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+  })
+
+  it('follows history recall of a shell line, and of an ordinary prompt', async () => {
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!git status')
+    f.requests[0]?.finish()
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    f.press('up')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    expect(f.frame()).toContain('!git status')
+    // A recalled shell line is still only a draft until it is submitted again.
+    expect(f.shell.execute).toHaveBeenCalledOnce()
+    f.press('ctrl-u')
+    await flush()
+    await f.submit('explain this function')
+    f.press('up')
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+  })
+
+  it('follows a ctrl-r recall, which arrives through the same composer state', async () => {
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!git status')
+    f.requests[0]?.finish()
+    await flush()
+    f.press('ctrl-r')
+    const overlay = f.ctx.tuiSlots.activeOverlay
+    expect(overlay).toBeDefined()
+    overlay?.handleKey({ kind: 'text', text: 'git' })
+    overlay?.handleKey({ kind: 'key', name: 'enter' })
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    expect(f.frame()).toContain('!git status')
+  })
+
+  it('returns to ordinary chrome after a bare bang is submitted, which starts nothing', async () => {
+    const f = await fixture()
+    f.type('!')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('ctrl-u')
+    await f.submit('!')
+    // No operation began, so there is no `shell-active` window to hold: the frame
+    // falls back to ordinary chrome rather than claiming ownership of nothing.
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    expect(f.requests).toHaveLength(0)
+    expect(f.shell.execute).not.toHaveBeenCalled()
+    expect(f.output()).toContain('use !<command>')
+  })
+
+  it('runs the whole lifecycle: draft, submit, active, settled', async () => {
+    const f = await fixture({ autoSettle: false })
+    f.type('!sleep 30')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    f.press('ctrl-u')
+    await f.submit('!sleep 30')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    expect(f.frame()).toContain('shell running')
+    f.requests[0]?.finish()
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    expect(f.frame()).not.toContain('shell running')
+  })
+
+  it('keeps shell-active over a second bang draft, then falls back to it on settlement', async () => {
+    // The unusual case, and the one that decides the precedence: a command is
+    // still running and the reader has started writing the next one. Ownership
+    // wins while it lasts, because that is what ctrl-c is aimed at — and the
+    // draft is still there when it ends, so the frame says so instead of
+    // pretending the reader never typed anything.
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!first')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.type('!next')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.press('ctrl-u')
+    await f.submit('!next')
+    expect(f.output()).toContain('a shell command is still running')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.requests[0]?.finish()
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    f.type('!next')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+  })
+
+  it('returns to ordinary chrome when the operation settles over an ordinary draft', async () => {
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!first')
+    f.type('explain this')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.requests[0]?.finish()
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    expect(f.frame()).toContain('explain this')
+  })
+
+  it('shows no runtime row for a draft that has not been submitted', async () => {
+    // The words belong to an operation. A frame that said "shell running" while
+    // the reader was still typing would be a claim about something that has not
+    // happened.
+    const f = await fixture({ autoSettle: false })
+    f.type('!sleep 30')
+    expect(frameRole(f)).toBe(sgrOf('shell-input'))
+    expect(f.frame()).not.toContain('shell running')
+    expect(f.frame()).not.toContain('shell cancellation')
+    expect(f.requests).toHaveLength(0)
   })
 })

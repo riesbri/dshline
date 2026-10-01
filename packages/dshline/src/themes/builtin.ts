@@ -140,6 +140,11 @@ function fromSwatch(
     // not failed, and a theme that wants the input surface to read as alarming
     // is choosing a different opinion, not correcting this one.
     'shell-active': s.warn,
+    // The composer frame while the DRAFT it holds is a human shell gesture.
+    // `warn` for the same reason as above and no more: a command being written
+    // is not a failure either, and the two roles are free to differ in a theme
+    // that wants the distinction to be visible.
+    'shell-input': s.warn,
     'composer-title': s.accent,
     'overlay-title': with_(s.warn, BOLD),
     'overlay-headline': with_(s.warn, BOLD),

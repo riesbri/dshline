@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import type { Role, StyleName } from '@dshline/renderer'
 import { MARKDOWN_ROLES, paint, style } from '@dshline/renderer'
 import { DEFAULT_PALETTE } from '../src/theme.ts'
+import { THEMES } from '../src/themes/builtin.ts'
 
 /**
  * Each role this package declares, beside the exact `style()` arguments it
@@ -65,7 +66,11 @@ const REPLACES = {
  */
 const ADDED = {
   'shell-active': ['yellow'],
+  'shell-input': ['yellow'],
 } as const satisfies Readonly<Record<string, readonly StyleName[]>>
+
+/** The two shell roles, named so the assertions below can talk about each. */
+const SHELL_ROLES = ['shell-input', 'shell-active'] as const
 
 describe('the roles this frontend adds', () => {
   it('emits exactly what the style() call each replaced emitted', () => {
@@ -84,14 +89,30 @@ describe('the roles this frontend adds', () => {
     }
   })
 
-  it('never paints an active shell as a failure', () => {
-    // The invariant that made this a separate role rather than a reuse of
+  it('never paints either shell state as a failure', () => {
+    // The invariant that made these separate roles rather than a reuse of
     // `warning` or `busy`, and the one that would quietly come back: red is what
-    // `✗ shell exit 1` spends, and a command that is still running is not that.
-    expect(DEFAULT_PALETTE.roles['shell-active'].ansi)
-      .not.toStrictEqual(DEFAULT_PALETTE.roles.error.ansi)
-    expect(DEFAULT_PALETTE.roles['shell-active'].ansi)
-      .toStrictEqual(DEFAULT_PALETTE.roles.warning.ansi)
+    // `✗ shell exit 1` spends, and neither a command that is still running nor a
+    // command being written is that.
+    for (const role of SHELL_ROLES) {
+      expect(DEFAULT_PALETTE.roles[role].ansi, role).not.toStrictEqual(DEFAULT_PALETTE.roles.error.ansi)
+      expect(DEFAULT_PALETTE.roles[role].ansi, role).toStrictEqual(DEFAULT_PALETTE.roles.warning.ansi)
+    }
+  })
+
+  it('keeps the two shell states separate roles that happen to match today', () => {
+    // They are deliberately NOT asserted equal to each other: a theme is free to
+    // tell "you are writing a shell command" from "a shell command owns your
+    // ctrl-c" without any runtime change, and a test demanding they stay
+    // identical would take that freedom back. What is pinned is that both are
+    // total, both are amber at the floor, and neither is red — the previous test.
+    for (const role of SHELL_ROLES) {
+      expect(DEFAULT_PALETTE.roles, role).toHaveProperty(role)
+      for (const theme of THEMES.filter(other => other.id !== DEFAULT_PALETTE.id)) {
+        expect(theme.roles, `${theme.id}.${role}`).toHaveProperty(role)
+        expect(theme.roles[role].ansi, `${theme.id}.${role}`).not.toStrictEqual(theme.roles.error.ansi)
+      }
+    }
   })
 
   it('adds every role the shipped palette carries beyond the renderer own', () => {

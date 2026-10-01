@@ -244,6 +244,54 @@ export class Composer {
   }
 
   /**
+   * {@link firstMeaningfulChar}, kept for one {@link revision}.
+   *
+   * A frame asks this question on every redraw — including the ones a spinner
+   * timer causes when nothing was typed — and the walk stops at the first
+   * non-whitespace character, so it is already cheap. Caching it still matters
+   * for the case that is not cheap: a draft that opens with a long run of
+   * whitespace would be rescanned from the start on every redraw, in a view that
+   * has otherwise been kept free of whole-buffer work by {@link revision}.
+   *
+   * Keyed on {@link revision} rather than reset, because every mutation of
+   * `chars` goes through {@link touch} already: the validity of this cache is
+   * exactly the validity of the revision counter, so there is one invariant to
+   * maintain rather than two.
+   */
+  private meaningful: { rev: number; char: string | undefined } | undefined
+
+  /**
+   * The buffer's first character that is not whitespace.
+   *
+   * What the buffer MEANS to a consumer that must classify the draft without
+   * reading it — this renderer names no gesture and decides none, but a caller
+   * asking "does this line begin with something other than whitespace?" should
+   * not have to join a hundred thousand characters to find out.
+   *
+   * Whitespace is decided by `String.prototype.trim` applied to one character,
+   * which is the very test `trimStart()` applies to each character while it
+   * strips a leading run. So this is `value.trimStart()`'s first character, by
+   * construction rather than by a table that could drift from the platform's own
+   * definition — including the exotic members of the set, such as NBSP and the
+   * byte-order mark, which a hand-written list is exactly how a caller ends up
+   * disagreeing with its own routing.
+   * @returns the first non-whitespace character, or undefined when the buffer holds none.
+   */
+  get firstMeaningfulChar(): string | undefined {
+    if (this.meaningful?.rev === this.rev) return this.meaningful.char
+    let char: string | undefined
+    for (let index = 0; index < this.chars.length; index += 1) {
+      const candidate = this.chars[index]
+      if (candidate !== undefined && candidate.trim() !== '') {
+        char = candidate
+        break
+      }
+    }
+    this.meaningful = { rev: this.rev, char }
+    return char
+  }
+
+  /**
    * The buffer as a reader sees it, with every folded span drawn as one token.
    *
    * This is the seam between what the composer HOLDS and what a terminal is shown.

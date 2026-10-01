@@ -2,6 +2,7 @@
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ShellExecutor, ShellExecution, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import type { Composer } from '@dshline/renderer'
 import { escapeControls, paint } from '@dshline/renderer'
 import type { ShellOutput } from './shell-output.ts'
 
@@ -12,6 +13,9 @@ const STDOUT_MAX_BYTES = 64_000
 /** Status/error details are diagnostic, not an unbounded second output stream. */
 const ERROR_CODE_UNITS = 4096
 
+/** The character that makes a line a human shell gesture rather than a prompt. */
+const BANG = '!'
+
 /**
  * Detect a leading meaningful ! without trimming shell source or trailing spaces.
  * @param text - original composer buffer.
@@ -19,7 +23,29 @@ const ERROR_CODE_UNITS = 4096
  */
 export function parseShellCommand(text: string): string | undefined {
   const meaningful = text.trimStart()
-  return meaningful.startsWith('!') ? meaningful.slice(1) : undefined
+  return meaningful.startsWith(BANG) ? meaningful.slice(1) : undefined
+}
+
+/**
+ * Whether a composer's CURRENT DRAFT is a human shell gesture.
+ *
+ * The same question {@link parseShellCommand} answers, asked of the live buffer
+ * rather than of a submitted line, so the composer can SHOW the mode that
+ * pressing enter is about to select. Routing and presentation cannot disagree
+ * about what a `!` means, because both ask for the buffer's first non-whitespace
+ * character and `trimStart()` is what strips that run: the answer here is
+ * character-for-character what `parseShellCommand(composer.value)` would say
+ * about the same buffer.
+ *
+ * It reads that one character instead of the whole draft, which is what keeps
+ * the frame free on a keystroke: {@link Composer.firstMeaningfulChar} stops at
+ * the first character that is not whitespace, so a buffer holding a folded paste
+ * of a hundred thousand characters costs the same as an empty one.
+ * @param composer - the buffer being edited.
+ * @returns whether submitting this draft would execute a local shell command.
+ */
+export function isShellDraft(composer: Composer): boolean {
+  return composer.firstMeaningfulChar === BANG
 }
 
 function errorRows(error: unknown): string[] {

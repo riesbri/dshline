@@ -17,7 +17,7 @@ import { Composer, displayWidth, paint, Screen, setPalette, stripAnsi } from '@d
 import { createEmulator } from '../../../tests/emulator.ts'
 import { CHROME_MIN_COLUMNS, rootFrame } from '../src/chrome.ts'
 import { DEFAULT_PALETTE } from '../src/theme.ts'
-import { createComposerView } from '../src/views.ts'
+import { createComposerView, type ComposerShellState } from '../src/views.ts'
 
 const ROWS = 24
 /** Wide enough for the framed composer at every width this spec uses. */
@@ -35,7 +35,7 @@ const BORDER = /[╭╰│─╮╯]/u
  * @param role - the semantic role to sample.
  * @returns its SGR parameter text, which is empty when the role emits nothing.
  */
-function sgrOf(role: 'shell-active' | 'chrome' | 'error' | 'composer-title' | 'banner'): string {
+function sgrOf(role: 'shell-input' | 'shell-active' | 'chrome' | 'error' | 'composer-title' | 'banner'): string {
   return /^\u001b\[([0-9;]*)m/u.exec(paint('x', role))?.[1] ?? ''
 }
 
@@ -96,20 +96,29 @@ function typed(text: string): Composer {
 }
 
 /**
- * Render a composer in one of the two shell states.
+ * Render a composer in one of the shell states.
+ *
+ * `shellInput` is fixed off here: this spec is about the state that corresponds to
+ * an operation EXISTING, and the pre-submit state has its own spec, wired the way
+ * the attachment wires it rather than told a boolean.
  * @param composer - the buffer to draw.
- * @param active - whether a foreground shell operation is active.
+ * @param state - what the runner reports about the reader's shell.
  * @param columns - terminal width.
  * @param rows - terminal height.
  * @returns the raw rows and the cursor the view reports for them.
  */
-function drawn(composer: Composer, active: boolean, columns = WIDE, rows = ROWS): {
+function drawn(composer: Composer, state: ComposerShellState, columns = WIDE, rows = ROWS): {
   lines: string[]
   cursor: { row: number; column: number } | undefined
 } {
-  const view = createComposerView(composer, '/work/repo', () => 1, () => ({ busy: false, busyEnter: 'queue' }), () => active)
+  const view = createComposerView(composer, '/work/repo', () => 1, () => ({ busy: false, busyEnter: 'queue' }), () => state)
   return { lines: view.render(columns, rows), cursor: view.cursor?.(columns, rows) }
 }
+
+/** The facts for an operation that exists, over whatever draft the reader holds. */
+const ACTIVE: ComposerShellState = { shellActive: true, shellInput: false }
+/** The facts for no operation and no shell draft: ordinary chrome. */
+const IDLE: ComposerShellState = { shellActive: false, shellInput: false }
 
 describe('the composer frame while a human shell operation is active', () => {
   it('wears the shell-active role on its borders, and chrome when none is active', () => {
@@ -119,15 +128,15 @@ describe('the composer frame while a human shell operation is active', () => {
     // sharing it, this assertion would still name which one the frame means.
     expect(active).not.toBe(sgrOf('error'))
 
-    const on = borderStates(drawn(typed('ordinary prompt'), true).lines)
-    const off = borderStates(drawn(typed('ordinary prompt'), false).lines)
+    const on = borderStates(drawn(typed('ordinary prompt'), ACTIVE).lines)
+    const off = borderStates(drawn(typed('ordinary prompt'), IDLE).lines)
     expect(on.length).toBeGreaterThan(0)
     expect([...new Set(on)]).toStrictEqual([active])
     expect([...new Set(off)]).toStrictEqual([chrome])
   })
 
   it('leaves the draft and both frame labels untouched', () => {
-    const lines = drawn(typed('ordinary prompt'), true).lines
+    const lines = drawn(typed('ordinary prompt'), ACTIVE).lines
     const body = lines.find(line => stripAnsi(line).includes('ordinary prompt')) ?? ''
     const top = lines.find(line => stripAnsi(line).includes('dshline')) ?? ''
 
@@ -149,8 +158,8 @@ describe('the composer frame while a human shell operation is active', () => {
     // and a screenshot all see the same composer in both states.
     for (const text of ['ordinary prompt', '', 'x'.repeat(200), 'one\ntwo\nthree', '界😀 wide']) {
       const composer = typed(text)
-      const idle = drawn(composer, false).lines
-      const active = drawn(composer, true).lines
+      const idle = drawn(composer, IDLE).lines
+      const active = drawn(composer, ACTIVE).lines
       expect(active.map(stripAnsi), text).toStrictEqual(idle.map(stripAnsi))
     }
   })
@@ -162,8 +171,8 @@ describe('the composer frame while a human shell operation is active', () => {
     for (const text of ['ordinary prompt', 'x'.repeat(400), 'a\nb\nc\nd\ne\nf\ng\nh', '界😀'.repeat(50)]) {
       for (const columns of [WIDE, 60, 40, 30]) {
         const composer = typed(text)
-        const idle = drawn(composer, false, columns)
-        const active = drawn(composer, true, columns)
+        const idle = drawn(composer, IDLE, columns)
+        const active = drawn(composer, ACTIVE, columns)
         const label = `${String(columns)}x${text.slice(0, 12)}`
         expect(active.lines, label).toHaveLength(idle.lines.length)
         expect(active.cursor, label).toStrictEqual(idle.cursor)
@@ -178,8 +187,8 @@ describe('the composer frame while a human shell operation is active', () => {
     // A different branch entirely: no draft, so the body is the hint rather than
     // a buffer. It must not be a place where the state goes missing.
     for (const columns of [WIDE, 40, CHROME_MIN_COLUMNS]) {
-      const idle = drawn(new Composer(), false, columns)
-      const active = drawn(new Composer(), true, columns)
+      const idle = drawn(new Composer(), IDLE, columns)
+      const active = drawn(new Composer(), ACTIVE, columns)
       expect([...new Set(borderStates(active.lines))], String(columns)).toStrictEqual([sgrOf('shell-active')])
       expect(active.lines.map(stripAnsi)).toStrictEqual(idle.lines.map(stripAnsi))
       expect(active.cursor).toStrictEqual(idle.cursor)
@@ -188,14 +197,14 @@ describe('the composer frame while a human shell operation is active', () => {
 
   it('survives a resize from framed to narrow and back while active', () => {
     const composer = typed('resize me')
-    const framed = drawn(composer, true, WIDE)
-    const narrow = drawn(composer, true, CHROME_MIN_COLUMNS - 1)
+    const framed = drawn(composer, ACTIVE, WIDE)
+    const narrow = drawn(composer, ACTIVE, CHROME_MIN_COLUMNS - 1)
     // Below the shared chrome floor the composer sheds its frame entirely, and it
     // must shed it the way it always does: no border, no added rows, no marker
     // invented to stand in for the colour it can no longer use.
     expect(stripAnsi(narrow.lines.join('\n'))).not.toMatch(/[╭╰│]/u)
-    expect(narrow.lines).toStrictEqual(drawn(composer, false, CHROME_MIN_COLUMNS - 1).lines)
-    expect(drawn(composer, true, WIDE)).toStrictEqual(framed)
+    expect(narrow.lines).toStrictEqual(drawn(composer, IDLE, CHROME_MIN_COLUMNS - 1).lines)
+    expect(drawn(composer, ACTIVE, WIDE)).toStrictEqual(framed)
   })
 
   it('emits nothing extra on a terminal that cannot show colour at all', () => {
@@ -205,7 +214,7 @@ describe('the composer frame while a human shell operation is active', () => {
     const restore = setPalette(DEFAULT_PALETTE, 0)
     try {
       const composer = typed('no colour here')
-      expect(drawn(composer, true).lines).toStrictEqual(drawn(composer, false).lines)
+      expect(drawn(composer, ACTIVE).lines).toStrictEqual(drawn(composer, IDLE).lines)
     } finally {
       restore()
     }
@@ -238,7 +247,7 @@ describe('in a real terminal', () => {
       // A stand-in for `shellRun !== undefined`, held by the test so one view can
       // be watched through a whole lifecycle without a second attachment.
       const run = { active: true }
-      const view = createComposerView(composer, '/work/repo', () => 1, () => ({ busy: false, busyEnter: 'queue' }), () => run.active)
+      const view = createComposerView(composer, '/work/repo', () => 1, () => ({ busy: false, busyEnter: 'queue' }), () => ({ shellActive: run.active, shellInput: false }))
 
       screen.setLive(view.render(WIDE, ROWS), view.cursor?.(WIDE, ROWS))
       // A committed control row, so the expected palette indices come from the
