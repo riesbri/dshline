@@ -48,6 +48,17 @@ declare module '@dshline/renderer' {
     banner: RoleColor
     /** Something is in flight. */
     busy: RoleColor
+    /**
+     * The moving band of light the status line passes over its `busy` word.
+     *
+     * Its own role, not `busy` combined with `strong` at the call site: that
+     * would fix the band's appearance in code, where no palette could reach it,
+     * and the band has a job the word does not — it must stand out against
+     * `busy` on whatever background the terminal has. Only ever drawn for a few
+     * frames at a time over a word that is itself `busy`, so it never appears
+     * on a line where nothing is running.
+     */
+    'busy-glint': RoleColor
     /** Nothing is running. */
     ready: RoleColor
     /** A mode worth reporting: plan, todo, work. */
@@ -170,6 +181,11 @@ export const DEFAULT_PALETTE: Palette = {
     // views.ts: the product name in the startup banner.
     banner: { ansi: [1, 36] },
     busy: { ansi: [33] },
+    // views.ts: the glint crossing the busy word. Bold in the terminal's own
+    // foreground rather than a brighter amber: bright yellow all but vanishes
+    // on a light background, while the default foreground is legible on every
+    // background by definition.
+    'busy-glint': { ansi: [1] },
     ready: { ansi: [32] },
     // views.ts: the plan, todo, and work segments of the status line.
     mode: { ansi: [36] },

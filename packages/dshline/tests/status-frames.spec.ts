@@ -99,14 +99,13 @@ describe('the status line on a real terminal', () => {
     expect(narrow).not.toContain('2.3M')
   })
 
-  it('separates the spinner from the activity word with two spaces at every width', async () => {
+  it('leads with the whole activity word and no spinner, at every width', async () => {
     for (const columns of [20, 30, 40, 50, 60, 80, 120]) {
       const line = await row(columns)
-      // The busy core is `spinner + two ASCII spaces + word`. Within it the
-      // separator must never degrade to one space or a wide space, and the
-      // spinner must never sit against a truncated word.
-      expect(line, `${String(columns)} columns`).toMatch(/◜ {2}responding/u)
-      expect(line, `${String(columns)} columns`).not.toMatch(/◜ {1}responding/u)
+      // The word is the busy indicator on this line, so it opens the row in
+      // full at every width, and no arc turns beside it.
+      expect(line, `${String(columns)} columns`).toMatch(/^ {2}responding/u)
+      expect(line, `${String(columns)} columns`).not.toMatch(/[◜◝◞◟◠◡]/u)
     }
   })
 
@@ -167,29 +166,44 @@ describe('the status line on a real terminal', () => {
     expect(narrow).not.toContain('…')
   })
 
-  it('gives the spinner and activity word busy emphasis while metadata stays subdued', async () => {
+  it('passes the glint over the busy word while metadata stays subdued and still', async () => {
+    // `responding` is ten columns: a 13-tick pass, then rest from tick 13.
     const emulator = createEmulator(80, 24)
-    new Screen(emulator.target).setLive(createStatusView(() => CROWDED).render(80))
-    const rows = (await emulator.screen()).map(line => line.trimEnd())
-    const at = rows.findIndex(line => line.includes('◜'))
-    expect(at).toBeGreaterThanOrEqual(0)
-    expect(rows[at]).toContain('  ◜  responding · turn 14m 26s')
-    // Row text: `  ◜  responding · turn …` — spinner at column 2, word at column 5.
-    const spinner = await emulator.cell(2, at)
-    const word = await emulator.cell(5, at)
-    const elapsed = await emulator.cell(18, at)
-    expect(spinner?.chars).toBe('◜')
-    expect(await emulator.cell(3, at)).toEqual({ chars: ' ', bold: false })
-    expect(await emulator.cell(4, at)).toEqual({ chars: ' ', bold: false })
-    expect(word?.chars).toBe('r')
-    expect(elapsed?.chars).toBe('t')
-    // The busy accent is yellow (ANSI 33 -> fg 3), shared by the semantic word.
-    expect(spinner?.fg).toBe(3)
-    expect(word?.fg).toBe(spinner?.fg)
-    expect(word?.bold).toBe(false)
+    const screen = new Screen(emulator.target)
+    const at = async (tick: number): Promise<{ text: string; cells: Array<{ fg: number | undefined; bold: boolean }> }> => {
+      screen.setLive(createStatusView(() => ({ ...CROWDED, tick })).render(80))
+      const rows = (await emulator.screen()).map(line => line.trimEnd())
+      const index = rows.findIndex(line => line.includes('responding'))
+      const cells: Array<{ fg: number | undefined; bold: boolean }> = []
+      for (let column = 0; column < 32; column += 1) {
+        const cell = await emulator.cell(column, index)
+        cells.push({ fg: cell?.fg, bold: cell?.bold ?? false })
+      }
+      return { text: rows[index] ?? '', cells }
+    }
+    const rest = await at(20)
+    expect(rest.text).toContain('  responding · turn 14m 26s')
+    // At rest: the word is the busy accent (ANSI 33 -> fg 3) end to end.
+    for (let column = 2; column < 12; column += 1) {
+      expect(rest.cells[column], `column ${String(column)}`).toEqual({ fg: 3, bold: false })
+    }
     // The elapsed suffix is a separate subdued fact, not part of the busy unit.
-    expect(elapsed?.fg).not.toBe(spinner?.fg)
-    expect(elapsed?.bold).toBe(false)
+    expect(rest.cells[20]?.fg).not.toBe(3)
+
+    const mid = await at(6)
+    // Mid-pass: three columns lit — bold, in the terminal's own foreground —
+    // with the busy accent either side, and the text itself unmoved.
+    expect(mid.text).toBe(rest.text)
+    const lit = mid.cells.slice(2, 12).map(cell => cell.bold)
+    expect(lit.filter(Boolean).length).toBe(3)
+    expect(lit.indexOf(true)).toBeGreaterThan(0)
+    for (let column = 2; column < 12; column += 1) {
+      const cell = mid.cells[column]
+      expect(cell, `column ${String(column)}`).toEqual(cell?.bold === true ? { fg: undefined, bold: true } : { fg: 3, bold: false })
+    }
+    // Everything after the word is identical on both frames.
+    expect(mid.cells.slice(12)).toEqual(rest.cells.slice(12))
+    emulator.dispose()
   })
 })
 

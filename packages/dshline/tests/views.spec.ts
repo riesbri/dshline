@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Composer, displayWidth, escapeControls, paint, Screen, stripAnsi } from '@dshline/renderer'
+import { Composer, displayWidth, escapeControls, GLINT_PERIOD_TICKS, paint, Screen, setPalette, stripAnsi } from '@dshline/renderer'
+import { DEFAULT_PALETTE } from '../src/theme.ts'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
 import { bannerLines, composerGutter, composerHintRow, composerInner, createComposerView, createStatusView, widthStableLabel } from '../src/views.ts'
@@ -453,6 +454,29 @@ describe("the empty composer's hint", () => {
 })
 
 describe('the status line', () => {
+  /** An idle session with nothing to report, for each spec to override. */
+  const STATUS_DEFAULTS: StatusState = {
+    busy: false,
+    tick: 0,
+    elapsedMs: undefined,
+    activityWord: 'waiting',
+    activity: undefined,
+    attention: undefined,
+    model: 'deepseek-v4-flash',
+    effort: undefined,
+    usage: undefined,
+    cacheRead: undefined,
+    tokens: undefined,
+    contextWindow: undefined,
+    detail: 'compact',
+    work: undefined,
+    pending: undefined,
+    todo: undefined,
+    plan: false,
+    replay: undefined,
+    goal: undefined,
+  }
+
   /**
    * Render the status line and strip its styling.
    * @param overrides - values to override on the default state.
@@ -461,25 +485,7 @@ describe('the status line', () => {
    */
   function status(overrides: Partial<StatusState> = {}, columns = 120): string {
     const view = createStatusView(() => ({
-      busy: false,
-      tick: 0,
-      elapsedMs: undefined,
-      activityWord: 'waiting',
-      activity: undefined,
-      attention: undefined,
-      model: 'deepseek-v4-flash',
-      effort: undefined,
-      usage: undefined,
-      cacheRead: undefined,
-      tokens: undefined,
-      contextWindow: undefined,
-      detail: 'compact',
-      work: undefined,
-      pending: undefined,
-      todo: undefined,
-      plan: false,
-      replay: undefined,
-      goal: undefined,
+      ...STATUS_DEFAULTS,
       ...overrides,
     }))
     return stripAnsi(view.render(columns)[0] ?? '')
@@ -729,7 +735,7 @@ describe('the status line', () => {
     expect(roomy).toContain('run_shell_command +2 calls')
     expect(roomy).toContain('CR 99.8%')
 
-    const tighter = status(busy, 140)
+    const tighter = status(busy, 137)
     expect(tighter).toContain('run_shell_command +2 calls')
     expect(tighter).not.toContain('CR')
   })
@@ -1020,13 +1026,81 @@ describe('the status line', () => {
     expect(busy).not.toContain('reading 14m')
   })
 
-  it('separates the spinner from the word with exactly two ordinary ASCII spaces', () => {
-    const busy = status({ busy: true, elapsedMs: 4_000, activityWord: 'thinking' })
-    expect(busy).toMatch(/◜ {2}thinking/u)
-    expect(busy).not.toMatch(/◜ {1,2}·/u)
-    // A thin, non-breaking, or other wide space would not match the ASCII pair.
-    expect(busy).not.toContain('\u2009')
-    expect(busy).not.toContain('\u00a0')
+  it('leads with the activity word alone, with no spinner beside it', () => {
+    // The word is the indicator on this line; an arc turning beside a glinting
+    // word would be two motions saying one thing.
+    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+      const busy = status({ busy: true, tick, elapsedMs: 4_000, activityWord: 'thinking' })
+      expect(busy.startsWith('  thinking · turn 4s'), busy).toBe(true)
+      expect(busy).not.toMatch(/[◜◝◞◟◠◡]/u)
+    }
+  })
+
+  it('glints the activity word and only the activity word', () => {
+    const state = { busy: true, elapsedMs: 4_000, activityWord: 'thinking' as const, model: 'deepseek-v4-flash' }
+    const raw = (tick: number): string => createStatusView(() => ({ ...STATUS_DEFAULTS, ...state, tick })).render(120)[0] ?? ''
+    // At rest the word is exactly the busy role, as it always was.
+    expect(raw(20)).toContain(paint('thinking', 'busy'))
+    // Mid-pass, three of its columns are the band and the rest stay busy.
+    expect(raw(4)).toContain(`${paint('th', 'busy')}${paint('ink', 'busy-glint')}${paint('ing', 'busy')}`)
+    // Nothing after the word changes from one tick to the next.
+    const tail = (tick: number): string => raw(tick).slice(raw(tick).indexOf(' · turn'))
+    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) expect(tail(tick)).toBe(tail(0))
+  })
+
+  it('fits the same line on every tick of the glint, at every width', () => {
+    // A glint changes styling only, so no tick may tip the ladder onto a
+    // different rung: the line a narrow terminal shows must not flap.
+    const crowded: Partial<StatusState> = {
+      busy: true,
+      elapsedMs: 866_000,
+      activityWord: 'responding',
+      activity: { title: 'run_shell_command', others: 2 },
+      usage: '\u2191130k \u219312.4k $1.24',
+      cacheRead: 'CR 99.8%',
+      tokens: 130_000,
+      contextWindow: 1_000_000,
+      todo: 'todo 5/11',
+      goal: { label: 'goal 3/25', running: true },
+    }
+    for (let columns = 0; columns <= 160; columns += 1) {
+      const first = status({ ...crowded, tick: 0 }, columns)
+      for (let tick = 1; tick < GLINT_PERIOD_TICKS; tick += 1) {
+        expect(status({ ...crowded, tick }, columns), `${String(columns)} columns @${String(tick)}`).toBe(first)
+      }
+    }
+  })
+
+  it('glints while compacting, with the same word on every tick', () => {
+    const frames = new Set<string>()
+    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+      const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, compacting: true, tick })).render(80)[0] ?? ''
+      expect(stripAnsi(raw).startsWith('  compacting'), stripAnsi(raw)).toBe(true)
+      frames.add(raw)
+    }
+    expect(frames.size).toBeGreaterThan(1)
+  })
+
+  it('never glints a line where nothing runs', () => {
+    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+      const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, tick })).render(80)[0] ?? ''
+      // Idle owns no motion: every tick draws the same bytes.
+      expect(raw).toBe(createStatusView(() => ({ ...STATUS_DEFAULTS, tick: 0 })).render(80)[0])
+      expect(stripAnsi(raw)).toContain('● ready')
+    }
+  })
+
+  it('falls back to the arc with no colour, where a glint would be invisible', () => {
+    const restore = setPalette(DEFAULT_PALETTE, 0)
+    try {
+      const at = (tick: number): string => status({ busy: true, tick, elapsedMs: 4_000, activityWord: 'thinking' })
+      expect(at(0)).toMatch(/◜ {2}thinking · turn 4s/u)
+      expect(at(2)).toMatch(/◝ {2}thinking · turn 4s/u)
+      // Nothing is styled at depth 0, so nothing but the glyph may differ.
+      expect(at(0)).not.toContain('\u001b')
+    } finally {
+      restore()
+    }
   })
 
   it.each([

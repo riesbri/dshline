@@ -11,6 +11,7 @@ import { basename } from 'node:path'
 import type { Composer, LiveCursor, Role } from '@dshline/renderer'
 import {
   BOX_CHROME_COLUMNS,
+  activePalette,
   box,
   codePointWidth,
   displayWidth,
@@ -19,6 +20,7 @@ import {
   formatTokens,
   layoutComposer,
   paint,
+  paintGlint,
   spinnerFrame,
   truncateToWidth,
   wrapToWidth,
@@ -902,6 +904,27 @@ export function pressureBar(
 }
 
 /**
+ * The status line's account of work in flight: the activity word, glinting.
+ *
+ * The word IS the indicator here, with no spinner beside it. This line
+ * describes one subject — the attached session — so a mark saying "this one
+ * is running" has nothing to tell it apart from, and an arc turning beside a
+ * glinting word would be two motions saying one thing. The spinner remains
+ * the mark for lists of things, where it says WHICH rows execute.
+ *
+ * Except with no colour at all. A glint is nothing but styling, and at depth 0
+ * `paint` emits none, so the word would sit motionless over running work; the
+ * arc is the one motion that survives with no SGR, so it comes back there.
+ * @param word - dshline's own activity vocabulary, never upstream text.
+ * @param tick - the attachment's heartbeat.
+ * @returns the styled segment; the same width on every tick.
+ */
+function activityStatus(word: string, tick: number): string {
+  if (activePalette().depth === 0) return `${spinnerFrame(tick)}  ${word}`
+  return paintGlint(word, tick, 'busy', 'busy-glint')
+}
+
+/**
  * The status line under the composer.
  * @param state - a getter for the current values, read at render time.
  * @returns the slot view.
@@ -931,9 +954,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const facts: string[] = []
       let bareStatus: string
       if (current.busy) {
-        const spinner = paint(spinnerFrame(current.tick), 'busy')
-        const activityWord = paint(current.activityWord, 'busy')
-        bareStatus = `${spinner}  ${activityWord}`
+        bareStatus = activityStatus(current.activityWord, current.tick)
         const elapsed = current.elapsedMs === undefined
           ? ''
           : paint(` · turn ${formatElapsed(current.elapsedMs)}`, 'subdued')
@@ -944,7 +965,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         // does need a visible state, though, because a summarizer can take longer
         // than a local command and the durable start event is intentionally
         // transcript-silent.
-        bareStatus = `${paint(spinnerFrame(current.tick), 'busy')}  ${paint('compacting', 'busy')}`
+        bareStatus = activityStatus('compacting', current.tick)
         facts.push(bareStatus)
       } else if (current.replay !== undefined) {
         // A resumed session's transcript is still flooding in: `ready` would be
