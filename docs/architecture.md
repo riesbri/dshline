@@ -68,6 +68,7 @@ Prefer a standard Harness surface over a concrete package or provider:
 | secrets | `ctx.credentials` | Ask whether a reference or record is configured and writable; never hold a value. |
 | obtaining a credential | `ctx.authorization` | Render the seam's neutral notice and prompt vocabulary; own no login protocol. |
 | human commands | `ctx.commands` | Discover and execute the registered command contract. Attachment admission is the registry's: honour `input.attachments` before dispatch, and submit only the discriminated attachment kinds this frontend can author. |
+| human shell | `ctx.shell` + `ctx.sandboxPolicy` | Resolve and execute one foreground `!` command with the attached Session's current policy; observe its public retained output without consuming it. Keep it local, never a model tool call or a Job. |
 | assistant output | durable `assistant/message` / `assistant/attempt` on `session/event`, plus live `agent/assistant-stream` frames | Two contracts, kept apart. The settlements are the transcript; the frames are transient presentation for the attached Agent alone. Never expand an embedded stream into a live feed, never persist a frame, and never commit an attempt that settled without a message. |
 | tools | `ctx.tools` | Render tool-owned presentation intents, not tool-name cases. |
 | human answers | `ctx.userQuestions` | Register a terminal answerer; claim a request this frontend can present, never assuming it was addressed only to this frontend. |
@@ -423,7 +424,8 @@ every temporary overlay draw through one shared frame — `dshline` on the left,
 the workspace or the view's identity on the right, navigation help inside the
 bottom border — so a browser reads as the composer expanded rather than as a
 detached modal. The sharing is presentation only: while an overlay is mounted it
-still replaces the entire live region and owns every keystroke, the composer's
+still replaces the entire live region and owns its ordinary keystrokes; window
+quit and foreground `!` shell interruption remain above it. The composer's
 buffer and cursor are not underneath it, and closing it restores the composer
 untouched. The shared chrome is a pure helper with no state, no inputs beyond
 what it renders, and no lifetime or view of Harness; input and state ownership
@@ -512,6 +514,24 @@ authority for a product boundary Harness owns — so a command that declares
 `input.attachments` is refused with an explanation while its drafts survive.
 That is a frontend limitation, not a Harness one, and it is stated rather than
 worked around.
+
+## Human shell: local input, Harness execution
+
+The central attachment submission path detects `!` with `trimStart()` on the original composer text, before attachment admission, slash/skill routing, or model delivery. It removes only the first `!` from that detected text, preserving the command remainder and trailing whitespace. Empty commands stay local. The submitted line enters local input history, but neither command nor output becomes model context or a fabricated `user/message`, tool, or `command/*` event. Registered Harness slash commands keep their durable lifecycle; this shell has no resume replay.
+
+Execution uses the optional public `ctx.shell.resolve()` → `execute()` contract, with `session.header.cwd` and the startup workspace only as a fallback. Each run resolves `ctx.sandboxPolicy.resolve({ session })` against that exact attached Session's standing permission. A sandbox-capable executor without policy authority fails closed; missing shell capability is a local diagnostic. No automatic escalation exists: `/permission` and an explicit resubmission are the human retry path.
+
+Harness owns platform shell selection, scrubbed environment, and non-login execution. Bash sets `TERM=dumb`; PowerShell leaves `TERM` unmodified and uses its freshly resolved UTF-8 preamble. Both disable color and set `PAGER`/`GIT_PAGER` to `cat`. Direct consumers receive no managed `DSH_*` overlay: `shellEnv.collect` requires a genuine `ToolExecution`, and the frontend never fabricates one. The operation is one-shot, non-PTY, with stdin closed and no persistent cwd, environment, or functions. There is no Jobs integration, private subprocess handle, or frontend process spawning.
+
+One foreground shell belongs to one attachment. A second shell is refused locally while ordinary prompts, slash commands, and skills continue independently under the existing queue/steer rules. Shell submission never reads or consumes staged image/file drafts. `ctrl-c` is routed to this shell before overlays, attachment admission, model cancellation, or idle quit, and returns to those existing paths once the foreground operation settles.
+
+The run signal is fused with attachment cancellation. Quit and Session switching abort before removing presentation, await foreground preparation/settlement, and suppress stale callbacks. Direct settlement also aborts the per-run signal to request managed-range cleanup of surviving descendants, even after the direct command returned. `ShellExecution.done` witnesses direct completion, not whole-range quiescence; the public shell handle offers no range join. The next Session may therefore open before every descendant exits, with Harness retaining termination ownership. No sleep, private process inspection, or global subprocess disposal substitutes for that missing contract.
+
+Output uses independent stdout/stderr reader states over public `ShellExecution.observed`. These are non-consuming, byte-addressed **text re-reads over retained original-byte windows**, not a raw-byte API. The adopted collector can decode an incomplete UTF-8 suffix as U+FFFD. The presentation shim withholds the trailing replacement run, remembers the already-emitted text prefix, and re-reads the same byte offset until later data or EOF disambiguates it; it never derives byte positions by re-encoding text. A real literal U+FFFD may consequently wait for new non-replacement text or EOF.
+
+Loss is explicit and intentionally lossy: an uncertain unread snapshot is skipped, the partial line is flushed across the gap, reader state is reset, and an unknown leading fragment is suppressed while resynchronizing. One truthful warning reports skipped output; no complete retained-tail recovery is claimed and no spill file is opened or its path disclosed. Long-line segments and live tails are bounded. Command echo, stdout/stderr, and exit/error/interruption rows escape controls before row-local color and write only through `Screen` into ephemeral local scrollback.
+
+This is an exact-generation workaround, not another compatibility arm. Its removal condition belongs in `HARNESS_COMPAT`: delete the shim when the adopted public reader provides Unicode-safe incremental text or raw-byte reads. The Harness target stays unchanged.
 
 ## Work: the first generic adapter
 

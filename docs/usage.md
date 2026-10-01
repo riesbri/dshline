@@ -43,7 +43,7 @@ Without a global `dsh` and without that variable, `pnpm dsh` still works — but
 | `ctrl-enter` | Send the other way while a turn is running, where your terminal can send this key |
 | `shift-enter`, `alt-enter` | Start a new line without sending |
 | `tab` | Accept the highlighted suggestion |
-| `ctrl-c` | Stop the agent; if it is not running, quit |
+| `ctrl-c` | Interrupt an active `!` shell first; otherwise keep the usual close/cancel/stop/quit behavior |
 | `ctrl-d` | Quit, from anywhere — including a picker, a question, or an approval prompt |
 | `ctrl-l` | Clear the display |
 | `ctrl-o` | Inspect the most recent truncated tool output, at any detail level; otherwise cycle how much tool output is shown: compact, full, hidden |
@@ -113,9 +113,30 @@ In a delegated subagent conversation, `/attach` refuses and no file is staged �
 
 `@path` itself remains a textual file reference. It tells the model which workspace path to inspect with its filesystem tools; it never reads or attaches the file. `/attach` is the gesture that turns that path into a real attachment. This distinction matters for source files and directories, which are not Harness image attachments.
 
+### Local shell commands
+
+Start a line with `!` to run a shell command yourself, without asking the model:
+
+```text
+!pwd
+!git status --short
+```
+
+Leading whitespace before `!` is accepted. Only that prefix is removed; everything after `!`, including trailing whitespace, is preserved. Bare `!` (or only whitespace after it) gives a local hint and never reaches the model. This is not a slash command and adds nothing to the `/` menu. When shell capability is available and there is enough room, the idle empty composer adds `! shell` after `/ menu`; narrower or busy hints stay unchanged.
+
+The command runs in the attached session's workspace, including after a resume or a workspace switch, with its current Harness sandbox policy. An unavailable shell or a sandbox-capable executor without policy authority is a local error. A denial never triggers automatic escalation: use `/permission` deliberately, then submit the command again if you want to retry.
+
+Each command is a one-shot, non-login, non-PTY execution with stdin closed. `cd`, exported variables, and shell functions do not persist between commands. Interactive editors and password prompts are not supported. Harness selects the platform shell and keeps its scrubbed environment: Bash sets `TERM=dumb`, while PowerShell does not override `TERM`. Both disable color and set `PAGER`/`GIT_PAGER` to `cat`. Direct human commands do not receive the managed `DSH_*` overlay used by model tool executions.
+
+One foreground shell runs at a time; a second `!` submission is rejected locally rather than queued. Ordinary prompts, slash commands, and skills keep working independently with the existing queue/steer behavior. Staged images and files remain staged, and are neither read nor sent to the shell.
+
+`ctrl-c` interrupts the active shell before closing an overlay, cancelling attachment admission, stopping the model, or quitting. Once the shell settles, the key returns to its usual behavior. `ctrl-d`, `/exit`, `/quit`, and leaving the attached session request termination too. Direct-command completion also requests cleanup of surviving background descendants. These are termination requests, not a guarantee that every descendant has stopped before another session opens; Harness retains termination ownership.
+
+The command is echoed, stdout and stderr stream locally, and exit/error/interruption status is shown. Controls are displayed safely, not obeyed. A literal trailing U+FFFD (replacement character) may be delayed until new stable text or EOF. Very long lines and live tails are bounded; if output outruns the retained window, one warning says output was skipped rather than pretending it is complete. There is no spill-file viewer. Commands and output stay in this window's ephemeral scrollback: never model context, never saved session events, and never replayed on resume. The submitted line is available in local input history.
+
 ### Input history
 
-When no suggestion list is open, `↑` steps back through the lines you sent this session — prompts and slash commands alike — and `↓` steps forward again. A half-typed line is kept for you: step back to look at an earlier message, and stepping forward past the newest one restores your unfinished line exactly as it was.
+When no suggestion list is open, `↑` steps back through the lines you submitted this session — prompts, slash commands, and local `!` commands alike — and `↓` steps forward again. A half-typed line is kept for you: step back to look at an earlier message, and stepping forward past the newest one restores your unfinished line exactly as it was.
 
 Consecutive identical submissions are remembered once, so running `run tests` three times in a row does not fill the history with three copies of it.
 
@@ -149,11 +170,11 @@ Matching is a plain case-insensitive substring: what you type is looked for lite
 
 `↵` recalls the line without sending it, so you can edit it first and press `enter` when you mean it. A recalled line keeps its place in your history: `↑` from there continues to the line before it, and `↓` walks forward and eventually restores the half-typed line you had before you searched. `esc` leaves the input box exactly as it was, cursor included.
 
-The search covers this session's input only: your prompts and slash commands, the same lines `↑` walks. It does not search replies, tool output, or other sessions — [`/sessions`](#sessions) is where you look for a past conversation.
+The search covers this session's input only: your prompts, slash commands, and local `!` commands, the same lines `↑` walks. It does not search replies, tool output, or other sessions — [`/sessions`](#sessions) is where you look for a past conversation.
 
 A long or multiline prompt is previewed around the line that matched, rather than by its first line, so you can see why a result is in the list. Pressing `ctrl-r` while a session is still being reopened is fine: the search says the history is still loading, and whatever you have typed resolves against it the moment it lands.
 
-Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/attach`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/session`, `/sessions`, `/worktrees`, `/work`, `/subagents`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume.
+Reopening a session restores the history the saved log recorded: every prompt and every resolved slash command whose input was recorded. The commands this interface handles itself (`/image`, `/attach`, `/model`, `/reasoning`, `/usage`, `/timing`, `/enter`, `/new`, `/clear`, `/session`, `/sessions`, `/worktrees`, `/work`, `/subagents`, `/todos`, `/turns`, `/skills`, `/exit`, `/quit`) and mistyped commands are remembered while the session is open but are not written to the session log, so they are not restored after a resume. Local `!` inputs have the same history-only lifetime; unlike registered Harness slash commands, neither their command nor their output is durable.
 
 ### Queue or steer
 
@@ -270,7 +291,7 @@ Each of the first three works the same way: **name the value and it changes, typ
 | `/permission` | Change the permission preset (see below) |
 | `/feedback` | Record a note about this session |
 
-Every command prints its result into the transcript: a `·` line for normal output, and a `✗` line if it failed. A command name that matches nothing — not a command, and not a skill either — is reported instead of being sent to the model:
+Every slash command prints its result into the transcript: a `·` line for normal output, and a `✗` line if it failed. A command name that matches nothing — not a command, and not a skill either — is reported instead of being sent to the model:
 
 ```
 ✗ unknown command: /help · type / to see what there is

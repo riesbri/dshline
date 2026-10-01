@@ -58,7 +58,7 @@ import type {} from '@deepseek-ai/dsh-permission-presets'
 // carries the type without a hard need.
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { Key, SubmitGesture } from '@dshline/renderer'
-import { Composer, escapeControls, paint, SPINNER_INTERVAL_MS } from '@dshline/renderer'
+import { Composer, escapeControls, paint, truncateToWidth, SPINNER_INTERVAL_MS } from '@dshline/renderer'
 import { CARD_DETAIL_CYCLE, ToolCards } from './cards.ts'
 import { chooseDelivery } from './delivery.ts'
 import type { Delivery } from './delivery.ts'
@@ -87,6 +87,8 @@ import { LocalCommandRegistry } from './local-commands.ts'
 import { runThemes, themeValues } from './themes/index.ts'
 import type { LocalCommandChoice } from './local-commands.ts'
 import { SessionScope } from './session-scope.ts'
+import { parseShellCommand, runShellCommand } from './shell-command.ts'
+import { ShellOutput } from './shell-output.ts'
 import { planNew, planResume } from './sessions/plan.ts'
 import type { AttachOutcome, AttachTarget } from './sessions/reopen.ts'
 import { shouldClearDisplay } from './sessions/reopen.ts'
@@ -389,6 +391,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const { target, attached } = outcome
   const scope = new SessionScope()
   const attachmentAbort = new AbortController()
+  let shellRun: { abort: AbortController; output: ShellOutput; done?: Promise<void> } | undefined
   // ONE admission flag for both kinds, deliberately. Two flags would be two
   // independent races over the same ledger: a `/image` staged while a file was
   // being streamed could be consumed by the file submission, or both could
@@ -408,7 +411,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // Created before the command handlers that can request a transition: each
   // closes over it, and none may resolve into a promise that does not exist yet.
   let requestNext: (target: AttachTarget) => void = () => {}
-  const switched = new Promise<AttachTarget>(resolve => { requestNext = resolve })
+  const switched = new Promise<AttachTarget>(resolve => {
+    requestNext = next => {
+      // Startup can itself await a shell submission, so cancellation cannot wait
+      // until the attachment loop reaches its switched-promise continuation.
+      cancelAttachmentWork()
+      resolve(next)
+    }
+  })
   const { agent, dispose: disposeAgent } = attached.handle
   let exitRequested = false
   const requestAttachmentExit = (): void => {
@@ -576,6 +586,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const composerView = createComposerView(composer, workspace, persistentRowsBelow, () => ({
     busy: agent.status === 'running',
     busyEnter: prefs.busyEnter,
+    shell: ctx.get('shell') !== undefined,
     ...drafts.images.length === 0 ? {} : { images: drafts.images.length },
     ...drafts.files.length === 0 ? {} : { files: drafts.files.length },
   }))
@@ -1730,7 +1741,17 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       goal: goalReading(projected, goalActivation),
     }
   })
-  const streamView = { render: (columns: number, rows?: number): string[] => stream.live(columns, rows) }
+  const streamView = { render: (columns: number, rows?: number): string[] => {
+    if (shellRun === undefined) return stream.live(columns, rows)
+    // Leave the four-row composer and footer reachable, including on short TTYs.
+    const chromeRows = 5
+    const available = Math.max(0, (rows ?? terminal.rows()) - chromeRows)
+    const shellRows = [
+      paint(truncateToWidth(shellRun.abort.signal.aborted ? '· shell cancellation requested…' : '· shell running · ctrl-c interrupt', columns), 'muted'),
+      ...shellRun.output.live(columns),
+    ].slice(0, available)
+    return [...stream.live(columns, available - shellRows.length), ...shellRows]
+  } }
   const timingView = createTimingView(timer, () => prefs.timing, () => tick)
 
   scope.own(ctx.tuiSlots.register('stream', streamView))
@@ -2150,6 +2171,57 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
    * @param text - the submitted line.
    */
   const submit = async (text: string, gesture: SubmitGesture = 'enter'): Promise<void> => {
+    if (scope.closed || attachmentAbort.signal.aborted) return
+    const command = parseShellCommand(text)
+    if (command !== undefined) {
+      // Shell source never enters attachment admission, command/skill dispatch,
+      // or the Agent's inbox. History alone keeps the reader's original buffer.
+      history.record(text)
+      if (shellRun !== undefined) {
+        commit([paint('· a shell command is still running; Ctrl-C to interrupt it', 'muted')])
+        draw()
+        return
+      }
+      commit(text.trimStart().split('\n').map((line, index) => paint(`${index === 0 ? '›' : ' '} ${escapeControls(line)}`, 'user')))
+      if (command.trim() === '') {
+        commit([paint('· use !<command> to run a one-shot shell command', 'muted')])
+        draw()
+        return
+      }
+      const abort = new AbortController()
+      const run: { abort: AbortController; output: ShellOutput; done?: Promise<void> } = {
+        abort,
+        output: new ShellOutput(rows => {
+          if (!scope.closed && !attachmentAbort.signal.aborted) commit(rows)
+        }),
+      }
+      shellRun = run
+      const present = (): void => { if (!scope.closed && !attachmentAbort.signal.aborted) draw() }
+      run.done = (async () => {
+        try {
+          const rows = await runShellCommand({
+            command,
+            shell: ctx.get('shell'),
+            sandboxPolicy: ctx.get('sandboxPolicy'),
+            session: agent.session,
+            workdir: workspace,
+            signal: AbortSignal.any([attachmentAbort.signal, abort.signal]),
+            output: run.output,
+            changed: present,
+          })
+          if (!scope.closed && !attachmentAbort.signal.aborted) commit(rows)
+        } finally {
+          // A leader can exit while its managed range still has members. Harness
+          // retains this signal; request cleanup without inventing a range join.
+          abort.abort(new Error('Human shell operation finished.'))
+          if (shellRun === run) shellRun = undefined
+          present()
+        }
+      })()
+      present()
+      await run.done
+      return
+    }
     const line = text.trim()
     // The composer has already cleared a submitted buffer. Stop here rather than
     // turning spaces or pasted blank lines into an empty model message — unless
@@ -2501,6 +2573,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   }
 
   const onKey = (key: Key): void => {
+    if (key.kind === 'key' && key.name === 'ctrl-c' && shellRun !== undefined) {
+      shellRun.abort.abort(new Error('Human shell interrupted by the reader.'))
+      draw()
+      return
+    }
     // `ctrl-d` is handled by the window, before this delegate, because it means
     // the same thing everywhere: leave. `ctrl-c` is deliberately NOT: inside an
     // overlay it means "cancel this one", which is the overlay's own business.
@@ -2786,6 +2863,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   if (task !== undefined) await submit(task).catch(report)
 
   const next = await switched
+  const pendingShell = shellRun?.done
   // Presentation first, then the agent. A log listener still subscribed while
   // its own agent is torn down would project that teardown into the transcript
   // the reader is leaving.
@@ -2799,6 +2877,9 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   } catch (error: unknown) {
     report(error)
   }
+  // Join only this frontend's preparation/polling operation. The shell seam
+  // exposes no managed-range quiescence proof; Harness retains termination.
+  await pendingShell?.catch(report)
   const closing = ctx.tuiSlots.register('status', {
     render: (): string[] => [paint('· switching sessions…', 'muted')],
   })

@@ -51,3 +51,9 @@
 # `'inherit'` backends (`subagent-acp`, `subagent-claude-code`) reach the same
 # descriptor and are NOT contained by this shim — see the module header.
 shim packages/dshline/src/stderr.ts 0.2.0-rc.2
+
+# Observed retained-byte reads decode slices independently and report total-byte
+# nextOffset even through incomplete UTF-8. Confirmed at revision
+# 639ed015397290b3745d163aafe02ffee4aa3f84, subprocess-local/src/output.ts:261-271
+# and bash-local/src/index.ts:342-362. See the module header for removal criteria.
+shim packages/dshline/src/shell-output.ts 0.2.0-rc.2
