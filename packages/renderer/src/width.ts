@@ -342,6 +342,74 @@ export function tailToWidth(text: string, columns: number): string {
   return tokens.slice(from).map(token => token.text).join('')
 }
 
+/** The joiner that fuses the visible character after it onto the one before. */
+const ZERO_WIDTH_JOINER = 0x200d
+
+/**
+ * Whether a code point is a regional indicator, two of which make one flag.
+ * @param code - the code point.
+ * @returns true for U+1F1E6 through U+1F1FF.
+ */
+function isRegionalIndicator(code: number): boolean {
+  return code >= 0x1f1e6 && code <= 0x1f1ff
+}
+
+/**
+ * Split plain text into three spans by column — before `from`, from `from` up
+ * to `to`, and the rest — moving each boundary outward until it falls between
+ * two characters a terminal draws apart.
+ *
+ * This is the same character model every cut here uses, not a second one: a
+ * visible code point owns the zero-width run after it, so a combining mark or
+ * variation selector always travels with its base, and a two-column character
+ * touched by the range is included whole, since half a cell cannot be styled
+ * apart from the other half. Two joins the cuts never need to care about are
+ * respected as well, because the caller of THIS function inserts styling at the
+ * boundaries rather than discarding what lies beyond them: a character after a
+ * ZWJ, and the second regional indicator of a flag, are never split from what
+ * precedes them. A terminal that composes either sequence would otherwise draw
+ * it differently on the frames where an escape sits inside it.
+ *
+ * The scan stops at the first boundary at or past `to`, so the cost is bounded
+ * by the prefix the caller asked about, as for {@link truncateToWidth}.
+ * @param text - plain text: already escaped, carrying no styling of its own.
+ * @param from - first column of the middle span.
+ * @param to - column just past the middle span.
+ * @returns the three spans, which concatenate back to `text` exactly.
+ */
+export function splitAtColumns(text: string, from: number, to: number): readonly [string, string, string] {
+  const scan = new TokenScan(text)
+  let column = 0
+  /** Index of the latest boundary at or before `from`. */
+  let start = 0
+  /** Index of the first boundary at or after `to`, once one is seen. */
+  let end = text.length
+  /** The code point before the current token, to recognize a ZWJ join. */
+  let previous = 0
+  /** Length of the regional-indicator run the current token continues. */
+  let indicators = 0
+  while (scan.next()) {
+    const code = text.codePointAt(scan.start) ?? 0
+    if (scan.width > 0) {
+      const regional = isRegionalIndicator(code)
+      // The odd members of a regional-indicator run close the flag the one
+      // before them opened; only the even members may start something new.
+      const joined = previous === ZERO_WIDTH_JOINER || (regional && indicators % 2 === 1)
+      indicators = regional ? indicators + 1 : 0
+      if (!joined) {
+        if (column >= to) {
+          end = scan.start
+          break
+        }
+        if (column <= from) start = scan.start
+      }
+      column += scan.width
+    }
+    previous = code
+  }
+  return [text.slice(0, start), text.slice(start, end), text.slice(end)]
+}
+
 /**
  * Break text into rows at exactly `columns`, never at a word boundary.
  *

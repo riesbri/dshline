@@ -1366,9 +1366,11 @@ describe('the Work live-region overlay', () => {
     // there is nothing else to show.
     expect(first).toContain('● three · codex')
     expect(first).toContain('• bash pnpm test')
-    vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+    // Two beats: the arc holds its first quarter for two ticks, so one beat
+    // alone proves nothing about whether the rows moved together.
+    vi.advanceTimersByTime(SPINNER_INTERVAL_MS * 2)
     const second = overlay.render(80, 14).map(stripAnsi).join('\n')
-    expect(second).toContain('◠')
+    expect(second.match(/◝/gu)?.length).toBe(2)
     expect(second).not.toContain('◜')
     expect(second).toContain('● three · codex')
     expect(second).toContain('• bash pnpm test')
@@ -1394,9 +1396,9 @@ describe('the Work live-region overlay', () => {
     expect(first).not.toContain('◜')
     expect(first).toContain('•') // the running Job keeps the quiet record mark
     expect(first).toContain('◐') // the stopping Job keeps its own transition mark
-    vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+    vi.advanceTimersByTime(SPINNER_INTERVAL_MS * 2)
     const second = overlay.render(80, 12).map(stripAnsi).join('\n')
-    expect(second).not.toContain('◠')
+    expect(second).not.toMatch(/[◜◝◞◟]/u)
     expect(second).toContain('•')
     expect(second).toContain('◐')
     overlay.dispose?.()
