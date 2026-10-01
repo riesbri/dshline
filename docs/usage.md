@@ -132,6 +132,8 @@ One foreground shell runs at a time; a second `!` submission is rejected locally
 
 `ctrl-c` interrupts the active shell before closing an overlay, cancelling attachment admission, stopping the model, or quitting. Once the shell settles, the key returns to its usual behavior. `ctrl-d`, `/exit`, `/quit`, and leaving the attached session request termination too. Direct-command completion also requests cleanup of surviving background descendants. These are termination requests, not a guarantee that every descendant has stopped before another session opens; Harness retains termination ownership.
 
+While a command runs, the composer frame takes the theme's attention colour and a live row names the operation's state; on a terminal that cannot show colour, or one too narrow for the frame, those words are the whole indicator. The frame says the foreground belongs to a shell operation, not that what you are typing will be run as one — ordinary prompts keep working meanwhile — and it returns to its usual colour the moment the operation settles, whatever the result.
+
 The command is echoed, stdout and stderr stream locally, and exit/error/interruption status is shown. Controls are displayed safely, not obeyed. A literal trailing U+FFFD (replacement character) may be delayed until new stable text or EOF. Very long lines and live tails are bounded; if output outruns the retained window, one warning says output was skipped rather than pretending it is complete. There is no spill-file viewer. Commands and output stay in this window's ephemeral scrollback: never model context, never saved session events, and never replayed on resume. The submitted line is available in local input history.
 
 ### Input history

@@ -7,7 +7,7 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import type { ShellExecutor, ShellExecRequest, ShellExecSpec, ShellExecution, ShellRunResult } from '@deepseek-ai/dsh-shell'
-import { stripAnsi, type Key } from '@dshline/renderer'
+import { stripAnsi, paint, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { SkillCatalog } from '../src/skills/catalog.ts'
 import { TuiSlots } from '../src/slots.ts'
@@ -27,6 +27,33 @@ afterEach(async () => {
 async function flush(): Promise<void> {
   if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0)
   else await new Promise<void>(resolve => { setImmediate(resolve) })
+}
+
+/**
+ * The SGR parameters a role emits, read back from the palette the suite installs.
+ *
+ * Asserting on the role's own bytes rather than on an escape sequence written out
+ * here is what keeps these tests semantic: re-authoring a colour must not rewrite
+ * every expectation, and a frame painted with the WRONG role must still fail.
+ * @param role - the semantic role to sample.
+ * @returns its SGR parameter text.
+ */
+function sgrOf(role: 'shell-active' | 'chrome' | 'success' | 'error'): string {
+  return /^\u001b\[([0-9;]*)m/u.exec(paint('x', role))?.[1] ?? ''
+}
+
+/**
+ * Which role the composer frame's border is painted with right now.
+ *
+ * The top border is the row that carries the `dshline` label and the workspace
+ * name, so it is the one row a reader is guaranteed to be looking at, and the one
+ * that changes for this state.
+ * @param f - the assembled fixture.
+ * @returns the SGR parameters at its left corner, or undefined when unframed.
+ */
+function frameRole(f: { rawFrame: () => string[] }): string | undefined {
+  const top = f.rawFrame().find(line => stripAnsi(line).startsWith('╭'))
+  return top === undefined ? undefined : /^\[([0-9;]*)m/u.exec(top)?.[1]
 }
 
 function textOf(message: UserMessage): string {
@@ -223,6 +250,7 @@ async function fixture(options: {
     press, submit, attachment, disposeAgent,
     output: () => commits.flat().map(stripAnsi).join('\n'),
     frame: () => latest.map(stripAnsi).join('\n'),
+    rawFrame: () => latest,
   }
 }
 
@@ -538,5 +566,129 @@ describe('assembled shell cancellation and settlement', () => {
     expect(f.frame()).not.toContain('unfinished stdout')
     expect(f.frame()).not.toContain('unfinished stderr')
     expect(f.output()).not.toContain('must not be replayed')
+  })
+})
+
+/**
+ * The composer frame while a shell operation owns the foreground.
+ *
+ * Driven through the assembled attachment rather than a view, because the whole
+ * claim under test is about OWNERSHIP: the frame must be showing the same thing
+ * the Ctrl-C guard and the live row consult, at every point in a real
+ * lifecycle — including the parts before a process handle exists and after
+ * cancellation has been requested but nothing has settled yet.
+ */
+describe('assembled shell-active composer chrome', () => {
+  it('takes the frame during preparation, before any process handle exists', async () => {
+    // `prepare` holds `shell.execute()` open, so there is no handle at all — and
+    // Ctrl-C, session switching, and the frame all already belong to the shell.
+    const f = await fixture({ prepare: true })
+    expect(f.rawFrame().join('')).not.toContain(sgrOf('shell-active'))
+    await f.submit('!preparing')
+    expect(f.requests).toHaveLength(0)
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.prepare.resolve()
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.requests[0]?.finish()
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+  })
+
+  it('keeps the frame active while cancellation is requested but unsettled, then releases it', async () => {
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!long')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.press('ctrl-c')
+    await flush()
+    // Ownership has not changed hands, so the frame must not say it has. Only the
+    // words change, and they still name the state in a terminal with no colour.
+    expect(f.frame()).toContain('shell cancellation requested')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.requests[0]?.finish({ aborted: true, exitCode: null, signal: 'SIGTERM' })
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    expect(f.frame()).not.toContain('shell cancellation requested')
+  })
+
+  it.each([
+    ['exit 0', {}, sgrOf('success'), '[shell exit 0]'],
+    ['exit 7', { exitCode: 7 }, sgrOf('error'), '✗ shell exit 7'],
+    ['denial', { exitCode: null }, sgrOf('error'), '✗ shell'],
+  ])('returns the frame to normal after %s while its result row keeps its own role', async (_name, facts, rowRole, text) => {
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!finish')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.requests[0]?.finish(facts)
+    await flush()
+    // The frame reports ownership, not the previous command's outcome. A reader
+    // must not be left with a red or green composer after the operation is over.
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    const result = f.commits.at(-1)?.find(row => stripAnsi(row).includes(text))
+    expect(result, text).toBeDefined()
+    expect(result).toContain(sgrOf(rowRole))
+    expect(result).not.toContain(sgrOf('shell-active'))
+  })
+
+  it.each(['idle', 'running'] as const)('shows shell-active over a running model too (%s)', async status => {
+    // Both can be in flight at once, and ctrl-c already gives the shell first
+    // refusal. The frame agreeing with that must be deterministic, not whichever
+    // state the last redraw happened to observe.
+    const f = await fixture({ status, autoSettle: false })
+    await f.submit('!while-the-model-runs')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    expect(f.frame()).toContain('shell running')
+  })
+
+  it('never claims an active shell for input that never started one', async () => {
+    for (const options of [{ shell: false as const }, { sandboxMode: 'read-only' as const }]) {
+      const f = await fixture(options)
+      await f.submit('!')
+      await f.submit('   !   ')
+      expect(f.frame()).not.toContain('shell running')
+      expect(frameRole(f)).toBe(sgrOf('chrome'))
+    }
+  })
+
+  it('holds one active state through a rejected second bang rather than toggling', async () => {
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!first')
+    await f.submit('!second')
+    expect(f.output()).toContain('a shell command is still running')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    f.requests[0]?.finish()
+    await flush()
+    expect(frameRole(f)).toBe(sgrOf('chrome'))
+    await f.submit('!third')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+  })
+
+  it('drops the state with the attachment that owned it', async () => {
+    // A stale frame here would claim a shell in a session that never ran one.
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!long')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
+    const run = f.requests[0]!
+    await f.submit('/new')
+    run.finish({ aborted: true })
+    expect(await f.attachment).toEqual({ kind: 'new', cwd: '/attached' })
+    await flush()
+    expect(f.ctx.tuiSlots.compose(80, 24).lines.join('')).not.toContain(sgrOf('shell-active'))
+  })
+
+  it('paints the live shell row in the same role the frame uses', async () => {
+    // The frame can be shed on a narrow terminal and colour can be absent
+    // entirely, so this row is the indicator that has to survive both. It says so
+    // in words AND paints, and it uses the role the frame does so one operation
+    // reads as one state.
+    const f = await fixture({ autoSettle: false })
+    await f.submit('!long')
+    const row = f.rawFrame().find(line => stripAnsi(line).includes('shell running'))
+    expect(row).toBeDefined()
+    expect(row).toContain(sgrOf('shell-active'))
+    expect(row).not.toContain(sgrOf('chrome'))
+    expect(stripAnsi(row ?? '')).toContain('ctrl-c interrupt')
+    expect(frameRole(f)).toBe(sgrOf('shell-active'))
   })
 })

@@ -405,6 +405,10 @@ export function widthStableLabel(text: string, placeholder = '?'): string {
  *   paint, because both halves of it change while the frame stands. The default
  *   is the idle answer, which is what a caller with no agent to ask — every
  *   layout test here — is entitled to.
+ * @param shellActive - whether a direct human shell operation currently owns
+ *   foreground shell interaction. Read per paint and presentation only: the
+ *   runner owns when that is true, and the view never learns anything else about
+ *   it. Default false, so a caller with no shell at all is unaffected.
  * @returns the slot view.
  */
 export function createComposerView(
@@ -412,6 +416,7 @@ export function createComposerView(
   workspace: string,
   rowsBelow: () => number = () => 1,
   hint: () => ComposerHint = () => ({ busy: false, busyEnter: DEFAULT_BUSY_ENTER }),
+  shellActive: () => boolean = () => false,
 ): TuiSlotView {
   const label = basename(workspace) === '' ? workspace : basename(workspace)
   // The label names a session folder, so it is untrusted text. It is also drawn
@@ -530,6 +535,24 @@ export function createComposerView(
   }
 
   /**
+   * The semantic role this frame's border wears right now.
+   *
+   * A direct human shell operation takes the whole composer into its own state,
+   * and the FRAME is where that is reported, for a reason this project's own
+   * admission rules force: an ordinary prompt typed while a `!` command runs is
+   * still an ordinary prompt, so colouring the draft would assert something false
+   * about what will happen to it. The border says only who holds the foreground,
+   * and it agrees with the Ctrl-C priority that already gives an active shell
+   * first refusal — including when a model turn is running too, where this is a
+   * deterministic choice rather than whichever frame happened to be painted last.
+   *
+   * `chrome` otherwise, so every composer that is not running a shell is byte
+   * for byte what it always was.
+   * @returns the border role for this frame.
+   */
+  const borderRole = (): Role => (shellActive() ? 'shell-active' : 'chrome')
+
+  /**
    * Content rows the frame may spend inside the live-region budget, shared by
    * render and cursor.
    *
@@ -626,6 +649,7 @@ export function createComposerView(
           width: composerFrameWidth(columns),
           context: paint(escapedLabel, 'composer-title'),
           body: [composerHintRow(hint(), composerInner(columns))],
+          borderRole: borderRole(),
         })
         return keepsSeparator(terminalRows) ? ['', ...prompt] : [...prompt]
       }
@@ -638,6 +662,7 @@ export function createComposerView(
         columns,
         context: frameTitle(shown.offset, shown.below),
         body: shown.rows,
+        borderRole: borderRole(),
       })
       // The same shed rule as the empty frame, so the cursor's own arithmetic in
       // cursor() can share it without either half learning the other's ladder.

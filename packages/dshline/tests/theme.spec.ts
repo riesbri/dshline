@@ -54,6 +54,19 @@ const REPLACES = {
   subdued: ['dim'],
 } as const satisfies Readonly<Record<string, readonly StyleName[]>>
 
+/**
+ * Roles added after that refactor, beside the appearance they were authored with.
+ *
+ * Separate from {@link REPLACES} because nothing here REPLACED a `style()` call:
+ * `shell-active` is a new meaning, not a transcription of an old one, and
+ * calling it a replacement would assert a history it does not have. The floor
+ * form is still locked for the same reason it is locked above — amber is a
+ * decision this project made, and a palette may revisit it per role later.
+ */
+const ADDED = {
+  'shell-active': ['yellow'],
+} as const satisfies Readonly<Record<string, readonly StyleName[]>>
+
 describe('the roles this frontend adds', () => {
   it('emits exactly what the style() call each replaced emitted', () => {
     // The golden lock. A failure here means the shipped palette has stopped
@@ -65,13 +78,29 @@ describe('the roles this frontend adds', () => {
     }
   })
 
+  it('emits the authored appearance for every role added after the refactor', () => {
+    for (const [role, names] of Object.entries(ADDED) as [Role, StyleName[]][]) {
+      expect(paint('x', role), role).toBe(style('x', ...names))
+    }
+  })
+
+  it('never paints an active shell as a failure', () => {
+    // The invariant that made this a separate role rather than a reuse of
+    // `warning` or `busy`, and the one that would quietly come back: red is what
+    // `✗ shell exit 1` spends, and a command that is still running is not that.
+    expect(DEFAULT_PALETTE.roles['shell-active'].ansi)
+      .not.toStrictEqual(DEFAULT_PALETTE.roles.error.ansi)
+    expect(DEFAULT_PALETTE.roles['shell-active'].ansi)
+      .toStrictEqual(DEFAULT_PALETTE.roles.warning.ansi)
+  })
+
   it('adds every role the shipped palette carries beyond the renderer own', () => {
-    // Guards the table above against drifting out of the augmentation: a role
+    // Guards both tables above against drifting out of the augmentation: a role
     // added to `PaletteRoles` without a line here would otherwise go unproven.
     const mine = Object.keys(DEFAULT_PALETTE.roles)
       .filter(role => !(role in MARKDOWN_ROLES))
       .sort()
-    expect(Object.keys(REPLACES).sort()).toStrictEqual(mine)
+    expect([...Object.keys(REPLACES), ...Object.keys(ADDED)].sort()).toStrictEqual(mine)
   })
 })
 

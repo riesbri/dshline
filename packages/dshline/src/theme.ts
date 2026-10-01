@@ -72,6 +72,22 @@ declare module '@dshline/renderer' {
     // Chrome and interaction.
     /** Borders, gutter marks, separators — structure the eye skips. */
     chrome: RoleColor
+    /**
+     * A foreground human shell operation currently owns direct shell interaction.
+     *
+     * Its own role rather than `warning` or `busy`, and the reason is the same
+     * one that keeps `mode-alert` separate from `warning`: those name a FEELING
+     * about a settled thing, while this names WHO HOLDS THE INPUT SURFACE. An
+     * ordinary prompt typed while a `!` command runs is still an ordinary
+     * prompt, so nothing inside the composer may claim otherwise — the frame
+     * around it is what reports the ownership, and it agrees with the Ctrl-C
+     * priority that already gives the shell first refusal.
+     *
+     * Deliberately NOT `error`. A running command is not a failure; red is what
+     * `✗ shell exit 1` spends. It shares amber with `warning` today, and a
+     * palette is free to give it a colour of its own later without touching one.
+     */
+    'shell-active': RoleColor
     /** The root frame's right label while composing: the workspace basename. */
     'composer-title': RoleColor
     /** The root frame's right label for a temporary overlay: the view identity. */
@@ -151,6 +167,10 @@ export const DEFAULT_PALETTE: Palette = {
     success: { ansi: [32] },
     // Borders, gutter marks, separators — structure the eye skips over.
     chrome: { ansi: [90] },
+    // views.ts, attachment.ts: the composer frame and the shell-running row
+    // while a direct human shell operation owns foreground shell interaction.
+    // Amber, like `busy` and `warning`, because it is neither good nor bad.
+    'shell-active': { ansi: [33] },
     'composer-title': { ansi: [36] },
     'overlay-title': { ansi: [1, 33] },
     // The bare headline an overlay falls back to when the terminal is too

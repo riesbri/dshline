@@ -583,13 +583,18 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   const drafts = new AttachmentDrafts()
   // Read per paint rather than captured: both halves move while the frame
   // stands — the agent starts and stops a turn, and `/enter` rewrites the pref.
+  // `shellRun` is read rather than mirrored into a boolean for the same reason,
+  // and it is the SAME variable the Ctrl-C guard and the live row consult, so
+  // the composer's frame cannot claim ownership the keyboard would not honour.
+  // It covers preparation and requested-but-unsettled cancellation, because it
+  // covers exactly the window this attachment has a foreground shell operation.
   const composerView = createComposerView(composer, workspace, persistentRowsBelow, () => ({
     busy: agent.status === 'running',
     busyEnter: prefs.busyEnter,
     shell: ctx.get('shell') !== undefined,
     ...drafts.images.length === 0 ? {} : { images: drafts.images.length },
     ...drafts.files.length === 0 ? {} : { files: drafts.files.length },
-  }))
+  }), () => shellRun !== undefined)
   const stream = new StreamBuffer(prefs.reasoningVisible)
   // Attempt identity is a pure gate shared with the Work child observer, so
   // both folds classify a stale frame the same way. Its TSDoc carries the two
@@ -1747,7 +1752,11 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     const chromeRows = 5
     const available = Math.max(0, (rows ?? terminal.rows()) - chromeRows)
     const shellRows = [
-      paint(truncateToWidth(shellRun.abort.signal.aborted ? '· shell cancellation requested…' : '· shell running · ctrl-c interrupt', columns), 'muted'),
+      // Named in words AND coloured, because neither alone survives everywhere:
+      // at depth 0 there is no colour, and on a terminal too narrow for the
+      // framed composer this row is the whole indicator. Same role as the frame
+      // it sits under, so one operation reads as one state.
+      paint(truncateToWidth(shellRun.abort.signal.aborted ? '· shell cancellation requested…' : '· shell running · ctrl-c interrupt', columns), 'shell-active'),
       ...shellRun.output.live(columns),
     ].slice(0, available)
     return [...stream.live(columns, available - shellRows.length), ...shellRows]
