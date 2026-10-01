@@ -9,8 +9,8 @@
  * captured-stream settlement. Literal replacement characters therefore incur
  * latency too. UTF-16 prefix counts, not re-encoded byte lengths, prevent
  * duplicates even for malformed bytes. A lossy read skips its uncertain snapshot
- * entirely, flushes the previous tails, and resynchronizes on later text; empty
- * polls cannot clear resynchronization. No spill paths are read or displayed.
+ * entirely, flushes only that stream's previous tail, and resynchronizes on later
+ * text; empty polls cannot clear resynchronization. No spill paths are read or displayed.
  *
  * Removal: when the adopted executor supplies incremental, Unicode-correct
  * observed deltas (including malformed input, EOF and retained-window gaps),
@@ -95,8 +95,10 @@ export class ShellOutput {
   private read(state: StreamState, reader: ShellExecution['observed']['stdout'], stderr: boolean, ended: boolean): void {
     const snapshot = reader.readFrom(state.offset)
     if (snapshot.lossy) {
-      // Joining pre-gap tails to post-gap bytes would fabricate a logical line.
-      this.flush()
+      // Only this stream lost continuity. A global flush would split the other
+      // stream's healthy unfinished line just to put it before the warning.
+      this.tail(state, stderr)
+      this.drain()
       if (!this.warned) {
         this.queue(paint(GAP_WARNING, 'warning'))
         this.warned = true

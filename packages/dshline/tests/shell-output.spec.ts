@@ -94,6 +94,127 @@ describe('shell observed stream projection', () => {
     expect(rows).toEqual(['old', '[shell output skipped: retained capture window overflowed]', 'new'])
   })
 
+  it.each(['stdout', 'stderr'] as const)('keeps the other stream’s unfinished line intact when %s loses bytes', lost => {
+    const { rows, readers, output } = setup()
+    const intact = lost === 'stdout' ? 'stderr' : 'stdout'
+    readers[lost] = new RetainedCollector(6)
+    const offsets = { stdout: [] as number[], stderr: [] as number[] }
+    for (const name of ['stdout', 'stderr'] as const) {
+      const read = readers[name].readFrom.bind(readers[name])
+      readers[name].readFrom = offset => { offsets[name].push(offset); return read(offset) }
+    }
+    const row = (name: 'stdout' | 'stderr', text: string) => name === 'stderr' ? `[stderr] ${text}` : text
+    const character = Buffer.from('界')
+    readers[lost].push(Buffer.concat([Buffer.from('old'), character.subarray(0, 1)]))
+    readers[intact].push(Buffer.from('compil'))
+    output.poll(readers)
+    expect(rows).toEqual([])
+
+    readers[lost].push(Buffer.from('missing\n'))
+    output.poll(readers)
+    expect(rows).toEqual([row(lost, 'old'), '[shell output skipped: retained capture window overflowed]'])
+    expect(output.live(100)).toEqual([row(intact, 'compil')])
+    output.poll(readers)
+    output.poll(readers)
+    expect(output.live(100)).toEqual([row(intact, 'compil')])
+
+    // These bytes are a continuation of the lost character, not a new character.
+    readers[lost].push(character.subarray(1))
+    output.poll(readers)
+    readers[lost].push(Buffer.from('z\n'))
+    output.poll(readers)
+    readers[intact].push(Buffer.from('ation failed\n'))
+    output.poll(readers)
+    output.poll(readers, true)
+    output.poll(readers, true)
+    output.flush()
+    output.flush()
+    expect(rows).toEqual([
+      row(lost, 'old'), '[shell output skipped: retained capture window overflowed]',
+      row(lost, 'z'), row(intact, 'compilation failed'),
+    ])
+    expect(output.live(100)).toEqual([])
+    expect(offsets[lost]).toEqual([0, 0, 12, 12, 12, 12, 16, 16, 16])
+    expect(offsets[intact]).toEqual([0, 6, 6, 6, 6, 6, 6, 19, 19])
+  })
+
+  it.each(['stdout', 'stderr'] as const)('preserves the other stream’s held UTF-8 prefix and literal replacements across %s loss', lost => {
+    const { rows, readers, output } = setup()
+    const intact = lost === 'stdout' ? 'stderr' : 'stdout'
+    readers[lost] = new RetainedCollector(4)
+    const character = Buffer.from('界')
+    readers[intact].push(Buffer.concat([Buffer.from('safe'), character.subarray(0, 1)]))
+    output.poll(readers)
+    readers[lost].push(Buffer.from('missing\n'))
+    output.poll(readers)
+    output.poll(readers)
+    expect(rows).toEqual(['[shell output skipped: retained capture window overflowed]'])
+    expect(output.live(100)).toEqual([intact === 'stderr' ? '[stderr] safe' : 'safe'])
+
+    readers[intact].push(Buffer.concat([character.subarray(1), Buffer.from('��')]))
+    output.poll(readers)
+    output.poll(readers)
+    expect(output.live(100)).toEqual([intact === 'stderr' ? '[stderr] safe界' : 'safe界'])
+    output.poll(readers, true)
+    output.flush()
+    output.poll(readers, true)
+    output.flush()
+    expect(rows).toEqual([
+      '[shell output skipped: retained capture window overflowed]',
+      intact === 'stderr' ? '[stderr] safe界��' : 'safe界��',
+    ])
+  })
+
+  it('terminates each stream’s own tails on simultaneous and repeated gaps despite sharing one warning', () => {
+    const { rows, readers, output } = setup(8)
+    readers.stdout.push(Buffer.from('out'))
+    readers.stderr.push(Buffer.from('err'))
+    output.poll(readers)
+    readers.stdout.push(Buffer.from('missing stdout\n'))
+    readers.stderr.push(Buffer.from('missing stderr\n'))
+    output.poll(readers)
+    // The marker reports the first observed gap, not a global chronological boundary.
+    expect(rows).toEqual(['out', '[shell output skipped: retained capture window overflowed]', '[stderr] err'])
+    readers.stdout.push(Buffer.from('a'))
+    readers.stderr.push(Buffer.from('b'))
+    output.poll(readers)
+    readers.stdout.push(Buffer.from('missing again\n'))
+    output.poll(readers)
+    expect(output.live(100)).toEqual(['[stderr] b'])
+    readers.stderr.push(Buffer.from('missing again\n'))
+    output.poll(readers)
+    readers.stdout.push(Buffer.from('ok\n'))
+    readers.stderr.push(Buffer.from('bad\n'))
+    output.poll(readers, true)
+    output.flush()
+    output.flush()
+    expect(rows).toEqual([
+      'out', '[shell output skipped: retained capture window overflowed]', '[stderr] err',
+      'a', '[stderr] b', 'ok', '[stderr] bad',
+    ])
+  })
+
+  it('drains completed rows and the affected tail before warning without flushing the other pending tail', () => {
+    const { rows, batches, readers, output } = setup()
+    readers.stderr = new RetainedCollector(4)
+    readers.stderr.push(Buffer.from('err'))
+    output.poll(readers)
+    readers.stdout.push(Buffer.from(`${'line\n'.repeat(31)}tail`))
+    readers.stderr.push(Buffer.from('missing\n'))
+    output.poll(readers)
+    expect(rows).toEqual([
+      ...Array.from({ length: 31 }, () => 'line'), '[stderr] err',
+      '[shell output skipped: retained capture window overflowed]',
+    ])
+    expect(batches).toEqual([32, 1])
+    expect(output.live(100)).toEqual(['tail'])
+    readers.stdout.push(Buffer.from(' end\n'))
+    output.poll(readers, true)
+    output.flush()
+    expect(rows.at(-1)).toBe('tail end')
+    expect(batches).toEqual([32, 1, 1])
+  })
+
   it('preserves resynchronization across empty reads and drops mid-character fragments', () => {
     const { rows, readers, output } = setup(3)
     readers.stdout.push(Buffer.from('xx界').subarray(0, 4))
