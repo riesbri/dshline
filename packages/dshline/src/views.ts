@@ -673,6 +673,8 @@ export interface ComposerHint {
   readonly images?: number
   /** Unsent session-scoped generic file count, when any are staged. */
   readonly files?: number
+  /** Whether this profile provides the optional human-shell capability. */
+  readonly shell?: boolean
 }
 
 /**
@@ -731,8 +733,8 @@ export function composerHintRow(hint: ComposerHint, inner: number): string {
       ? [[`type to ${hint.busyEnter}`], []]
       : [[staged, `type to ${hint.busyEnter}`], [staged], []]
     : staged === undefined
-      ? [['ask anything', '/ menu'], ['ask anything'], []]
-      : [[staged, 'ask anything', '/ menu'], [staged, 'ask anything'], [staged], []]
+      ? [...(hint.shell ? [['ask anything', '/ menu', '! shell']] : []), ['ask anything', '/ menu'], ['ask anything'], []]
+      : [...(hint.shell ? [[staged, 'ask anything', '/ menu', '! shell']] : []), [staged, 'ask anything', '/ menu'], [staged, 'ask anything'], [staged], []]
   const separator = paint(HINT_SEPARATOR, 'chrome')
   for (const segments of rungs) {
     const width = displayWidth(PROMPT)

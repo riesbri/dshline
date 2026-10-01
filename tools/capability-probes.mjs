@@ -43,6 +43,21 @@ export const CAPABILITY_PROBES = [
     note: 'real AgentRegistry get/create/resume dispatch over entered agents, the awaited enter/announce publication seam, and the `agent/created` source each path reports (startup vs resume) through the published AgentFactory; local factory behavior does not prove AgentLoop creation, persistence, setup, or lifecycle policy',
   },
   {
+    name: 'shell',
+    files: [
+      'packages/dshline/tests/capability/shell.probe.spec.ts',
+      'packages/dshline/tests/shell-command.spec.ts',
+      'packages/dshline/tests/shell-output.spec.ts',
+      'packages/dshline/tests/shell-attachment.spec.ts',
+    ],
+    note: 'published abstract resolve/execute contract plus assembled frontend routing and byte-window output fixtures; no concrete process provider or sandbox confinement is claimed by these probes',
+  },
+  {
+    name: 'sandboxPolicy',
+    files: ['packages/dshline/tests/capability/shell.probe.spec.ts'],
+    note: 'real policy service/projection: current attached Session overrides and workspace roots, per-call rereads, deployment fallback and cross-Session isolation; concrete enforcement remains provider-owned',
+  },
+  {
     name: 'jobs',
     files: ['packages/dshline/tests/capability/jobs.probe.spec.ts'],
     note: 'real abstract JobRegistry contract plus HarnessWork observation over a local registry; concrete provider/controller policy is host-owned',
