@@ -744,13 +744,13 @@ No Harness session corpus is mounted in this profile.
 
 | 标记 | 含义 |
 | --- | --- |
-| `◜◠◝◞◟◡` | 观察到的执行：Harness 表明正在运行的存活进程内子级 Agent |
+| `◜◝◞◟` | 观察到的执行：Harness 表明正在运行的存活进程内子级 Agent |
 | `●` | 活动的生命周期，但其内部不可观察 |
 | `•` | 存在一条后台任务记录 |
 | `◐` | 任务正在停止 |
 | `✓` `✗` `⊘` | 已完成、失败、已取消 |
 
-只有弧线转子会动，而且它就是状态行使用的那一个。整条规则就是这样：动画意味着有正在计算的证据。处于 `running` 的任务是一条注册表记录而不是一次观察，所以它保持安静——提供方没有发布进程内子级的 subagent 运行同样如此。像 Codex 或 Claude Code 这样的外部提供方自己管理其模型与工具流量，并不通过通用 subagent seam 暴露它们，因此 dshline 显示该运行的生命周期与已用时间，不为它编造任何活动。
+只有弧线转子会动，而且它就是 `/context` 与 Profiles 使用的那一个。整条规则就是这样：动画意味着有正在计算的证据。处于 `running` 的任务是一条注册表记录而不是一次观察，所以它保持安静——提供方没有发布进程内子级的 subagent 运行同样如此。像 Codex 或 Claude Code 这样的外部提供方自己管理其模型与工具流量，并不通过通用 subagent seam 暴露它们，因此 dshline 显示该运行的生命周期与已用时间，不为它编造任何活动。
 
 存活的进程内子级确实携带语义活动词——`waiting`、`thinking`、`responding`、`reading`、`searching`、`fetching`、`editing`、`running`、`working`——并且当运行中的工具自己的呈现给它取了标题时，还有如 `overlay.ts` 这样的简短操作。两者都由状态行读取的同一组 Harness 会话事件与工具呈现折叠而来；绝不根据工具名猜测。
 
@@ -1156,8 +1156,8 @@ JSON schema，这正是上面那个占用数字改为锚定到提供方的原因
    几轮则更便宜。
 
 你手动输入的 `/compact` 会作为一轮之间的维护操作运行：开始时 agent 必须处于空闲，
-而在界面等待命令期间，状态行会显示自己的 spinner 与 `compacting` 字样，而不是声称
-`ready`。自动压缩则不同：它发生在运行中的一轮之内，此时状态行显示的仍是正常的忙碌
+而在界面等待命令期间，状态行会显示 `compacting` 字样，像任何忙碌的词一样被光带扫过，
+而不是声称 `ready`。自动压缩则不同：它发生在运行中的一轮之内，此时状态行显示的仍是正常的忙碌
 呈现。在 `/context` 中发起压缩而它失败或被拒绝时，检查器内会直接显示原因，忙碌的
 情形不必等关闭浮层之后才知道。
 
@@ -1325,8 +1325,10 @@ current-Agent model picker
 ### 一轮进行中
 
 ```
-◜ working 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
+working · turn 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
 ```
+
+活动词本身就是指示：每隔两秒多，一条短短的光带从左到右扫过它，然后它静止下来。行上的其他内容都不会动。没有颜色的终端无法显示这条光带，因此在那里会改为在词旁边转动一个弧线。
 
 在已用时间旁边是这一轮等待的工具。长轮旁边没有名字时，无论命令在运行还是会话已停止响应，读起来都一样，因此名字是等待与担心之间的区别。它是终端变窄时第一个被放弃的东西。
 

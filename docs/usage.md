@@ -1113,13 +1113,13 @@ A row's mark says how much dshline actually knows about it:
 
 | Mark | Meaning |
 | --- | --- |
-| `◜◠◝◞◟◡` | Observed execution: a live in-process child Agent that Harness says is running |
+| `◜◝◞◟` | Observed execution: a live in-process child Agent that Harness says is running |
 | `●` | An active lifecycle whose internals are not observable |
 | `•` | A background job record exists |
 | `◐` | A job is stopping |
 | `✓` `✗` `⊘` | Completed, failed, cancelled |
 
-Only the arc spinner animates, and it is the same one the status line uses.
+Only the arc spinner animates, and it is the same one `/context` and Profiles use.
 That is the whole rule: animation means evidence of running computation. A Job
 in `running` is a registry record rather than an observation, so it stays
 quiet — and so does a subagent run whose provider published no in-process
@@ -1790,8 +1790,8 @@ Three consequences worth knowing, in the order they will affect you:
 
 A `/compact` you type runs as a maintenance operation between turns: the agent
 must be idle for it to start, and while the interface is awaiting the command
-the status line shows its own spinner and the word `compacting` instead of
-claiming `ready`. Automatic compaction is different: it happens as part of a
+the status line shows the word `compacting`, lit like any busy word, instead
+of claiming `ready`. Automatic compaction is different: it happens as part of a
 running turn, where the normal busy presentation is what the status line
 shows. A `/compact` that fails or is refused while you are in `/context` names
 the reason inside the inspector, so a busy session does not wait behind a
@@ -2001,8 +2001,10 @@ exactly its parent's recorded policy.
 ### While a turn is running
 
 ```
-◜ working 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
+working · turn 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
 ```
+
+The activity word is the indicator: every couple of seconds a short band of light crosses it from left to right, then it rests. Nothing else on the line moves. A terminal with no colour cannot show that band, so there an arc turns beside the word instead.
 
 Beside the elapsed time is the tool the turn is waiting on. A long turn with nothing named beside it reads the same whether a command is running or the session has stopped responding, so the name is the difference between waiting and worrying. It is the first thing given up when the terminal narrows.
 

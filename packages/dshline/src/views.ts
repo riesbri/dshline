@@ -39,9 +39,9 @@ import { LABEL_UNSAFE_RANGES } from './width-stable-tables.ts'
 
 /** What the status line reports; the runner owns the values. */
 export interface StatusState {
-  /** Whether the agent is running, which turns the spinner on. */
+  /** Whether the agent is running, which animates the activity word. */
   busy: boolean
-  /** Spinner tick, advanced by the runner's timer while busy. */
+  /** Heartbeat tick, advanced by the runner's timer while busy or compacting. */
   tick: number
   /** Milliseconds since the current turn started, or undefined when idle. */
   elapsedMs: number | undefined
@@ -1078,7 +1078,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       // is given up for width: a session quietly refusing to edit files, or
       // quietly about to take another round on its own, is the case a status line
       // exists to prevent. A goal that will continue by itself is coloured like
-      // the working spinner, because that is what it is.
+      // the busy activity word, because that is what it is.
       const plan = current.plan ? paint('plan', 'mode') : undefined
       const goalStyle = (text: string): string =>
         paint(text, current.goal?.running === true ? 'mode-alert' : 'subdued')
