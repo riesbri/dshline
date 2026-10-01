@@ -24,7 +24,7 @@ import { Context as RealContext } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
-import { stripAnsi, type Key } from '@dshline/renderer'
+import { SPINNER_INTERVAL_MS, stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
 import { pricingFrom } from '../src/usage.ts'
@@ -344,6 +344,44 @@ describe('/context', () => {
     draw()
     expect(status(frames)).not.toContain('compacting')
     expect(status(frames)).toContain('ready')
+  })
+
+  it('keeps the heartbeat running while a typed /compact is in flight on an idle agent', async () => {
+    // `/compact` requires an idle agent, so `agent/status` never reports
+    // `running` for it — and that event was the only thing that started the
+    // heartbeat. The status line said `compacting` over a frame that never
+    // advanced, which reads as a hung process rather than a working one.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      let settle!: (execution: { commandId: string; result: { kind: 'success' } }) => void
+      const pending = new Promise<{ commandId: string; result: { kind: 'success' } }>(resolve => {
+        settle = resolve
+      })
+      const { dispatch, frames } = await fixture({ execute: () => pending })
+      await flush()
+      submit(dispatch(), '/compact')
+      await flush()
+      const raw = (): string => frames.at(-1)?.lines.at(-1) ?? ''
+      const seen = new Set<string>()
+      for (let beat = 0; beat < 24; beat += 1) {
+        vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+        expect(stripAnsi(raw())).toContain('compacting')
+        seen.add(raw())
+      }
+      // Animated: the heartbeat produced more than one distinct frame.
+      expect(seen.size).toBeGreaterThan(1)
+
+      settle({ commandId: 'c-1', result: { kind: 'success' } })
+      await flush()
+      await flush()
+      // And it stops with the compaction: an idle agent owns no heartbeat.
+      const settled = frames.length
+      vi.advanceTimersByTime(SPINNER_INTERVAL_MS * 10)
+      expect(frames.length).toBe(settled)
+      expect(stripAnsi(raw())).toContain('ready')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('says what it can when no meter is mounted, and still closes', async () => {
