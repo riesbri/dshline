@@ -123,6 +123,50 @@ describe('wrapToWidth()', () => {
     expect(wrapToWidth('', 10)).toEqual([''])
   })
 
+  it.each([' bbbb界', '  aaaa界界bb', 'p qqqq界', style(' bbbb界', 'bold')])(
+    'rechecks a retained word before adding a wide character: %j', source => {
+      const rows = wrapToWidth(source, 5)
+      for (const row of rows) expect(displayWidth(row), JSON.stringify(row)).toBeLessThanOrEqual(5)
+      // A chosen space is consumed by a word break; every non-separator glyph
+      // must still survive exactly once, including the wide one after the suffix.
+      expect(rows.map(stripAnsi).join('').replaceAll(' ', ''))
+        .toBe(stripAnsi(source).replaceAll(' ', ''))
+      expect(rows.map(stripAnsi).join('').match(/界/gu)?.length)
+        .toBe(stripAnsi(source).match(/界/gu)?.length)
+    },
+  )
+
+  it('keeps width and content together across retained suffixes and narrow budgets', () => {
+    for (let columns = 1; columns <= 8; columns += 1) {
+      for (let suffix = 0; suffix <= 10; suffix += 1) {
+        const source = ` ${'b'.repeat(suffix)}界 e\u0301界z`
+        const rows = wrapToWidth(source, columns)
+        expect(rows.map(stripAnsi).join('').replaceAll(' ', ''), `columns=${String(columns)} suffix=${String(suffix)}`)
+          .toBe(source.replaceAll(' ', ''))
+        for (const row of rows) {
+          if (displayWidth(row) <= columns) continue
+          // The existing progress policy emits a single two-column glyph at a
+          // one-column budget. It does not license an overflowing word suffix.
+          expect(columns).toBe(1)
+          expect([...stripAnsi(row)]).toHaveLength(1)
+          expect(displayWidth(row)).toBe(2)
+        }
+      }
+    }
+  })
+
+  it('keeps the first row indented while consuming a later wrap separator', () => {
+    expect(wrapToWidth('   a bb', 5)).toEqual(['   a', 'bb'])
+  })
+
+  it.each(['a界\u0301', 'a界\u0301z'])(
+    'keeps a wide glyph’s following zero-width mark after flushing an occupied row: %j', source => {
+      const rows = wrapToWidth(source, 1).map(stripAnsi)
+      expect(rows).toEqual(source.endsWith('z') ? ['a', '界\u0301', 'z'] : ['a', '界\u0301'])
+      expect(rows.join('')).toBe(source)
+    },
+  )
+
   it('makes progress at a one-column budget', () => {
     expect(wrapToWidth('ab', 1)).toEqual(['a', 'b'])
     // A two-column character cannot fit one column; it must still not loop.

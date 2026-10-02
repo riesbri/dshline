@@ -39,6 +39,14 @@ describe('box()', () => {
     expect(lines.map(line => displayWidth(line))).toEqual([12, 12, 12, 12, 12])
   })
 
+  it('keeps the wide glyph after a retained word instead of clipping malformed wrapping', () => {
+    const lines = box([' bbbb界'], { width: 9 })
+    for (const line of lines) expect(displayWidth(line)).toBe(9)
+    const body = lines.slice(1, -1).map(stripAnsi).map(row => row.slice(2, -2)).join('')
+    expect(body.replaceAll(' ', '')).toBe('bbbb界')
+    expect(body.match(/界/gu)).toHaveLength(1)
+  })
+
   it('draws an empty content row rather than collapsing', () => {
     expect(box([], { width: 10 })).toHaveLength(3)
   })

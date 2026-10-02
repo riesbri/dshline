@@ -238,11 +238,16 @@ export class Screen {
    * scrollback is left in place so the session transcript survives exit.
    */
   close(): void {
-    this.target.write(`${this.eraseLive()}${SHOW_CURSOR}`)
-    this.liveRows = []
-    this.liveColumns = undefined
-    this.cursor = undefined
-    this.current = false
+    try {
+      this.target.write(`${this.eraseLive()}${SHOW_CURSOR}`)
+    } finally {
+      // A failed write may have erased some or all of the region. Teardown
+      // must forget that geometry rather than climb it again on a retry.
+      this.liveRows = []
+      this.liveColumns = undefined
+      this.cursor = undefined
+      this.current = false
+    }
   }
 
   /** The wrap width, floored at one so a zero-column terminal still progresses. */

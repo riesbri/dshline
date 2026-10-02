@@ -118,6 +118,26 @@ describe('Screen', () => {
     expect(target.all()).toContain('\u001b[6C')
   })
 
+  it('forgets teardown geometry even when the cursor restoration write fails', () => {
+    const failure = new Error('screen shutdown write failed')
+    let fail = false
+    const writes: string[] = []
+    const screen = new Screen({
+      columns: () => 20,
+      write: chunk => { if (fail) throw failure; writes.push(chunk) },
+    })
+    screen.setLive(['one', 'two', 'three'], { row: 0, column: 2 })
+    fail = true
+    expect(() => screen.close()).toThrow(failure)
+    expect(screen.height).toBe(0)
+    fail = false
+    writes.length = 0
+    screen.close()
+    // No second climb over geometry a failed write may already have erased.
+    expect(cursorUps(writes.join(''))).toEqual([])
+    expect(writes.join('')).toContain('\u001b[?25h')
+  })
+
   it('restores the cursor on close and forgets the region', () => {
     const target = fakeTarget()
     const screen = new Screen(target)
