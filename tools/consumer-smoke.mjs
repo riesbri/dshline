@@ -182,11 +182,43 @@ function flatten(raw) {
 }
 
 /**
+ * How a spawned command ended, in words a report can act on.
+ *
+ * `execFile` reports a timeout and a non-zero exit through the same rejection,
+ * and every field this harness reads from it — `stderr`, `stdout`, `message` —
+ * is identical for the two. That is not cosmetic: when this lane fails, the
+ * output it captured is frozen at the last line the child printed, so a command
+ * that HUNG and a command that EXITED produce byte-identical reports and send
+ * the next investigation down the wrong path. Naming which one happened costs
+ * one property read and changes no verdict.
+ *
+ * `killed` is Node's own marker for "this execFile sent the kill signal", so it
+ * identifies a timeout rather than a signal the child raised on itself.
+ *
+ * This never converts a failure into a success. It only says which failure.
+ * @param error - a rejection from `execFile`.
+ * @returns the outcome phrase.
+ */
+export function processOutcome(error) {
+  if (error?.killed === true) {
+    const signal = error.signal === undefined || error.signal === null ? '' : ` with ${error.signal}`
+    return `the command did not finish and was killed after the timeout${signal}`
+  }
+  const code = error?.code
+  if (code === undefined || code === null) {
+    return error?.signal === undefined || error.signal === null
+      ? 'the command failed without an exit status'
+      : `the command was terminated by ${error.signal}`
+  }
+  return `the command exited with code ${code}`
+}
+
+/**
  * Run a command, capturing failure as a thrown error that names what ran.
  * @param command - the executable.
  * @param args - its arguments.
  * @param options - spawn options; `cwd` and `env` matter here.
- * @param description - the phrase used when reporting a non-zero exit.
+ * @param description - the phrase used when reporting how it failed.
  * @returns stdout plus stderr of the finished command.
  */
 async function run(command, args, options, description) {
@@ -195,7 +227,7 @@ async function run(command, args, options, description) {
   } catch (error) {
     // Installer warnings on stderr must not hide Harness's actual stdout failure.
     const detail = [error.stderr, error.stdout, error.message].filter(text => text !== undefined && text !== '').join('\n')
-    throw new Error(`${description} failed (${command} ${args.join(' ')}):\n${String(detail).slice(-2000)}`)
+    throw new Error(`${description} failed (${command} ${args.join(' ')}): ${processOutcome(error)}\n${String(detail).slice(-2000)}`)
   }
 }
 

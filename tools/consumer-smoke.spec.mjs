@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { observeUntilReady, packAndInstallProfile, parseBootEvidence } from './consumer-smoke.mjs'
+import { observeUntilReady, packAndInstallProfile, parseBootEvidence, processOutcome } from './consumer-smoke.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -217,5 +217,37 @@ describe('observeUntilReady()', () => {
       setInterval(() => {}, 1_000)
     `)
     await expect(observeUntilReady(child, VERSION, 100, 100)).rejects.toThrow(/did not exit within/)
+  })
+})
+
+describe('processOutcome()', () => {
+  it.each([
+    [{ killed: true, signal: 'SIGTERM', code: null }, 'did not finish and was killed after the timeout with SIGTERM'],
+    [{ killed: true, signal: null, code: null }, 'did not finish and was killed after the timeout'],
+    [{ code: 1 }, 'exited with code 1'],
+    [{ code: 1, signal: null }, 'exited with code 1'],
+    [{ code: 'ENOENT' }, 'exited with code ENOENT'],
+    [{ signal: 'SIGKILL' }, 'was terminated by SIGKILL'],
+    [{}, 'failed without an exit status'],
+  ])('names %j as %s', (error, expected) => {
+    // A timeout and a non-zero exit arrive as the SAME rejection from execFile,
+    // and the captured output is identical, so an unnamed failure sends the next
+    // investigation after the wrong cause entirely.
+    expect(processOutcome(error)).toBe(`the command ${expected}`)
+  })
+
+  it('does not mistake a signal a command raised itself for a timeout', () => {
+    // Deliberate break: treating any signal as a timeout would relabel a command
+    // that failed for its own reasons as one this harness killed.
+    expect(processOutcome({ signal: 'SIGTERM', code: null })).not.toContain('timeout')
+    expect(processOutcome({ killed: true, signal: 'SIGTERM' })).toContain('timeout')
+  })
+
+  it('never turns a failure into a success', () => {
+    // The classification is a label on an existing rejection. Every shape the
+    // harness can be handed still reads as a failure.
+    for (const error of [{ killed: true }, { code: 1 }, {}, { signal: 'SIGKILL' }]) {
+      expect(processOutcome(error)).toMatch(/the command/)
+    }
   })
 })
