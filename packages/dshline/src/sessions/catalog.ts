@@ -64,7 +64,11 @@ export interface SessionQueryReads extends SessionNavigationReads {
     filters: readonly SessionResultFilter[],
     signal?: AbortSignal,
   ): Promise<SessionRecord[]>
-  /** Folded titles for many sessions from one corpus observation. */
+  /**
+   * Folded titles and live-preferred headers in first-occurrence id order.
+   * Harness isolates operational failures as per-id rejected settlements;
+   * cancellation rejects the batch with the signal's reason.
+   */
   readTitleSnapshots(
     sessionIds: readonly SessionId[],
     signal?: AbortSignal,
@@ -912,6 +916,11 @@ export class SessionCatalog {
       try {
         const request = cursor === undefined ? chain.request : { ...chain.request, cursor }
         const page = await query.searchSessions(request, { signal: abort.signal })
+        // Unlike listing hydration, this read also recovers metadata omitted by
+        // search-hit projections. Operational failures settle per id in Harness;
+        // an unexpected batch rejection fails the page rather than silently
+        // applying origin filters to incomplete headers. Cancellation is fenced
+        // by currentContentChain below, including raw AbortSignal reasons.
         const observations = titleObservations(await query.readTitleSnapshots(
           page.items.map(hit => hit.header.id),
           abort.signal,
