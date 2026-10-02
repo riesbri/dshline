@@ -7,10 +7,19 @@
  * and stopped with the work it reports, rather than running whenever the
  * process is alive.
  *
- * Two forms, for two jobs. The spinner is a MARK: one glyph in a column of
- * rows, saying which of several things is executing. The glint is a VOICE: it
- * lights the one word that says what a single subject is doing. Neither is
- * drawn beside the other — two motions on one line would say one thing twice.
+ * Two forms, for two different questions, and which one a line uses is the
+ * caller's decision. The glint is a VOICE: it lights one word, answering
+ * "running what" for a line whose neighbours may be running too, where a shared
+ * turning arc would say the same thing on every row at once. An arc is a MARK:
+ * it answers "is anything running" for a line that has no word of its own to
+ * move. A line never carries both at once, because two motions on one line say
+ * one thing twice.
+ *
+ * The arc comes in two widths, which is a question about the caller's room and
+ * not about the animation: {@link spinnerFrame} is one cell for a gutter that
+ * cannot spare two, {@link spinnerFrameOrbit} two for a list that can. Both turn
+ * at the same 600 ms from the same phase, so the pair reads as one arc drawn
+ * larger and not as two designs.
  * @module @dshline/renderer/spinner
  */
 
@@ -19,62 +28,164 @@ import type { Role } from './theme.ts'
 import { displayWidth, splitAtColumns } from './width.ts'
 
 /**
- * Four quarter arcs, in clockwise order.
+ * The compact one-cell mark: four quadrant arcs, in clockwise order.
  *
- * The half circles `◠` and `◡` that used to sit between them are gone: they
- * draw twice the arc of their neighbours, so the mark visibly grew and shrank
- * and jumped between the top and the bottom of its cell instead of turning.
+ * The half circles `\u25e0` and `\u25e1` are in {@link ORBIT_GLYPHS} instead, and
+ * are absent here for a reason worth keeping: Unicode calls these four
+ * `QUADRANT CIRCULAR ARC` — thin outlines — and the other two `HALF CIRCLE`,
+ * which fonts draw as a FILLED half-disc. Alternating a hairline with a solid
+ * swings the mark's weight twice per revolution, which reads as growing and
+ * shrinking rather than as turning. A four-arc table cannot hold them without
+ * that swing, so it holds only arcs.
  */
-const FRAMES = ['◜', '◝', '◞', '◟'] as const
+const FRAMES = ['\u25dc', '\u25dd', '\u25de', '\u25df'] as const
 
 /** Milliseconds between ticks; the caller's timer should match. */
 export const SPINNER_INTERVAL_MS = 100
 
 /**
- * Ticks in one revolution of the spinner: 600 ms, the energy the six-glyph
- * spinner had.
+ * Ticks in one revolution of the spinner: 600 ms.
  *
- * Four frames do not divide six ticks, so the frames are held for 2, 1, 2 and
- * 1 ticks. That is not an approximation of the old rhythm but the old rhythm
- * itself: each quarter arc appears on exactly the tick it always did, and the
- * tick a half circle used to fill keeps the quarter before it on screen. One
- * tick per frame (400 ms) would be faster than anything this ever drew, and two
- * (800 ms) noticeably slower.
+ * The two tables below map ticks to frames differently — the compact one holds
+ * four frames for 2, 1, 2 and 1 ticks, the orbit one frame per tick — but both
+ * take their length from this one number and the caller's one timer, so a
+ * revolution of either is 600 ms and neither can drift from the other in speed.
+ * The compact hold is inherited rather than chosen: four frames do not divide
+ * six ticks, and 2, 1, 2, 1 is the rhythm dshline has always turned at.
  */
-const SPINNER_REVOLUTION_TICKS = 6
+export const SPINNER_REVOLUTION_TICKS = 6
 
 /**
- * The frame for one tick.
+ * The phase of a tick within the shared revolution.
  * @param tick - a monotonically increasing counter; negative values are clamped.
- * @returns one spinner glyph.
+ * @returns a tick in `[0, SPINNER_REVOLUTION_TICKS)`.
+ */
+function revolutionPhase(tick: number): number {
+  return Math.max(0, Math.trunc(tick)) % SPINNER_REVOLUTION_TICKS
+}
+
+/**
+ * The compact one-cell mark, for a gutter that cannot spare two columns.
+ * @param tick - a monotonically increasing counter; negative values are clamped.
+ * @returns one quadrant-arc glyph, turning clockwise, one cell wide.
  */
 export function spinnerFrame(tick: number): string {
-  const phase = Math.max(0, Math.trunc(tick)) % SPINNER_REVOLUTION_TICKS
+  const phase = revolutionPhase(tick)
   return FRAMES[Math.floor((phase * FRAMES.length) / SPINNER_REVOLUTION_TICKS)] ?? FRAMES[0]
 }
 
 /**
- * Ticks in one glint cycle — a pass and the rest after it. 2.4 s.
+ * The six shapes of the original arc, in the order they always turned in.
  *
- * Long enough that the line is mostly still, short enough that a reader who
- * glances at it rarely waits for proof that something is running. The cycle is
- * fixed rather than proportional to the text, and its phase comes from the
- * tick alone, so a word that changes mid-cycle neither restarts nor stutters.
+ * Read clockwise around a circle, and every step is one position along it:
+ * upper-left, top, upper-right, lower-right, bottom, lower-left. That walk is
+ * why the half circles are in this table and not in {@link FRAMES} — a circle
+ * needs them as its cardinal points, and the two heavier glyphs land on exactly
+ * the two steps where a heavier glyph is what the shape calls for.
  */
-export const GLINT_PERIOD_TICKS = 24
+const ORBIT_GLYPHS = ['\u25dc', '\u25e0', '\u25dd', '\u25de', '\u25e1', '\u25df'] as const
+
+/**
+ * Which cell of the two-column box each orbit glyph occupies, in step with
+ * {@link ORBIT_GLYPHS}.
+ *
+ * Read off the shapes rather than picked for looks. The mark spends three of
+ * its six steps on the right of the circle and three on the left; the two
+ * cardinal shapes sit on the vertical axis, and `\u25e0` is given to the right and
+ * `\u25e1` to the left so the two halves of the revolution each stay on one side
+ * for a continuous three ticks. The mark therefore crosses the box once per half
+ * turn, in the same direction it is rotating, instead of vibrating between the
+ * cells on every tick.
+ */
+const ORBIT_SIDES = ['left', 'right', 'right', 'right', 'left', 'left'] as const
+
+/**
+ * Columns the orbit's animation box reserves, animating or not.
+ *
+ * A stable gutter is the point: a row's body must start in the same column
+ * whether the mark is turning or settled, so every mark in a list reserves this
+ * and the settling ones pad to it.
+ */
+export const SPINNER_MARK_COLUMNS = 2
+
+/**
+ * The two-cell orbit: ONE glyph moving through a fixed two-column box.
+ *
+ * Six frames for six ticks, one each, which is the original 600 ms with no
+ * duplicated frames and no irregular hold. The glyph is never joined to another
+ * one, because a two-glyph frame reads as a terminal drawing a combination
+ * rather than as one mark that has presence: of the sixteen ways to pair two
+ * arcs across two cells only four join into a single curve, and the reader's
+ * verdict on those was that the pairing showed instead of the motion. Here the
+ * glyph keeps its own cell and the animation owns the box.
+ *
+ * Every frame is exactly two columns because the second is always a space, and
+ * every glyph is East Asian NEUTRAL, so a terminal in ambiguous-width mode
+ * still advances one cell for it. The width contract therefore holds without
+ * depending on a terminal setting.
+ * @param tick - a monotonically increasing counter; negative values are clamped.
+ * @returns one glyph and one space, always exactly two columns wide.
+ */
+export function spinnerFrameOrbit(tick: number): string {
+  const phase = revolutionPhase(tick)
+  const glyph = ORBIT_GLYPHS[phase] ?? ORBIT_GLYPHS[0]
+  return (ORBIT_SIDES[phase] ?? ORBIT_SIDES[0]) === 'left' ? `${glyph} ` : ` ${glyph}`
+}
+
+/**
+ * Pad a settling mark to the same width the orbit reserves.
+ *
+ * `\u25cf active` beside `\u25dc  reading` would otherwise push the row body one
+ * column right the moment a worker finished, which moves text under the reader
+ * for no reason the row's state asked for.
+ * @param mark - a one-cell settling glyph.
+ * @returns the glyph followed by padding, exactly {@link SPINNER_MARK_COLUMNS} wide.
+ */
+export function spinnerMark(mark: string): string {
+  return mark.padEnd(SPINNER_MARK_COLUMNS)
+}
+
+/**
+ * Ticks in one glint cycle — a sweep and the rest after it. 1.6 s.
+ *
+ * This is the root line's only liveness signal, so the cycle is close to
+ * continuously alive: a shorter word sweeps in about a second and rests about
+ * half a second, a longer one sweeps about 1.3 s and rests 0.2 s. An earlier
+ * version spent more than half of every 2.4 s cycle completely still, which on
+ * the one line that is always on screen read as idle rather than as working.
+ *
+ * The cycle is fixed rather than proportional to the text, and its phase comes
+ * from the tick alone, so a word that changes mid-cycle neither restarts nor
+ * stutters.
+ */
+export const GLINT_PERIOD_TICKS = 16
 
 /**
  * Columns the lit band covers: wide enough to read as light moving across a
  * word, narrow enough that the word underneath it stays legible.
+ *
+ * Three, against four. At half of a seven-column word the band stopped looking
+ * like something passing through the text and started looking like the text
+ * flashing.
+ *
+ * The width is paid for in liveness, which is the one thing this line is
+ * selling: a word of `width` columns is lit for `width + 3 - 1` ticks of the
+ * cycle, because the last step leaves the band wholly past the right edge.
+ * Widening the band buys lit ticks one for one, and nothing else here does.
  */
 export const GLINT_BAND_COLUMNS = 3
 
 /**
  * Ticks every cycle spends at rest, however long the text. A longer text is
- * crossed faster instead, so the pause that makes the motion calm cannot be
- * spent on travel.
+ * crossed faster instead, so the pause cannot be spent on travel.
+ *
+ * Two, against eight before. The floor exists so a long enough word cannot eat
+ * the pause entirely, and at this cycle length it still does that job: an
+ * eleven-column word would otherwise claim all sixteen ticks. Every word
+ * dshline can currently draw is ten columns or fewer, so the floor is a guard
+ * on the shape rather than something any of them reaches.
  */
-const GLINT_MIN_REST_TICKS = 8
+const GLINT_MIN_REST_TICKS = 2
 
 /**
  * The columns the glint lights on one tick.

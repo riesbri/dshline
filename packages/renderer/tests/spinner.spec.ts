@@ -1,13 +1,15 @@
 /**
- * The glint: a band of emphasis that crosses a word, then rests.
+ * The two activity forms: the turning arc, in one cell and in two, and the
+ * glint that crosses a word.
  *
- * Its claims are about what does NOT change as much as what does — the
- * characters, the width, the boundaries between characters, and the styling
- * left open afterwards — so most of these walk a whole cycle and hold every
- * frame to the same invariant, and the emulator checks the cells a person sees.
+ * Most claims here are about what does NOT change as much as what does — the
+ * width, the characters, the boundaries between characters, and the styling
+ * left open afterwards — so most tests walk a whole cycle and hold every frame
+ * to the same invariant, and the emulator checks the cells a person sees.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  codePointWidth,
   displayWidth,
   GLINT_PERIOD_TICKS,
   MARKDOWN_ROLES,
@@ -15,10 +17,15 @@ import {
   paintGlint,
   Screen,
   setPalette,
+  SPINNER_INTERVAL_MS,
+  SPINNER_MARK_COLUMNS,
+  spinnerFrame,
+  spinnerFrameOrbit,
+  spinnerMark,
   stripAnsi,
   truncateToWidth,
 } from '../src/index.ts'
-import { GLINT_BAND_COLUMNS, glintBand } from '../src/spinner.ts'
+import { GLINT_BAND_COLUMNS, glintBand, SPINNER_REVOLUTION_TICKS } from '../src/spinner.ts'
 import { splitAtColumns } from '../src/width.ts'
 import { createEmulator } from '../../../tests/emulator.ts'
 
@@ -76,29 +83,146 @@ const UNICODE = {
   mixed: '读 reading 文件',
 } as const
 
+/** One revolution of each presentation, as literal frames rather than a property. */
+const COMPACT_CYCLE = ['\u25dc', '\u25dc', '\u25dd', '\u25de', '\u25de', '\u25df']
+const ORBIT_CYCLE = ['\u25dc ', ' \u25e0', ' \u25dd', ' \u25de', '\u25e1 ', '\u25df ']
+
+describe('spinnerFrame()', () => {
+  it('turns through the compact arc, held for 2, 1, 2 and 1 ticks', () => {
+    expect(Array.from({ length: SPINNER_REVOLUTION_TICKS }, (_u, tick) => spinnerFrame(tick))).toEqual(COMPACT_CYCLE)
+    expect(new Set(COMPACT_CYCLE).size).toBe(4)
+  })
+
+  it('gives the compact mark exactly one column on EVERY frame', () => {
+    for (let tick = 0; tick < SPINNER_REVOLUTION_TICKS; tick += 1) {
+      expect(displayWidth(spinnerFrame(tick)), `compact @${String(tick)}`).toBe(1)
+    }
+  })
+})
+
+describe('spinnerFrameOrbit()', () => {
+  it('walks the six original shapes in order, one glyph a tick, one cell a time', () => {
+    // The original six-shape vocabulary, restored: upper-left, top, upper-right,
+    // lower-right, bottom, lower-left — one step clockwise round the circle.
+    expect(Array.from({ length: SPINNER_REVOLUTION_TICKS }, (_u, tick) => spinnerFrameOrbit(tick)))
+      .toEqual(ORBIT_CYCLE)
+    // One frame per tick, with nothing held: the irregular 2, 1, 2, 1 hold
+    // existed only to make four arcs fill six ticks.
+    expect(new Set(ORBIT_CYCLE).size).toBe(SPINNER_REVOLUTION_TICKS)
+  })
+
+  it('moves the glyph between the two cells rather than pairing two of them', () => {
+    // The rule the whole table exists for: a frame is ONE glyph and ONE space.
+    // Two glyphs in a frame is the paired form that read as a terminal drawing
+    // a combination instead of one mark with presence.
+    for (let tick = 0; tick < SPINNER_REVOLUTION_TICKS; tick += 1) {
+      const frame = spinnerFrameOrbit(tick)
+      expect(frame.trim(), `orbit @${String(tick)}`).toHaveLength(1)
+      expect([...frame].filter(char => char !== ' '), `orbit @${String(tick)}`).toHaveLength(1)
+    }
+  })
+
+  it('gives every frame exactly two columns, glyph and space together', () => {
+    // The width contract, per frame: a frame that measured differently would
+    // move every column to its right, and a `/work` row body would jump.
+    for (let tick = 0; tick < SPINNER_REVOLUTION_TICKS * 2; tick += 1) {
+      expect(displayWidth(spinnerFrameOrbit(tick)), `orbit @${String(tick)}`).toBe(SPINNER_MARK_COLUMNS)
+    }
+    expect(SPINNER_MARK_COLUMNS).toBe(2)
+  })
+
+  it('spends three of its six steps in each cell, so the box is crossed evenly', () => {
+    // Read off the shapes: the mark is on the right of the circle for the top,
+    // upper-right and lower-right steps, and on the left for the other three.
+    const left = ORBIT_CYCLE.filter(frame => !frame.startsWith(' ')).length
+    expect(left).toBe(3)
+    // And the cells come in one run each, so the mark crosses the box once per
+    // half turn instead of vibrating between the cells on every tick.
+    const sides = ORBIT_CYCLE.map(frame => (frame.startsWith(' ') ? 'r' : 'l')).join('')
+    expect([...new Set(sides.match(/.{1,3}/gu) ?? [])]).toHaveLength(2)
+  })
+
+  it('revolves in 600 ms on the caller\u2019s 100 ms heartbeat, with no duplicated frame', () => {
+    expect(SPINNER_INTERVAL_MS).toBe(100)
+    expect(SPINNER_REVOLUTION_TICKS * SPINNER_INTERVAL_MS).toBe(600)
+    // Six frames, six ticks: nothing held, nothing skipped.
+    for (let tick = 1; tick < SPINNER_REVOLUTION_TICKS; tick += 1) {
+      expect(spinnerFrameOrbit(tick), `orbit @${String(tick)}`).not.toBe(spinnerFrameOrbit(tick - 1))
+    }
+  })
+
+  it('uses the original six-shape vocabulary, and no glyph outside it', () => {
+    const vocabulary = new Set(ORBIT_CYCLE.map(frame => frame.trim()))
+    expect(vocabulary).toEqual(new Set(['\u25dc', '\u25e0', '\u25dd', '\u25de', '\u25e1', '\u25df']))
+    for (let tick = 0; tick < SPINNER_REVOLUTION_TICKS; tick += 1) {
+      expect(vocabulary.has(spinnerFrameOrbit(tick).trim())).toBe(true)
+    }
+  })
+
+  it('draws every orbit glyph in one cell that no terminal widens', () => {
+    // The quadrant arcs and both half circles are East Asian NEUTRAL, so a
+    // terminal in ambiguous-width mode still advances one cell and the
+    // two-column contract never depends on a terminal setting. `\u25cf` and
+    // `\u25d0` are the ambiguous ones this table deliberately avoids.
+    for (const glyph of ORBIT_CYCLE.map(frame => frame.trim())) {
+      expect(codePointWidth(glyph.codePointAt(0) ?? 0), glyph).toBe(1)
+    }
+  })
+
+  it('repeats every cycle, and clamps negative ticks to the first frame', () => {
+    for (let tick = 0; tick < SPINNER_REVOLUTION_TICKS; tick += 1) {
+      expect(spinnerFrameOrbit(tick + SPINNER_REVOLUTION_TICKS)).toBe(spinnerFrameOrbit(tick))
+    }
+    expect(spinnerFrameOrbit(-1)).toBe(spinnerFrameOrbit(0))
+    expect(spinnerFrameOrbit(-7)).toBe(spinnerFrameOrbit(0))
+  })
+})
+
+describe('spinnerMark()', () => {
+  it('pads a settling mark to the orbit\u2019s box, so a row body never moves', () => {
+    // The whole point of a stable gutter: a worker finishing must not push its
+    // own text a column right.
+    for (const mark of ['\u25cf', '\u2022', '\u25d0', '\u2713', '\u2717', '\u2298']) {
+      const padded = spinnerMark(mark)
+      expect(displayWidth(padded), mark).toBe(SPINNER_MARK_COLUMNS)
+      expect(padded.startsWith(mark), mark).toBe(true)
+      expect(padded, mark).toBe(spinnerFrameOrbit(0).replace('\u25dc', mark))
+    }
+  })
+})
+
 describe('glintBand()', () => {
-  it('crosses an eight-column word left to right, three columns wide, then rests', () => {
+  it('crosses an eight-column word left to right, three columns wide, then rests briefly', () => {
+    // The root line's only liveness signal, so the pause is a pause and not a
+    // silence: ten of sixteen ticks are lit, and the band widens to three
+    // columns before narrowing again, which is what makes it read as light
+    // entering the word and leaving it.
     expect(frames(8)).toEqual([
-      '█·······',
-      '██······',
-      '███·····',
-      '·███····',
-      '··███···',
-      '···███··',
-      '····███·',
-      '·····███',
-      '······██',
-      '·······█',
-      ...Array.from({ length: 14 }, () => '········'),
+      '\u2588\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7',
+      '\u2588\u2588\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7',
+      '\u2588\u2588\u2588\u00b7\u00b7\u00b7\u00b7\u00b7',
+      '\u00b7\u2588\u2588\u2588\u00b7\u00b7\u00b7\u00b7',
+      '\u00b7\u00b7\u2588\u2588\u2588\u00b7\u00b7\u00b7',
+      '\u00b7\u00b7\u00b7\u2588\u2588\u2588\u00b7\u00b7',
+      '\u00b7\u00b7\u00b7\u00b7\u2588\u2588\u2588\u00b7',
+      '\u00b7\u00b7\u00b7\u00b7\u00b7\u2588\u2588\u2588',
+      '\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u2588\u2588',
+      '\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u2588',
+      ...Array.from({ length: 6 }, () => '\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7\u00b7'),
     ])
+    // Over three fifths of the cycle is lit, against well under half for
+    // the 2.4 s version this replaced.
+    const lit = Array.from({ length: GLINT_PERIOD_TICKS }, (_u, tick) => glintBand(8, tick) !== undefined)
+      .filter(Boolean).length
+    expect(lit / GLINT_PERIOD_TICKS).toBeGreaterThan(0.6)
   })
 
   it('keeps the minimum rest for text longer than the cycle could cross one column a tick', () => {
-    // 30 columns would need 33 ticks at one column a tick; the pass is
-    // compressed rather than allowed to eat the rest.
+    // 30 columns would need 34 ticks at one column a tick, so the pass is
+    // compressed rather than allowed to eat the rest entirely.
     const lit = frames(30).map(row => row.includes('█'))
     const rest = lit.length - lit.lastIndexOf(true) - 1
-    expect(rest).toBeGreaterThanOrEqual(8)
+    expect(rest).toBeGreaterThanOrEqual(2)
     // And the band still visits every column on the way across.
     const visited = new Set<number>()
     for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
@@ -193,7 +317,10 @@ describe('paintGlint()', () => {
     install()
     const resting = Array.from({ length: GLINT_PERIOD_TICKS }, (_, tick) => glint('thinking', tick))
       .filter(frame => frame === paint('thinking', 'muted'))
-    expect(resting.length).toBe(14)
+    // Six, and not the two the rest floor asks for: the band's last step leaves
+    // it wholly past the right edge, so the word is already whole again on a
+    // tick that is still part of the sweep.
+    expect(resting.length).toBe(6)
   })
 
   it('paints already-styled text whole instead of splitting its escapes', () => {
