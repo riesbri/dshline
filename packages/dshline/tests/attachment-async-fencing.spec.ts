@@ -315,12 +315,20 @@ function commandGate(): { promise: Promise<{ result: { kind: string } }>; releas
 }
 
 describe('a typed command that outlives its attachment', () => {
-  it('does not resurrect the heartbeat or repaint after the switch', async () => {
+  it('finishes its cleanup without resurrecting anything the switch tore down', async () => {
     // The typed-compaction path decrements an in-flight counter, re-syncs the
     // heartbeat and repaints in a `finally` that no lifetime check guards. The
     // counter and the heartbeat belong to the attachment, so whether that
     // `finally` may still run them is a question about this epoch, not about the
     // command having completed.
+    //
+    // The name used to claim this blocks repaints, and the comment under it said
+    // the opposite. The honest contract is narrower and is what this now asserts:
+    // the cleanup is allowed to run — it is what RELEASES the heartbeat, and
+    // skipping cleanup because the attachment retired is how a heartbeat outlives
+    // it — but it must leave nothing standing that the switch took down. The
+    // repaint it costs is incidental and is deliberately not counted, because a
+    // count here would be a performance assertion rather than an invariant.
     const gate = commandGate()
     const fixture = await mount('', { names: ['compact'], execute: () => gate.promise })
     const epoch = fixture.start()
@@ -338,15 +346,12 @@ describe('a typed command that outlives its attachment', () => {
     gate.release('success')
     await expect(epoch).resolves.toEqual({ kind: 'new', cwd: '/ws' })
     // Nothing the retired attachment's command path could still own reached the
-    // transcript, and the epoch finished retiring rather than hanging on it.
-    expect(fixture.commits.slice(commitsBefore).join('\n')).not.toContain('✗')
+    // transcript — not an error, not an acknowledgement, not anything — and the
+    // epoch finished retiring rather than hanging on it. Checking for a marker
+    // instead of for ABSENCE of commits is what let a stray line through before.
+    expect(fixture.commits.slice(commitsBefore)).toEqual([])
     expect(fixture.liveRows()).toBe(0)
     expect(fixture.dispatchInstalled()).toBe(false)
-    // MEASURED, and deliberately not fenced: settling this command costs exactly
-    // one further repaint, of an already-empty live region, from the `finally`
-    // that decrements the counter and releases this attachment's heartbeat.
-    // Fencing a `finally` would be the worse change — it is cleanup, and skipping
-    // cleanup because the attachment retired is how a heartbeat outlives it.
   })
 
   it('reports a command failure that happened while it was still current', async () => {
