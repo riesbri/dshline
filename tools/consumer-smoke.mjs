@@ -240,7 +240,7 @@ export function processOutcome(error) {
  * @param description - the phrase used when reporting how it failed.
  * @returns stdout plus stderr of the finished command.
  */
-export async function run(command, args, options, description) {
+async function run(command, args, options, description) {
   try {
     return await execFileAsync(command, args, { timeout: 600_000, ...options })
   } catch (error) {

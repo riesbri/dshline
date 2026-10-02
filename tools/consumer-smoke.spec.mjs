@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { observeUntilReady, packAndInstallProfile, parseBootEvidence, processOutcome, run } from './consumer-smoke.mjs'
+import { observeUntilReady, packAndInstallProfile, parseBootEvidence, processOutcome } from './consumer-smoke.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -267,35 +267,63 @@ describe('processOutcome()', () => {
   })
 })
 
-describe('run()', () => {
-  /** A command that is present on every supported platform. */
-  const SHELL = process.platform === 'win32' ? undefined : '/bin/sh'
+describe('real execFile rejections', () => {
+  /** A binary present on every platform this lane runs on. */
+  const SHELL = '/bin/sh'
+  /** Whether these fixtures can run at all. */
+  const can = process.platform !== 'win32'
+  const skip = can ? false : true
 
-  it.skipIf(process.platform === 'win32')('still throws on a numeric non-zero exit', async () => {
-    await expect(run(SHELL, ['-c', 'exit 3'], {}, 'probe')).rejects.toThrow(/exited with code 3/u)
+  /**
+   * Produce the error `execFile` really raises for one command.
+   *
+   * Real child processes, not hand-built shapes: the whole point of this
+   * diagnostic is that several unrelated failures arrive as one rejection, and
+   * only a real one shows which fields Node actually populates.
+   * @param args - arguments for the shell.
+   * @param options - spawn options, notably a short timeout.
+   * @returns the rejection `execFile` produced.
+   */
+  async function rejection(args, options = {}) {
+    try {
+      await execFileAsync(SHELL, args, { timeout: 600_000, ...options })
+    } catch (error) {
+      return error
+    }
+    throw new Error('the command was expected to fail and did not')
+  }
+
+  it.skipIf(skip)('fails, and reports a numeric exit as an exit status', async () => {
+    const error = await rejection(['-c', 'exit 3'])
+    expect(typeof error.code).toBe('number')
+    expect(processOutcome(error)).toBe('the command exited with code 3')
   })
 
-  it.skipIf(process.platform === 'win32')('still throws on a command that cannot be run', async () => {
-    // A spawn failure, not an exit status: the wording must not pretend a
-    // process ran.
-    await expect(run('/nonexistent/dsh-consumer-smoke', [], {}, 'probe'))
-      .rejects.toThrow(/could not be run/u)
+  it.skipIf(skip)('fails, and reports a spawn failure as NOT an exit status', async () => {
+    const error = await rejection(['-c', 'exit 0'], { shell: '/nonexistent/dsh-consumer-smoke' })
+    expect(typeof error.code).toBe('string')
+    expect(processOutcome(error)).toContain(`could not be run (${error.code})`)
+    expect(processOutcome(error)).not.toContain('exited with')
   })
 
-  it.skipIf(process.platform === 'win32')('still throws when the child kills itself', async () => {
-    await expect(run(SHELL, ['-c', 'kill -TERM $$'], {}, 'probe'))
-      .rejects.toThrow(/terminated by SIGTERM/u)
+  it.skipIf(skip)('fails, and distinguishes a child that signalled itself', async () => {
+    const error = await rejection(['-c', 'kill -TERM $$'])
+    expect(error.killed).not.toBe(true)
+    expect(processOutcome(error)).toContain('terminated by SIGTERM')
   })
 
-  it.skipIf(process.platform === 'win32')('still throws when execFile kills the child', async () => {
-    // The hang case. `timeout` here is the harness's own knob, overridden only
-    // to keep the test quick; the report says WHO killed it either way.
-    await expect(run(SHELL, ['-c', 'sleep 5'], { timeout: 50 }, 'probe'))
-      .rejects.toThrow(/killed by execFile/u)
+  it.skipIf(skip)('and still resolves when the command succeeds', async () => {
+    // The anti-weakening baseline for the four above: the same call shape must
+    // still succeed, or every "it throws" assertion would be trivially true.
+    const { stdout } = await execFileAsync(SHELL, ['-c', 'printf ok'], { timeout: 600_000 })
+    expect(stdout).toBe('ok')
   })
 
-  it('resolves normally when the command succeeds', async () => {
-    const result = await run(process.execPath, ['-e', 'process.exit(0)'], {}, 'probe')
-    expect(result.stdout).toBe('')
+  it.skipIf(skip)('fails, and names execFile as the killer when it killed the child', async () => {
+    // The shape this diagnostic exists for: a command that never finished. The
+    // timeout here is only shortened to keep the fixture quick.
+    const error = await rejection(['-c', 'sleep 5'], { timeout: 50 })
+    expect(error.killed).toBe(true)
+    expect(processOutcome(error)).toContain('killed by execFile')
   })
 })
