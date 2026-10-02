@@ -1269,7 +1269,78 @@ describe('searching what sessions said', () => {
     expect(catalog.content()).toMatchObject({ kind: 'ready', query: 'two', entries: [{ id: 'fresh' }] })
   })
 
-  it('recovers delegated origin from the authoritative observed header', async () => {
+  describe.each(['all', 'own', 'delegated'] as const)('origin precedence under %s', origin => {
+    it.each(['rejected', 'missing', 'exact-title', 'exact-untitled'] as const)(
+      'preserves header classification with %s title hydration', async hydration => {
+        // The same Harness hits qualify under every hydration outcome. A failed
+        // optional read may change title state, never origin or other hit facts.
+        const hits = [
+          searchHit('delegated', { origin: 'subagent', parentSession: 'root' as SessionId, live: true }),
+          searchHit('own'),
+          searchHit('fork', { parentSession: 'root' as SessionId, isSeeded: true }),
+        ]
+        let searches = 0
+        const titleRequests: SessionId[][] = []
+        const catalog = new SessionCatalog({
+          query: engine({
+            searchSessions: async request => {
+              searches += 1
+              expect(request.sessionFilters).toEqual([])
+              expect(request.cursor).toBeUndefined()
+              return { items: hits }
+            },
+            readTitleSnapshots: async ids => {
+              titleRequests.push([...ids])
+              if (hydration === 'missing') return []
+              return hits.map(hit => hydration === 'rejected'
+                ? { sessionId: hit.header.id, status: 'rejected', reason: new Error('title unreadable') }
+                : {
+                  sessionId: hit.header.id,
+                  status: 'fulfilled',
+                  value: {
+                    session: hit.header,
+                    ...(hydration === 'exact-title'
+                      ? { title: { title: `Hydrated ${hit.header.id}`, messageSeqs: [], source: { kind: 'user' }, eventSeq: 2, updatedAt: 2_000 } }
+                      : {}),
+                  },
+                })
+            },
+          }),
+          invalidate: () => {},
+        })
+        catalog.applyFilters({ ...NO_FILTERS, origin })
+        catalog.search('needle')
+        await settled()
+        const content = catalog.content()
+        if (content.kind !== 'ready') throw new Error('content did not settle')
+        const expectedHits = hits.filter(hit => origin === 'all'
+          || (origin === 'delegated') === (hit.header.origin === 'subagent'))
+        expect(content.entries).toEqual(expectedHits.map(hit => ({
+          id: hit.header.id,
+          title: hydration === 'exact-title' ? `Hydrated ${hit.header.id}` : undefined,
+          titleState: hydration === 'rejected'
+            ? { kind: 'failed', title: undefined, message: 'title unreadable' }
+            : hydration === 'missing'
+              ? { kind: 'pending' }
+              : { kind: 'exact', title: hydration === 'exact-title' ? `Hydrated ${hit.header.id}` : undefined },
+          createdAt: hit.header.createdAt,
+          cwd: hit.header.cwd,
+          live: hit.live,
+          persisted: hit.persisted,
+          parent: hit.header.parentSession,
+          origin: hit.header.origin === 'subagent' ? 'delegated' : 'own',
+          snippet: hit.bestMatch.snippet,
+        })))
+        expect(content.returned).toBe(3)
+        expect(content.matched).toBe(expectedHits.length)
+        expect(searches).toBe(1)
+        expect(titleRequests).toEqual([hits.map(hit => hit.header.id)])
+        catalog.dispose()
+      },
+    )
+  })
+
+  it.each(['all', 'own', 'delegated'] as const)('uses exact observed origin ahead of the hit under %s', async origin => {
     // A search backend's persisted hit projection may omit `origin`, so a
     // delegated child's hit arrives unmarked. The batch title observation
     // resolves the authoritative live-preferred source header for the same id,
@@ -1310,19 +1381,19 @@ describe('searching what sessions said', () => {
       }),
       invalidate: () => {},
     })
-    catalog.applyFilters({ ...NO_FILTERS, origin: 'delegated' })
+    catalog.applyFilters({ ...NO_FILTERS, origin })
     catalog.search('needle')
     await settled()
-    const delegated = catalog.content()
-    expect(delegated.kind === 'ready' ? delegated.entries.map(entry => entry.id) : []).toEqual(['delegated'])
-    catalog.applyFilters({ ...NO_FILTERS, origin: 'own' })
-    catalog.search('needle')
-    await settled()
-    // The unobserved hit keeps the header's own classification; the fulfilled
-    // own observation keeps its authoritative reading, both `own` per the
-    // SessionHeader contract — never a guessed mark.
-    const own = catalog.content()
-    expect(own.kind === 'ready' ? own.entries.map(entry => entry.id) : []).toEqual(['own', 'observed-own'])
+    const content = catalog.content()
+    if (content.kind !== 'ready') throw new Error('content did not settle')
+    const entries = [
+      { id: 'delegated', origin: 'delegated' },
+      { id: 'own', origin: 'own' },
+      { id: 'observed-own', origin: 'own' },
+    ]
+    expect(content.entries.map(entry => ({ id: entry.id, origin: entry.origin })))
+      .toEqual(entries.filter(entry => origin === 'all' || entry.origin === origin))
+    catalog.dispose()
   })
 })
 
