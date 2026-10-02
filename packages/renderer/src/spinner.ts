@@ -7,13 +7,14 @@
  * and stopped with the work it reports, rather than running whenever the
  * process is alive.
  *
- * Two forms, for two different questions, and which one a line uses is the
- * caller's decision. The glint is a VOICE: it lights one word, answering
- * "running what" for a line whose neighbours may be running too, where a shared
- * turning arc would say the same thing on every row at once. An arc is a MARK:
- * it answers "is anything running" for a line that has no word of its own to
- * move. A line never carries both at once, because two motions on one line say
- * one thing twice.
+ * Two forms, for two different subjects. The glint is a VOICE: it lights one
+ * word, and it belongs to the status line of the single attached session, whose
+ * word says what that one subject is doing. An arc is a MARK: it is the
+ * execution mark for a row in a list, where several subjects may be running at
+ * once and a shared word could not tell them apart. A line never carries both,
+ * because two motions on one line say one thing twice. An arc also stands in for
+ * the glint wherever styling cannot animate at all — a band is only a change of
+ * SGR, so with no colour there is nothing to cross the word with.
  *
  * The arc comes in two widths, which is a question about the caller's room and
  * not about the animation: {@link spinnerFrame} is one cell for a gutter that
@@ -30,12 +31,13 @@ import { displayWidth, splitAtColumns } from './width.ts'
 /**
  * The compact one-cell mark: four quadrant arcs, in clockwise order.
  *
- * The half circles `\u25e0` and `\u25e1` are in {@link ORBIT_GLYPHS} instead:
- * Unicode calls these four `QUADRANT CIRCULAR ARC` — thin outlines — and the
- * other two `HALF CIRCLE`, which fonts draw as a FILLED half-disc. Alternating
- * a hairline with a solid swings the mark's weight twice per revolution, which
- * reads as growing and shrinking rather than as turning, so a one-cell mark
- * holds only arcs.
+ * The half circles `\u25e0` and `\u25e1` are in {@link ORBIT_GLYPHS} instead.
+ * Unicode names these four `QUADRANT CIRCULAR ARC` and the other two
+ * `HALF CIRCLE`, and what a font draws for a name is the font's business — but
+ * in the terminal presentation this is reviewed against, the two half circles
+ * carry noticeably more visual weight than the quadrant arcs. Alternating them
+ * swings the mark's weight twice per revolution, which reads as growing and
+ * shrinking rather than as turning, so a one-cell mark holds only arcs.
  */
 const FRAMES = ['\u25dc', '\u25dd', '\u25de', '\u25df'] as const
 
@@ -78,9 +80,10 @@ export function spinnerFrame(tick: number): string {
  *
  * Read clockwise around a circle, and every step is one position along it:
  * upper-left, top, upper-right, lower-right, bottom, lower-left. That walk is
- * why the half circles are in this table and not in {@link FRAMES} — a circle
- * needs them as its cardinal points, and the two heavier glyphs land on exactly
- * the two steps where a heavier glyph is what the shape calls for.
+ * why the half circles are in this table and not in {@link FRAMES}: a circle
+ * needs them as its cardinal points, and in this terminal they are the two
+ * heavier shapes, which land on exactly the two steps where the circle calls
+ * for one.
  */
 const ORBIT_GLYPHS = ['\u25dc', '\u25e0', '\u25dd', '\u25de', '\u25e1', '\u25df'] as const
 
@@ -112,9 +115,10 @@ export const SPINNER_MARK_COLUMNS = 2
  *
  * Six frames for six ticks, one each, so a revolution is the original 600 ms
  * with nothing held and nothing duplicated. The glyph is never joined to a
- * second one, because a two-glyph frame reads as a terminal drawing a
- * combination rather than as one mark with presence. The glyph keeps its own
- * cell and the animation owns the box.
+ * second one: one glyph and one space keeps every frame exactly the two columns
+ * a row reserves, and reads as one mark moving rather than as two marks sitting
+ * beside each other. The glyph keeps its own cell and the animation owns the
+ * box.
  *
  * Every frame is exactly two columns because the second is always a space, and
  * every glyph is East Asian NEUTRAL, so a terminal in ambiguous-width mode
