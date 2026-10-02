@@ -30,7 +30,6 @@ import type { Key } from '@dshline/renderer'
 import { stripAnsi } from '@dshline/renderer'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
 import { browseSessions, type BrowseSpec } from '../src/sessions/index.ts'
-import type { SessionTarget } from '../src/sessions/model.ts'
 
 /** Let the catalog's own awaits settle before reading its state. */
 async function settled(): Promise<void> {
@@ -217,12 +216,31 @@ interface Observed {
 }
 
 /**
+ * How `traceSession` behaves for one mount.
+ *
+ * Injected rather than ignored: a fake that always resolves proves nothing about
+ * a panel whose footer must stay silent while a trace is still in flight.
+ */
+type TraceBehaviour =
+  /** The real trace, as the pinned engine would return it. */
+  | 'ok'
+  /** Never settles, so the panel is stuck in its loading state. */
+  | 'pending'
+  /** Rejects the way an unreadable corpus or an invalid lineage would. */
+  | 'reject'
+
+/**
  * A session-query engine over one fixed corpus.
  * @param records - the authoritative listing.
  * @param observed - the mutable recorder.
+ * @param traceBehaviour - what `traceSession` does on this mount.
  * @returns the narrowed query surface.
  */
-function engine(records: readonly SessionRecord[], observed: Observed): SessionQueryReads {
+function engine(
+  records: readonly SessionRecord[],
+  observed: Observed,
+  traceBehaviour: TraceBehaviour = 'ok',
+): SessionQueryReads {
   const find = (id: SessionId): SessionRecord =>
     records.find(item => item.header.id === id) ?? record(id as string)
   return {
@@ -238,6 +256,8 @@ function engine(records: readonly SessionRecord[], observed: Observed): SessionQ
     readEvent: async () => { throw new Error('not exercised') },
     traceSession: async sessionId => {
       observed.traces.push(sessionId)
+      if (traceBehaviour === 'pending') return new Promise<SessionLineageTrace>(() => {})
+      if (traceBehaviour === 'reject') throw new Error('session lineage contains a cycle')
       const found = trace(records, sessionId)
       if (found === undefined) throw new Error(`session "${sessionId}" not found`)
       return found
@@ -265,10 +285,14 @@ interface Opened {
   type(text: string): void
   /** How many overlays the slot registry still holds. */
   readonly depth: () => number
-  /** The sessions the Lineage panel proposed, in order. */
-  readonly proposed: readonly SessionTarget[]
   /** Settles once the browser has chosen a session or been dismissed. */
   readonly answer: Promise<SessionId | undefined>
+}
+
+/** What one mount lets a test replace, besides the browser spec itself. */
+interface OpenOptions extends Partial<BrowseSpec> {
+  /** What `traceSession` does on this mount. */
+  readonly trace?: TraceBehaviour
 }
 
 /**
@@ -278,19 +302,18 @@ interface Opened {
  * what makes a surface that fails to dismiss itself visible to these tests as a
  * stranded panel that would keep drawing after the browser closed.
  * @param records - the authoritative corpus.
- * @param overrides - the caller-side browser spec fields to replace.
- * @returns the driver and the promise the browser resolves with.
+ * @param options - the browser spec fields and trace behaviour to replace.
+ * @returns the driver, the observed reads, and the promise the browser resolves with.
  */
 async function open(
   records: readonly SessionRecord[],
-  overrides: Partial<BrowseSpec> & { readonly observed?: Observed } = {},
+  options: OpenOptions = {},
 ): Promise<Opened & { readonly observed: Observed }> {
   const stack: Overlay[] = []
   const observed: Observed = { traces: [], titleBatches: [], listSessions: 0, filterSessions: 0 }
-  const proposed: SessionTarget[] = []
-  const { observed: _ignored, ...spec } = overrides
+  const { trace: traceBehaviour, ...spec } = options
   const ctx = {
-    get: (name: string) => (name === 'sessionQuery' ? engine(records, observed) : undefined),
+    get: (name: string) => (name === 'sessionQuery' ? engine(records, observed, traceBehaviour) : undefined),
     tuiSlots: {
       invalidate: () => {},
       pushOverlay: (overlay: Overlay) => {
@@ -306,8 +329,6 @@ async function open(
       },
     },
   } as unknown as Context
-  // Record every session the Lineage panel proposes without letting the browser
-  // close, so a test can observe several refusals from one mount.
   const answer = browseSessions({
     ctx,
     currentSessionId: undefined,
@@ -323,10 +344,9 @@ async function open(
   const draw = (): void => { frame() }
   await settled()
   draw()
-  const openWith = (browser: Omit<Opened, 'proposed' | 'depth'>, answerFor: Promise<SessionId | undefined>) => ({
+  const openWith = (browser: Omit<Opened, 'depth'>, answerFor: Promise<SessionId | undefined>) => ({
     ...browser,
     depth: () => stack.length,
-    proposed,
     answer: answerFor,
     observed,
   })
@@ -367,7 +387,7 @@ const FORK_ROW = 2
  * @param index - the row the reader moves to, counted from the top.
  * @returns nothing.
  */
-function selectRow(browser: Omit<Opened, 'proposed' | 'depth' | 'observed'>, index: number): void {
+function selectRow(browser: Omit<Opened, 'depth' | 'observed'>, index: number): void {
   browser.press(...Array.from({ length: index }, () => DOWN))
 }
 
@@ -381,7 +401,7 @@ function selectRow(browser: Omit<Opened, 'proposed' | 'depth' | 'observed'>, ind
  * @param index - the row whose lineage to open.
  * @returns nothing; the Lineage panel is on top when this returns.
  */
-function openLineage(browser: Omit<Opened, 'proposed' | 'depth' | 'observed'>, index: number): void {
+function openLineage(browser: Omit<Opened, 'depth' | 'observed'>, index: number): void {
   browser.press(...Array.from({ length: index }, () => DOWN), DETAILS, DOWN, ENTER)
 }
 
@@ -571,19 +591,28 @@ describe('reaching a delegated conversation from Lineage', () => {
     expect(browser.observed.traces).toHaveLength(1)
   })
 
-  it('reports a failed trace and offers nothing to choose from it', async () => {
-    const failing = await open(corpus(), {
-      currentSessionId: ROOT as SessionId,
-      requestLineage: () => {},
-    } as Partial<BrowseSpec>)
-    // A browser whose lineage never lands must still offer no reopen key rather
-    // than one that would guess.
-    openLineage(failing, ROOT_ROW)
+  it.each([
+    ['pending', 'Reading lineage…'],
+    ['reject', 'Lineage failed: session lineage contains a cycle'],
+  ] as const)('offers nothing to choose from a %s trace', async (behaviour, message) => {
+    // The trace really does stall or really does fail, so the panel has no ready
+    // state and no real session row under the cursor. A footer promising `o`
+    // here would be promising a key that could only guess.
+    const browser = await open(corpus(), { currentSessionId: ROOT as SessionId, trace: behaviour })
+    openLineage(browser, ROOT_ROW)
     await settled()
-    failing.type('o')
-    expect(failing.depth()).toBeGreaterThan(0)
-    failing.press(ESCAPE, ESCAPE)
-    await failing.answer
+    expect(browser.observed.traces).toEqual([ROOT as SessionId])
+    expect(browser.text()).toContain(message)
+    expect(browser.text()).not.toContain('o reopen')
+    expect(browser.text()).not.toContain('↵ focus')
+    // Pressing it anyway changes nothing: the panel stays, and no browser answer
+    // is produced from a state that names no session.
+    browser.type('o')
+    await settled()
+    expect(browser.depth()).toBe(2)
+    expect(browser.text()).toContain(message)
+    browser.press(ESCAPE, ESCAPE, ESCAPE)
+    await expect(browser.answer).resolves.toBeUndefined()
   })
 
   it('still lets the reader widen the scope globally, exactly as before', async () => {

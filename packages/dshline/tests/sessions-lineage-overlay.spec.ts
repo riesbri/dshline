@@ -439,12 +439,28 @@ describe('proposing a related session', () => {
       { kind: 'pruned', depth: 2, label: '… 30 descendants hidden' },
     ]
     const known = new Set(['target', 'child'])
-    for (let step = 0; step < rows.length * 2; step += 1) {
-      const view = mount({ ...reopening(), state: ready(rows, 1) })
+    //
+    // ONE panel walks its cursor all the way round and asks at every stop. A loop
+    // that remounted per step would silently re-propose the same row each time
+    // and never visit a marker at all, which is exactly what this test exists to
+    // rule out.
+    const view = mount({ ...reopening(), state: ready(rows, 1) })
+    const visited: string[] = []
+    // Two full cycles: the cursor wraps, so a second pass proves the walk covers
+    // the whole selectable set rather than stopping at the first marker.
+    for (let stop = 0; stop < rows.length * 2; stop += 1) {
       view.press({ kind: 'text', text: 'o' })
-      for (const target of view.reopened) expect(known.has(target.id)).toBe(true)
+      const proposedAt = view.reopened.at(-1)
+      if (proposedAt !== undefined) {
+        visited.push(proposedAt.id)
+        expect(known.has(proposedAt.id)).toBe(true)
+      }
       view.press(key('down'))
     }
+    // The cursor really did reach BOTH session rows, so the markers were stepped
+    // over rather than the walk having missed them.
+    expect(new Set(visited)).toEqual(new Set(['target', 'child']))
+    expect(view.reopened.every(target => known.has(target.id))).toBe(true)
   })
 
   it('offers no key at all where nothing may reopen a session', () => {
