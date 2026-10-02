@@ -41,6 +41,7 @@ import type {
   SessionEntry,
   SessionFact,
   SessionSearchMode,
+  SessionTarget,
 } from './model.ts'
 import {
   entryTitleState,
@@ -147,8 +148,15 @@ export interface SessionsOverlaySpec {
   readonly home: string | undefined
   /** Current time, injected so ages and notices are assertable. */
   readonly now: () => number
-  /** Ask the owner to reopen one session. */
-  readonly resume: (entry: SessionEntry) => ResumeRequest
+  /**
+   * Ask the owner to reopen one session.
+   *
+   * Takes the narrow {@link SessionTarget} rather than a whole entry, because
+   * the decision reads three facts and must not depend on which surface proposed
+   * the session. A list row satisfies it; so does a lineage row the trace
+   * returned.
+   */
+  readonly resume: (target: SessionTarget) => ResumeRequest
   /** Collect and submit a title for the current live session, when supported. */
   readonly renameDraft?: (focusedTitle: string | undefined) => Promise<RenameDraftOutcome>
   /** Push a child overlay onto the slot stack; the parent stays mounted beneath. */
@@ -290,16 +298,38 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
     if (mode === 'content') spec.search(query)
     else spec.invalidate()
   }
-  const resume = (): void => {
-    const entry = focusedEntry()
-    if (entry === undefined) return
-    const answer = spec.resume(entry)
+  /**
+   * The one path from "the reader chose a session" to reopening it.
+   *
+   * Both surfaces that can express that choice route through HERE, so a row in
+   * the list and a row in a lineage trace are answered by the same owner under
+   * the same policy. A second entry point would be a second `planResume` — and
+   * two rules about when a live agent may be retired is precisely the duplication
+   * this module exists to prevent.
+   *
+   * Nothing here decides. `spec.resume` is the browser owner's; it runs
+   * `planResume`, and only it may retire an agent.
+   * @param target - the authoritative session identity the reader chose.
+   */
+  const resumeTarget = (target: SessionTarget): void => {
+    // Whatever asked, the answer belongs to the LIST. A choice arriving from the
+    // lineage panel leaves this browser in the detail disclosure, and that view
+    // draws no notice at all — so a refusal there would be a refusal the reader
+    // is never shown. Returning to the list is also what the reader expects: the
+    // question they asked was about a session, not about the row they inspected.
+    submode = 'list'
+    const answer = spec.resume(target)
     if (answer.kind === 'resume') {
       close()
       return
     }
     notice.show(answer.message)
     spec.invalidate()
+  }
+  const resume = (): void => {
+    const entry = focusedEntry()
+    if (entry === undefined) return
+    resumeTarget(entry)
   }
   const activateList = (): void => {
     if (selected === visible.length && trailing !== undefined) {
@@ -435,6 +465,11 @@ export function createSessionsOverlay(spec: SessionsOverlaySpec): TuiOverlay {
         home: spec.home,
         now: spec.now,
         focus: focusInList,
+        // Handed the SAME function the list's own `↵` uses. The lineage panel
+        // proposes a session; this browser owns deciding what happens to it. A
+        // panel that resumed for itself would have to re-implement the policy
+        // that decides whether a live agent may be retired at all.
+        reopen: resumeTarget,
         close: childClose,
         invalidate: spec.invalidate,
       }))

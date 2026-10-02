@@ -20,12 +20,19 @@
  */
 
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import type { SessionEntry } from './model.ts'
+import type { SessionTarget } from './model.ts'
 
 /** Everything the decision depends on, gathered by the caller. */
 export interface ResumeConditions {
-  /** The session the reader chose. */
-  readonly target: SessionEntry
+  /**
+   * The session the reader chose.
+   *
+   * Typed as the narrow {@link SessionTarget} rather than a full entry, because
+   * the decision reads exactly three facts and must not depend on WHICH surface
+   * proposed the session: a list row offers a whole `SessionEntry`, a lineage
+   * row offers what the trace returned. One policy, two ways to reach it.
+   */
+  readonly target: SessionTarget
   /** The session this window is driving, or undefined before an agent exists. */
   readonly currentSessionId: SessionId | undefined
   /** Whether the current agent is mid-turn. */

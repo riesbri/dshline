@@ -5,7 +5,7 @@ import type { Key, KeyName } from '@dshline/renderer'
 import { displayWidth, Screen, stripAnsi } from '@dshline/renderer'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { createEmulator } from '../../../tests/emulator.ts'
-import type { LineageRow, LineageState } from '../src/sessions/model.ts'
+import type { LineageRow, LineageState, SessionTarget } from '../src/sessions/model.ts'
 import type { LineageOverlaySpec } from '../src/sessions/lineage-overlay.ts'
 import { createLineageOverlay } from '../src/sessions/lineage-overlay.ts'
 
@@ -44,6 +44,10 @@ function row(
     createdAt: NOW - 7_200_000,
     cwd: '/home/dev/projects/dshline',
     origin: 'own',
+    // The traced `SessionRecord`'s own availability, which the panel hands to the
+    // browser's resume policy untouched.
+    live: false,
+    persisted: true,
     ...overrides,
   }
 }
@@ -77,6 +81,8 @@ interface Harness {
   focus?: (sessionId: SessionId) => boolean
   now?: () => number
   mount?: boolean
+  /** Omit entirely to mount a surface that may not reopen a session. */
+  reopen?: (target: SessionTarget) => void
 }
 
 /** An overlay plus recorded owner interactions. */
@@ -86,6 +92,8 @@ interface Mounted {
   press(...keys: Key[]): void
   readonly requested: SessionId[]
   readonly focused: SessionId[]
+  /** Sessions the panel proposed for reopening, in order. */
+  readonly reopened: readonly SessionTarget[]
   readonly closed: () => boolean
 }
 
@@ -98,6 +106,7 @@ function mount(harness: Harness = {}): Mounted {
   const fallback = ready([row('target', 'target', 0)], 0)
   const requested: SessionId[] = []
   const focused: SessionId[] = []
+  const reopened: SessionTarget[] = []
   let closed = false
   const spec: LineageOverlaySpec = {
     lineage: () => harness.state ?? fallback,
@@ -109,6 +118,7 @@ function mount(harness: Harness = {}): Mounted {
       focused.push(sessionId)
       return harness.focus?.(sessionId) ?? true
     },
+    ...(harness.reopen === undefined ? {} : { reopen: (target: SessionTarget) => { reopened.push(target) } }),
     close: () => { closed = true },
     invalidate: () => {},
   }
@@ -120,6 +130,7 @@ function mount(harness: Harness = {}): Mounted {
     press: (...keys) => { for (const one of keys) overlay.handleKey(one) },
     requested,
     focused,
+    reopened,
     closed: () => closed,
   }
 }
@@ -370,6 +381,123 @@ describe('focusing and closing', () => {
     const ctrl = mount()
     ctrl.press(key('ctrl-c'))
     expect(ctrl.closed()).toBe(true)
+  })
+})
+
+describe('proposing a related session', () => {
+  /** The callback a Sessions browser supplies; recording is enough here. */
+  const reopening = (): Harness => ({ reopen: () => {} })
+
+  it('proposes the row under the cursor with the facts the trace returned', () => {
+    // The panel hands over an id plus what Harness said about it, and nothing
+    // else. It does not decide, and it does not guess a title it never read.
+    const view = mount({
+      ...reopening(),
+      state: ready([
+        row('ancestor', 'root', 0),
+        row('target', 'target', 1),
+        row('descendant', 'child', 2, { origin: 'delegated', live: false, persisted: true }),
+      ], 1),
+    })
+    view.press(key('down'))
+    view.press({ kind: 'text', text: 'o' })
+    expect(view.reopened).toEqual([{ id: 'child' as SessionId, live: false, persisted: true }])
+    // The panel returns to the browser's own surface before the answer arrives,
+    // so a refusal is read there rather than swallowed here.
+    expect(view.closed()).toBe(true)
+  })
+
+  it('keeps `o` and `↵` as two acts rather than one overloaded key', () => {
+    // Reopening retires whatever agent this window drives. A keystroke that meant
+    // both "show me where this sits" and "take me there", depending on the row,
+    // is the one shape that must never ship.
+    const view = mount({
+      ...reopening(),
+      state: ready([row('target', 'target', 0), row('descendant', 'child', 1)], 0),
+    })
+    view.press(key('enter'))
+    expect(view.focused).toEqual([TARGET])
+    expect(view.reopened).toEqual([])
+
+    const other = mount({
+      ...reopening(),
+      state: ready([row('target', 'target', 0), row('descendant', 'child', 1)], 0),
+    })
+    other.press({ kind: 'text', text: 'o' })
+    expect(other.focused).toEqual([])
+    expect(other.reopened).toEqual([{ id: TARGET, live: false, persisted: true }])
+  })
+
+  it('never proposes a pruning marker, at any cursor position', () => {
+    // A bounded tree draws synthetic rows for what it could not show. They carry
+    // a label and a count and no session, so proposing one would hand the browser
+    // an id that never existed.
+    const rows: LineageRow[] = [
+      { kind: 'pruned', depth: 0, label: '… 12 earlier ancestors' },
+      row('target', 'target', 0),
+      row('descendant', 'child', 1),
+      { kind: 'pruned', depth: 2, label: '… 30 descendants hidden' },
+    ]
+    const known = new Set(['target', 'child'])
+    //
+    // A FRESH panel per cursor position, navigated first and asked once. `o`
+    // closes the panel it runs on, so continuing to send keys afterwards would be
+    // driving an overlay no reader can reach — and asking a second time would be
+    // testing a path that does not exist rather than the next position.
+    //
+    // The down-count walks further than there are selectable rows on purpose:
+    // each extra press has to wrap, which only works by stepping OVER the two
+    // markers. A marker that became selectable would therefore be landed on and
+    // proposed by one of these passes.
+    const proposed: SessionTarget[] = []
+    for (let downs = 0; downs <= rows.length; downs += 1) {
+      const view = mount({ ...reopening(), state: ready(rows, 1) })
+      for (let step = 0; step < downs; step += 1) view.press(key('down'))
+      view.press({ kind: 'text', text: 'o' })
+      // Exactly one ask per panel, and that ask ended the panel.
+      expect(view.reopened).toHaveLength(1)
+      expect(view.closed()).toBe(true)
+      proposed.push(...view.reopened)
+    }
+    // Every proposed id is a real session, and both real sessions were reached:
+    // the markers were stepped over, never chosen.
+    expect(proposed.every(target => known.has(target.id))).toBe(true)
+    expect(new Set(proposed.map(target => target.id))).toEqual(new Set(['target', 'child']))
+  })
+
+  it('offers no key at all where nothing may reopen a session', () => {
+    // The current-session hub opens this same panel to describe the session the
+    // window already drives, and it owns no way to switch agents. Promising `o`
+    // there would be a promise the surface cannot keep.
+    const view = mount({ state: ready([row('target', 'target', 0), row('ancestor', 'root', 0)], 0) })
+    view.press({ kind: 'text', text: 'o' })
+    expect(view.reopened).toEqual([])
+    expect(view.closed()).toBe(false)
+    expect(plain(view)).toContain('↵ focus')
+    expect(plain(view)).not.toContain('o reopen')
+  })
+
+  it('names the key only while a real session row is under the cursor', () => {
+    const loading = mount({ ...reopening(), state: { kind: 'loading', sessionId: TARGET } })
+    expect(plain(loading)).not.toContain('o reopen')
+    const empty = mount({ ...reopening(), state: ready([{ kind: 'pruned', depth: 0, label: '… nothing' }], 0) })
+    expect(plain(empty)).not.toContain('o reopen')
+  })
+
+  it('passes an unavailable row through rather than deciding here', () => {
+    // `live` and `persisted` are the browser's rules to apply. A panel that
+    // second-guessed them would own a resume policy it was never given, and
+    // could disagree with the list about the very same session.
+    const view = mount({
+      ...reopening(),
+      state: ready([
+        row('target', 'target', 0, { live: true }),
+        row('descendant', 'child', 1, { persisted: false }),
+      ], 0),
+    })
+    view.press(key('down'))
+    view.press({ kind: 'text', text: 'o' })
+    expect(view.reopened).toEqual([{ id: 'child' as SessionId, live: false, persisted: false }])
   })
 })
 

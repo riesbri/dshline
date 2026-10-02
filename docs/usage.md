@@ -889,8 +889,26 @@ and nothing that addresses the whole corpus:
 | | |
 | --- | --- |
 | `Find in this session` | Search what *one* session said through `searchEvents`, with its own query line (`tab` to search); `↵` on a hit opens bounded surrounding context through `readEvent` |
-| `Lineage` | Browse the selected session's known parents and children through `traceSession`; `↵` returns the list focus to that session |
+| `Lineage` | Browse the selected session's known parents and children through `traceSession`; `↵` returns the list focus to that session, and `o` reopens the related session under the cursor |
 | `Rename` | Rename the session this window is driving (the `open` row) through `ctx.sessionTitle`, offered only when a session-title service is mounted |
+
+Inside `Lineage`, `↑↓` walks the tree and `↵` shows you where a conversation sits
+in your own list — the two keys are deliberately different acts, because `↵`
+navigates and `o` retires whatever agent this window is driving. `o` takes the
+related session under the cursor through exactly the same reopening decision a
+row in the list gets, refusals included, so a delegated child that your origin
+scope keeps out of the list can still be opened from the conversation it belongs
+to. It works on any real row the trace returns — an ancestor, an ordinary fork, a
+grandchild several delegations down — and never on a pruning marker, which names
+how much was hidden but is not a session. Choosing one widens nothing: your
+origin filter stays exactly as you set it, because you have already named the
+conversation rather than searched for it.
+
+`/subagents` still answers a different question. It is scoped to the session this
+window is driving, and built for managing delegated work in place — mode,
+residency, transcript, and a message or steer for a continuable child. `Lineage`
+is the general relationship graph across the whole corpus, and reopens rather
+than manages.
 
 Filters are the corpus question, so they have their own key rather than a place
 under one session's title: `ctrl-f` opens workspace (`all`/`current`), origin

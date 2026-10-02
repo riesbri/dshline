@@ -110,5 +110,10 @@ function sessionRow(
     createdAt: record.header.createdAt,
     ...record.header.cwd === undefined ? {} : { cwd: record.header.cwd },
     origin: origin(record),
+    // Carried verbatim rather than re-derived: `cloneRecord` preserves both
+    // flags on every traced record, and this is what lets a row reached through
+    // a relationship reach the SAME resume policy a list row reaches.
+    live: record.live,
+    persisted: record.persisted,
   }
 }

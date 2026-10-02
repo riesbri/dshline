@@ -56,6 +56,7 @@ export type {
   SessionFact,
   SessionOrigin,
   SessionSearchMode,
+  SessionTarget,
   SessionTitleHint,
   SessionTitleState,
 } from './model.ts'

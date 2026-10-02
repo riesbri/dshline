@@ -111,15 +111,12 @@ function withObservedTitle(
   row: Extract<LineageRow, { kind: 'ancestor' | 'target' | 'descendant' }>,
   title: string | undefined,
 ): LineageRow {
-  const rest = {
-    kind: row.kind,
-    depth: row.depth,
-    id: row.id,
-    createdAt: row.createdAt,
-    origin: row.origin,
-    ...(row.cwd === undefined ? {} : { cwd: row.cwd }),
-  }
-  return title === undefined ? rest : { ...rest, title }
+  // Drop the title and nothing else. Naming every other field was what made this
+  // a place to silently forget one: `live`/`persisted` came from the same traced
+  // `SessionRecord` as the title, and a retitle is not allowed to restate them.
+  const { title: replaced, ...carried } = row
+  void replaced
+  return { ...carried, ...title === undefined ? {} : { title } }
 }
 
 /**
