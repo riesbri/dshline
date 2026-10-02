@@ -732,10 +732,11 @@ transcript rather than lost with the overlay; a spec that could carry a token in
 a URL is withheld from that record rather than preserved in it.
 
 **While an operation runs, the frame says so.** A pnpm install takes minutes, so
-a running operation is shown as a turning spinner beside `<profile>: <what>…`
-for as long as it runs, not as a message that expires — and the row disappears
+a running operation is shown as a turning arc beside `<profile>: <what>…` for as
+long as it runs, not as a message that expires — and the row disappears
 the moment it finishes, because a spinner over completed work says the opposite
-of the truth. Once a change to the profile you are
+of the truth. That arc is the same four quarter arcs every other mark uses, in
+one cell rather than `/work`'s two. Once a change to the profile you are
 running has landed, `↻ restart required to pick up: <profile>` stays on screen
 until you close the browser — and closing it does not stop anything: work still
 running, and any restart still owed, are written to the transcript on the way
@@ -1113,13 +1114,21 @@ A row's mark says how much dshline actually knows about it:
 
 | Mark | Meaning |
 | --- | --- |
-| `◜◠◝◞◟◡` | Observed execution: a live in-process child Agent that Harness says is running |
+| `◜◠◝◞◡◟` | Observed execution: a live child the status is actually watching turn |
 | `●` | An active lifecycle whose internals are not observable |
 | `•` | A background job record exists |
 | `◐` | A job is stopping |
 | `✓` `✗` `⊘` | Completed, failed, cancelled |
 
-Only the arc spinner animates, and it is the same one the status line uses.
+The mark is the only motion in a row, and the row's text never animates. The
+executing mark is a single shape travelling through a fixed two-column box, one
+shape a tick through the six shapes of the original arc, and every other mark
+reserves those same two columns, so a row's text never moves a column because a
+worker started or finished. The activity word beside it is ordinary text: the
+mark says *alive*, the word says *what*, and neither is asked to do the other's
+job. A list can have several workers running at once, where one shared sweeping
+light on every row would say the same thing on each of them. A row carries one
+motion, never two.
 That is the whole rule: animation means evidence of running computation. A Job
 in `running` is a registry record rather than an observation, so it stays
 quiet — and so does a subagent run whose provider published no in-process
@@ -1790,8 +1799,8 @@ Three consequences worth knowing, in the order they will affect you:
 
 A `/compact` you type runs as a maintenance operation between turns: the agent
 must be idle for it to start, and while the interface is awaiting the command
-the status line shows its own spinner and the word `compacting` instead of
-claiming `ready`. Automatic compaction is different: it happens as part of a
+the status line animates the word `compacting` instead
+of claiming `ready`. Automatic compaction is different: it happens as part of a
 running turn, where the normal busy presentation is what the status line
 shows. A `/compact` that fails or is refused while you are in `/context` names
 the reason inside the inspector, so a busy session does not wait behind a
@@ -2001,8 +2010,22 @@ exactly its parent's recorded policy.
 ### While a turn is running
 
 ```
-◜ working 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
+working 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
 ```
+
+The activity word carries the liveness, and nothing else on the line moves. Every 1.6
+seconds a three-column band of light crosses the word from left to right: it sweeps in about
+a second and rests for four to seven tenths of a second, so the line is lit for more than half
+the time rather than standing still most of one cycle in two. A terminal with no
+colour cannot show that band, so there a two-column arc turns beside the word instead.
+A band of light crossing the word was tried and withdrawn once before, when it rested for
+more than half of every cycle: the band rests for over a second at a time, so a reader who
+glances away during a long turn most often finds a still line, and a still line over running
+work reads as a hung process. The turn elapsed, the reading, the model and the hints are drawn
+identically on every frame, so the ladder of facts above can never flap between rungs as the
+band crosses. A `/work` row, which a reader opened on purpose and where several workers run at
+once, does the opposite: the motion is in its mark, and its text — the activity word included —
+stays still. See the table above.
 
 Beside the elapsed time is the tool the turn is waiting on. A long turn with nothing named beside it reads the same whether a command is running or the session has stopped responding, so the name is the difference between waiting and worrying. It is the first thing given up when the terminal narrows.
 

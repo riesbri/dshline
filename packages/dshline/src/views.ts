@@ -11,6 +11,7 @@ import { basename } from 'node:path'
 import type { Composer, LiveCursor, Role } from '@dshline/renderer'
 import {
   BOX_CHROME_COLUMNS,
+  activePalette,
   box,
   codePointWidth,
   displayWidth,
@@ -19,7 +20,8 @@ import {
   formatTokens,
   layoutComposer,
   paint,
-  spinnerFrame,
+  paintGlint,
+  spinnerFrameOrbit,
   truncateToWidth,
   wrapToWidth,
 } from '@dshline/renderer'
@@ -37,9 +39,9 @@ import { LABEL_UNSAFE_RANGES } from './width-stable-tables.ts'
 
 /** What the status line reports; the runner owns the values. */
 export interface StatusState {
-  /** Whether the agent is running, which turns the spinner on. */
+  /** Whether the agent is running, which animates the activity word. */
   busy: boolean
-  /** Spinner tick, advanced by the runner's timer while busy. */
+  /** Heartbeat tick, advanced by the runner's timer while busy or compacting. */
   tick: number
   /** Milliseconds since the current turn started, or undefined when idle. */
   elapsedMs: number | undefined
@@ -902,6 +904,39 @@ export function pressureBar(
 }
 
 /**
+ * The status line's account of work in flight: the activity word, with a sheen
+ * crossing it.
+ *
+ * The word IS the indicator, and nothing turns beside it. This line describes
+ * one subject — the attached session — so a mark saying "this one is running"
+ * has nothing to tell it apart from, and two motions on one line say one thing
+ * twice. The word answers both questions at once: it says what is running, and
+ * its motion says that it is.
+ *
+ * The sheen is close to continuously alive for the same reason. It was a 2.4 s
+ * cycle that rested for more than half of every turn, and on the one line that
+ * is never closed a still line over running work reads as a hung process — which
+ * is exactly how a frozen `/compact` once read. It now sweeps in about a second
+ * and rests 0.4 to 0.7 s, which is a pause and not a silence. Holding that floor
+ * is the band's width to do, and what it costs is recorded there.
+ *
+ * Only the word is painted, and only its styling changes: no character moves,
+ * so the line measures the same on every frame and the ladder below can never
+ * tip onto another rung as the sheen travels.
+ *
+ * With no colour at all a sheen cannot exist — it is nothing but styling — so
+ * that terminal gets the two-cell orbit instead, which is the one motion here
+ * that survives with no SGR.
+ * @param word - dshline's own activity vocabulary, never upstream text.
+ * @param tick - the attachment's heartbeat.
+ * @returns the styled segment; the same width on every tick.
+ */
+function activityStatus(word: string, tick: number): string {
+  if (activePalette().depth === 0) return `${paint(spinnerFrameOrbit(tick), 'busy')}  ${paint(word, 'busy')}`
+  return paintGlint(word, tick, 'busy', 'busy-glint')
+}
+
+/**
  * The status line under the composer.
  * @param state - a getter for the current values, read at render time.
  * @returns the slot view.
@@ -931,9 +966,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       const facts: string[] = []
       let bareStatus: string
       if (current.busy) {
-        const spinner = paint(spinnerFrame(current.tick), 'busy')
-        const activityWord = paint(current.activityWord, 'busy')
-        bareStatus = `${spinner}  ${activityWord}`
+        bareStatus = activityStatus(current.activityWord, current.tick)
         const elapsed = current.elapsedMs === undefined
           ? ''
           : paint(` · turn ${formatElapsed(current.elapsedMs)}`, 'subdued')
@@ -944,7 +977,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         // does need a visible state, though, because a summarizer can take longer
         // than a local command and the durable start event is intentionally
         // transcript-silent.
-        bareStatus = `${paint(spinnerFrame(current.tick), 'busy')}  ${paint('compacting', 'busy')}`
+        bareStatus = activityStatus('compacting', current.tick)
         facts.push(bareStatus)
       } else if (current.replay !== undefined) {
         // A resumed session's transcript is still flooding in: `ready` would be
@@ -1057,7 +1090,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
       // is given up for width: a session quietly refusing to edit files, or
       // quietly about to take another round on its own, is the case a status line
       // exists to prevent. A goal that will continue by itself is coloured like
-      // the working spinner, because that is what it is.
+      // the busy activity word, because that is what it is.
       const plan = current.plan ? paint('plan', 'mode') : undefined
       const goalStyle = (text: string): string =>
         paint(text, current.goal?.running === true ? 'mode-alert' : 'subdued')

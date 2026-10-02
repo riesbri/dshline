@@ -67,6 +67,9 @@ const REPLACES = {
 const ADDED = {
   'shell-active': ['yellow'],
   'shell-input': ['yellow'],
+  // Bold in the terminal's own foreground, never a fixed colour: the band has
+  // to stand out against `busy` on a light background as well as a dark one.
+  'busy-glint': ['bold'],
 } as const satisfies Readonly<Record<string, readonly StyleName[]>>
 
 /** The two shell roles, named so the assertions below can talk about each. */
@@ -97,6 +100,13 @@ describe('the roles this frontend adds', () => {
     for (const role of SHELL_ROLES) {
       expect(DEFAULT_PALETTE.roles[role].ansi, role).not.toStrictEqual(DEFAULT_PALETTE.roles.error.ansi)
       expect(DEFAULT_PALETTE.roles[role].ansi, role).toStrictEqual(DEFAULT_PALETTE.roles.warning.ansi)
+    }
+  })
+
+  it('gives the glint band an appearance distinct from the busy word it crosses', () => {
+    // A band painted like the word beneath it is no band at all, in any theme.
+    for (const theme of THEMES) {
+      expect(theme.roles['busy-glint'], theme.id).not.toEqual(theme.roles.busy)
     }
   })
 

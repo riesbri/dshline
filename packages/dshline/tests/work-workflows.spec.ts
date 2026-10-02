@@ -535,7 +535,7 @@ describe('the workflow detail stage', () => {
     // presentation with it: the member's label, then what its child is doing,
     // then which LLM is actually powering that child. There is no second
     // workflow-specific activity observer behind this.
-    expect(text).toContain('◜ Codex route check · reading connect/model.ts · openai-codex/gpt-x')
+    expect(text).toMatch(/[◜◠◝◞◡◟] {2}Codex route check · reading connect\/model\.ts · openai-codex\/gpt-x/u)
   })
 
   it('lets a settled member keep no activity, route, or animation from a past child', () => {
@@ -547,10 +547,10 @@ describe('the workflow detail stage', () => {
         members: [memberItem({ seq: 1, label: 'Codex route check', childId: 'c1', outcome: 'completed' })],
       })],
     })
-    expect(settled).toContain('✓ Codex route check')
+    expect(settled).toContain('✓  Codex route check')
     expect(settled).not.toContain('reading')
     expect(settled).not.toContain('openai-codex')
-    expect(settled).not.toContain('◜')
+    expect(settled).not.toMatch(/[◜◠◝◞◡◟]/u)
   })
 
   it('never substitutes a workflow\u2019s declared phase metadata for a child\u2019s actual route', () => {
@@ -595,12 +595,12 @@ describe('the workflow detail stage', () => {
     expect(text).toContain('phase  Verification')
     expect(text).toContain('log  verifying 3 findings')
     expect(text).toContain('agents  1 active · 3 started')
-    expect(text).toContain('✓ architecture')
-    expect(text).toContain('✗ regression')
+    expect(text).toContain('✓  architecture')
+    expect(text).toContain('✗  regression')
     // The member's own label leads and the joined child's activity follows it;
     // the `spawn` BACKEND is not overview material for a child whose work is
     // observable, and the member row inherits that rule from the shared builder.
-    expect(text).toContain('◜ renderer · editing overlay.ts')
+    expect(text).toMatch(/[◜◠◝◞◡◟] {2}renderer · editing overlay\.ts/u)
     expect(text).not.toContain('renderer spawn')
     // A phase HEADING is an unindented row carrying only its title, so the two
     // groups can be located without confusing them with the `phase` fact row.
@@ -608,9 +608,9 @@ describe('the workflow detail stage', () => {
     expect(heading('Review')).toBeGreaterThan(-1)
     expect(heading('Verification')).toBeGreaterThan(heading('Review'))
     const memberAt = (label: string): number => rows.findIndex(row => row.includes(label))
-    expect(memberAt('✓ architecture')).toBeGreaterThan(heading('Review'))
-    expect(memberAt('◜ renderer')).toBeLessThan(heading('Verification'))
-    expect(memberAt('✗ regression')).toBeGreaterThan(heading('Verification'))
+    expect(memberAt('✓  architecture')).toBeGreaterThan(heading('Review'))
+    expect(memberAt('◟  renderer')).toBeLessThan(heading('Verification'))
+    expect(memberAt('✗  regression')).toBeGreaterThan(heading('Verification'))
   })
 
   it('says nothing about members before any has been published', () => {
@@ -638,12 +638,15 @@ describe('the workflow detail stage', () => {
     overlay.render(80, 30)
     overlay.handleKey({ kind: 'key', name: 'enter' })
     // Walk down to the live member. The settled one above it is a record and
-    // must not be a place to navigate to.
+    // must not be a place to navigate to. Bounded rather than `while`, so a
+    // mark that stopped matching fails the test instead of hanging it.
     let text = overlay.render(80, 30).map(stripAnsi).join('\n')
-    while (!text.includes('❯ ● renderer') && !text.includes('❯ ◜ renderer')) {
+    const aimed = (frame: string): boolean => /❯ (?:[◜◠◝◞◡◟●]) {2}renderer/u.test(frame)
+    for (let step = 0; step < 20 && !aimed(text); step += 1) {
       overlay.handleKey({ kind: 'key', name: 'down' })
       text = overlay.render(80, 30).map(stripAnsi).join('\n')
     }
+    expect(text).toMatch(/❯ (?:[◜◠◝◞◡◟●]) {2}renderer/u)
     overlay.handleKey({ kind: 'key', name: 'enter' })
     const detail = overlay.render(80, 30).map(stripAnsi).join('\n')
     // The SHARED subagent presentation, enriched with the proven workflow context.
@@ -671,7 +674,7 @@ describe('the workflow detail stage', () => {
     overlay.handleKey({ kind: 'key', name: 'enter' })
     overlay.handleKey({ kind: 'key', name: 'end' })
     const before = overlay.render(80, 30).map(stripAnsi).join('\n')
-    expect(before).toContain('❯ ✓ architecture')
+    expect(before).toContain('❯ ✓  architecture')
     overlay.handleKey({ kind: 'key', name: 'enter' })
     // Enter on a row with no action does nothing at all.
     expect(overlay.render(80, 30).map(stripAnsi).join('\n')).toBe(before)
@@ -693,7 +696,7 @@ describe('the workflow detail stage', () => {
     }
     const text = overlay.render(80, 30).map(stripAnsi).join('\n')
     expect(text).toContain('Workflow · repo-audit')
-    expect(text).toContain('✓ first')
+    expect(text).toContain('✓  first')
     expect(text).toContain('second')
   })
 

@@ -99,14 +99,12 @@ describe('the status line on a real terminal', () => {
     expect(narrow).not.toContain('2.3M')
   })
 
-  it('separates the spinner from the activity word with two spaces at every width', async () => {
+  it('leads with the whole activity word and no mark, at every width', async () => {
     for (const columns of [20, 30, 40, 50, 60, 80, 120]) {
       const line = await row(columns)
-      // The busy core is `spinner + two ASCII spaces + word`. Within it the
-      // separator must never degrade to one space or a wide space, and the
-      // spinner must never sit against a truncated word.
-      expect(line, `${String(columns)} columns`).toMatch(/◜ {2}responding/u)
-      expect(line, `${String(columns)} columns`).not.toMatch(/◜ {1}responding/u)
+      // The word is the indicator and opens the row in full at every width, with
+      // nothing turning beside it to compete for the eye.
+      expect(line, `${String(columns)} columns`).toMatch(/^ {2}responding/u)
     }
   })
 
@@ -167,30 +165,45 @@ describe('the status line on a real terminal', () => {
     expect(narrow).not.toContain('…')
   })
 
-  it('gives the spinner and activity word busy emphasis while metadata stays subdued', async () => {
+  it('lights whole cells of the activity word and nothing outside it, on a terminal', async () => {
     const emulator = createEmulator(80, 24)
-    new Screen(emulator.target).setLive(createStatusView(() => CROWDED).render(80))
-    const rows = (await emulator.screen()).map(line => line.trimEnd())
-    const at = rows.findIndex(line => line.includes('◜'))
-    expect(at).toBeGreaterThanOrEqual(0)
-    expect(rows[at]).toContain('  ◜  responding · turn 14m 26s')
-    // Row text: `  ◜  responding · turn …` — spinner at column 2, word at column 5.
-    const spinner = await emulator.cell(2, at)
-    const word = await emulator.cell(5, at)
-    const elapsed = await emulator.cell(18, at)
-    expect(spinner?.chars).toBe('◜')
-    expect(await emulator.cell(3, at)).toEqual({ chars: ' ', bold: false })
-    expect(await emulator.cell(4, at)).toEqual({ chars: ' ', bold: false })
-    expect(word?.chars).toBe('r')
-    expect(elapsed?.chars).toBe('t')
-    // The busy accent is yellow (ANSI 33 -> fg 3), shared by the semantic word.
-    expect(spinner?.fg).toBe(3)
-    expect(word?.fg).toBe(spinner?.fg)
-    expect(word?.bold).toBe(false)
-    // The elapsed suffix is a separate subdued fact, not part of the busy unit.
-    expect(elapsed?.fg).not.toBe(spinner?.fg)
-    expect(elapsed?.bold).toBe(false)
+    const screen = new Screen(emulator.target)
+    const at = async (tick: number): Promise<{ text: string; cells: Array<{ fg: number | undefined; bold: boolean }> }> => {
+      screen.setLive(createStatusView(() => ({ ...CROWDED, tick })).render(80))
+      const rows = (await emulator.screen()).map(line => line.trimEnd())
+      const index = rows.findIndex(line => line.includes('responding'))
+      const cells: Array<{ fg: number | undefined; bold: boolean }> = []
+      for (let column = 0; column < 32; column += 1) {
+        const cell = await emulator.cell(column, index)
+        cells.push({ fg: cell?.fg, bold: cell?.bold ?? false })
+      }
+      return { text: rows[index] ?? '', cells }
+    }
+    // Columns 0-1 are the gutter and 2-11 the ten columns of `responding`.
+    const WORD = Array.from({ length: 10 }, (_unused, at) => 2 + at)
+    const lit = await at(5)
+    expect(lit.text).toContain('responding · turn 14m 26s')
+    // The band is bold in the terminal's own foreground, over the busy accent,
+    // and it never leaves the word: nothing after column 11 is lit.
+    const bold = lit.cells.map(cell => cell.bold)
+    const inWord = WORD.filter(column => bold[column] === true)
+    expect(inWord.length).toBeGreaterThan(0)
+    expect(inWord.length).toBeLessThanOrEqual(4)
+    for (const column of inWord) expect(lit.cells[column]?.fg, `column ${String(column)}`).toBeUndefined()
+    for (const column of WORD) {
+      if (bold[column] !== true) expect(lit.cells[column]?.fg, `column ${String(column)}`).toBe(3)
+    }
+    expect(bold.slice(12).some(Boolean)).toBe(false)
+    // The rest of the line is identical on every tick, styling included.
+    const rest = await at(9)
+    expect(rest.text).toBe(lit.text)
+    expect(rest.cells.slice(12)).toEqual(lit.cells.slice(12))
+    // And at rest the word is the busy accent end to end.
+    const still = await at(15)
+    expect(still.cells.filter((_cell, column) => WORD.includes(column)).every(cell => cell.fg === 3 && !cell.bold)).toBe(true)
+    emulator.dispose()
   })
+
 })
 
 describe('the status line while a resumed session replays', () => {

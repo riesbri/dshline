@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { box, boxHeight, displayWidth, fitToWidth, formatElapsed, formatTokens, frame, frameHeight, spinnerFrame, stripAnsi, style } from '../src/index.ts'
+import { box, boxHeight, displayWidth, fitToWidth, formatElapsed, formatTokens, frame, frameHeight, SPINNER_INTERVAL_MS, spinnerFrame, stripAnsi, style } from '../src/index.ts'
 import type { FrameDivider } from '../src/index.ts'
 
 const DIVIDER: FrameDivider = { kind: 'divider' }
@@ -161,15 +161,24 @@ describe('fitToWidth()', () => {
 })
 
 describe('spinnerFrame()', () => {
-  it('returns the exact six-frame sequence in visual order', () => {
+  it('turns through four quarter arcs, holding them for 2, 1, 2 and 1 ticks', () => {
+    // Exactly the six-glyph spinner's timing with its two half circles removed:
+    // every quarter lands on the tick it always did, and the tick a half circle
+    // filled keeps the quarter before it.
     expect(Array.from({ length: 6 }, (_, tick) => spinnerFrame(tick)))
-      .toEqual(['◜', '◠', '◝', '◞', '◡', '◟'])
+      .toEqual(['◜', '◜', '◝', '◞', '◞', '◟'])
   })
 
-  it('cycles every six ticks', () => {
-    expect(spinnerFrame(6)).toBe(spinnerFrame(0))
-    expect(spinnerFrame(12)).toBe(spinnerFrame(0))
-    expect(spinnerFrame(5)).toBe('◟')
+  it('draws no half circle on any tick', () => {
+    for (let tick = 0; tick < 60; tick += 1) expect(['◠', '◡']).not.toContain(spinnerFrame(tick))
+  })
+
+  it('completes a revolution every six ticks, about 600 ms', () => {
+    expect(6 * SPINNER_INTERVAL_MS).toBe(600)
+    for (let tick = 0; tick < 6; tick += 1) {
+      expect(spinnerFrame(tick + 6)).toBe(spinnerFrame(tick))
+      expect(spinnerFrame(tick + 600)).toBe(spinnerFrame(tick))
+    }
   })
 
   it('clamps a negative tick to the first frame', () => {

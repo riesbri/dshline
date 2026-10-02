@@ -125,6 +125,11 @@ function fromSwatch(
     'diff-remove': s.bad,
     banner: with_(s.accent, BOLD),
     busy: s.warn,
+    // The theme's strongest readable foreground, emboldened: a highlight is
+    // light passing over the word, and `text` is the one swatch colour every
+    // theme authors to stand out against its own background — near-white on a
+    // dark one, near-black on Paper.
+    'busy-glint': with_(s.text, BOLD),
     ready: s.good,
     mode: s.accent,
     'mode-alert': s.warn,

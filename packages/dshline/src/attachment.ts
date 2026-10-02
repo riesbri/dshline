@@ -635,6 +635,9 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   // does not track them.
   let compactCommandsInFlight = 0
   const compactionActive = (): boolean => compactCommandsInFlight > 0
+  // Assigned where the heartbeat itself is declared, below; the compaction
+  // paths call it at the moment their counter moves, long after that runs.
+  let syncHeartbeat = (): void => {}
   // One transient emphasis slot per attachment. It is created here, before the
   // command handlers that show into it, and registered with the session scope so
   // switching sessions clears the deadline rather than letting a stale notice
@@ -732,6 +735,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     const outcomesBefore = commandOutcomes
     let execution: Awaited<ReturnType<typeof ctx.commands.execute>>
     compactCommandsInFlight += 1
+    syncHeartbeat()
     draw()
     try {
       execution = await ctx.commands.execute(
@@ -755,6 +759,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       return undefined
     } finally {
       compactCommandsInFlight -= 1
+      syncHeartbeat()
       draw()
     }
   }
@@ -1990,24 +1995,33 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   }))
 
   let ticker: NodeJS.Timeout | undefined
+  let agentRunning = false
   const stopTicker = (): void => {
     if (ticker === undefined) return
     clearInterval(ticker)
     ticker = undefined
   }
   scope.own(stopTicker)
-  scope.own(ctx.on('agent/status', payload => {
-    if (payload.agent !== agent) return
-    if (payload.status === 'running') {
-      // Unref so a spinning timer never keeps the process alive on its own.
+  // The heartbeat runs exactly while the status line shows animated work, and
+  // that is TWO facts rather than one. A typed `/compact` needs an idle agent,
+  // so `agent/status` never says `running` for it; driving the beat from that
+  // event alone left `compacting` drawn over a frame that never advanced.
+  syncHeartbeat = (): void => {
+    if (agentRunning || compactionActive()) {
+      // Unref so a running heartbeat never keeps the process alive on its own.
       ticker ??= setInterval(() => {
         tick += 1
         draw()
       }, SPINNER_INTERVAL_MS).unref()
     } else {
       stopTicker()
-      turnStartedAt = undefined
     }
+  }
+  scope.own(ctx.on('agent/status', payload => {
+    if (payload.agent !== agent) return
+    agentRunning = payload.status === 'running'
+    if (!agentRunning) turnStartedAt = undefined
+    syncHeartbeat()
     draw()
   }))
 
@@ -2393,6 +2407,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
     const isCompactionCommand = registeredCommand?.name === 'compact'
     if (isCompactionCommand) {
       compactCommandsInFlight += 1
+      syncHeartbeat()
       draw()
     }
     try {
@@ -2481,6 +2496,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       if (admission !== undefined && attachmentAdmission === admission) attachmentAdmission = undefined
       if (isCompactionCommand) {
         compactCommandsInFlight -= 1
+        syncHeartbeat()
         draw()
       }
     }

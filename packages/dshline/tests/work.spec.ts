@@ -34,11 +34,13 @@ import {
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import type { SubagentDescendantListEntry, SubagentRuntime } from '@deepseek-ai/dsh-subagent'
-import { displayWidth, Screen, SPINNER_INTERVAL_MS, stripAnsi, wrapToWidth } from '@dshline/renderer'
+import { displayWidth, paint, Screen, setPalette, SPINNER_INTERVAL_MS, SPINNER_MARK_COLUMNS, spinnerFrameOrbit, spinnerMark, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { HarnessWork } from '../src/work/index.ts'
+import { DEFAULT_PALETTE } from '../src/theme.ts'
 import type { WorkCapabilities } from '../src/work/index.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
+import type { TuiOverlay } from '../src/slots.ts'
 import type { JobWorkItem, SubagentWorkItem, WorkInterruptResult, WorkSnapshot } from '../src/work/model.ts'
 import { activeWorkCount, workItemKey, workSummary } from '../src/work/model.ts'
 
@@ -389,6 +391,7 @@ const CORRUPT_CHILD: SubagentDescendantListEntry = {
   kind: 'diagnostic', id: SessionId('broken'), reason: 'corrupt',
   parentId: ROOT, depth: DIRECT_CHILD_DEPTH,
 }
+
 
 describe('generic Harness Work capability projection', () => {
   it('boots without jobs or subagents', () => {
@@ -761,6 +764,36 @@ describe('the Work status summary', () => {
 })
 
 describe('the Work live-region overlay', () => {
+  /**
+   * Two children Harness says are executing, each reporting what it is doing,
+   * beside one that is only active. This is the list the orbit has to stay
+   * legible against: two marks turning and one settled, all reserving the same
+   * two-column box, with the activity word purely informational.
+   */
+  const threeWorkers: WorkSnapshot = {
+    ...EMPTY,
+    available: true,
+    subagents: [
+      subagentItem({ id: 'a', runId: 'a', provider: 'codex', label: 'auth-worker', busy: true, activityWord: 'reading', activityTitle: 'oauth.ts' }),
+      subagentItem({ id: 'b', runId: 'b', provider: 'codex', label: 'test-worker', busy: true, activityWord: 'testing', activityTitle: 'auth.spec.ts' }),
+      subagentItem({ id: 'c', runId: 'c', provider: 'codex', label: 'remote-worker' }),
+    ],
+    jobs: [],
+  }
+
+  /** A mounted overlay over any projection, with every control inert. */
+  function workOverlay(snapshot: WorkSnapshot): TuiOverlay {
+    const overlay = createWorkOverlay({
+      snapshot: () => snapshot,
+      interruptSubagent: () => INTERRUPT_REQUESTED,
+      stopJob: () => STOP_REQUESTED,
+      close: () => {},
+      invalidate: () => {},
+    })
+    overlay.mounted?.()
+    return overlay
+  }
+
   it('never exceeds its physical terminal height across narrow state and size matrices', () => {
     const states: readonly WorkSnapshot[] = [
       EMPTY,
@@ -832,20 +865,22 @@ describe('the Work live-region overlay', () => {
     })], jobs: [] }
     const overlay = createWorkOverlay({ snapshot: () => snapshot, interruptSubagent: () => INTERRUPT_REQUESTED, stopJob: () => STOP_REQUESTED, close: () => {}, invalidate: () => {} })
     const at = (columns: number): string => overlay.render(columns, 12).map(stripAnsi).join('\n')
-    expect(at(80)).toContain('Fix OAuth flow · reading route-editor.ts · openai-codex/gpt-x 18s')
+    // Every rung below is one column wider than it was when the mark reserved a
+    // single cell: a mark box of two costs every row one column of facts, and
+    // the rungs move with it rather than being held still by a constant.
+    expect(at(81)).toContain('Fix OAuth flow · reading route-editor.ts · openai-codex/gpt-x 18s')
     // The clock goes first: it is the least useful answer to "what is this doing".
-    expect(at(70)).toContain('Fix OAuth flow · reading route-editor.ts · openai-codex/gpt-x')
-    expect(at(70)).not.toContain('18s')
-    expect(at(60)).toContain('Fix OAuth flow · reading route-editor.ts')
-    expect(at(60)).not.toContain('openai-codex')
-    expect(at(40)).toContain('Fix OAuth flow · reading')
-    expect(at(40)).not.toContain('route-editor.ts')
+    expect(at(71)).toContain('Fix OAuth flow · reading route-editor.ts · openai-codex/gpt-x')
+    expect(at(71)).not.toContain('18s')
+    expect(at(61)).toContain('Fix OAuth flow · reading route-editor.ts')
+    expect(at(61)).not.toContain('openai-codex')
+    expect(at(41)).toContain('Fix OAuth flow · reading')
+    expect(at(41)).not.toContain('route-editor.ts')
     // The task label alone, and never a fragment of the word beside it.
-    expect(at(30)).toContain('Fix OAuth flow')
-    expect(at(30)).not.toContain('· reading')
-    expect(at(30)).not.toContain('readin')
+    expect(at(31)).toContain('Fix OAuth flow')
+    expect(at(31)).not.toContain('· reading')
     // The backend never took overview space away from any of that.
-    for (const columns of [80, 70, 60, 40, 30]) expect(at(columns)).not.toContain('spawn')
+    for (const columns of [81, 71, 61, 41, 31]) expect(at(columns)).not.toContain('spawn')
   })
 
   it('pluralizes snapshot counts in the compact headline', () => {
@@ -1358,26 +1393,124 @@ describe('the Work live-region overlay', () => {
     overlay.mounted?.()
     const first = overlay.render(80, 14).map(stripAnsi).join('\n')
     expect(first).toContain('◜')
+    // The list keeps the ONE-cell mark: the wider two-cell mark belongs to the
+    // status line alone. Two adjacent arcs anywhere in the frame would be that
+    // mark, and would have pushed every row's text one column right.
+    expect(first).not.toMatch(/[◜◝◞◟]{2}/u)
     // Exactly the two children Harness says are executing, and nothing else:
     // the idle child and the background Job are lifecycle facts, not evidence.
     expect(first.match(/◜/gu)?.length).toBe(2)
     // A child with no observable activity still names the backend that owns
     // its lifecycle, after its own label: that is the fact explaining why
     // there is nothing else to show.
-    expect(first).toContain('● three · codex')
-    expect(first).toContain('• bash pnpm test')
-    vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+    expect(first).toContain('●  three · codex')
+    expect(first).toContain('•  bash pnpm test')
+    // Two beats: the arc holds its first quarter for two ticks, so one beat
+    // alone proves nothing about whether the rows moved together.
+    vi.advanceTimersByTime(SPINNER_INTERVAL_MS * 2)
     const second = overlay.render(80, 14).map(stripAnsi).join('\n')
-    expect(second).toContain('◠')
+    expect(second.match(/◝/gu)?.length).toBe(2)
     expect(second).not.toContain('◜')
-    expect(second).toContain('● three · codex')
-    expect(second).toContain('• bash pnpm test')
+    expect(second).toContain('●  three · codex')
+    expect(second).toContain('•  bash pnpm test')
     overlay.dispose?.()
     vi.useRealTimers()
   })
 
-  it('never animates a background Job, and keeps a stopping one distinct', () => {
+  it('turns the six-shape orbit in a two-column box beside the row body', () => {
     vi.useFakeTimers()
+    const overlay = workOverlay(threeWorkers)
+    overlay.mounted?.()
+    const row = (): string => overlay.render(90, 14).find(line => stripAnsi(line).includes('auth-worker')) ?? ''
+    // One glyph, one space, two columns — a frame never holds two glyphs.
+    for (let tick = 0; tick < 6; tick += 1) {
+      expect(row()).toContain(spinnerFrameOrbit(tick))
+      vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+    }
+    overlay.dispose?.()
+    vi.useRealTimers()
+  })
+
+  it('holds the row body in the same column on every frame, and beside a settled mark', () => {
+    vi.useFakeTimers()
+    const overlay = workOverlay(threeWorkers)
+    overlay.mounted?.()
+    // The whole point of reserving the box: the body must not move a column
+    // because a worker started, and it must not move one because the row beside
+    // it settled from a turning arc to a single settled glyph.
+    const LABELS = ['auth-worker', 'test-worker', 'remote-worker']
+    const bodyColumn = (label: string): number => {
+      const line = overlay.render(90, 14).find(entry => stripAnsi(entry).includes(label)) ?? ''
+      return stripAnsi(line).indexOf(label)
+    }
+    const seen = new Map<string, Set<number>>()
+    for (let tick = 0; tick < 6; tick += 1) {
+      for (const label of LABELS) {
+        const column = bodyColumn(label)
+        expect(column, `${label} @${String(tick)}`).toBeGreaterThan(0)
+        seen.set(label, (seen.get(label) ?? new Set()).add(column))
+      }
+      vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+    }
+    for (const label of LABELS) {
+      const columns = seen.get(label) ?? new Set<number>()
+      expect(columns.size, `${label} moved between ${JSON.stringify([...columns])}`).toBe(1)
+    }
+    // And the two turning rows and the settled one all agree with each other.
+    expect(new Set([...seen.values()].map(columns => [...columns][0])).size).toBe(1)
+    overlay.dispose?.()
+    vi.useRealTimers()
+  })
+
+  it('keeps every settling mark the same width, so no row body shifts', () => {
+    for (const mark of ['●', '•', '◐', '✓', '✗', '⊘']) {
+      expect(displayWidth(spinnerMark(mark)), mark).toBe(SPINNER_MARK_COLUMNS)
+    }
+    // And the orbit that animates in place of them.
+    for (let tick = 0; tick < 6; tick += 1) expect(displayWidth(spinnerFrameOrbit(tick))).toBe(SPINNER_MARK_COLUMNS)
+  })
+
+  it('leaves the activity word byte-identical while the mark turns', () => {
+    vi.useFakeTimers()
+    const overlay = workOverlay(threeWorkers)
+    overlay.mounted?.()
+    // The word says WHAT and never moves or is styled; the mark says ALIVE.
+    const word = (): string => {
+      const line = stripAnsi(overlay.render(90, 14).find(entry => stripAnsi(entry).includes('auth-worker')) ?? '')
+      return line.slice(line.indexOf('auth-worker'))
+    }
+    const first = word()
+    for (let tick = 0; tick < 6; tick += 1) {
+      expect(word()).toBe(first)
+      vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+    }
+    expect(first).toContain('reading oauth.ts')
+    overlay.dispose?.()
+    vi.useRealTimers()
+  })
+
+  it('shimmers nothing: no row carries a lit span at any tick', () => {
+    vi.useFakeTimers()
+    const restore = setPalette(DEFAULT_PALETTE, 4)
+    try {
+      const overlay = workOverlay(threeWorkers)
+      overlay.mounted?.()
+      for (let tick = 0; tick < 6; tick += 1) {
+        for (const line of overlay.render(90, 14)) {
+          // `busy-glint` is the root status sheen alone; a list row that used it
+          // would shimmer every running worker at once.
+          expect(line, `tick ${String(tick)}`).not.toContain('busy-glint')
+        }
+        vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+      }
+      overlay.dispose?.()
+    } finally {
+      restore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('never animates a background Job, and keeps a stopping one distinct', () => {    vi.useFakeTimers()
     const snapshot: WorkSnapshot = {
       ...EMPTY,
       available: true,
@@ -1394,9 +1527,9 @@ describe('the Work live-region overlay', () => {
     expect(first).not.toContain('◜')
     expect(first).toContain('•') // the running Job keeps the quiet record mark
     expect(first).toContain('◐') // the stopping Job keeps its own transition mark
-    vi.advanceTimersByTime(SPINNER_INTERVAL_MS)
+    vi.advanceTimersByTime(SPINNER_INTERVAL_MS * 2)
     const second = overlay.render(80, 12).map(stripAnsi).join('\n')
-    expect(second).not.toContain('◠')
+    expect(second).not.toMatch(/[◜◝◞◟]/u)
     expect(second).toContain('•')
     expect(second).toContain('◐')
     overlay.dispose?.()
