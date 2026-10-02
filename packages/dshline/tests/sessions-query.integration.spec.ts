@@ -111,6 +111,28 @@ async function harness(engine: typeof UnindexedSessionQuery = UnindexedSessionQu
 }
 
 describe('the Sessions catalog over the real session-query engine', () => {
+  it('isolates missing-session title reads but rejects cancellation with the exact signal reason', async () => {
+    const ctx = await harness()
+    try {
+      const live = ctx.sessions.create(SessionId('title-contract-live'), { meta: { cwd: FIRST_WORKSPACE } })
+      const missing = SessionId('title-contract-missing')
+      expect(await ctx.sessionQuery.readTitleSnapshots([missing, live.id, missing])).toMatchObject([
+        { sessionId: missing, status: 'rejected', reason: { code: 'SESSION_QUERY_SESSION_NOT_FOUND' } },
+        { sessionId: live.id, status: 'fulfilled', value: { session: { id: live.id } } },
+      ])
+      const abort = new AbortController()
+      abort.abort()
+      expect(abort.signal.reason).toMatchObject({ name: 'AbortError', code: 20 })
+      await expect(ctx.sessionQuery.readTitleSnapshots([live.id], abort.signal)).rejects.toBe(abort.signal.reason)
+      const customAbort = new AbortController()
+      const customReason = new Error('custom caller cancellation')
+      customAbort.abort(customReason)
+      await expect(ctx.sessionQuery.readTitleSnapshots([live.id], customAbort.signal)).rejects.toBe(customReason)
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('folds a real user rename and rejects a session outside the live store', async () => {
     const ctx = await harness()
     // dsh-session-title now injects `sessionProjections` alongside `sessions`.

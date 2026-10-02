@@ -1014,6 +1014,124 @@ describe('searching what sessions said', () => {
     })
   })
 
+  describe.each(['all', 'own', 'delegated'] as const)('whole-batch title contract failure under %s', origin => {
+    it.each([false, true])('fails the content page (continuation: %s) without committing the returned hits', async continuation => {
+      // Ordinary persistence/projector failures are per-id settlements in the
+      // pinned Harness. This deliberately violates that contract, not a normal
+      // unreadable-session fixture. An unmarked hit can belong to a delegated
+      // session; swallowing the batch failure would silently classify it as own.
+      const cursor = SessionSearchCursor('contract-failure-page')
+      const titles = deferred<SessionTitleObservationResult[]>()
+      const requests: SessionSearchRequest[] = []
+      const catalog = new SessionCatalog({
+        query: engine({
+          searchSessions: async request => {
+            requests.push(request)
+            return continuation && request.cursor === undefined
+              ? { items: [searchHit('first', origin === 'delegated' ? { origin: 'subagent' } : {})], nextCursor: cursor }
+              : { items: [searchHit('unmarked-delegated')] }
+          },
+          readTitleSnapshots: async ids => ids.includes('first' as SessionId)
+            ? [{ sessionId: 'first' as SessionId, status: 'fulfilled', value: { session: header('first', origin === 'delegated' ? { origin: 'subagent' } : {}) } }]
+            : titles.promise,
+        }),
+        invalidate: () => {},
+      })
+      catalog.applyFilters({ ...NO_FILTERS, origin })
+      catalog.search('needle')
+      await settled()
+      if (continuation) {
+        expect(catalog.content()).toMatchObject({ kind: 'ready', returned: 1, more: true })
+        catalog.loadMoreContent()
+        await settled()
+        expect(catalog.content()).toMatchObject({ kind: 'ready', loadingMore: true })
+      } else {
+        expect(catalog.content()).toEqual({ kind: 'searching', query: 'needle' })
+      }
+      // Inspect the actual chain as well as the public state: page-1 rows are
+      // retained internally after failure, but `failed` exposes no visible rows.
+      const chain = Reflect.get(catalog, 'contentChain')
+      const entries = continuation ? [{ id: 'first' }] : []
+      expect(chain).toMatchObject({ entries, returned: continuation ? 1 : 0, nextCursor: continuation ? cursor : undefined })
+      titles.reject(new Error('unexpected title capability failure'))
+      await settled()
+      expect(catalog.content()).toEqual({ kind: 'failed', message: 'unexpected title capability failure' })
+      expect(Reflect.get(catalog, 'contentChain')).toBe(chain)
+      expect(chain).toMatchObject({ entries, returned: continuation ? 1 : 0, nextCursor: continuation ? cursor : undefined })
+      catalog.loadMoreContent()
+      expect(requests).toHaveLength(continuation ? 2 : 1)
+      catalog.restartContentSearch()
+      expect(requests.at(-1)?.cursor).toBeUndefined()
+      await settled()
+      catalog.dispose()
+    })
+  })
+
+  describe.each([false, true])('cancelled title batch (continuation: %s)', continuation => {
+    it.each(['replace', 'clear', 'filters', 'dispose'] as const)('silently fences the rejected batch on %s', async replacement => {
+      const titles = deferred<SessionTitleObservationResult[]>()
+      let titleSignal: AbortSignal | undefined
+      let invalidations = 0
+      const catalog = new SessionCatalog({
+        query: engine({
+          searchSessions: async request => request.query === 'fresh'
+            ? { items: [searchHit('fresh')] }
+            : continuation && request.cursor === undefined
+              ? { items: [searchHit('first')], nextCursor: SessionSearchCursor('cancelled-page') }
+              : { items: [searchHit('cancelled')] },
+          readTitleSnapshots: async (ids, signal) => {
+            if (!ids.includes('cancelled' as SessionId)) return ids.map(id => titled(id, id))
+            titleSignal = signal
+            return titles.promise
+          },
+        }),
+        invalidate: () => { invalidations += 1 },
+      })
+      catalog.search('old')
+      await settled()
+      if (continuation) {
+        catalog.loadMoreContent()
+        await settled()
+      }
+      expect(titleSignal?.aborted).toBe(false)
+      if (replacement === 'replace') catalog.search('fresh')
+      else if (replacement === 'clear') catalog.search('')
+      else if (replacement === 'filters') catalog.applyFilters({ ...NO_FILTERS, origin: 'delegated' })
+      else catalog.dispose()
+      await settled()
+      expect(titleSignal?.aborted).toBe(true)
+      const state = catalog.content()
+      const redraws = invalidations
+      // Harness uses signal.throwIfAborted(), not SESSION_QUERY_ABORTED. The
+      // default DOMException has numeric code 20; custom reasons escape too.
+      titles.reject(titleSignal?.reason)
+      await settled()
+      expect(catalog.content()).toBe(state)
+      expect(invalidations).toBe(redraws)
+      if (replacement === 'replace') expect(state).toMatchObject({ kind: 'ready', query: 'fresh', entries: [{ id: 'fresh' }] })
+      else if (replacement !== 'dispose') expect(state).toEqual({ kind: 'idle' })
+      catalog.dispose()
+    })
+  })
+
+  it('preserves authoritative listing origin when an unexpected whole title batch fails', async () => {
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => [record('delegated', { origin: 'subagent' })],
+        // Contract failure, unlike a normal per-id rejected settlement.
+        readTitleSnapshots: async () => { throw new Error('unexpected title capability failure') },
+      }),
+      invalidate: () => {},
+    })
+    catalog.applyFilters({ ...NO_FILTERS, origin: 'delegated' })
+    await settled()
+    expect(catalog.listing()).toMatchObject({
+      kind: 'ready',
+      entries: [{ id: 'delegated', origin: 'delegated', titleState: { kind: 'failed', message: 'unexpected title capability failure' } }],
+    })
+    catalog.dispose()
+  })
+
   it('degrades to unsupported when the backend indexes nothing', async () => {
     // The engine's two full-text methods are its only abstract surface, so a
     // deployment may implement neither. That is a capability to report, not an
