@@ -1113,13 +1113,23 @@ A row's mark says how much dshline actually knows about it:
 
 | Mark | Meaning |
 | --- | --- |
-| `◜◝◞◟` | Observed execution: a live in-process child Agent that Harness says is running |
+| `◜◠◝◞◡◟` | Observed execution: a live child the status is actually watching turn |
+
+The executing mark is a single shape moving through a two-column box, and every
+other mark reserves that same two columns, so a row's text never moves a column
+because a worker started or finished. The activity word beside the mark is
+ordinary text: it says what, and it never animates.
 | `●` | An active lifecycle whose internals are not observable |
 | `•` | A background job record exists |
 | `◐` | A job is stopping |
 | `✓` `✗` `⊘` | Completed, failed, cancelled |
 
-Only the arc spinner animates, and it is the same one `/context` and Profiles use.
+The mark is the only motion in a row. It turns through the six shapes of the original arc
+in a fixed two-column box, one shape a tick, and the activity word beside it is ordinary
+text that never animates. That split is deliberate: the mark says *alive* and the word says
+*what*, and a list can have several workers running at once, where one shared sweeping
+light on every row would say the same thing on each of them. A row carries one motion,
+never two.
 That is the whole rule: animation means evidence of running computation. A Job
 in `running` is a registry record rather than an observation, so it stays
 quiet — and so does a subagent run whose provider published no in-process
@@ -1790,7 +1800,7 @@ Three consequences worth knowing, in the order they will affect you:
 
 A `/compact` you type runs as a maintenance operation between turns: the agent
 must be idle for it to start, and while the interface is awaiting the command
-the status line shows the word `compacting`, lit like any busy word, instead
+the status line shows its own spinner and the word `compacting` instead
 of claiming `ready`. Automatic compaction is different: it happens as part of a
 running turn, where the normal busy presentation is what the status line
 shows. A `/compact` that fails or is refused while you are in `/context` names
@@ -2001,10 +2011,21 @@ exactly its parent's recorded policy.
 ### While a turn is running
 
 ```
-working · turn 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
+working 14m 26s · run_shell_command +2 calls · deepseek-official/x-preview-f-free · ↑2.3M ↓21k · ▌░░░░░░░ 68k/1.0M · goal armed · todo 5/11 · ctrl-c stop · ctrl-d quit
 ```
 
-The activity word is the indicator: every couple of seconds a short band of light crosses it from left to right, then it rests. Nothing else on the line moves. A terminal with no colour cannot show that band, so there an arc turns beside the word instead.
+The activity word carries the liveness, and nothing else on the line moves. Every 1.6
+seconds a three-column band of light crosses the word from left to right: it sweeps in about
+a second and rests for four to seven tenths of a second, so the line is lit for more than half
+the time rather than standing still most of one cycle in two. A terminal with no
+colour cannot show that band, so there a two-column arc turns beside the word instead.
+A band of light crossing the word was tried and withdrawn once before, when it rested for
+more than half of every cycle: the band rests for over a second at a time, so a reader who
+glances away during a long turn most often finds a still line, and a still line over running
+work reads as a hung process. The turn elapsed, the reading, the model and the hints are drawn
+identically on every frame, so the ladder of facts above can never flap between rungs as the
+arc turns. A `/work` row, which a reader opened on purpose and where several workers run at
+once, does the opposite and puts the motion in the word instead — see the table above.
 
 Beside the elapsed time is the tool the turn is waiting on. A long turn with nothing named beside it reads the same whether a command is running or the session has stopped responding, so the name is the difference between waiting and worrying. It is the first thing given up when the terminal narrows.
 
