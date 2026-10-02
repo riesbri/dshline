@@ -374,22 +374,91 @@ const COMPACTION_COMMAND_TIMEOUT_MS = 300_000
 const SKILL_VERIFY_TIMEOUT_MS = 2_500
 
 /**
+ * Establish one attachment, and guarantee that a failed attempt takes
+ * everything it acquired with it.
+ *
+ * The epoch below reaches its teardown only after `await switched`, which
+ * resolves when the READER asks to leave. Everything initialization registered
+ * before that point — the window's exit hook, the key dispatch, five live rows,
+ * the ticker, every listener, and the Agent handle `attachTarget()` handed over
+ * and cannot reach again — is therefore owned by an attempt that may never
+ * finish. A throw anywhere in initialization therefore used to reject out of
+ * `runWindowSessions` with all of it still live: the dead epoch kept painting,
+ * kept consuming keystrokes, and its agent kept running beside the next one.
+ *
+ * So ownership is explicit, and released exactly once by whichever path reaches
+ * it: the epoch's own teardown on a normal switch, or the catch below on a failed
+ * establishment. The two releases are independently guarded — the scope is
+ * idempotent by its own contract, the handle by the flag below — because an
+ * epoch can fail BETWEEN its scope teardown and its handle teardown, and that
+ * gap is exactly where a single shared flag would have decided the handle was
+ * already gone.
+ * @param w - the window to attach into.
+ * @param outcome - the established Agent and the target it was created for.
+ * @returns the target the reader chose next.
+ * @throws the initialization failure, carrying any cleanup failure with it.
+ */
+export async function attachSession(w: Window, outcome: AttachOutcome): Promise<AttachTarget> {
+  const scope = new SessionScope()
+  // ONE release for the Agent handle, whichever path reaches it: the epoch
+  // disposes it when the reader switches away, and this catch disposes it when
+  // the attachment never established at all. The flag is what keeps those two
+  // from ever meeting — an epoch that fails between its own scope teardown and
+  // its handle teardown must still get the handle released, exactly once.
+  let handleReleased = false
+  const releaseHandle = async (): Promise<void> => {
+    if (handleReleased) return
+    handleReleased = true
+    await outcome.attached.handle.dispose()
+  }
+  try {
+    return await runSessionEpoch(w, outcome, scope, releaseHandle)
+  } catch (error: unknown) {
+    const failures: unknown[] = [error]
+    // `SessionScope.dispose` is idempotent by contract, so this runs nothing twice
+    // whether or not the epoch already began its own teardown.
+    try {
+      scope.dispose()
+    } catch (cleanup: unknown) {
+      failures.push(cleanup)
+    }
+    // Presentation first, agent second, for the same reason the epoch does it: a
+    // listener still subscribed while its own agent is torn down would project
+    // that teardown into the transcript the reader is leaving.
+    try {
+      await releaseHandle()
+    } catch (cleanup: unknown) {
+      failures.push(cleanup)
+    }
+    if (failures.length === 1) throw error
+    throw new AggregateError(failures, 'session attachment failed to initialize and its cleanup also failed')
+  }
+}
+
+/**
  * Drive one session until the reader chooses the next attachment target.
  *
- * Everything registered here is owned by a {@link SessionScope} rather than by
- * the plugin fiber, because all of it — the slot views, the log projection, the
- * spinner, the capability adapters — describes THIS session. The scope comes
+ * Everything registered here is owned by the {@link SessionScope} its caller
+ * created rather than by the plugin fiber, because all of it — the slot views,
+ * the log projection, the spinner, the capability adapters — describes THIS
+ * session. The scope comes
  * down before the agent handle does: a transcript listener still subscribed
  * while its own agent is torn down would print that teardown into the transcript
  * the reader is leaving.
  * @param w - the window this session is attached to.
  * @param outcome - the agent the loop opened, and the target it came from.
+ * @param scope - the teardown stack the caller's attempt owns.
+ * @param releaseHandle - disposes the Agent handle exactly once, whoever gets there first.
  * @returns the target to attach next, once the reader has asked for it.
  */
-export async function attachSession(w: Window, outcome: AttachOutcome): Promise<AttachTarget> {
+async function runSessionEpoch(
+  w: Window,
+  outcome: AttachOutcome,
+  scope: SessionScope,
+  releaseHandle: () => Promise<void>,
+): Promise<AttachTarget> {
   const { ctx, terminal, exit, startup, pricing, peakHours, selection, prefs, draw, commit, clear } = w
   const { target, attached } = outcome
-  const scope = new SessionScope()
   const attachmentAbort = new AbortController()
   let shellRun: { abort: AbortController; output: ShellOutput; done?: Promise<void> } | undefined
   // ONE admission flag for both kinds, deliberately. Two flags would be two
@@ -419,7 +488,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
       resolve(next)
     }
   })
-  const { agent, dispose: disposeAgent } = attached.handle
+  const { agent } = attached.handle
   let exitRequested = false
   const requestAttachmentExit = (): void => {
     if (exitRequested) return
@@ -2917,7 +2986,7 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
   })
   draw()
   try {
-    await disposeAgent()
+    await releaseHandle()
   } catch (error: unknown) {
     report(error)
   }
