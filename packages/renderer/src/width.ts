@@ -467,7 +467,8 @@ export function chunkToWidth(text: string, columns: number): string[] {
  * not lose its color on the continuation rows.
  * @param text - text to wrap, styling allowed; may contain newlines.
  * @param columns - column budget per line, values below 1 are treated as 1.
- * @returns the wrapped lines, never empty.
+ * @returns the wrapped lines, never empty. A single glyph wider than the budget
+ *   is emitted alone so even a one-column terminal makes progress.
  */
 export function wrapToWidth(text: string, columns: number): string[] {
   const budget = Math.max(1, columns)
@@ -486,6 +487,8 @@ export function wrapToWidth(text: string, columns: number): string[] {
     let prefix = ''
     /** Token index of the last space in this row, or -1 for a flush break. */
     let lastSpace = -1
+    /** The scan can cross later transitions before selecting this boundary. */
+    let lastSpaceOpen = ''
     /** Whether this paragraph has already been broken at least once. */
     let broken = false
     const rowText = (cells: readonly Token[]): string => cells.map(cell => cell.text).join('')
@@ -494,12 +497,17 @@ export function wrapToWidth(text: string, columns: number): string[] {
       const head = upTo < 0 ? row : row.slice(0, upTo)
       // The space the break happened at belongs to neither row.
       const rest = upTo < 0 ? [] : row.slice(row[upTo]?.text === ' ' ? upTo + 1 : upTo)
-      out.push(open === '' ? `${prefix}${rowText(head)}` : `${prefix}${rowText(head)}${RESET}`)
+      // The head ends at the chosen space, not at the later scan position.
+      // Keep `open` at that scan position: transitions in `rest` already ran
+      // there, and remain in the suffix to run once when its row is rendered.
+      const breakOpen = upTo < 0 ? open : lastSpaceOpen
+      out.push(breakOpen === '' ? `${prefix}${rowText(head)}` : `${prefix}${rowText(head)}${RESET}`)
       broken = true
-      prefix = open
+      prefix = breakOpen
       row = rest
       used = rowWidth(rest)
       lastSpace = -1
+      lastSpaceOpen = ''
     }
     for (const token of tokens) {
       if (token.width === 0) {
@@ -514,21 +522,25 @@ export function wrapToWidth(text: string, columns: number): string[] {
         row.push(token)
         continue
       }
-      if (used + token.width > budget) {
-        // A single character too wide for the whole budget is emitted anyway, so
-        // a narrow terminal still makes progress instead of looping.
-        if (used === 0) {
-          row.push(token)
-          emit(-1)
-          continue
-        }
-        emit(lastSpace)
+      // Preserve the existing progress rule for an already-empty row. After
+      // flushing an occupied row, append normally so a following zero-width
+      // mark can still join its base before that row is emitted.
+      if (used === 0 && token.width > budget) {
+        row.push(token)
+        emit(-1)
+        continue
       }
+      // A word break can retain almost a full row. Recheck that suffix before
+      // appending the incoming glyph; a wide glyph may require a second break.
+      while (used > 0 && used + token.width > budget) emit(lastSpace)
       // A continuation row never starts with a space: the break consumed one, and
       // a row beginning with one would break again at column zero forever. Leading
       // spaces on the FIRST row are deliberate indentation and must survive.
       if (token.text === ' ' && used === 0 && broken) continue
-      if (token.text === ' ') lastSpace = row.length
+      if (token.text === ' ') {
+        lastSpace = row.length
+        lastSpaceOpen = open
+      }
       row.push(token)
       used += token.width
     }

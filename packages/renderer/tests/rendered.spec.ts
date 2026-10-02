@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { box, Composer, displayWidth, escapeControls, frame, paint, renderMarkdown, Screen, style } from '../src/index.ts'
+import { box, Composer, displayWidth, escapeControls, frame, paint, renderMarkdown, Screen, style, wrapToWidth } from '../src/index.ts'
 import { createEmulator } from '../../../tests/emulator.ts'
 
 /**
@@ -214,6 +214,92 @@ describe('rendered output', () => {
     expect(await emulator.cell(0, 0)).toEqual({ chars: 'a', fg: 1, bold: false })
     expect(await emulator.cell(0, 1)).toEqual({ chars: 'b', fg: 1, bold: false })
     emulator.dispose()
+  })
+
+  it('preserves an indented wide glyph when a five-column box body wraps', async () => {
+    const emulator = createEmulator(20)
+    try {
+      // Write the box directly: Screen must not get a second chance to wrap a
+      // row after fitToWidth has already discarded a character from its body.
+      emulator.target.write(box([' bbbb界'], { width: 9 }).join('\r\n'))
+      const rows = await emulator.screen()
+      expect(rows.map(row => row.replace(/[╭╮╰╯│─\s]/gu, '')).join('')).toBe('bbbb界')
+      for (let row = 0; row < rows.length; row += 1) {
+        expect(displayWidth(rows[row] ?? '')).toBe(9)
+        expect((await emulator.cell(0, row))?.chars).toMatch(/[╭│╰]/u)
+        expect((await emulator.cell(8, row))?.chars).toMatch(/[╮│╯]/u)
+      }
+    } finally {
+      emulator.dispose()
+    }
+  })
+
+  it('preserves mixed bold through a box whose borders reset styling', async () => {
+    const emulator = createEmulator(20)
+    try {
+      emulator.target.write(box([`${style('aa bb', 'bold')}cc`], {
+        width: 9,
+        border: text => style(text, 'gray'),
+      }).join('\r\n'))
+      const rows = await emulator.screen()
+      const letters = []
+      for (let row = 0; row < rows.length; row += 1) {
+        expect(displayWidth(rows[row] ?? '')).toBe(9)
+        for (let column = 0; column < 9; column += 1) {
+          const cell = await emulator.cell(column, row)
+          if (cell !== undefined && /^[abc界]$/u.test(cell.chars)) letters.push(cell)
+        }
+      }
+      expect(letters).toEqual([
+        ...['a', 'a', 'b', 'b'].map(chars => ({ chars, fg: undefined, bold: true })),
+        ...['c', 'c'].map(chars => ({ chars, fg: undefined, bold: false })),
+      ])
+    } finally {
+      emulator.dispose()
+    }
+  })
+
+  it.each([
+    ['a bold reset inside the retained suffix', `${style('aa bb', 'bold')}cc`],
+    ['a foreground reset and reopen inside the retained suffix', '\u001b[31maa b\u001b[39mb\u001b[32mc\u001b[0mc'],
+    ['bold and colour transitions inside the retained suffix', '\u001b[1m\u001b[31maa b\u001b[0m\u001b[32mb\u001b[1mc\u001b[0mc'],
+    ['mixed styling through a second capacity break', `${style(' bb', 'bold')}${style('bb界', 'red')}`],
+  ])('matches original terminal cells after wrapping %s', async (_name, source) => {
+    const original = createEmulator(30)
+    const wrapped = createEmulator(30)
+    try {
+      original.target.write(source)
+      const expected = []
+      for (let column = 0; column < 30; column += 1) {
+        const cell = await original.cell(column, 0)
+        if (cell !== undefined && /^[abc界]$/u.test(cell.chars)) expected.push(cell)
+      }
+      // Reset-bearing borders expose a missing continuation opener. The ! is
+      // deliberately unstyled BEFORE the closing border: a missing row reset
+      // must not be hidden by that border's own reset.
+      const rows = wrapToWidth(source, 5)
+      const border = style('│', 'gray')
+      wrapped.target.write(rows.map(row => `${border}${row}!${border}`).join('\r\n'))
+      const actual = []
+      const shown = await wrapped.screen()
+      for (let row = 0; row < shown.length; row += 1) {
+        expect(displayWidth(shown[row] ?? '')).toBeLessThanOrEqual(8)
+        const text = shown[row] ?? ''
+        const sentinelIndex = text.indexOf('!')
+        expect(sentinelIndex).toBeGreaterThanOrEqual(1)
+        // A wide glyph occupies two terminal cells but one string character.
+        const sentinel = displayWidth(text.slice(0, sentinelIndex))
+        expect(await wrapped.cell(sentinel, row)).toEqual({ chars: '!', fg: undefined, bold: false })
+        for (let column = 1; column < sentinel; column += 1) {
+          const cell = await wrapped.cell(column, row)
+          if (cell !== undefined && /^[abc界]$/u.test(cell.chars)) actual.push(cell)
+        }
+      }
+      expect(actual).toEqual(expected)
+    } finally {
+      original.dispose()
+      wrapped.dispose()
+    }
   })
 
   it('leaves an unstyled row with no colour of its own', async () => {
