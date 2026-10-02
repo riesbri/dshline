@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
+import { describe, expect, it, vi } from 'vitest'
 import type { TerminalStreams } from '../src/index.ts'
 import { acquireTerminal, isInteractive } from '../src/index.ts'
 // Deliberately NOT from the package root: `terminalModes` is a seam for the
@@ -14,6 +15,206 @@ function streams(input: boolean, output: boolean): TerminalStreams {
     output: { isTTY: output } as unknown as NodeJS.WriteStream,
   }
 }
+
+/** Real listener bookkeeping with failures injected after the chosen side effect. */
+function failingStreams(initiallyRaw = false) {
+  const failure = new Error('terminal operation failed')
+  let failAt: string | undefined
+  let raw = initiallyRaw
+  let paused = true
+  const written: string[] = []
+  const attempted: string[] = []
+  const check = (operation: string): void => {
+    attempted.push(operation)
+    if (operation === failAt) throw failure
+  }
+  const input = Object.assign(new EventEmitter(), {
+    isTTY: true,
+    get isRaw() { return raw },
+    setRawMode(value: boolean) { raw = value; check(`raw:${String(value)}`) },
+    setEncoding() { check('encoding') },
+    resume() { paused = false; check('resume') },
+    pause() { paused = true; check('pause') },
+  })
+  const output = Object.assign(new EventEmitter(), {
+    isTTY: true, columns: 80, rows: 24,
+    write(chunk: string) { written.push(chunk); check('write'); return true },
+  })
+  const inputOn = input.on.bind(input)
+  input.on = ((event: string, listener: (...args: unknown[]) => void) => {
+    inputOn(event, listener)
+    check(`input:${event}`)
+    return input
+  }) as typeof input.on
+  const outputOn = output.on.bind(output)
+  output.on = ((event: string, listener: (...args: unknown[]) => void) => {
+    outputOn(event, listener)
+    check(`output:${event}`)
+    return output
+  }) as typeof output.on
+  const inputOff = input.off.bind(input)
+  input.off = ((event: string, listener: (...args: unknown[]) => void) => {
+    inputOff(event, listener)
+    check(`off:${event}`)
+    return input
+  }) as typeof input.off
+  const outputOff = output.off.bind(output)
+  output.off = ((event: string, listener: (...args: unknown[]) => void) => {
+    outputOff(event, listener)
+    check(`off:${event}`)
+    return output
+  }) as typeof output.off
+  return {
+    streams: { input, output } as unknown as TerminalStreams,
+    input, output, written, attempted, failure,
+    fail: (operation?: string) => { failAt = operation },
+    isRaw: () => raw, isPaused: () => paused,
+  }
+}
+
+describe('terminal exception safety', () => {
+  it.each(['raw:true', 'encoding', 'write', 'resume', 'input:data', 'output:resize'])(
+    'rolls back acquisition when %s fails after its side effect', operation => {
+      const fake = failingStreams()
+      const foreignData = (): void => {}
+      const foreignResize = (): void => {}
+      fake.input.on('data', foreignData)
+      fake.output.on('resize', foreignResize)
+      fake.fail(operation)
+      expect(() => acquireTerminal(fake.streams)).toThrow()
+      expect(fake.isRaw()).toBe(false)
+      expect(fake.isPaused()).toBe(true)
+      expect(fake.input.listeners('data')).toEqual([foreignData])
+      expect(fake.output.listeners('resize')).toEqual([foreignResize])
+      if (['write', 'resume', 'input:data', 'output:resize'].includes(operation)) {
+        const off = terminalModes().off
+        expect(fake.written.at(-1)).toBe(operation === 'write' ? off.replace('\u001b[<u', '') : off)
+      }
+    },
+  )
+
+  it.each(['none', 'paste-only'] as const)(
+    'does not pop a previous keyboard stack entry when the failed enable write delivered %s', delivered => {
+      const fake = failingStreams()
+      const failure = new Error('enable write failed before the keyboard push')
+      const accepted: string[] = []
+      let first = true
+      fake.streams.output.write = ((chunk: string) => {
+        if (first) {
+          first = false
+          if (delivered === 'paste-only') accepted.push('\u001b[?2004h')
+          throw failure
+        }
+        accepted.push(chunk)
+        return true
+      }) as typeof fake.streams.output.write
+      expect(() => acquireTerminal(fake.streams)).toThrow(failure)
+      expect(fake.isRaw()).toBe(false)
+      expect(fake.input.listenerCount('data')).toBe(0)
+      expect(fake.output.listenerCount('resize')).toBe(0)
+      expect(accepted.join('')).not.toContain('\u001b[<u')
+      expect(accepted.at(-1)).toBe(terminalModes().off.replace('\u001b[<u', ''))
+    },
+  )
+
+  it.each([false, true])('restores initially raw=%s and releases listeners despite failed shutdown writes', initiallyRaw => {
+    const fake = failingStreams(initiallyRaw)
+    const terminal = acquireTerminal(fake.streams)
+    const keys = vi.fn()
+    const resizes = vi.fn()
+    terminal.onKey(keys)
+    terminal.onResize(resizes)
+    fake.fail('write')
+    expect(() => terminal.close()).toThrow(fake.failure)
+    expect(fake.isRaw()).toBe(initiallyRaw)
+    expect(fake.isPaused()).toBe(true)
+    expect(fake.input.listenerCount('data')).toBe(0)
+    expect(fake.output.listenerCount('resize')).toBe(0)
+    fake.input.emit('data', 'x')
+    fake.output.emit('resize')
+    expect(keys).not.toHaveBeenCalled()
+    expect(resizes).not.toHaveBeenCalled()
+    const attempted = [...fake.attempted]
+    fake.fail()
+    expect(() => terminal.close()).not.toThrow()
+    terminal.setTitle('too late')
+    expect(fake.attempted).toEqual(attempted)
+  })
+
+  it.each(['off:data', 'off:resize', 'raw:false', 'pause'])(
+    'runs independent cleanup and retries only pending restoration after %s fails', operation => {
+      const fake = failingStreams()
+      const terminal = acquireTerminal(fake.streams)
+      fake.fail(operation)
+      expect(() => terminal.close()).toThrow(fake.failure)
+      expect(fake.isRaw()).toBe(false)
+      expect(fake.isPaused()).toBe(true)
+      expect(fake.input.listenerCount('data')).toBe(0)
+      expect(fake.output.listenerCount('resize')).toBe(0)
+      const writes = [...fake.written]
+      const attempts = fake.attempted.length
+      fake.fail()
+      terminal.close()
+      expect(fake.attempted.slice(attempts)).toEqual([operation])
+      expect(fake.written).toEqual(writes)
+      const restored = [...fake.attempted]
+      terminal.close()
+      expect(fake.attempted).toEqual(restored)
+    },
+  )
+
+  it('cancels a pending decoder timer even when shutdown writes fail', () => {
+    vi.useFakeTimers()
+    const fake = failingStreams()
+    const terminal = acquireTerminal(fake.streams)
+    const keys = vi.fn()
+    terminal.onKey(keys)
+    try {
+      fake.input.emit('data', '\u001b')
+      expect(vi.getTimerCount()).toBe(1)
+      fake.fail('write')
+      expect(() => terminal.close()).toThrow(fake.failure)
+      expect(vi.getTimerCount()).toBe(0)
+      vi.runAllTimers()
+      expect(keys).not.toHaveBeenCalled()
+    } finally {
+      fake.fail()
+      terminal.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not rearm the decoder timer when a key handler closes the terminal', () => {
+    vi.useFakeTimers()
+    const fake = failingStreams()
+    const terminal = acquireTerminal(fake.streams)
+    terminal.onKey(() => { terminal.close() })
+    try {
+      fake.input.emit('data', 'x')
+      expect(vi.getTimerCount()).toBe(0)
+      expect(fake.isRaw()).toBe(false)
+      expect(fake.input.listenerCount('data')).toBe(0)
+    } finally {
+      terminal.close()
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the acquisition error first when rollback writes also fail', () => {
+    const fake = failingStreams()
+    const acquisition = new Error('enable write failed')
+    const rollback = new Error('rollback write failed')
+    let writes = 0
+    fake.streams.output.write = (() => { throw ++writes === 1 ? acquisition : rollback }) as typeof fake.streams.output.write
+    let caught: unknown
+    try { acquireTerminal(fake.streams) } catch (error: unknown) { caught = error }
+    expect(caught).toBeInstanceOf(AggregateError)
+    expect((caught as AggregateError).errors).toEqual([acquisition, rollback])
+    expect(fake.isRaw()).toBe(false)
+    expect(fake.input.listenerCount('data')).toBe(0)
+    expect(fake.output.listenerCount('resize')).toBe(0)
+  })
+})
 
 describe('isInteractive()', () => {
   it('requires a terminal on both streams', () => {

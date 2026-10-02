@@ -331,6 +331,20 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   const exit = ctx.get('appExit')
   const startup = ctx.tuiStartup.options
   const terminal = acquireTerminal({ input: process.stdin, output: process.stdout })
+  let closeScreen: (() => void) | undefined
+  let stopRedraws: (() => void) | undefined
+  // Own raw mode immediately, before stderr/palette setup can fail. The screen
+  // and scheduler join this same owner when they exist, never a second lifetime.
+  ctx.effect(() => () => {
+    stopRedraws?.()
+    const failures: unknown[] = []
+    try { closeScreen?.() } catch (error: unknown) { failures.push(error) }
+    // Cursor restoration is a write; raw-mode restoration must run even when
+    // that write failed. Preserve both failures instead of replacing the first.
+    try { terminal.close() } catch (error: unknown) { failures.push(error) }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'window terminal cleanup failed')
+  }, 'dshline: terminal ownership')
   // TEMPORARY: a compatibility shim for an upstream defect, not a dshline
   // abstraction. `Screen` is correct only while it is the sole writer, and a
   // subagent backend in the generation named by HARNESS_TARGET writes a
@@ -369,13 +383,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   }
   ctx.effect(() => () => { releasePalette() }, 'dshline: palette')
   const screen = new Screen(terminal)
-  ctx.effect(() => () => {
-    // Before the screen forgets its rows: a paint scheduled for this turn must
-    // not write into a terminal that is being closed underneath it.
-    redraws.stop()
-    screen.close()
-    terminal.close()
-  }, 'dshline: terminal ownership')
+  closeScreen = () => { screen.close() }
 
   // Identify the WINDOW's launch workspace, not an Agent that /sessions may
   // replace (even with one from another directory). Metadata moves no cells,
@@ -396,6 +404,8 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
     if (cursor === undefined) screen.setLive(lines)
     else screen.setLive(lines, cursor)
   })
+  // Stop a pending paint before either resource is released.
+  stopRedraws = () => { redraws.stop() }
   const draw = (): void => { redraws.request() }
 
   // Every pref but one is a literal, because nothing outside this process has an

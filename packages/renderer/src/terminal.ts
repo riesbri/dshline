@@ -37,7 +37,13 @@ export interface Terminal extends ScreenTarget {
    * @returns nothing; writes one OSC 2 sequence while owned.
    */
   setTitle(title: string): void
-  /** Restore input modes and release ownership, not the previous title. Idempotent. */
+  /**
+   * Restore input modes and release ownership, not the previous title.
+   * Process-side cleanup runs even if writes fail. Duplicate calls retry only
+   * failed process-side restoration, never a possibly completed protocol pop.
+   * @returns nothing after cleanup succeeds.
+   * @throws the cleanup failure, or an AggregateError when several actions fail.
+   */
   close(): void
 }
 
@@ -216,7 +222,9 @@ export function isInteractive(streams: TerminalStreams): boolean {
  * Acquire raw mode and start decoding input.
  * @param streams - the process streams to own.
  * @returns the live terminal; `close()` restores the previous mode.
- * @throws when either stream is not a terminal.
+ * @throws when either stream is not a terminal or setup fails. Rollback failures
+ *   are retained after the setup error in an AggregateError. Failed mode writes
+ *   cannot prove a keyboard-stack push, so rollback never blindly pops one.
  */
 export function acquireTerminal(streams: TerminalStreams): Terminal {
   if (!isInteractive(streams)) {
@@ -229,6 +237,15 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
   const decoder = createKeyDecoder()
 
   let idle: NodeJS.Timeout | undefined
+  let closed = false
+  // Claim before each operation: a stream can change state and then throw.
+  let rawOwned = false
+  let modesOwned = false
+  let modesWritten = false
+  let resumed = false
+  let dataOwned = false
+  let resizeOwned = false
+  const modes = terminalModes()
   const dispatch = (keys: readonly Key[]): void => {
     for (const key of keys) {
       // Copy first: a listener may dispose itself while the batch is dispatching.
@@ -241,8 +258,12 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
     idle = undefined
   }
   const onData = (chunk: string): void => {
+    if (closed) return
     stopIdle()
     dispatch(decoder.push(chunk))
+    // A key handler can close the terminal during dispatch. Do not arm a new
+    // decoder timer after that handler has already cancelled the old one.
+    if (closed) return
     // Anything the decoder is still holding is ambiguous only while more bytes
     // might arrive. Unref'd so a pending decision never keeps the process alive.
     idle = setTimeout(() => {
@@ -251,17 +272,60 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
     }, IDLE_FLUSH_MS).unref()
   }
   const onResize = (): void => {
+    if (closed) return
     for (const listener of [...resizeListeners]) listener()
   }
 
-  input.setRawMode(true)
-  input.setEncoding('utf8')
-  output.write(terminalModes().on)
-  input.resume()
-  input.on('data', onData)
-  output.on('resize', onResize)
+  const close = (): void => {
+    closed = true
+    stopIdle()
+    const failures: unknown[] = []
+    const restore = (action: () => void): void => {
+      try { action() } catch (error: unknown) { failures.push(error) }
+    }
+    if (modesOwned) {
+      // A failed write may already have popped the keyboard protocol. Never
+      // pop again on retry: that could remove the previous owner's stack entry.
+      modesOwned = false
+      // Only a returned enable write establishes our stack push. If it threw
+      // before/partway through the bytes, a pop could remove somebody else's
+      // entry. Reset the non-stacking modes, but leave that ambiguity reported.
+      const off = modesWritten ? modes.off : modes.off.replace(ENHANCED_KEYS_OFF, '')
+      restore(() => { output.write(off) })
+    }
+    if (dataOwned) restore(() => { input.off('data', onData); dataOwned = false })
+    if (resizeOwned) restore(() => { output.off('resize', onResize); resizeOwned = false })
+    if (rawOwned) restore(() => { input.setRawMode(wasRaw); rawOwned = false })
+    // Pause rather than destroy the shared stream. A failed process-side
+    // restoration stays owned so another close can retry only that operation.
+    if (resumed) restore(() => { input.pause(); resumed = false })
+    keyListeners.clear()
+    resizeListeners.clear()
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'terminal cleanup failed')
+  }
 
-  let closed = false
+  try {
+    rawOwned = true
+    input.setRawMode(true)
+    input.setEncoding('utf8')
+    modesOwned = true
+    output.write(modes.on)
+    modesWritten = true
+    resumed = true
+    input.resume()
+    dataOwned = true
+    input.on('data', onData)
+    resizeOwned = true
+    output.on('resize', onResize)
+  } catch (error: unknown) {
+    try {
+      close()
+    } catch (cleanupError: unknown) {
+      throw new AggregateError([error, cleanupError], 'terminal acquisition failed, and rollback also failed')
+    }
+    throw error
+  }
   return {
     write: chunk => { output.write(chunk) },
     setTitle: title => {
@@ -280,19 +344,6 @@ export function acquireTerminal(streams: TerminalStreams): Terminal {
       resizeListeners.add(listener)
       return () => { resizeListeners.delete(listener) }
     },
-    close: () => {
-      if (closed) return
-      closed = true
-      stopIdle()
-      output.write(terminalModes().off)
-      input.off('data', onData)
-      output.off('resize', onResize)
-      input.setRawMode(wasRaw)
-      // Release the handle so the process can exit; the stream is shared with
-      // whatever ran before, so it is paused rather than destroyed.
-      input.pause()
-      keyListeners.clear()
-      resizeListeners.clear()
-    },
+    close,
   }
 }
