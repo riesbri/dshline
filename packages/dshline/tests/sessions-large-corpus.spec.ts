@@ -32,6 +32,7 @@ import type { Key } from '@dshline/renderer'
 import type { SessionQueryReads } from '../src/sessions/catalog.ts'
 import { CATALOG_LIMIT, SessionCatalog, TITLE_BATCH_SIZE } from '../src/sessions/catalog.ts'
 import { NO_FILTERS } from '../src/sessions/filters.ts'
+import type { SessionEntry } from '../src/sessions/model.ts'
 import { createSessionsOverlay, type SessionsOverlaySpec } from '../src/sessions/overlay.ts'
 
 /** Let the catalog's own awaits settle before reading its state. */
@@ -436,13 +437,27 @@ describe('the Harness call each filter value makes', () => {
 describe('ordinary browsing stays local', () => {
   /**
    * Mount the real Sessions overlay over a real catalog.
+   *
+   * `wireTitles` connects the overlay's demand-driven title asks to the catalog's
+   * scheduler, so the reader's own frames decide the queue order. The read-budget
+   * test mounts WITHOUT it on purpose: it measures browsing alone, and title
+   * hydration is the one thing browsing is allowed to spend on.
    * @param query - the session-query surface.
+   * @param wireTitles - whether the overlay's title priorities reach the catalog.
    * @returns the overlay and the catalog behind it.
    */
-  function mount(query: SessionQueryReads): { overlay: ReturnType<typeof createSessionsOverlay>; catalog: SessionCatalog } {
+  function mount(query: SessionQueryReads, wireTitles = false): { overlay: ReturnType<typeof createSessionsOverlay>; catalog: SessionCatalog } {
     const catalog = new SessionCatalog({ query, invalidate: () => {} })
     const spec: SessionsOverlaySpec = {
       listing: () => catalog.listing(),
+      ...(wireTitles
+        ? {
+            prioritizeTitles: (entries: readonly SessionEntry[], exhaustive?: boolean) => {
+              catalog.prioritizeTitles(entries, exhaustive)
+            },
+            titleQueryChanged: (text: string) => { catalog.titleQueryChanged(text) },
+          }
+        : {}),
       content: () => catalog.content(),
       filters: () => catalog.filters(),
       applyFilters: filters => { catalog.applyFilters(filters) },
@@ -497,6 +512,114 @@ describe('ordinary browsing stays local', () => {
     }
     expect(observed.calls).toEqual(afterOpen)
     expect(observed.calls).toEqual({ listSessions: 1, filterSessions: 0, readTitleSnapshots: 1 })
+  })
+
+  it('never traps the row the reader selected behind rows they scrolled past', async () => {
+    // The whole overlay→catalog round trip, driven by real `down` presses and
+    // real frames. One batch is held open for the entire traversal, which is
+    // the only way to see the queue without racing it: the reader walks 150 rows
+    // deep while every row they pass enters the queue, and the row they STOP on
+    // is the one whose title they are about to judge.
+    //
+    // The queue is FIFO and dedup is by `titleRequested`, so an id already
+    // queued keeps the position it first earned. That made the newest selection
+    // wait for the whole traversal: 140 cold ids before its own title. The
+    // reader's ORDER is the priority, so a queued id moves rather than waits.
+    // Deliberate break: appending instead of promoting fails on `index === 1`.
+    const { records, served } = largeCorpus(CATALOG_LIMIT)
+    const observed: Observed = {
+      calls: { listSessions: 0, filterSessions: 0, readTitleSnapshots: 0 },
+      clauses: [],
+      titleIds: [],
+    }
+    let releaseFirst!: (value: readonly SessionTitleObservationResult[]) => void
+    const held = new Promise<readonly SessionTitleObservationResult[]>(resolve => { releaseFirst = resolve })
+    const { overlay, catalog } = mount({
+      ...countingEngine(served, observed),
+      readTitleSnapshots: async ids => {
+        observed.calls.readTitleSnapshots += 1
+        observed.titleIds.push([...ids])
+        if (observed.calls.readTitleSnapshots === 1) return held as Promise<SessionTitleObservationResult[]>
+        return ids.map(id => ({
+          sessionId: id,
+          status: 'fulfilled' as const,
+          value: { session: header(id) },
+        } satisfies SessionTitleObservationResult))
+      },
+    }, true)
+    catalog.refresh()
+    await settled()
+    const opened = catalog.listing()
+    if (opened.kind !== 'ready') throw new Error('listing did not settle')
+
+    const stopAt = 150
+    const draw = (): void => { overlay.render(90, 24) }
+    draw()
+    for (let move = 0; move < stopAt; move += 1) {
+      overlay.handleKey({ kind: 'key', name: 'down' } satisfies Key)
+      draw()
+    }
+    // Only now does the reader's chosen row matter, and only now does the
+    // stalled batch land.
+    releaseFirst(observed.titleIds[0]!.map(id => ({
+      sessionId: id,
+      status: 'fulfilled' as const,
+      value: { session: header(id) },
+    } satisfies SessionTitleObservationResult)))
+    for (let turn = 0; turn < 40; turn += 1) await settled()
+
+    const selectedId = records[stopAt]!.header.id
+    const carrying = observed.titleIds.findIndex(ids => ids.includes(selectedId))
+    // The very next batch, and behind it nothing but the single batch that was
+    // already in flight — the floor a batched reader can reach, not a preference.
+    expect(carrying).toBe(1)
+    expect(observed.titleIds.slice(0, carrying).flat()).toHaveLength(TITLE_BATCH_SIZE)
+    // Priority is a reorder, never a second observation.
+    const read = observed.titleIds.flat()
+    expect(new Set(read).size).toBe(read.length)
+  })
+
+  it('keeps a stalled batch from pinning work the reader no longer wants', async () => {
+    // Question D, stated as a bound rather than a timing: clearing the query
+    // drops queued exhaustive work and aborts the running exhaustive batch, so
+    // a reader who types three characters and deletes them never leaves 180 cold
+    // logs queued behind a query that no longer exists.
+    const { served } = largeCorpus(CATALOG_LIMIT)
+    const observed: Observed = {
+      calls: { listSessions: 0, filterSessions: 0, readTitleSnapshots: 0 },
+      clauses: [],
+      titleIds: [],
+    }
+    const signals: AbortSignal[] = []
+    const { catalog } = mount({
+      ...countingEngine(served, observed),
+      readTitleSnapshots: async (ids, signal) => {
+        observed.calls.readTitleSnapshots += 1
+        observed.titleIds.push([...ids])
+        signals.push(signal!)
+        if (observed.calls.readTitleSnapshots === 1) return ids.map(id => ({
+          sessionId: id,
+          status: 'fulfilled' as const,
+          value: { session: header(id) },
+        } satisfies SessionTitleObservationResult))
+        return new Promise<SessionTitleObservationResult[]>(() => {})
+      },
+    }, true)
+    catalog.refresh()
+    await settled()
+    catalog.titleQueryChanged('dep')
+    catalog.prioritizeTitles(catalog.listing().kind === 'ready'
+      ? (catalog.listing() as { entries: readonly SessionEntry[] }).entries
+      : [], true)
+    await settled()
+    expect(observed.titleIds.at(-1)).toHaveLength(CATALOG_LIMIT - TITLE_BATCH_SIZE)
+    catalog.titleQueryChanged('')
+    expect(signals.at(-1)?.aborted).toBe(true)
+    // Nothing further is queued, so releasing the abandoned batch cannot pull
+    // another cold log into existence.
+    const before = observed.calls.readTitleSnapshots
+    await settled()
+    expect(observed.calls.readTitleSnapshots).toBe(before)
   })
 })
 

@@ -506,6 +506,17 @@ export class SessionCatalog {
    * non-empty local query asks for the whole retained corpus because an
    * unresolved title could become a match; an empty query never causes the
    * remaining 200 rows to be opened just because the browser exists.
+   * The caller's order IS the priority order, and it applies to an id that is
+   * ALREADY QUEUED as much as to a new one. Treating `titleRequested` as final
+   * is what made the row the reader just moved onto wait behind every row they
+   * scrolled past: those rows entered the queue first and nothing ever moved
+   * the reader's actual choice to the front, so a 150-row traversal could put
+   * the selected row 140 cold log reads deep. Re-queueing a queued id costs
+   * nothing — no second read is issued, the id simply leads the next batch.
+   *
+   * An id that is already being read is left alone instead: it is being opened
+   * regardless of where the cursor is, and cancelling a useful batch because
+   * the cursor moved one row would trade a bounded wait for work thrown away.
    * @param entries - visible or selected entries, in reader priority order.
    * @param exhaustive - whether unresolved rows outside `entries` matter too.
    */
@@ -513,11 +524,19 @@ export class SessionCatalog {
     if (this.disposed || this.base.kind !== 'ready') return
     const candidates = exhaustive ? this.base.entries : entries
     if (exhaustive) this.exhaustiveTitlesQueued = true
+    const waiting = new Set(this.titleQueue)
+    const priority: SessionId[] = []
+    const promoted = new Set<SessionId>()
     for (const entry of candidates) {
-      if (entryTitleState(entry).kind === 'exact') continue
-      if (this.titleRequested.has(entry.id)) continue
-      this.titleRequested.add(entry.id)
-      this.titleQueue.push(entry.id)
+      const id = entry.id
+      if (promoted.has(id) || entryTitleState(entry).kind === 'exact') continue
+      if (!this.titleRequested.has(id)) this.titleRequested.add(id)
+      else if (!waiting.has(id)) continue
+      promoted.add(id)
+      priority.push(id)
+    }
+    if (priority.length > 0) {
+      this.titleQueue = [...priority, ...this.titleQueue.filter(id => !promoted.has(id))]
     }
     this.drainTitleQueue()
   }

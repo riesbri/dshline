@@ -595,6 +595,112 @@ describe('listing the corpus', () => {
   })
 })
 
+describe('the identity a queued title read keeps', () => {
+  it('reads an id once even when a queued row is re-prioritized many times', async () => {
+    // Re-queueing an id is a priority operation, not a second observation. If
+    // it were, every redraw would re-open the same cold log and the dedup that
+    // keeps the picker cheap would be gone.
+    // Deliberate break: promoting a queued id without the `titleRequested`
+    // guard issues one read per prioritization call.
+    const records = Array.from({ length: 40 }, (_unused, index) => record(`p${String(index)}`))
+    const batches: string[][] = []
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => records,
+        readTitleSnapshots: async ids => {
+          batches.push([...ids])
+          return ids.map(id => titled(id, `Title ${id}`))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const listing = catalog.listing()
+    if (listing.kind !== 'ready') throw new Error('listing did not settle')
+    for (let round = 0; round < 40; round += 1) {
+      for (const entry of listing.entries) catalog.prioritizeTitles([entry])
+    }
+    await settled()
+    const read = batches.flat()
+    expect(new Set(read).size).toBe(read.length)
+    expect(read).toHaveLength(records.length)
+  })
+
+  it('leaves a per-id failure unretried for the rest of one listing generation', async () => {
+    // An unreadable title is a fact about this attempt, not about the session:
+    // Harness isolates the failure per id and there is no cheaper second way to
+    // learn it, so redrawing must not turn one failure into a read storm. A new
+    // LISTING generation re-observes from scratch, which is the only re-read.
+    let reads = 0
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => [record('a'), record('b')],
+        readTitleSnapshots: async ids => {
+          reads += 1
+          return ids.map(id => ({
+            sessionId: id,
+            status: 'rejected' as const,
+            reason: new Error('nope'),
+          }))
+        },
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    const entries = catalog.listing()
+    if (entries.kind !== 'ready') throw new Error('listing did not settle')
+    for (let round = 0; round < 25; round += 1) catalog.prioritizeTitles(entries.entries)
+    await settled()
+    expect(reads).toBe(1)
+    expect(catalog.listing()).toMatchObject({
+      kind: 'ready',
+      entries: [
+        { id: 'a', titleState: { kind: 'failed' } },
+        { id: 'b', titleState: { kind: 'failed' } },
+      ],
+    })
+    // A replacement listing is a new generation and re-observes.
+    catalog.refresh()
+    await settled()
+    expect(reads).toBe(2)
+  })
+
+  it('cannot paint one epoch’s title onto a replacement listing holding the same id', async () => {
+    // Session identity is the fencing boundary, so a replacement listing may
+    // well contain the SAME id as the epoch it replaces. Identity alone would
+    // let the superseded batch's observation land on the new row; only the
+    // generation proves which listing a title belongs to.
+    const firstEpoch = deferred<SessionTitleObservationResult[]>()
+    const secondEpoch = deferred<SessionTitleObservationResult[]>()
+    let onSecondEpoch = false
+    const catalog = new SessionCatalog({
+      query: engine({
+        listSessions: async () => [record('shared')],
+        readTitleSnapshots: async () => (onSecondEpoch ? secondEpoch.promise : firstEpoch.promise),
+      }),
+      invalidate: () => {},
+    })
+    catalog.refresh()
+    await settled()
+    catalog.refresh()
+    await settled()
+    onSecondEpoch = true
+    firstEpoch.resolve([titled('shared', 'From the first listing')])
+    await settled()
+    // The superseded epoch observed a real title for an id the new listing also
+    // carries; the row must still be unresolved rather than adopt it.
+    expect(catalog.listing()).toMatchObject({ kind: 'ready', entries: [{ id: 'shared', title: undefined }] })
+    secondEpoch.resolve([titled('shared', 'From the second listing')])
+    await settled()
+    expect(catalog.listing()).toMatchObject({
+      kind: 'ready',
+      entries: [{ id: 'shared', title: 'From the second listing' }],
+    })
+  })
+})
+
 describe('filtering the authoritative listing', () => {
   it('asks Harness for ANDed clauses and preserves its order before bounding', async () => {
     const now = 40 * 24 * 60 * 60 * 1_000
