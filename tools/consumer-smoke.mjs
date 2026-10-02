@@ -182,11 +182,62 @@ function flatten(raw) {
 }
 
 /**
+ * How a spawned command ended, in words a report can act on.
+ *
+ * `execFile` reports several unrelated failures through one rejection, and every
+ * field this harness reads from it — `stderr`, `stdout`, `message` — is
+ * identical for all of them. That is not cosmetic: when this lane fails, the
+ * output it captured is frozen at the last line the child printed, so a command
+ * that never finished and a command that exited 1 produce byte-identical
+ * reports and send the next investigation down the wrong path. Naming which one
+ * happened costs one property read and changes no verdict.
+ *
+ * Three shapes have to stay apart, and the discriminator between them is what
+ * `error.code` actually IS:
+ *
+ * - a NUMBER is a process exit status. The command ran and chose this.
+ * - a STRING is never an exit status. `ENOENT` and `EACCES` mean the command
+ *   could not be run at all; `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` means `execFile`
+ *   killed a command that produced more output than it allows.
+ * - `killed` is Node's marker for "this `execFile` sent the kill signal", which
+ *   is what distinguishes a command that did not finish from one that terminated
+ *   itself. It says WHO killed it, not why, so it is worded that way: this
+ *   harness's only automatic kill is the `timeout` it configures in {@link run},
+ *   but the error itself does not prove that, and a diagnostic must not claim
+ *   more than the state shows.
+ *
+ * This never converts a failure into a success. It only says which failure.
+ * @param error - a rejection from `execFile`.
+ * @returns the outcome phrase.
+ */
+export function processOutcome(error) {
+  // Checked before `killed` because an output-limit kill carries BOTH, and the
+  // limit is the more useful thing to say than "killed".
+  if (error?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+    return 'the command produced more output than execFile allows and was killed'
+  }
+  if (typeof error?.code === 'string') {
+    // A spawn or system failure. Never a process exit status.
+    return `the command could not be run (${error.code})`
+  }
+  if (error?.killed === true) {
+    const signal = error.signal === undefined || error.signal === null ? '' : ` with ${error.signal}`
+    return `the command was killed by execFile${signal} before it finished`
+  }
+  if (typeof error?.code === 'number') {
+    return `the command exited with code ${error.code}`
+  }
+  return error?.signal === undefined || error.signal === null
+    ? 'the command failed without an exit status'
+    : `the command was terminated by ${error.signal}`
+}
+
+/**
  * Run a command, capturing failure as a thrown error that names what ran.
  * @param command - the executable.
  * @param args - its arguments.
  * @param options - spawn options; `cwd` and `env` matter here.
- * @param description - the phrase used when reporting a non-zero exit.
+ * @param description - the phrase used when reporting how it failed.
  * @returns stdout plus stderr of the finished command.
  */
 async function run(command, args, options, description) {
@@ -195,7 +246,7 @@ async function run(command, args, options, description) {
   } catch (error) {
     // Installer warnings on stderr must not hide Harness's actual stdout failure.
     const detail = [error.stderr, error.stdout, error.message].filter(text => text !== undefined && text !== '').join('\n')
-    throw new Error(`${description} failed (${command} ${args.join(' ')}):\n${String(detail).slice(-2000)}`)
+    throw new Error(`${description} failed (${command} ${args.join(' ')}): ${processOutcome(error)}\n${String(detail).slice(-2000)}`)
   }
 }
 
