@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { observeUntilReady, packAndInstallProfile, parseBootEvidence, processOutcome } from './consumer-smoke.mjs'
+import { observeUntilReady, packAndInstallProfile, parseBootEvidence, processOutcome, run } from './consumer-smoke.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -222,32 +222,80 @@ describe('observeUntilReady()', () => {
 
 describe('processOutcome()', () => {
   it.each([
-    [{ killed: true, signal: 'SIGTERM', code: null }, 'did not finish and was killed after the timeout with SIGTERM'],
-    [{ killed: true, signal: null, code: null }, 'did not finish and was killed after the timeout'],
     [{ code: 1 }, 'exited with code 1'],
-    [{ code: 1, signal: null }, 'exited with code 1'],
-    [{ code: 'ENOENT' }, 'exited with code ENOENT'],
-    [{ signal: 'SIGKILL' }, 'was terminated by SIGKILL'],
+    [{ code: 0, stderr: 'x' }, 'exited with code 0'],
+    [{ code: 'ENOENT' }, 'could not be run (ENOENT)'],
+    [{ code: 'EACCES' }, 'could not be run (EACCES)'],
+    [{ killed: true, signal: 'SIGTERM', code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }, 'produced more output than execFile allows'],
+    [{ killed: true, signal: 'SIGTERM', code: null }, 'killed by execFile with SIGTERM'],
+    [{ killed: true, code: null }, 'killed by execFile'],
+    [{ signal: 'SIGKILL', code: null }, 'terminated by SIGKILL'],
     [{}, 'failed without an exit status'],
   ])('names %j as %s', (error, expected) => {
-    // A timeout and a non-zero exit arrive as the SAME rejection from execFile,
-    // and the captured output is identical, so an unnamed failure sends the next
-    // investigation after the wrong cause entirely.
-    expect(processOutcome(error)).toBe(`the command ${expected}`)
+    // Several unrelated failures arrive as one rejection from `execFile`, and the
+    // fields this harness reads from it are identical for all of them. An unnamed
+    // failure sends the next investigation after the wrong cause entirely.
+    expect(processOutcome(error)).toContain(expected)
   })
 
-  it('does not mistake a signal a command raised itself for a timeout', () => {
-    // Deliberate break: treating any signal as a timeout would relabel a command
-    // that failed for its own reasons as one this harness killed.
-    expect(processOutcome({ signal: 'SIGTERM', code: null })).not.toContain('timeout')
-    expect(processOutcome({ killed: true, signal: 'SIGTERM' })).toContain('timeout')
+  it('does not call a system error an exit status', () => {
+    // Deliberate break: a string `code` is Node's spawn/spawn-system failure.
+    // Rendering it as "exited with code ENOENT" describes a process that never
+    // ran, which sends a reader looking for a child that never started.
+    expect(processOutcome({ code: 'ENOENT' })).not.toContain('exited with')
+    expect(processOutcome({ code: 7 })).toContain('exited with code 7')
   })
 
-  it('never turns a failure into a success', () => {
-    // The classification is a label on an existing rejection. Every shape the
-    // harness can be handed still reads as a failure.
-    for (const error of [{ killed: true }, { code: 1 }, {}, { signal: 'SIGKILL' }]) {
-      expect(processOutcome(error)).toMatch(/the command/)
-    }
+  it('says who killed the command rather than why', () => {
+    // `killed` proves `execFile` sent the signal, which is the useful half — a
+    // command that never finished is a different bug from one that exited on its
+    // own. It does NOT prove the timeout was the reason, and claiming that would
+    // be asserting something the rejection does not carry.
+    expect(processOutcome({ killed: true, signal: 'SIGTERM' })).toContain('killed by execFile')
+    expect(processOutcome({ killed: true, signal: 'SIGTERM' })).not.toContain('timeout')
+    // A child that terminated itself is not the same event, and must not read
+    // as though the harness ended it.
+    expect(processOutcome({ signal: 'SIGTERM' })).toContain('terminated by SIGTERM')
+  })
+
+  it('names the output limit rather than a bare kill', () => {
+    // An output-limit kill carries `killed: true` too, and "killed by execFile"
+    // would be true but useless: the fix is a smaller allowance, not a shorter
+    // deadline.
+    expect(processOutcome({ killed: true, signal: 'SIGTERM', code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }))
+      .toContain('more output than execFile allows')
+  })
+})
+
+describe('run()', () => {
+  /** A command that is present on every supported platform. */
+  const SHELL = process.platform === 'win32' ? undefined : '/bin/sh'
+
+  it.skipIf(process.platform === 'win32')('still throws on a numeric non-zero exit', async () => {
+    await expect(run(SHELL, ['-c', 'exit 3'], {}, 'probe')).rejects.toThrow(/exited with code 3/u)
+  })
+
+  it.skipIf(process.platform === 'win32')('still throws on a command that cannot be run', async () => {
+    // A spawn failure, not an exit status: the wording must not pretend a
+    // process ran.
+    await expect(run('/nonexistent/dsh-consumer-smoke', [], {}, 'probe'))
+      .rejects.toThrow(/could not be run/u)
+  })
+
+  it.skipIf(process.platform === 'win32')('still throws when the child kills itself', async () => {
+    await expect(run(SHELL, ['-c', 'kill -TERM $$'], {}, 'probe'))
+      .rejects.toThrow(/terminated by SIGTERM/u)
+  })
+
+  it.skipIf(process.platform === 'win32')('still throws when execFile kills the child', async () => {
+    // The hang case. `timeout` here is the harness's own knob, overridden only
+    // to keep the test quick; the report says WHO killed it either way.
+    await expect(run(SHELL, ['-c', 'sleep 5'], { timeout: 50 }, 'probe'))
+      .rejects.toThrow(/killed by execFile/u)
+  })
+
+  it('resolves normally when the command succeeds', async () => {
+    const result = await run(process.execPath, ['-e', 'process.exit(0)'], {}, 'probe')
+    expect(result.stdout).toBe('')
   })
 })
