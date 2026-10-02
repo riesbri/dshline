@@ -477,6 +477,23 @@ async function runSessionEpoch(
   // scope registration remains the ordinary-switch owner; the explicit call in
   // the exit path makes the ordering visible before presentation teardown.
   scope.own(cancelAttachmentWork)
+  /**
+   * Whether this attachment may still produce attachment-owned effects.
+   *
+   * Deliberately NOT `scope.closed`. Retirement is REQUESTED — this is exactly
+   * where `cancelAttachmentWork()` runs — strictly before the epoch reaches its
+   * teardown, and the two are separated by every pending `await` in between. An
+   * epoch blocked inside `submit()` sits in that interval with its scope still
+   * open, its live rows still painted and the window still routing keys to it,
+   * while the reader has already asked for a different session. A continuation
+   * fenced only on `scope.closed` is allowed to act for exactly as long as the
+   * reader has already moved on, which is the whole defect.
+   *
+   * `cancelAttachmentWork` is owned by the scope, so this signal also flips when
+   * the scope does: one predicate covers a REQUESTED retirement and a COMPLETED
+   * one without either having to know which it is looking at.
+   */
+  const attachmentMayAct = (): boolean => !attachmentAbort.signal.aborted
   // Created before the command handlers that can request a transition: each
   // closes over it, and none may resolve into a promise that does not exist yet.
   let requestNext: (target: AttachTarget) => void = () => {}
@@ -2106,6 +2123,11 @@ async function runSessionEpoch(
    * @param submittedDelivery - the verb decided at the instant of submission.
    */
   const sendPrompt = async (line: string, submittedDelivery: Delivery): Promise<void> => {
+    // The last stop before the reader's words reach an Agent inbox. Callers
+    // reach this across their own awaits, so the check belongs here as well as
+    // in each caller: an epoch that retired while one of them was pending must
+    // not be handed another message just because its caller forgot to look.
+    if (!attachmentMayAct()) return
     let blocks: readonly ContentBlock[] = []
     // The snapshot this submission owns, hoisted so the success path can consume
     // exactly it. `undefined` means nothing was staged, so there is nothing to
@@ -2597,7 +2619,17 @@ async function runSessionEpoch(
     // `please /review-pr this` is a message whose gesture belongs entirely to
     // Harness. dshline writes no second grammar over human text.
     if (parsed !== undefined) {
-      const verdict = await skills.verify(parsed.name, AbortSignal.timeout(SKILL_VERIFY_TIMEOUT_MS))
+      const verdict = await skills.verify(parsed.name, AbortSignal.any([
+        attachmentAbort.signal,
+        AbortSignal.timeout(SKILL_VERIFY_TIMEOUT_MS),
+      ]))
+      // Cancellation tells the provider to stop if it can. It is NOT the fence:
+      // a provider that ignores the signal still resolves, and a caller that
+      // stopped caring still gets an answer back. Every branch below commits to
+      // the transcript and repaints, and the last one reaches `sendPrompt`, so
+      // this one check is what keeps a retired attachment out of the window AND
+      // out of the Agent inbox it has already left.
+      if (!attachmentMayAct()) return
       if (verdict.kind === 'not-user-invocable') {
         commit([paint(`\u00b7 /${parsed.name} is a skill, but not one a person can invoke directly`, 'muted')])
         draw()
