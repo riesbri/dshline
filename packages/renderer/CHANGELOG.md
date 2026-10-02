@@ -1,5 +1,20 @@
 # dshline-renderer
 
+## 0.26.0
+
+### Minor Changes
+
+- 8dae483: The status line shows work in flight with its activity word alone: every 1.6 s a three-column band of light crosses the word, sweeping for about a second and resting for four to seven tenths of a second, so the line reads as alive rather than as idle. An earlier version of this swept on a 2.4 s cycle and rested for more than half of it, which on the one line that is never closed read as a hung process — the same reading a frozen `/compact` once gave. Only the word's styling changes: no character moves, the fitted line holds its width on every frame at every terminal size, and a word that arrives mid-sweep joins the motion where it already was rather than restarting it. With no colour at all a band cannot exist, so that terminal gets a two-column arc turning beside the word instead.
+  
+  `/work` marks observed execution with the original six-shape arc — `◜ ◠ ◝ ◞ ◡ ◟` — one shape per tick, 600 ms a revolution, with no duplicated frames and no irregular hold. Each shape travels through a fixed two-column box rather than being paired with a second glyph, because a paired frame reads as a terminal drawing a combination rather than as one mark with presence. Which of the two cells the shape occupies is read off the shapes themselves, so the mark crosses the box once per half turn in the direction it is turning. Every frame is exactly two columns and every shape is East Asian Neutral, so the width never depends on the terminal's ambiguous-width setting. Every other row state reserves the same two columns, so a row's text no longer moves a column when a worker starts or finishes, and the row's fitting budget is derived from the mark it actually carries rather than held at a compensating constant. The activity word beside the mark is ordinary text and never animates: the mark says alive, the word says what.
+  
+  A typed `/compact` now animates while it runs instead of freezing on its first frame. The renderer adds `paintGlint`, `spinnerFrameOrbit`, `spinnerMark` and `SPINNER_MARK_COLUMNS` to its public surface, and themes gain a `busy-glint` role; the band's geometry, the cycle length and the text splitter stay internal to the module. The compact one-cell mark used by `/context` and the Profiles browser now turns through the same four quarter arcs as every other arc, rather than alternating them with the two half-circle glyphs: those carry noticeably more visual weight than the quadrant arcs in the terminal presentation, and alternating the two swung the mark's weight back and forth once per revolution, which read as the mark growing and shrinking rather than turning.
+
+### Patch Changes
+
+- 67933c9: Restore raw mode and release terminal listeners even when setup or shutdown writes fail. Roll back partial acquisition, keep terminal cleanup independent of Screen cleanup, and preserve failures without repeating keyboard-protocol shutdown on duplicate close.
+- 67933c9: Preserve wide characters and mixed styling when word wrapping retains a suffix. Recheck the continuation's column capacity before appending another glyph, and close/reopen styling at the selected word boundary so boxes neither lose content nor render continuation characters under the wrong style.
+
 ## 0.25.0
 
 ### Minor Changes

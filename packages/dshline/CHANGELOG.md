@@ -1,5 +1,29 @@
 # dshline
 
+## 0.26.0
+
+### Minor Changes
+
+- 5bc8222: Reopen a related conversation directly from `/sessions` → `→` → `Lineage`. With the browser now listing your own conversations, a delegated child was visible in its parent's lineage but unreachable: `↵` tried to scroll the list to it and answered `That session is not in the current list.` A new `o` takes the related session under the cursor through the same reopening decision a list row gets — same refusals, same policy — so an ancestor, an ordinary fork, or a grandchild several delegations down can be opened from the conversation it belongs to without widening your origin filter. `↵` keeps its meaning and the two keys stay separate acts. Lineage itself proposes an identity and never resumes anything: the browser still owns choosing a session, and the window still owns retiring and attaching agents.
+- 80dfd79: Open `/sessions` and `--resume` on the conversations you started: the Sessions browser now applies `origin: own` by default, so delegated subagent sessions stop competing for the columns that carry the title you are reading. The scope is a default, not a hiding rule — `ctrl-f` opens on the value in force, `origin` `all` brings the whole Harness corpus back, and a parent's `Lineage` reaches its children in context. Content search honours the same scope and says so (`No returned results match the active filters`) rather than reporting no match; Harness relevance order, cursors and excerpts are unchanged.
+
+### Patch Changes
+
+- 8dae483: The status line shows work in flight with its activity word alone: every 1.6 s a three-column band of light crosses the word, sweeping for about a second and resting for four to seven tenths of a second, so the line reads as alive rather than as idle. An earlier version of this swept on a 2.4 s cycle and rested for more than half of it, which on the one line that is never closed read as a hung process — the same reading a frozen `/compact` once gave. Only the word's styling changes: no character moves, the fitted line holds its width on every frame at every terminal size, and a word that arrives mid-sweep joins the motion where it already was rather than restarting it. With no colour at all a band cannot exist, so that terminal gets a two-column arc turning beside the word instead.
+  
+  `/work` marks observed execution with the original six-shape arc — `◜ ◠ ◝ ◞ ◡ ◟` — one shape per tick, 600 ms a revolution, with no duplicated frames and no irregular hold. Each shape travels through a fixed two-column box rather than being paired with a second glyph, because a paired frame reads as a terminal drawing a combination rather than as one mark with presence. Which of the two cells the shape occupies is read off the shapes themselves, so the mark crosses the box once per half turn in the direction it is turning. Every frame is exactly two columns and every shape is East Asian Neutral, so the width never depends on the terminal's ambiguous-width setting. Every other row state reserves the same two columns, so a row's text no longer moves a column when a worker starts or finishes, and the row's fitting budget is derived from the mark it actually carries rather than held at a compensating constant. The activity word beside the mark is ordinary text and never animates: the mark says alive, the word says what.
+  
+  A typed `/compact` now animates while it runs instead of freezing on its first frame. The renderer adds `paintGlint`, `spinnerFrameOrbit`, `spinnerMark` and `SPINNER_MARK_COLUMNS` to its public surface, and themes gain a `busy-glint` role; the band's geometry, the cycle length and the text splitter stay internal to the module. The compact one-cell mark used by `/context` and the Profiles browser now turns through the same four quarter arcs as every other arc, rather than alternating them with the two half-circle glyphs: those carry noticeably more visual weight than the quadrant arcs in the terminal presentation, and alternating the two swung the mark's weight back and forth once per revolution, which read as the mark growing and shrinking rather than turning.
+- a528d82: Stop asynchronous work started by a session from acting after that session has been retired. A submitted command whose skill verification was still in flight could reach the Agent the window had already left and commit to a transcript the next session had taken over.
+- 40ab2f0: Preserve Harness search-hit origin metadata when optional title hydration fails, so delegated sessions remain in delegated results and do not leak into own-session results. Successful exact title observations still take precedence.
+- af23208: Let the row you have selected in `/sessions` reach its title before rows you scrolled past. Title reads stay deduplicated and bounded — an id already queued is reordered, never read twice, and an id already being read is left alone.
+- 67933c9: Restore raw mode and release terminal listeners even when setup or shutdown writes fail. Roll back partial acquisition, keep terminal cleanup independent of Screen cleanup, and preserve failures without repeating keyboard-protocol shutdown on duplicate close.
+- b2e08e4: Tear down a session attachment whose setup fails before the Agent handle is disposed. A session that could not start used to leave its window exit hook, key handler, live rows, listeners and running Agent behind, so a failed start could keep painting, consume keystrokes and run beside the session that replaced it.
+- Updated dependencies [8dae483]
+- Updated dependencies [67933c9]
+- Updated dependencies [67933c9]
+  - @dshline/renderer@0.26.0
+
 ## 0.25.0
 
 ### Minor Changes
