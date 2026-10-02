@@ -51,6 +51,29 @@ export interface SessionTitleHint {
   readonly title: string | undefined
 }
 
+/**
+ * The smallest fact set a resume decision is allowed to be given.
+ *
+ * This is what {@link planResume} actually reads, named on its own so that the
+ * decision does not depend on which surface proposed the session. A row in the
+ * ordinary list offers a whole {@link SessionEntry}; a row in a lineage trace
+ * offers these three Harness facts and nothing the decision would have invented
+ * for it. Both satisfy it structurally, so the resume policy stays one policy
+ * rather than a list rule and a lineage rule that drift apart.
+ *
+ * Deliberately NOT a title, a workspace, or a parent: none of them changes
+ * whether a session may be reopened, and a lineage row cannot supply them for an
+ * ancestor without inventing a value the trace never stated.
+ */
+export interface SessionTarget {
+  /** The authoritative Harness session identity being chosen. */
+  readonly id: SessionId
+  /** Whether `ctx.sessions` currently holds the id, as the trace reported it. */
+  readonly live: boolean
+  /** Whether the mounted persistence backend currently lists the id. */
+  readonly persisted: boolean
+}
+
 /** One session as the browser lists it. */
 export interface SessionEntry {
   /** Harness session id, the only stable identity a row has. */
@@ -224,6 +247,19 @@ export type LineageRow =
     readonly createdAt: number
     readonly cwd?: string
     readonly origin: SessionOrigin
+    /**
+     * The availability Harness reported for this exact record.
+     *
+     * Every row of a `SessionLineageTrace` is a full `SessionRecord` whose
+     * `cloneRecord` spread preserves both flags, so these are read facts rather
+     * than a re-derivation. They are carried because a row the reader can CHOOSE
+     * has to reach the same resume policy a list row reaches, and that policy
+     * reads nothing else. Omitting them would have left a relationship surface
+     * able to describe a session it could not honestly reopen.
+     */
+    readonly live: boolean
+    /** Whether the mounted persistence backend currently lists this id. */
+    readonly persisted: boolean
   }
   | {
     readonly kind: 'pruned'

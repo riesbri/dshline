@@ -18,7 +18,7 @@ import { RowViewport } from '../scroll.ts'
 import type { TuiOverlay } from '../slots.ts'
 import { SurfaceNotice, noticeText } from '../surface.ts'
 import type { SurfaceNoticeReading } from '../surface.ts'
-import type { LineageRow, LineageState } from './model.ts'
+import type { LineageRow, LineageState, SessionTarget } from './model.ts'
 import { relativeAge, shortWorkspace, UNTITLED } from './model.ts'
 
 /** Rows outside the viewport: leading blank, two borders, and the body spacer. */
@@ -61,6 +61,24 @@ export interface LineageOverlaySpec {
   readonly now: () => number
   /** Ask the parent to select the session in its visible list. */
   readonly focus: (sessionId: SessionId) => boolean
+  /**
+   * Ask the Sessions browser to reopen a related session.
+   *
+   * OPTIONAL, and a surface that cannot reopen a session simply does not offer
+   * it. The current-session hub opens this same panel to describe the session
+   * the window is already driving, and it owns no way to switch agents — giving
+   * it one here would hand a presentation panel a lifecycle authority. An absent
+   * callback removes the key AND its footer promise together.
+   *
+   * When present, this panel NEVER resumes anything itself. It proposes the
+   * identity the trace returned and hands it to the browser, which owns the one
+   * resume policy — so a relationship row is answered by exactly the decision an
+   * ordinary list row is, including every refusal. That is also why the panel
+   * closes before calling this: a refusal is reported on the list the reader
+   * returns to, with a notice they can read, exactly as a refused list selection
+   * is.
+   */
+  readonly reopen?: (target: SessionTarget) => void
   /** Dismiss this overlay. */
   readonly close: () => void
   /** Redraw after a move or a landed read. */
@@ -143,6 +161,36 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
     notice.show('That session is not in the current list.')
     spec.invalidate()
   }
+  /**
+   * Hand the selected related session to the Sessions browser.
+   *
+   * Deliberately a SEPARATE key from `↵`, not an overloaded one. `↵` navigates
+   * within the list the reader already has; reopening retires whatever agent this
+   * window is driving, and one keystroke must not mean both depending on which
+   * row the cursor happens to be on. Each key therefore means the same thing on
+   * every row: `↵` shows me where this conversation sits, `o` takes me there.
+   *
+   * The row's own facts decide nothing here — a delegated grandchild, an ordinary
+   * fork and an ancestor are all "a conversation", because that is what a
+   * relationship is. Only `selectable` gates it, so a pruning marker can never
+   * become a chosen session.
+   */
+  const reopenSelected = (): void => {
+    // A surface with no browser above it cannot honour this key, so it must not
+    // answer it either — closing on a request nobody can receive would drop the
+    // reader out of the panel for no reason at all.
+    if (spec.reopen === undefined) return
+    const state = ready()
+    if (state === undefined) return
+    synchronizeSelection(state)
+    const row = state.rows[selected]
+    if (!selectable(row)) return
+    const target: SessionTarget = { id: row.id, live: row.live, persisted: row.persisted }
+    // Close first: a refusal is reported on the list underneath, and a refusal is
+    // an answer the reader reads, not one this panel should swallow.
+    close()
+    spec.reopen(target)
+  }
 
   return {
     mounted() {
@@ -189,11 +237,16 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
             '',
             ...rendered.rows.slice(viewport.start, viewport.end),
           ],
-          // `↵ focus` is named only while a session row can take focus. While
-          // the trace is loading, failed, or has no target, Enter is a no-op,
-          // and a footer promising focus would describe a key that does nothing.
+          // Both actions are named only while a real session row is under the
+          // cursor, and `o` only where a browser owns reopening at all. While the
+          // trace is loading, failed, or has no target, neither key does anything,
+          // and a footer promising them would describe keys that do nothing.
+          // `↵ focus` is kept separate from `o` because they are not the same
+          // act: one navigates the list, one retires this window's agent.
           footer: fitFooterHelp(
-            `↑↓ move${state.kind === 'ready' && selectableRows(state.rows).length > 0 ? ' · ↵ focus' : ''} · esc back`,
+            state.kind === 'ready' && selectableRows(state.rows).length > 0
+              ? `↑↓ move · ↵ focus${spec.reopen === undefined ? '' : ' · o reopen'} · esc back`
+              : '↑↓ move · esc back',
             footerBudget(columns),
           ),
         }),
@@ -205,6 +258,16 @@ export function createLineageOverlay(spec: LineageOverlaySpec): TuiOverlay {
         : compactFallback(state, columns, terminalRows, active)
     },
     handleKey(key: Key) {
+      // A bare letter reaches a panel as text, because the renderer does not know
+      // which surface will receive it — the Sessions list spends printable
+      // characters on its query line, so nothing is promoted to a key name. The
+      // grammar this panel follows is the sibling panels': arrows move, `↵` is the
+      // primary action, `esc` goes back, and a verb letter is a named action. It
+      // is safe here because this panel has no query line to consume it.
+      if (key.kind === 'text') {
+        if (key.text === 'o') reopenSelected()
+        return
+      }
       if (key.kind !== 'key') return
       switch (key.name) {
         case 'up':
