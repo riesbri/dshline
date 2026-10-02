@@ -246,7 +246,8 @@ function exactTitleTraits(
  * @returns the presentation origin.
  */
 function classifyOrigin(record: SessionRecord, observation: TitleObservation | undefined): SessionOrigin {
-  const origin = observation === undefined ? record.header.origin : observation.origin
+  // A failed settlement carries title failure state, not a new header fact.
+  const origin = observation?.state.kind === 'exact' ? observation.origin : record.header.origin
   return origin === 'subagent' ? 'delegated' : 'own'
 }
 
