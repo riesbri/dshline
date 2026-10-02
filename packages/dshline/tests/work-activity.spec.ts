@@ -321,7 +321,7 @@ describe('per-child semantic activity for Work', () => {
       invalidate: () => {},
     })
     const plain = overlay.render(80, 12).map(stripAnsi).join('\n')
-    expect(plain).toContain('● codex')
+    expect(plain).toContain('●  codex')
     expect(plain).not.toContain('· thinking')
     expect(plain).not.toContain('· reading')
     work.dispose()
@@ -477,10 +477,11 @@ describe('per-child semantic activity for Work', () => {
       close: () => {},
       invalidate: () => {},
     })
-    // The overview uses the animated mark immediately, with no synthetic
-    // `agent/status` ever emitted.
+    // The overview shows the executing mark immediately, with no synthetic
+    // `agent/status` ever emitted. The two-column orbit turns in the mark
+    // column; the word beside it is informational and never animates.
     const plain = overlay.render(80, 12).map(stripAnsi).join('\n')
-    expect(plain).toContain('◜')
+    expect(plain).toMatch(/[◜◠◝◞◡◟] {2}spawn · waiting/u)
     work.dispose()
   })
 

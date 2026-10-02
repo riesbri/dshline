@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Composer, displayWidth, escapeControls, GLINT_PERIOD_TICKS, paint, Screen, setPalette, stripAnsi } from '@dshline/renderer'
+import { Composer, displayWidth, escapeControls, GLINT_PERIOD_TICKS, paint, paintGlint, Screen, setPalette, stripAnsi } from '@dshline/renderer'
 import { DEFAULT_PALETTE } from '../src/theme.ts'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
@@ -735,6 +735,9 @@ describe('the status line', () => {
     expect(roomy).toContain('run_shell_command +2 calls')
     expect(roomy).toContain('CR 99.8%')
 
+    // The busy status is `  thinking`: no mark at all, because the word carries
+    // the liveness. The threshold that first drops the cache-read share is back
+    // where it was before any spinner was drawn here.
     const tighter = status(busy, 137)
     expect(tighter).toContain('run_shell_command +2 calls')
     expect(tighter).not.toContain('CR')
@@ -1026,31 +1029,98 @@ describe('the status line', () => {
     expect(busy).not.toContain('reading 14m')
   })
 
-  it('leads with the activity word alone, with no spinner beside it', () => {
-    // The word is the indicator on this line; an arc turning beside a glinting
-    // word would be two motions saying one thing.
+  it('leads with the activity word alone and no mark beside it', () => {
+    // The word IS the indicator on this line: nothing turns next to it, because
+    // two motions on one line say one thing twice and this line has no
+    // neighbours to be told apart from.
+    const seen = new Set<string>()
     for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
-      const busy = status({ busy: true, tick, elapsedMs: 4_000, activityWord: 'thinking' })
-      expect(busy.startsWith('  thinking · turn 4s'), busy).toBe(true)
-      expect(busy).not.toMatch(/[◜◝◞◟◠◡]/u)
+      const state = { busy: true, tick, elapsedMs: 4_000, activityWord: 'thinking' as const }
+      expect(status(state)).toMatch(/^ {2}thinking · turn 4s/u)
+      const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, ...state })).render(120)[0] ?? ''
+      expect(raw).not.toMatch(/[◜◠◝◞◡◟]/u)
+      seen.add(raw)
     }
+    // And the line really does change from tick to tick, or it is not a signal.
+    expect(seen.size).toBeGreaterThan(1)
   })
 
-  it('glints the activity word and only the activity word', () => {
-    const state = { busy: true, elapsedMs: 4_000, activityWord: 'thinking' as const, model: 'deepseek-v4-flash' }
+  it('sweeps a three-column band across the word, and leaves the rest alone', () => {
+    const state = { busy: true, elapsedMs: 4_000, activityWord: 'thinking' as const }
     const raw = (tick: number): string => createStatusView(() => ({ ...STATUS_DEFAULTS, ...state, tick })).render(120)[0] ?? ''
     // At rest the word is exactly the busy role, as it always was.
-    expect(raw(20)).toContain(paint('thinking', 'busy'))
-    // Mid-pass, three of its columns are the band and the rest stay busy.
-    expect(raw(4)).toContain(`${paint('th', 'busy')}${paint('ink', 'busy-glint')}${paint('ing', 'busy')}`)
+    expect(raw(15)).toContain(paint('thinking', 'busy'))
+    // Mid-sweep, three of its eight columns are the band and the rest stay busy.
+    // The lit opener is `CSI 1 m` in the default palette, and `selection` is
+    // `CSI 36;1 m`, so this counts the band and nothing else on the line.
+    expect(raw(5)).toContain(paintGlint('thinking', 5, 'busy', 'busy-glint'))
+    expect(raw(5)).toContain('\u001b[1mnki\u001b[0m')
+    expect(raw(5).match(/\u001b\[1m/gu)).toHaveLength(1)
     // Nothing after the word changes from one tick to the next.
     const tail = (tick: number): string => raw(tick).slice(raw(tick).indexOf(' · turn'))
     for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) expect(tail(tick)).toBe(tail(0))
   })
 
-  it('fits the same line on every tick of the glint, at every width', () => {
-    // A glint changes styling only, so no tick may tip the ladder onto a
-    // different rung: the line a narrow terminal shows must not flap.
+  it('keeps the sheen moving for over half of its cycle, on every word length', () => {
+    // The version this replaced rested for more than half of a 2.4 s cycle,
+    // which on the one line that is never closed read as idle rather than as
+    // working. Half the cycle is what is left to guard, and the band's width is
+    // what clears it — see GLINT_BAND_COLUMNS for the arithmetic and for why
+    // widening the band is not the answer.
+    for (const activityWord of ['working', 'thinking', 'searching', 'responding'] as const) {
+      // `busy-glint` is `[1]` in the default palette, so the lit opener is
+      // `CSI 1 m`. Counting the role NAME would count nothing at all.
+      const lit = Array.from({ length: GLINT_PERIOD_TICKS }, (_u, tick) =>
+        createStatusView(() => ({ ...STATUS_DEFAULTS, busy: true, tick, activityWord })).render(120)[0] ?? '')
+        .filter(line => line.includes('\u001b[1m')).length
+      expect(lit / GLINT_PERIOD_TICKS, activityWord).toBeGreaterThan(0.5)
+    }
+  })
+
+  it('does not restart the sheen when the activity word changes', () => {
+    // The phase comes from the tick alone, so a word arriving mid-sweep joins
+    // the motion where it already was rather than restarting it.
+    // The band column within the word, read back out of the styled bytes.
+    const bandAt = (word: 'thinking' | 'responding', tick: number): number =>
+      displayWidth(stripAnsi(paintGlint(word, tick, 'busy', 'busy-glint').split('\u001b[1m')[0] ?? ''))
+    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+      const short = bandAt('thinking', tick)
+      const long = bandAt('responding', tick)
+      // While the shorter word is still sweeping, the longer one has the band
+      // in the same column: one phase, from the tick alone.
+      // A word at its own full width is the sentinel for "resting", because a
+      // resting word carries no lit opener at all.
+      const shortLit = short < 8
+      const longLit = long < 10
+      if (shortLit) {
+        // While the shorter word is sweeping, the longer one has the band in the
+        // same column: one phase, read from the tick alone. A longer word only
+        // ever sweeps longer, so it is never lit on a tick a short one is not.
+        expect(longLit, `tick ${String(tick)}`).toBe(true)
+        expect(long, `tick ${String(tick)}`).toBe(short)
+      }
+    }
+    // And the band really travels, so the equality above is the phase agreeing
+    // rather than both words sitting still.
+    const columns = Array.from({ length: GLINT_PERIOD_TICKS }, (_u, tick) => bandAt('thinking', tick))
+    expect(new Set(columns).size).toBeGreaterThan(1)
+  })
+
+  it('never leaves half a fact off the line as the sheen crosses', () => {
+    // Only the glyph may differ from one tick to the next, so a narrow terminal
+    // can never tip onto a different rung of the ladder as it turns.
+    const state = { busy: true, elapsedMs: 4_000, activityWord: 'thinking' as const, model: 'deepseek-v4-flash' }
+    const raw = (tick: number): string => createStatusView(() => ({ ...STATUS_DEFAULTS, ...state, tick })).render(120)[0] ?? ''
+    // Normalise the word's own styling out of the bytes, so what is compared is
+    // every other escape and every other character on the line: the elapsed
+    // reading, the model and the hints must be byte-identical on every tick.
+    const settled = (tick: number): string => raw(tick).replace(paintGlint('thinking', tick, 'busy', 'busy-glint'), 'X')
+    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) expect(settled(tick)).toBe(settled(0))
+  })
+
+  it('fits the same width on every tick of the sheen, at every width', () => {
+    // Only the word's styling changes, so the fitted line holds its width
+    // across the whole cycle at every terminal size.
     const crowded: Partial<StatusState> = {
       busy: true,
       elapsedMs: 866_000,
@@ -1064,24 +1134,31 @@ describe('the status line', () => {
       goal: { label: 'goal 3/25', running: true },
     }
     for (let columns = 0; columns <= 160; columns += 1) {
-      const first = status({ ...crowded, tick: 0 }, columns)
+      const first = displayWidth(stripAnsi(status({ ...crowded, tick: 0 }, columns)))
       for (let tick = 1; tick < GLINT_PERIOD_TICKS; tick += 1) {
-        expect(status({ ...crowded, tick }, columns), `${String(columns)} columns @${String(tick)}`).toBe(first)
+        expect(
+          displayWidth(stripAnsi(status({ ...crowded, tick }, columns))),
+          `${String(columns)} columns @${String(tick)}`,
+        ).toBe(first)
       }
     }
   })
 
-  it('glints while compacting, with the same word on every tick', () => {
+  it('sweeps `compacting` too, and never leaves the word half-written', () => {
     const frames = new Set<string>()
     for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
       const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, compacting: true, tick })).render(80)[0] ?? ''
-      expect(stripAnsi(raw).startsWith('  compacting'), stripAnsi(raw)).toBe(true)
+      // The word is always whole: only its styling changes, so a sweep can
+      // never be seen half-drawing the text it is crossing.
+      expect(stripAnsi(raw)).toMatch(/^ {2}compacting/u)
       frames.add(raw)
     }
+    // A typed `/compact` is a maintenance operation, and it has to look like
+    // one for its whole run: the regression was it freezing on its first frame.
     expect(frames.size).toBeGreaterThan(1)
   })
 
-  it('never glints a line where nothing runs', () => {
+  it('draws a line where nothing runs identically on every tick', () => {
     for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
       const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, tick })).render(80)[0] ?? ''
       // Idle owns no motion: every tick draws the same bytes.
@@ -1090,12 +1167,24 @@ describe('the status line', () => {
     }
   })
 
-  it('falls back to the arc with no colour, where a glint would be invisible', () => {
+  it('turns the two-cell orbit with no colour at all, where nothing could shimmer', () => {
     const restore = setPalette(DEFAULT_PALETTE, 0)
     try {
       const at = (tick: number): string => status({ busy: true, tick, elapsedMs: 4_000, activityWord: 'thinking' })
-      expect(at(0)).toMatch(/◜ {2}thinking · turn 4s/u)
-      expect(at(2)).toMatch(/◝ {2}thinking · turn 4s/u)
+      // Six shapes, six ticks, one cell a time — the orbit, and the word starts
+      // in the same column whichever cell the glyph is in.
+      const seen = new Set<string>()
+      for (let tick = 0; tick < 6; tick += 1) {
+        // The word starts in the same column whichever cell the glyph is in —
+        // that is the whole width contract for this fallback.
+        expect(at(tick).indexOf('thinking'), `tick ${String(tick)}`).toBe(6)
+        expect(at(tick), `tick ${String(tick)}`).toContain('· turn 4s')
+        seen.add(at(tick).replace(/^ {6}thinking.*$/u, ''))
+      }
+      // Six distinct frames, and the two-column box alternates its cell.
+      expect(seen.size).toBe(6)
+      expect(at(0).startsWith('  ◜ ')).toBe(true)
+      expect(at(1).startsWith('   ◠')).toBe(true)
       // Nothing is styled at depth 0, so nothing but the glyph may differ.
       expect(at(0)).not.toContain('\u001b')
     } finally {
@@ -1377,9 +1466,17 @@ describe('the status line’s attention notice', () => {
       attention: NOTICE,
       model: 'deepseek-v4-flash',
     }
-    const narrow = noticed(state, 12)
+    // The busy status spends no mark column at all now, so 9 is the narrowest
+    // width that holds `working` whole: the gutter and the word, and nothing
+    // else. The word is still surrendered LAST — at 8 it is cut, having already
+    // given up every fact that ranks below it.
+    const narrow = noticed(state, 9)
     expect(narrow).toContain('working')
     expect(narrow).not.toContain('context compacted')
+    const tooNarrow = noticed(state, 8)
+    expect(tooNarrow).not.toContain('working')
+    expect(tooNarrow).not.toContain('context compacted')
+    expect(tooNarrow).toContain('workin')
   })
 
   it('yields the notice to a running goal where the two cannot both fit', () => {

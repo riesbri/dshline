@@ -160,7 +160,7 @@ describe('Work detail-row navigation', () => {
     app.press('down')
     expect(app.cursor()).toBe('state  running')
     app.press('end')
-    expect(app.cursor()).toBe('● architecture')
+    expect(app.cursor()).toBe('●  architecture')
   })
 
   it('wraps the cursor at both ends of a detail stage', () => {

@@ -24,7 +24,9 @@ import {
   formatTokens,
   paint,
   SPINNER_INTERVAL_MS,
-  spinnerFrame,
+  spinnerFrameOrbit,
+  spinnerMark,
+  SPINNER_MARK_COLUMNS,
   tailToWidth,
   truncateToWidth,
   wrapToWidth,
@@ -113,12 +115,15 @@ const JOB_OUTPUT_KEY_PREFIX = 'job-output:'
 const GAP_MARKER = '… earlier output not retained …'
 
 /**
- * The glyph each non-animated mark draws.
+ * The settled glyph for each non-animating mark.
  *
- * The whole point of the vocabulary is that they are not interchangeable: the
- * arc spinner means observed execution, `●` means an active lifecycle whose
- * internals are not observable, `•` means a background record exists, and `◐`
- * means a record is transitioning. Terminal glyphs report a published outcome.
+ * The vocabulary is deliberately not interchangeable. The two-cell orbit means
+ * execution that is actually observed, `●` an active lifecycle whose internals
+ * are not observable, `•` a background record that exists, and `◐` a record
+ * that is transitioning. Terminal glyphs report a published outcome.
+ *
+ * Every one of these is padded to the orbit's box, so a row's text starts in the
+ * same column whether its mark is turning or settled.
  */
 const MARK_GLYPH: Readonly<Record<Exclude<WorkMark, 'executing'>, string>> = {
   active: '●',
@@ -885,7 +890,7 @@ function itemRow(
     key: workItemKey(item),
     mark: glyph(mark, tick),
     markRole: MARK_ROLE[mark],
-    text: fitSegments(name, segments, textBudget(width)),
+    text: fitSegments(name, segments, textBudget(width, true)),
     role: 'subdued',
     open,
   }
@@ -949,6 +954,7 @@ function memberRow(
   const mark = memberMark(member)
   const child = member.subagent
   const name = escapeControls(member.label)
+
   // The ONE join Work makes carries the whole child presentation with it: a
   // member whose `childId` resolves to a live child says what that child is
   // doing and which LLM powers it, from the child's own state. A settled member
@@ -959,7 +965,7 @@ function memberRow(
     key: workflowMemberKey(workflow, member),
     mark: glyph(mark, tick),
     markRole: MARK_ROLE[mark],
-    text: fitSegments(name, segments, textBudget(width)),
+    text: fitSegments(name, segments, textBudget(width, true)),
     role: 'subdued',
     // Only a member whose `childId` resolves to a live epoch can be opened.
     // A settled member is a record, not a place to navigate to.
@@ -1002,7 +1008,7 @@ function subagentRows(
     key: 'state',
     mark: glyph(mark, tick),
     markRole: MARK_ROLE[mark],
-    text: truncateToWidth(escapeControls(headline), textBudget(width)),
+    text: truncateToWidth(escapeControls(headline), textBudget(width, true)),
     role: 'subdued',
   })
   const live = item.outputTail === undefined ? undefined : outputTailRow(item.outputTail, width)
@@ -1158,13 +1164,13 @@ function jobOutputLineRow(line: JobOutputLine, position: number, width: number):
   // gap, and dshline's own presentation cap are three different failures that a
   // reader cannot act on differently.
   if (line.gapBefore === true) {
-    return { kind: 'line', text: truncateToWidth(GAP_MARKER, textBudget(width)), role: 'muted' }
+    return { kind: 'line', text: truncateToWidth(GAP_MARKER, textBudget(width, false)), role: 'muted' }
   }
   const escaped = escapeControls(line.text)
   return {
     kind: 'row',
     key: `${JOB_OUTPUT_KEY_PREFIX}${String(position)}`,
-    text: truncateToWidth(escaped, textBudget(width)),
+    text: truncateToWidth(escaped, textBudget(width, false)),
     role: jobOutputRole(line.channel),
   }
 }
@@ -1186,14 +1192,35 @@ function jobOutputRole(channel: JobOutputLine['channel']): Role {
   return 'subdued'
 }
 
-/** Columns a row's text may use, after its gutter and its mark. */
-function textBudget(width: number): number {
-  return Math.max(1, width - GUTTER_COLUMNS)
+/**
+ * Columns a row's text may use, after its gutter and, for a row that has one,
+ * its mark box.
+ *
+ * The mark box is subtracted rather than assumed, because a row is painted as
+ * two gutter columns, a mark of {@link SPINNER_MARK_COLUMNS} and a space — and
+ * a budget that ignored it let a mark row be fitted two columns wider than the
+ * frame it is drawn in. Deriving the number from the mark the row actually
+ * carries is what keeps the frame honest; it is not a compensating constant.
+ * @param width - the inner frame width.
+ * @param marked - whether the row spends a mark box before its text.
+ * @returns the columns the row's text may occupy.
+ */
+function textBudget(width: number, marked: boolean): number {
+  return Math.max(1, width - GUTTER_COLUMNS - (marked ? SPINNER_MARK_COLUMNS + 1 : 0))
 }
 
-/** The glyph one mark draws, animating only for observed execution. */
+/**
+ * The mark one row draws, always the width of the orbit's box.
+ *
+ * Observed execution turns the original six-shape arc through a two-column slot;
+ * everything else settles to its own glyph padded to the same width, so the row
+ * body never moves a column because a worker started or finished.
+ * @param mark - the row's authoritative mark.
+ * @param tick - the overlay's heartbeat.
+ * @returns exactly {@link SPINNER_MARK_COLUMNS} columns.
+ */
 function glyph(mark: WorkMark, tick: number): string {
-  return mark === 'executing' ? spinnerFrame(tick) : MARK_GLYPH[mark]
+  return mark === 'executing' ? spinnerFrameOrbit(tick) : spinnerMark(MARK_GLYPH[mark])
 }
 
 /** A focusable two-column fact row. */
@@ -1201,7 +1228,7 @@ function fact(key: string, value: string, width: number): StageRow {
   return {
     kind: 'row',
     key: `fact:${key}`,
-    text: truncateToWidth(`${key}  ${escapeControls(value)}`, textBudget(width)),
+    text: truncateToWidth(`${key}  ${escapeControls(value)}`, textBudget(width, false)),
     role: 'subdued',
   }
 }
@@ -1221,7 +1248,7 @@ function fact(key: string, value: string, width: number): StageRow {
  */
 function outputTailRow(text: string, width: number): StageRow | undefined {
   const prefix = `${OUTPUT_KEY}  `
-  const budget = textBudget(width) - displayWidth(prefix)
+  const budget = textBudget(width, false) - displayWidth(prefix)
   if (budget < 1) return undefined
   const normalized = text.replace(/[\r\n]+/gu, ' ')
   const escaped = escapeControls(normalized)
@@ -1257,6 +1284,14 @@ function muted(text: string, width: number): StageRow {
  * The mark keeps its own role so an outcome reads at a glance without turning
  * the whole line into a colour. One `paint` per span on one row: colouring a
  * multi-row string in one call is what leaks style into the next row.
+ *
+ * Focus owns the focused row whole, mark and text alike, in a single inverted
+ * span. That costs a turning mark its own colour on the row the cursor is on,
+ * which is the same trade the mark's role has always made and the reason
+ * `selection` and the mark roles are separate.
+ * @param row - the row to paint.
+ * @param focus - the identity the cursor is on, if any.
+ * @returns one physical row, or the empty string for a blank.
  */
 function paintRow(row: StageRow, focus: string | undefined): string {
   if (row.kind === 'blank') return ''
@@ -1275,6 +1310,7 @@ function paintRow(row: StageRow, focus: string | undefined): string {
  *
  * `reading overla…` states less than the word alone, so the highest-ranked
  * segment yields first and the name never yields at all.
+ *
  * @param name - the row's leading name, already escaped.
  * @param segments - the yieldable facts, in display order.
  * @param width - display columns available for name and segments.

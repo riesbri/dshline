@@ -99,13 +99,12 @@ describe('the status line on a real terminal', () => {
     expect(narrow).not.toContain('2.3M')
   })
 
-  it('leads with the whole activity word and no spinner, at every width', async () => {
+  it('leads with the whole activity word and no mark, at every width', async () => {
     for (const columns of [20, 30, 40, 50, 60, 80, 120]) {
       const line = await row(columns)
-      // The word is the busy indicator on this line, so it opens the row in
-      // full at every width, and no arc turns beside it.
+      // The word is the indicator and opens the row in full at every width, with
+      // nothing turning beside it to compete for the eye.
       expect(line, `${String(columns)} columns`).toMatch(/^ {2}responding/u)
-      expect(line, `${String(columns)} columns`).not.toMatch(/[◜◝◞◟◠◡]/u)
     }
   })
 
@@ -166,8 +165,7 @@ describe('the status line on a real terminal', () => {
     expect(narrow).not.toContain('…')
   })
 
-  it('passes the glint over the busy word while metadata stays subdued and still', async () => {
-    // `responding` is ten columns: a 13-tick pass, then rest from tick 13.
+  it('lights whole cells of the activity word and nothing outside it, on a terminal', async () => {
     const emulator = createEmulator(80, 24)
     const screen = new Screen(emulator.target)
     const at = async (tick: number): Promise<{ text: string; cells: Array<{ fg: number | undefined; bold: boolean }> }> => {
@@ -181,30 +179,31 @@ describe('the status line on a real terminal', () => {
       }
       return { text: rows[index] ?? '', cells }
     }
-    const rest = await at(20)
-    expect(rest.text).toContain('  responding · turn 14m 26s')
-    // At rest: the word is the busy accent (ANSI 33 -> fg 3) end to end.
-    for (let column = 2; column < 12; column += 1) {
-      expect(rest.cells[column], `column ${String(column)}`).toEqual({ fg: 3, bold: false })
+    // Columns 0-1 are the gutter and 2-11 the ten columns of `responding`.
+    const WORD = Array.from({ length: 10 }, (_unused, at) => 2 + at)
+    const lit = await at(5)
+    expect(lit.text).toContain('responding · turn 14m 26s')
+    // The band is bold in the terminal's own foreground, over the busy accent,
+    // and it never leaves the word: nothing after column 11 is lit.
+    const bold = lit.cells.map(cell => cell.bold)
+    const inWord = WORD.filter(column => bold[column] === true)
+    expect(inWord.length).toBeGreaterThan(0)
+    expect(inWord.length).toBeLessThanOrEqual(4)
+    for (const column of inWord) expect(lit.cells[column]?.fg, `column ${String(column)}`).toBeUndefined()
+    for (const column of WORD) {
+      if (bold[column] !== true) expect(lit.cells[column]?.fg, `column ${String(column)}`).toBe(3)
     }
-    // The elapsed suffix is a separate subdued fact, not part of the busy unit.
-    expect(rest.cells[20]?.fg).not.toBe(3)
-
-    const mid = await at(6)
-    // Mid-pass: three columns lit — bold, in the terminal's own foreground —
-    // with the busy accent either side, and the text itself unmoved.
-    expect(mid.text).toBe(rest.text)
-    const lit = mid.cells.slice(2, 12).map(cell => cell.bold)
-    expect(lit.filter(Boolean).length).toBe(3)
-    expect(lit.indexOf(true)).toBeGreaterThan(0)
-    for (let column = 2; column < 12; column += 1) {
-      const cell = mid.cells[column]
-      expect(cell, `column ${String(column)}`).toEqual(cell?.bold === true ? { fg: undefined, bold: true } : { fg: 3, bold: false })
-    }
-    // Everything after the word is identical on both frames.
-    expect(mid.cells.slice(12)).toEqual(rest.cells.slice(12))
+    expect(bold.slice(12).some(Boolean)).toBe(false)
+    // The rest of the line is identical on every tick, styling included.
+    const rest = await at(9)
+    expect(rest.text).toBe(lit.text)
+    expect(rest.cells.slice(12)).toEqual(lit.cells.slice(12))
+    // And at rest the word is the busy accent end to end.
+    const still = await at(15)
+    expect(still.cells.filter((_cell, column) => WORD.includes(column)).every(cell => cell.fg === 3 && !cell.bold)).toBe(true)
     emulator.dispose()
   })
+
 })
 
 describe('the status line while a resumed session replays', () => {

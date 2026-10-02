@@ -49,14 +49,17 @@ declare module '@dshline/renderer' {
     /** Something is in flight. */
     busy: RoleColor
     /**
-     * The moving band of light the status line passes over its `busy` word.
+     * Moving emphasis crossing the root status activity word while the attached
+     * session is busy.
      *
      * Its own role, not `busy` combined with `strong` at the call site: that
-     * would fix the band's appearance in code, where no palette could reach it,
+     * would fix the sheen\u2019s appearance in code, where no palette could reach it,
      * and the band has a job the word does not — it must stand out against
-     * `busy` on whatever background the terminal has. Only ever drawn for a few
-     * frames at a time over a word that is itself `busy`, so it never appears
-     * on a line where nothing is running.
+     * `busy` on whatever background the terminal has. It is drawn only over a
+     * word that is itself `busy`, on the one line whose single subject is the
+     * session, so it never appears where nothing is running and never appears
+     * inside a list, where a shared turning mark says the same thing on every
+     * row at once.
      */
     'busy-glint': RoleColor
     /** Nothing is running. */

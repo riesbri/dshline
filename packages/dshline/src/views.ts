@@ -21,7 +21,7 @@ import {
   layoutComposer,
   paint,
   paintGlint,
-  spinnerFrame,
+  spinnerFrameOrbit,
   truncateToWidth,
   wrapToWidth,
 } from '@dshline/renderer'
@@ -904,23 +904,35 @@ export function pressureBar(
 }
 
 /**
- * The status line's account of work in flight: the activity word, glinting.
+ * The status line's account of work in flight: the activity word, with a sheen
+ * crossing it.
  *
- * The word IS the indicator here, with no spinner beside it. This line
- * describes one subject — the attached session — so a mark saying "this one
- * is running" has nothing to tell it apart from, and an arc turning beside a
- * glinting word would be two motions saying one thing. The spinner remains
- * the mark for lists of things, where it says WHICH rows execute.
+ * The word IS the indicator, and nothing turns beside it. This line describes
+ * one subject — the attached session — so a mark saying "this one is running"
+ * has nothing to tell it apart from, and two motions on one line say one thing
+ * twice. The word answers both questions at once: it says what is running, and
+ * its motion says that it is.
  *
- * Except with no colour at all. A glint is nothing but styling, and at depth 0
- * `paint` emits none, so the word would sit motionless over running work; the
- * arc is the one motion that survives with no SGR, so it comes back there.
+ * The sheen is close to continuously alive for the same reason. It was a 2.4 s
+ * cycle that rested for more than half of every turn, and on the one line that
+ * is never closed a still line over running work reads as a hung process — which
+ * is exactly how a frozen `/compact` once read. It now sweeps in about a second
+ * and rests 0.4 to 0.7 s, which is a pause and not a silence. Holding that floor
+ * is the band's width to do, and what it costs is recorded there.
+ *
+ * Only the word is painted, and only its styling changes: no character moves,
+ * so the line measures the same on every frame and the ladder below can never
+ * tip onto another rung as the sheen travels.
+ *
+ * With no colour at all a sheen cannot exist — it is nothing but styling — so
+ * that terminal gets the two-cell orbit instead, which is the one motion here
+ * that survives with no SGR.
  * @param word - dshline's own activity vocabulary, never upstream text.
  * @param tick - the attachment's heartbeat.
  * @returns the styled segment; the same width on every tick.
  */
 function activityStatus(word: string, tick: number): string {
-  if (activePalette().depth === 0) return `${spinnerFrame(tick)}  ${word}`
+  if (activePalette().depth === 0) return `${paint(spinnerFrameOrbit(tick), 'busy')}  ${paint(word, 'busy')}`
   return paintGlint(word, tick, 'busy', 'busy-glint')
 }
 
