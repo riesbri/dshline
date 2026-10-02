@@ -30,13 +30,12 @@ import { displayWidth, splitAtColumns } from './width.ts'
 /**
  * The compact one-cell mark: four quadrant arcs, in clockwise order.
  *
- * The half circles `\u25e0` and `\u25e1` are in {@link ORBIT_GLYPHS} instead, and
- * are absent here for a reason worth keeping: Unicode calls these four
- * `QUADRANT CIRCULAR ARC` — thin outlines — and the other two `HALF CIRCLE`,
- * which fonts draw as a FILLED half-disc. Alternating a hairline with a solid
- * swings the mark's weight twice per revolution, which reads as growing and
- * shrinking rather than as turning. A four-arc table cannot hold them without
- * that swing, so it holds only arcs.
+ * The half circles `\u25e0` and `\u25e1` are in {@link ORBIT_GLYPHS} instead:
+ * Unicode calls these four `QUADRANT CIRCULAR ARC` — thin outlines — and the
+ * other two `HALF CIRCLE`, which fonts draw as a FILLED half-disc. Alternating
+ * a hairline with a solid swings the mark's weight twice per revolution, which
+ * reads as growing and shrinking rather than as turning, so a one-cell mark
+ * holds only arcs.
  */
 const FRAMES = ['\u25dc', '\u25dd', '\u25de', '\u25df'] as const
 
@@ -111,13 +110,11 @@ export const SPINNER_MARK_COLUMNS = 2
 /**
  * The two-cell orbit: ONE glyph moving through a fixed two-column box.
  *
- * Six frames for six ticks, one each, which is the original 600 ms with no
- * duplicated frames and no irregular hold. The glyph is never joined to another
- * one, because a two-glyph frame reads as a terminal drawing a combination
- * rather than as one mark that has presence: of the sixteen ways to pair two
- * arcs across two cells only four join into a single curve, and the reader's
- * verdict on those was that the pairing showed instead of the motion. Here the
- * glyph keeps its own cell and the animation owns the box.
+ * Six frames for six ticks, one each, so a revolution is the original 600 ms
+ * with nothing held and nothing duplicated. The glyph is never joined to a
+ * second one, because a two-glyph frame reads as a terminal drawing a
+ * combination rather than as one mark with presence. The glyph keeps its own
+ * cell and the animation owns the box.
  *
  * Every frame is exactly two columns because the second is always a space, and
  * every glyph is East Asian NEUTRAL, so a terminal in ambiguous-width mode
@@ -146,13 +143,14 @@ export function spinnerMark(mark: string): string {
 }
 
 /**
- * Ticks in one glint cycle — a sweep and the rest after it. 1.6 s.
+ * Ticks in one glint cycle — a sweep and the rest after it. 1.6 s at
+ * {@link SPINNER_INTERVAL_MS}.
  *
  * This is the root line's only liveness signal, so the cycle is close to
- * continuously alive: a shorter word sweeps in about a second and rests about
- * half a second, a longer one sweeps about 1.3 s and rests 0.2 s. An earlier
- * version spent more than half of every 2.4 s cycle completely still, which on
- * the one line that is always on screen read as idle rather than as working.
+ * continuously alive: a seven-column word is lit for 0.9 s and rests 0.7 s, a
+ * ten-column one for 1.2 s and rests 0.4 s. A line standing still over running
+ * work reads as a hung process, which is what a longer rest here once looked
+ * like on the one line that is never closed.
  *
  * The cycle is fixed rather than proportional to the text, and its phase comes
  * from the tick alone, so a word that changes mid-cycle neither restarts nor
@@ -164,14 +162,12 @@ export const GLINT_PERIOD_TICKS = 16
  * Columns the lit band covers: wide enough to read as light moving across a
  * word, narrow enough that the word underneath it stays legible.
  *
- * Three, against four. At half of a seven-column word the band stopped looking
- * like something passing through the text and started looking like the text
- * flashing.
- *
- * The width is paid for in liveness, which is the one thing this line is
- * selling: a word of `width` columns is lit for `width + 3 - 1` ticks of the
- * cycle, because the last step leaves the band wholly past the right edge.
- * Widening the band buys lit ticks one for one, and nothing else here does.
+ * The width is paid for in liveness, which is what this line is selling: a word
+ * of `width` columns is lit for `width + 3 - 1` ticks of the cycle, because the
+ * last step leaves the band wholly past the right edge. Every column here buys
+ * one more lit tick and nothing else in this geometry does, so a band wide
+ * enough to stop reading as light passing over a short word costs more than the
+ * presence it adds.
  */
 export const GLINT_BAND_COLUMNS = 3
 
@@ -179,11 +175,11 @@ export const GLINT_BAND_COLUMNS = 3
  * Ticks every cycle spends at rest, however long the text. A longer text is
  * crossed faster instead, so the pause cannot be spent on travel.
  *
- * Two, against eight before. The floor exists so a long enough word cannot eat
- * the pause entirely, and at this cycle length it still does that job: an
- * eleven-column word would otherwise claim all sixteen ticks. Every word
- * dshline can currently draw is ten columns or fewer, so the floor is a guard
- * on the shape rather than something any of them reaches.
+ * The floor exists so a word long enough to cross at one column a tick cannot
+ * eat the pause entirely: an eleven-column word would otherwise claim all
+ * sixteen ticks. Every word dshline can currently draw is ten columns or fewer,
+ * so this is a guard on the shape of the geometry rather than something any of
+ * them reaches.
  */
 const GLINT_MIN_REST_TICKS = 2
 

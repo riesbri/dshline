@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Composer, displayWidth, escapeControls, GLINT_PERIOD_TICKS, paint, paintGlint, Screen, setPalette, stripAnsi } from '@dshline/renderer'
+import { Composer, displayWidth, escapeControls, paint, paintGlint, Screen, setPalette, SPINNER_INTERVAL_MS, stripAnsi } from '@dshline/renderer'
 import { DEFAULT_PALETTE } from '../src/theme.ts'
 import { createEmulator } from '../../../tests/emulator.ts'
 import type { ComposerHint, StatusState } from '../src/views.ts'
@@ -476,6 +476,29 @@ describe('the status line', () => {
     replay: undefined,
     goal: undefined,
   }
+
+  /**
+   * Ticks in one sheen cycle, measured rather than imported.
+   *
+   * The renderer keeps its animation timing internal, and a copy of the number
+   * here would drift silently the first time the geometry moved. So this finds
+   * the period by watching the first frame come round again: the cycle is an
+   * observable property of the render, not a private detail of the renderer.
+   * @param word - the activity word whose sheen is measured.
+   * @returns the cycle length in ticks.
+   */
+  function sheenCycle(word: StatusState['activityWord']): number {
+    const at = (tick: number): string =>
+      createStatusView(() => ({ ...STATUS_DEFAULTS, busy: true, tick, activityWord: word })).render(120)[0] ?? ''
+    const first = at(0)
+    for (let period = 1; period <= 128; period += 1) {
+      if (at(period) === first) return period
+    }
+    throw new Error(`the sheen of "${String(word)}" never repeated within 128 ticks`)
+  }
+
+  /** One whole sheen cycle, in ticks. Every sweep assertion walks exactly this. */
+  const CYCLE = sheenCycle('thinking')
 
   /**
    * Render the status line and strip its styling.
@@ -1034,7 +1057,7 @@ describe('the status line', () => {
     // two motions on one line say one thing twice and this line has no
     // neighbours to be told apart from.
     const seen = new Set<string>()
-    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+    for (let tick = 0; tick < CYCLE; tick += 1) {
       const state = { busy: true, tick, elapsedMs: 4_000, activityWord: 'thinking' as const }
       expect(status(state)).toMatch(/^ {2}thinking · turn 4s/u)
       const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, ...state })).render(120)[0] ?? ''
@@ -1043,6 +1066,16 @@ describe('the status line', () => {
     }
     // And the line really does change from tick to tick, or it is not a signal.
     expect(seen.size).toBeGreaterThan(1)
+  })
+
+  it('sweeps once every 1.6 s, on every word it crosses', () => {
+    // The cycle is the drawer's, not the word's: it is fixed rather than
+    // proportional, which is what lets a word that arrives mid-sweep join the
+    // motion where it already was instead of restarting it.
+    expect(CYCLE * SPINNER_INTERVAL_MS).toBe(1600)
+    for (const activityWord of ['working', 'thinking', 'searching', 'responding'] as const) {
+      expect(sheenCycle(activityWord), activityWord).toBe(CYCLE)
+    }
   })
 
   it('sweeps a three-column band across the word, and leaves the rest alone', () => {
@@ -1058,7 +1091,7 @@ describe('the status line', () => {
     expect(raw(5).match(/\u001b\[1m/gu)).toHaveLength(1)
     // Nothing after the word changes from one tick to the next.
     const tail = (tick: number): string => raw(tick).slice(raw(tick).indexOf(' · turn'))
-    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) expect(tail(tick)).toBe(tail(0))
+    for (let tick = 0; tick < CYCLE; tick += 1) expect(tail(tick)).toBe(tail(0))
   })
 
   it('keeps the sheen moving for over half of its cycle, on every word length', () => {
@@ -1070,10 +1103,10 @@ describe('the status line', () => {
     for (const activityWord of ['working', 'thinking', 'searching', 'responding'] as const) {
       // `busy-glint` is `[1]` in the default palette, so the lit opener is
       // `CSI 1 m`. Counting the role NAME would count nothing at all.
-      const lit = Array.from({ length: GLINT_PERIOD_TICKS }, (_u, tick) =>
+      const lit = Array.from({ length: CYCLE }, (_u, tick) =>
         createStatusView(() => ({ ...STATUS_DEFAULTS, busy: true, tick, activityWord })).render(120)[0] ?? '')
         .filter(line => line.includes('\u001b[1m')).length
-      expect(lit / GLINT_PERIOD_TICKS, activityWord).toBeGreaterThan(0.5)
+      expect(lit / CYCLE, activityWord).toBeGreaterThan(0.5)
     }
   })
 
@@ -1083,7 +1116,7 @@ describe('the status line', () => {
     // The band column within the word, read back out of the styled bytes.
     const bandAt = (word: 'thinking' | 'responding', tick: number): number =>
       displayWidth(stripAnsi(paintGlint(word, tick, 'busy', 'busy-glint').split('\u001b[1m')[0] ?? ''))
-    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+    for (let tick = 0; tick < CYCLE; tick += 1) {
       const short = bandAt('thinking', tick)
       const long = bandAt('responding', tick)
       // While the shorter word is still sweeping, the longer one has the band
@@ -1102,7 +1135,7 @@ describe('the status line', () => {
     }
     // And the band really travels, so the equality above is the phase agreeing
     // rather than both words sitting still.
-    const columns = Array.from({ length: GLINT_PERIOD_TICKS }, (_u, tick) => bandAt('thinking', tick))
+    const columns = Array.from({ length: CYCLE }, (_u, tick) => bandAt('thinking', tick))
     expect(new Set(columns).size).toBeGreaterThan(1)
   })
 
@@ -1115,7 +1148,7 @@ describe('the status line', () => {
     // every other escape and every other character on the line: the elapsed
     // reading, the model and the hints must be byte-identical on every tick.
     const settled = (tick: number): string => raw(tick).replace(paintGlint('thinking', tick, 'busy', 'busy-glint'), 'X')
-    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) expect(settled(tick)).toBe(settled(0))
+    for (let tick = 0; tick < CYCLE; tick += 1) expect(settled(tick)).toBe(settled(0))
   })
 
   it('fits the same width on every tick of the sheen, at every width', () => {
@@ -1135,7 +1168,7 @@ describe('the status line', () => {
     }
     for (let columns = 0; columns <= 160; columns += 1) {
       const first = displayWidth(stripAnsi(status({ ...crowded, tick: 0 }, columns)))
-      for (let tick = 1; tick < GLINT_PERIOD_TICKS; tick += 1) {
+      for (let tick = 1; tick < CYCLE; tick += 1) {
         expect(
           displayWidth(stripAnsi(status({ ...crowded, tick }, columns))),
           `${String(columns)} columns @${String(tick)}`,
@@ -1146,7 +1179,7 @@ describe('the status line', () => {
 
   it('sweeps `compacting` too, and never leaves the word half-written', () => {
     const frames = new Set<string>()
-    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+    for (let tick = 0; tick < CYCLE; tick += 1) {
       const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, compacting: true, tick })).render(80)[0] ?? ''
       // The word is always whole: only its styling changes, so a sweep can
       // never be seen half-drawing the text it is crossing.
@@ -1159,7 +1192,7 @@ describe('the status line', () => {
   })
 
   it('draws a line where nothing runs identically on every tick', () => {
-    for (let tick = 0; tick < GLINT_PERIOD_TICKS; tick += 1) {
+    for (let tick = 0; tick < CYCLE; tick += 1) {
       const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, tick })).render(80)[0] ?? ''
       // Idle owns no motion: every tick draws the same bytes.
       expect(raw).toBe(createStatusView(() => ({ ...STATUS_DEFAULTS, tick: 0 })).render(80)[0])

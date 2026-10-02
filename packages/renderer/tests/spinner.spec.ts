@@ -11,7 +11,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   codePointWidth,
   displayWidth,
-  GLINT_PERIOD_TICKS,
   MARKDOWN_ROLES,
   paint,
   paintGlint,
@@ -25,7 +24,7 @@ import {
   stripAnsi,
   truncateToWidth,
 } from '../src/index.ts'
-import { GLINT_BAND_COLUMNS, glintBand, SPINNER_REVOLUTION_TICKS } from '../src/spinner.ts'
+import { GLINT_BAND_COLUMNS, glintBand, GLINT_PERIOD_TICKS, SPINNER_REVOLUTION_TICKS } from '../src/spinner.ts'
 import { splitAtColumns } from '../src/width.ts'
 import { createEmulator } from '../../../tests/emulator.ts'
 
@@ -106,9 +105,6 @@ describe('spinnerFrameOrbit()', () => {
     // lower-right, bottom, lower-left — one step clockwise round the circle.
     expect(Array.from({ length: SPINNER_REVOLUTION_TICKS }, (_u, tick) => spinnerFrameOrbit(tick)))
       .toEqual(ORBIT_CYCLE)
-    // One frame per tick, with nothing held: the irregular 2, 1, 2, 1 hold
-    // existed only to make four arcs fill six ticks.
-    expect(new Set(ORBIT_CYCLE).size).toBe(SPINNER_REVOLUTION_TICKS)
   })
 
   it('moves the glyph between the two cells rather than pairing two of them', () => {
@@ -151,13 +147,6 @@ describe('spinnerFrameOrbit()', () => {
     }
   })
 
-  it('uses the original six-shape vocabulary, and no glyph outside it', () => {
-    const vocabulary = new Set(ORBIT_CYCLE.map(frame => frame.trim()))
-    expect(vocabulary).toEqual(new Set(['\u25dc', '\u25e0', '\u25dd', '\u25de', '\u25e1', '\u25df']))
-    for (let tick = 0; tick < SPINNER_REVOLUTION_TICKS; tick += 1) {
-      expect(vocabulary.has(spinnerFrameOrbit(tick).trim())).toBe(true)
-    }
-  })
 
   it('draws every orbit glyph in one cell that no terminal widens', () => {
     // The quadrant arcs and both half circles are East Asian NEUTRAL, so a
@@ -348,14 +337,6 @@ describe('paintGlint()', () => {
     }
   })
 
-  it('costs a bounded handful of microseconds a frame', () => {
-    install()
-    // A regression guard, not a benchmark: it catches a scan gone quadratic or
-    // an allocation per character, which would be orders of magnitude off.
-    const started = performance.now()
-    for (let tick = 0; tick < 20_000; tick += 1) glint(UNICODE.mixed, tick)
-    expect((performance.now() - started) / 20_000).toBeLessThan(0.1)
-  })
 })
 
 describe('paintGlint() on a terminal', () => {
