@@ -69,6 +69,33 @@ export const NO_FILTERS: SessionFiltersValue = {
 }
 
 /**
+ * The scope the Sessions browser opens with, before the reader chooses one.
+ *
+ * Deliberately NOT a second meaning of {@link NO_FILTERS}. `NO_FILTERS` is the
+ * vocabulary's own "nothing is applied" value: `/worktrees` mounts the same
+ * catalog and genuinely means every session, and `sessionFilterClauses` has to
+ * stay able to emit zero clauses. The browser is answering a different, human
+ * question — which conversation do I want to resume — and a delegated subagent
+ * session is a real durable session that belongs to a conversation the reader
+ * started somewhere else. One `delegated` badge on a row cannot carry that
+ * difference through a list of titles, because it costs the title columns that
+ * answer the actual question.
+ *
+ * The delegated rows stay fully reachable: `ctrl-f` cycles Origin, and a parent
+ * reaches its children through Lineage. So this is a DEFAULT the reader can
+ * widen in three keystrokes, not a hiding rule.
+ *
+ * Applied by the composition root, never by {@link SessionCatalog}: the catalog
+ * is a generic read surface whose no-argument meaning is still "no filters",
+ * and an embedder that never asks for a scope must keep getting the whole
+ * corpus.
+ */
+export const DEFAULT_SESSION_FILTERS: SessionFiltersValue = {
+  ...NO_FILTERS,
+  origin: 'own',
+}
+
+/**
  * Compare two complete filter values.
  * @param a - the first value.
  * @param b - the second value.
