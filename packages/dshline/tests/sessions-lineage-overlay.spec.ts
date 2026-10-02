@@ -440,27 +440,29 @@ describe('proposing a related session', () => {
     ]
     const known = new Set(['target', 'child'])
     //
-    // ONE panel walks its cursor all the way round and asks at every stop. A loop
-    // that remounted per step would silently re-propose the same row each time
-    // and never visit a marker at all, which is exactly what this test exists to
-    // rule out.
-    const view = mount({ ...reopening(), state: ready(rows, 1) })
-    const visited: string[] = []
-    // Two full cycles: the cursor wraps, so a second pass proves the walk covers
-    // the whole selectable set rather than stopping at the first marker.
-    for (let stop = 0; stop < rows.length * 2; stop += 1) {
+    // A FRESH panel per cursor position, navigated first and asked once. `o`
+    // closes the panel it runs on, so continuing to send keys afterwards would be
+    // driving an overlay no reader can reach — and asking a second time would be
+    // testing a path that does not exist rather than the next position.
+    //
+    // The down-count walks further than there are selectable rows on purpose:
+    // each extra press has to wrap, which only works by stepping OVER the two
+    // markers. A marker that became selectable would therefore be landed on and
+    // proposed by one of these passes.
+    const proposed: SessionTarget[] = []
+    for (let downs = 0; downs <= rows.length; downs += 1) {
+      const view = mount({ ...reopening(), state: ready(rows, 1) })
+      for (let step = 0; step < downs; step += 1) view.press(key('down'))
       view.press({ kind: 'text', text: 'o' })
-      const proposedAt = view.reopened.at(-1)
-      if (proposedAt !== undefined) {
-        visited.push(proposedAt.id)
-        expect(known.has(proposedAt.id)).toBe(true)
-      }
-      view.press(key('down'))
+      // Exactly one ask per panel, and that ask ended the panel.
+      expect(view.reopened).toHaveLength(1)
+      expect(view.closed()).toBe(true)
+      proposed.push(...view.reopened)
     }
-    // The cursor really did reach BOTH session rows, so the markers were stepped
-    // over rather than the walk having missed them.
-    expect(new Set(visited)).toEqual(new Set(['target', 'child']))
-    expect(view.reopened.every(target => known.has(target.id))).toBe(true)
+    // Every proposed id is a real session, and both real sessions were reached:
+    // the markers were stepped over, never chosen.
+    expect(proposed.every(target => known.has(target.id))).toBe(true)
+    expect(new Set(proposed.map(target => target.id))).toEqual(new Set(['target', 'child']))
   })
 
   it('offers no key at all where nothing may reopen a session', () => {
