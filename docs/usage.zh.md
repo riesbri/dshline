@@ -645,7 +645,11 @@ allowBuilds:
 
 过滤是关于语料库的问题，因此它有自己的按键，而不是放在某一个会话的标题之下：`ctrl-f` 打开工作区（`all`/`current`）、来源（`all`/`own`/`delegated`）与年龄（`all`/`today`/`7 days`/`30 days`）。用 ctrl 手势，因为这里裸的字母是搜索输入。
 
+浏览器默认以 **来源 `own`** 打开，也就是你自己开始的那些对话。委派的子智能体会话是真实存在、可以重新打开的 Harness 会话，但它属于你在别处开始的另一次对话；而在大量委派的部署里，这类行会多过你正在找的那几行，同时还要分走标题的列宽。这个默认值是可以放宽的，而不是隐藏规则——`ctrl-f` 打开时就显示当前生效的值，来源 `all` 会把整个语料库带回来，父会话的 `Lineage` 则能在上下文中抵达它的子会话。因为第一帧起就有一个作用域在生效，标题会显示 `Sessions · filtered`，即使你什么都还没动。
+
 工作区与年龄变成精确的 Harness 子句（`cwd` 匹配、`created-at` 闭区间窗口），因此收窄发生在 Harness 内部。来源只在呈现层应用，因为 Harness 不发布来源谓词；每一行的分类来自 Harness 为同一会话返回的权威观测头部——搜索后端自己的命中投影省略 `origin` 时，批量标题观测仍然给出不可变的头部，因此持久化委派子会话的命中不会被误标为 `own`。过滤生效时标题出现 `· filtered`，改变过滤会重新开始分页。
+
+来源对内容搜索的收窄与对列表相同，并且会说出来而不是悄悄藏起来：一页命中被作用域丢弃时显示 `No returned results match the active filters`，这与 `Nothing in any session log matches that.` 是不同的一句话——后者表示 Harness 自己就没有找到任何东西。Harness 的相关性顺序、不透明游标与摘录不会被作用域重新排序或改写。
 
 两个内容作用域（`tab` 语料库搜索与 `Find in this session`）都通过不透明的 Harness 游标分页。末尾的 `Load more…` 行追加下一页（`↵`）；当语料库在游标之下变动时出现 `Refresh (results changed)`，计数器说明有多少结果（`· more available` 或 `· end`）——绝不是一个页码，因为 Harness 不发布页码。
 

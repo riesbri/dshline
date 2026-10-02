@@ -21,7 +21,7 @@ import type {} from '@deepseek-ai/dsh-session-query'
 import { promptSessionTitle } from '../prompt.ts'
 import { sessionTitleHints } from './hints.ts'
 import { SessionCatalog } from './catalog.ts'
-import { workspaceScope } from './filters.ts'
+import { DEFAULT_SESSION_FILTERS, workspaceScope } from './filters.ts'
 import { createSessionsOverlay, type RenameDraftOutcome } from './overlay.ts'
 import { CHILD_CLOSE_REQUESTED, type SessionsChildOverlay } from './panels.ts'
 import { planResume } from './plan.ts'
@@ -43,7 +43,7 @@ export type {
   SessionWorkspace,
   WorkspaceChoice,
 } from './filters.ts'
-export { equalFilters, EVERY_WORKSPACE, NO_FILTERS, workspaceScope } from './filters.ts'
+export { DEFAULT_SESSION_FILTERS, equalFilters, EVERY_WORKSPACE, NO_FILTERS, workspaceScope } from './filters.ts'
 export type {
   CatalogState,
   ContentState,
@@ -124,7 +124,11 @@ export async function browseSessions(spec: BrowseSpec): Promise<SessionId | unde
     ...(titleHints === undefined ? {} : { titleHints }),
     ...(spec.now === undefined ? {} : { now: spec.now }),
   })
-  catalog.refresh()
+  // The human default, applied here rather than inside the catalog so that
+  // `/worktrees` — which mounts the same catalog and genuinely means every
+  // session — keeps its unfiltered listing. It is a scope the reader widens with
+  // `ctrl-f`, not a rule that hides delegated work.
+  catalog.applyFilters(DEFAULT_SESSION_FILTERS)
   const renameDraft = async (focusedTitle: string | undefined): Promise<RenameDraftOutcome> => {
     // The focused row's title is the prefill: when the current session was
     // found through content search, the bounded base listing may not contain

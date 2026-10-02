@@ -897,6 +897,16 @@ under one session's title: `ctrl-f` opens workspace (`all`/`current`), origin
 (`all`/`own`/`delegated`) and age (`all`/`today`/`7 days`/`30 days`). It is a
 ctrl gesture because a bare letter here is search input.
 
+The browser opens with **origin `own`**: the conversations you started. A
+delegated subagent session is a real, resumable Harness session, but it belongs
+to a conversation you started somewhere else, and in a deployment that delegates
+a lot its rows outnumber the ones you are looking for while sharing their
+titles' columns. The scope is a default you widen, not a hiding rule — `ctrl-f`
+opens on the value already in force, `origin` `all` brings the whole corpus
+back, and a parent's `Lineage` reaches its children in context. Because a scope
+is in force from the first frame, the title reads `Sessions · filtered` before
+you have touched anything.
+
 Workspace and age become exact Harness clauses (`cwd` matching, `created-at`
 inclusive windows), so the narrowing happens inside Harness. Origin is applied
 presentation-only because Harness publishes no origin predicate; each row's
@@ -905,6 +915,13 @@ the same session — a search backend whose own hit projection omits `origin`
 still yields the immutable header through the batched title observation, so a
 persisted delegated child's hit is not mislabelled `own`. The filter title
 gains `· filtered` while one is active, and changing a filter restarts paging.
+
+Origin narrows content search the same way it narrows the list, and says so
+rather than hiding it: a page whose hits the scope dropped says
+`No returned results match the active filters`, which is a different sentence
+from `Nothing in any session log matches that.` — the latter means Harness
+itself found nothing. Harness's relevance order, opaque cursor and excerpts are
+never re-ranked or reshaped by the scope.
 
 Both content scopes (the `tab` corpus search and `Find in this session`) page
 through opaque Harness cursors. A trailing `Load more…` row appends the next
