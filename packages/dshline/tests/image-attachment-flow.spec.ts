@@ -651,13 +651,17 @@ describe('image attachment submission', () => {
     expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('does not support image input')
   })
 
-  it.each(['idle', 'running'] as const)('renders model controls literally in an image refusal while %s', async agentStatus => {
+  // Idle Enter would followup; running Enter with the steer preference would steer.
+  it.each([
+    { agentStatus: 'idle', busyEnter: 'queue' },
+    { agentStatus: 'running', busyEnter: 'steer' },
+  ] as const)('renders model controls literally in an image refusal while $agentStatus ($busyEnter)', async ({ agentStatus, busyEnter }) => {
     const emulator = createEmulator(80, 24)
     const screen = new Screen(emulator.target)
     // Bare controls, not a terminal command: carriage return must not overwrite
     // the refusal, and the escape byte must remain visible rather than swallowed.
     const model = 'fixture\rmodel\u001b'
-    const f = await fixture({ inputModalities: ['text'], model, screen, agentStatus, busyEnter: 'steer' })
+    const f = await fixture({ inputModalities: ['text'], model, screen, agentStatus, busyEnter })
     try {
       submit(f.dispatch(), '/image one.png')
       await flush()
@@ -682,6 +686,8 @@ describe('image attachment submission', () => {
       expect(f.agent.followup).not.toHaveBeenCalled()
       expect(f.agent.steer).not.toHaveBeenCalled()
     } finally {
+      // Exit synchronously cancels work and disposes presentation. Unlike a
+      // session switch, this mocked launcher exit does not settle f.attachment.
       f.requestExit()
       screen.close()
       emulator.dispose()
