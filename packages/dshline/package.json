@@ -1,6 +1,6 @@
 {
   "name": "@dshline/dshline",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Terminal-native frontend for DeepSeek Harness with real scrollback; a direct, in-process consumer of Harness capabilities.",
   "type": "module",
   "license": "MIT",
