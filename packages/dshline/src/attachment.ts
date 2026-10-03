@@ -2161,7 +2161,7 @@ async function runSessionEpoch(
         && !w.modelInfo.inputModalities.includes('image')
       ) {
         if (composer.isEmpty) composer.set(line)
-        commit([paint(`✗ model ${selection.current?.model ?? 'selected'} does not support image input; nothing was sent`, 'error')])
+        commit([paint(escapeControls(`✗ model ${selection.current?.model ?? 'selected'} does not support image input; nothing was sent`), 'error')])
         draw()
         return
       }
