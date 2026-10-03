@@ -1,5 +1,12 @@
 # dshline
 
+## 0.26.1
+
+### Patch Changes
+
+- 2b21ff0: Escape provider-supplied model metadata before rendering image-capability refusal messages in the terminal.
+- @dshline/renderer@0.26.1
+
 ## 0.26.0
 
 ### Minor Changes
