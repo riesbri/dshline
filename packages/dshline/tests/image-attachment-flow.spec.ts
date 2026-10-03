@@ -11,7 +11,8 @@ import { Context as RealContext } from '@deepseek-ai/cordis'
 import { isAttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
-import { stripAnsi, type Key } from '@dshline/renderer'
+import { Screen, stripAnsi, type Key } from '@dshline/renderer'
+import { createEmulator } from '../../../tests/emulator.ts'
 import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
 import { pricingFrom } from '../src/usage.ts'
@@ -28,6 +29,8 @@ async function fixture(options: {
   readonly execute?: (signal: AbortSignal) => Promise<unknown>
   readonly commandResult?: { readonly commandId: string; readonly result: { readonly kind: 'success' | 'error'; readonly text?: string } }
   readonly inputModalities?: readonly ('text' | 'image')[]
+  readonly model?: string
+  readonly screen?: Screen
   readonly agentStatus?: 'idle' | 'running'
   readonly busyEnter?: 'queue' | 'steer'
 } = {}): Promise<{
@@ -100,7 +103,11 @@ async function fixture(options: {
   let exitHandler: (() => void) | undefined
   let dispatch: ((key: Key) => void) | undefined
   let latest: string[] = []
-  const compose = (): void => { latest = ctx.tuiSlots.compose(80, 24).lines }
+  const compose = (): void => {
+    const frame = ctx.tuiSlots.compose(80, 24)
+    latest = frame.lines
+    options.screen?.setLive(frame.lines, frame.cursor)
+  }
   const draws = vi.fn(compose)
   const window = {
     ctx,
@@ -110,7 +117,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: { current: options.model === undefined ? undefined : { provider: 'fixture', model: options.model } },
     modelInfo: { contextWindow: undefined, reasoning: undefined, inputModalities: options.inputModalities },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: {
@@ -125,7 +132,10 @@ async function fixture(options: {
     pendingTask: undefined,
     draw: draws,
     paintNow: draws,
-    commit: (lines: readonly string[]) => { commits.push([...lines]) },
+    commit: (lines: readonly string[]) => {
+      commits.push([...lines])
+      options.screen?.commit(lines)
+    },
     clear: () => {},
     refreshModelInfo: () => {},
     setDispatch: (handler?: (key: Key) => void) => { dispatch = handler },
@@ -639,6 +649,49 @@ describe('image attachment submission', () => {
     expect(f.agent.followup).not.toHaveBeenCalled()
     expect(f.frame()).toContain('look')
     expect(f.commits.flat().map(stripAnsi).join('\n')).toContain('does not support image input')
+  })
+
+  // Idle Enter would followup; running Enter with the steer preference would steer.
+  it.each([
+    { agentStatus: 'idle', busyEnter: 'queue' },
+    { agentStatus: 'running', busyEnter: 'steer' },
+  ] as const)('renders model controls literally in an image refusal while $agentStatus ($busyEnter)', async ({ agentStatus, busyEnter }) => {
+    const emulator = createEmulator(80, 24)
+    const screen = new Screen(emulator.target)
+    // Bare controls, not a terminal command: carriage return must not overwrite
+    // the refusal, and the escape byte must remain visible rather than swallowed.
+    const model = 'fixture\rmodel\u001b'
+    const f = await fixture({ inputModalities: ['text'], model, screen, agentStatus, busyEnter })
+    try {
+      submit(f.dispatch(), '/image one.png')
+      await flush()
+      submit(f.dispatch(), 'look')
+      await flush()
+
+      const shown = await emulator.screen()
+      const refusal = '✗ model fixture^Mmodel^[ does not support image input; nothing was sent'
+      const refusalRow = shown.findIndex(row => row.includes('not support image input'))
+      expect(shown[refusalRow]).toBe(refusal)
+      // Cell attributes also catch escaping AFTER paint: that mistake turns our
+      // own SGR into visible text and loses the refusal's error styling.
+      expect(await emulator.cell(0, refusalRow)).toMatchObject({ chars: '✗', fg: 1 })
+      expect(shown.join('\n')).toContain('look')
+      // Draft counts belong to the empty-composer hint. Clear only the restored
+      // text, without submitting, to observe that the refused image is still staged.
+      f.dispatch()?.({ kind: 'key', name: 'ctrl-u' })
+      expect((await emulator.screen()).join('\n')).toContain('1 image')
+      expect(f.window.selection.current?.model).toBe(model)
+      expect(f.reads).not.toHaveBeenCalled()
+      expect(f.saves).not.toHaveBeenCalled()
+      expect(f.agent.followup).not.toHaveBeenCalled()
+      expect(f.agent.steer).not.toHaveBeenCalled()
+    } finally {
+      // Exit synchronously cancels work and disposes presentation. Unlike a
+      // session switch, this mocked launcher exit does not settle f.attachment.
+      f.requestExit()
+      screen.close()
+      emulator.dispose()
+    }
   })
 
   it('allows unknown model modalities and delegates the answer to Harness', async () => {
