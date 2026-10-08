@@ -1171,7 +1171,13 @@ async function runSessionEpoch(
         // `ctrl-k` can push the editor synchronously. Loading it inside the
         // gesture would let a fast enter settle the picker during the import
         // and leave the editor stranded on the composer.
-        let options: PickModelOptions = {}
+        let options: PickModelOptions = {
+          mayAct: attachmentMayAct,
+          signal: attachmentAbort.signal,
+          // Refresh at the admitted WINDOW change, not after a default save that
+          // may finish after this gesture's attachment has retired.
+          onApplied: w.refreshModelInfo,
+        }
         if (rawInput.trim() === '') {
           try {
             const { openSubagentModelSelection } = await import('./subagent-model-selection/index.ts')
@@ -1180,8 +1186,11 @@ async function runSessionEpoch(
             // `subagent-model-selection` setting and never touches this Agent's
             // selection, so nothing here can produce a model `SelectionOutcome`.
             options = {
+              ...options,
               onSubagentModels: () => {
+                if (!attachmentMayAct()) return
                 void openSubagentModelSelection({ ctx, commit }).catch((error: unknown) => {
+                  if (!attachmentMayAct()) return
                   // The editor reports its own read and write refusals; this is
                   // only for a programming failure, which has nowhere else to go.
                   const reason = error instanceof Error ? error.message : String(error)
@@ -1191,6 +1200,7 @@ async function runSessionEpoch(
               },
             }
           } catch (error: unknown) {
+            if (!attachmentMayAct()) return
             // A module that cannot load must not take `/model` down with it:
             // the picker still opens, and only the auxiliary editor is missing.
             const reason = error instanceof Error ? error.message : String(error)
@@ -1198,19 +1208,28 @@ async function runSessionEpoch(
             draw()
           }
         }
-        const outcome = await pickModel(ctx, selection, rawInput, options)
+        if (!attachmentMayAct()) return
+        let outcome: SelectionOutcome | undefined
+        try {
+          outcome = await pickModel(ctx, selection, rawInput, options)
+        } catch (error: unknown) {
+          if (attachmentMayAct()) report(error)
+          return
+        }
+        // Selection/default admission is fenced inside the model operation.
+        // This boundary protects only the initiating attachment's presentation.
+        if (!attachmentMayAct()) return
         if (outcome === undefined) {
           draw()
           return
         }
-        // Only a `done` is a model change, so only a `done` re-resolves metadata
-        // or earns a cache note. A refusal is presented from its own kind.
+        // Only a `done` earns a cache note; metadata was refreshed at live
+        // admission above. A refusal is presented from its own kind.
         if (outcome.kind === 'failed') {
           commit([selectionOutcomeLine(outcome)])
           draw()
           return
         }
-        w.refreshModelInfo()
         // Decided from the actual route before/after, never from the
         // acknowledgement: `/model` returning `done` on the already-current
         // route is a successful operation but not a state transition, and a
@@ -1274,7 +1293,17 @@ async function runSessionEpoch(
         // The levels are a short fixed set a person learns by heart, so
         // `/reasoning max` should not cost a picker.
         const before = selection.current?.reasoningEffort
-        const outcome = await pickReasoning(ctx, selection, w.modelInfo.reasoning, rawInput)
+        let outcome: SelectionOutcome | undefined
+        try {
+          outcome = await pickReasoning(ctx, selection, w.modelInfo.reasoning, rawInput, {
+            mayAct: attachmentMayAct,
+            signal: attachmentAbort.signal,
+          })
+        } catch (error: unknown) {
+          if (attachmentMayAct()) report(error)
+          return
+        }
+        if (!attachmentMayAct()) return
         if (outcome !== undefined) commit([selectionOutcomeLine(outcome)])
         // Only a `done` moved the stored effort: a refusal leaves the selection
         // exactly as it was, and a dismissal changes nothing. Comparing the

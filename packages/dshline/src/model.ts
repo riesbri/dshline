@@ -191,10 +191,17 @@ function currentModelChoiceValue(
 /**
  * What the `/model` command may attach to the picker it opens.
  *
- * The picker itself stays generic: this is the only seam it exposes, and the
- * one key it reserves.
+ * A command's authority is separate from the shared state it edits. Window-owned
+ * startup callers omit attachment lifetime controls; the auxiliary key remains
+ * an owner-provided action rather than part of the generic select overlay.
  */
 export interface PickModelOptions {
+  /** Whether this gesture still has authority to mount UI or edit window state. */
+  readonly mayAct?: () => boolean
+  /** Withdraw this gesture's picker and ask exact-model resolution to stop. */
+  readonly signal?: AbortSignal
+  /** Refresh window-owned metadata at an admitted live change, before persistence waits. */
+  readonly onApplied?: () => void
   /**
    * Open the subagent-model authorization editor.
    *
@@ -233,23 +240,24 @@ const SUBAGENT_MODELS_HELP = 'ctrl-k subagents'
  * overlay and its keystrokes, which is exactly what `promptSelect` hides.
  * @param ctx - context carrying the slot registry.
  * @param spec - the prompt and its choices; settlement is this function's.
- * @param onSubagentModels - the auxiliary editor opener, when the caller owns
- *   one.
+ * @param options - the auxiliary editor opener and picker withdrawal signal.
  * @returns the confirmed value, or undefined when the user cancelled.
  */
 async function promptModelPicker(
   ctx: Context,
   spec: Omit<SelectSpec, 'settle' | 'invalidate'>,
-  onSubagentModels: (() => void) | undefined,
+  options: PickModelOptions,
 ): Promise<string | undefined> {
+  const { onSubagentModels, signal } = options
   return new Promise<string | undefined>(resolve => {
     let dismiss = (): void => {}
     let settled = false
-    // Shared with the overlay only: either side can finish first, and the
-    // loser must not dismiss an overlay someone else already replaced.
+    const withdraw = (): void => { finish(undefined) }
+    // Settlement and retirement both remove only this invocation's overlay.
     const finish = (value: string | undefined): void => {
       if (settled) return
       settled = true
+      signal?.removeEventListener('abort', withdraw)
       dismiss()
       resolve(value)
     }
@@ -271,6 +279,8 @@ async function promptModelPicker(
       mounted: () => { base.mounted?.() },
       dispose: () => { base.dispose?.() },
     })
+    if (signal?.aborted === true) finish(undefined)
+    else signal?.addEventListener('abort', withdraw, { once: true })
   })
 }
 
@@ -279,10 +289,10 @@ async function promptModelPicker(
  * @param ctx - context carrying the llm registry and the slot registry.
  * @param selection - the agent's mutable selection ref.
  * @param argument - the text after `/model`; empty opens the picker.
- * @param options - the picker's one reserved key, when the caller owns an
- *   auxiliary surface.
- * @returns a typed line to report in the transcript, or undefined when the user
- *   dismissed the picker without choosing.
+ * @param options - the gesture's authority, cancellation, and auxiliary picker key;
+ *   window-owned callers may omit attachment lifetime options.
+ * @returns a typed line to report, or undefined on picker dismissal or retirement
+ *   before the shared selection/default save is admitted.
  */
 export async function pickModel(
   ctx: Context,
@@ -291,6 +301,9 @@ export async function pickModel(
   options: PickModelOptions = {},
 ): Promise<SelectionOutcome | undefined> {
   const { options: models, choices, failed } = await discover(ctx)
+  // Catalog listing has no cancellation API. A late result is data, not renewed
+  // authority to mount a picker or admit a named selection.
+  if (options.mayAct?.() === false) return undefined
   if (choices.length === 0) {
     return {
       kind: 'failed',
@@ -311,7 +324,7 @@ export async function pickModel(
         message: `no model named ${named}; type /model to choose from ${String(models.length)}`,
       }
     }
-    return apply(ctx, selection, wanted, current)
+    return apply(ctx, selection, wanted, current, options)
   }
   const initialValue = currentModelChoiceValue(current, models)
   const picked = await promptModelPicker(ctx, {
@@ -320,11 +333,11 @@ export async function pickModel(
     ...current === undefined ? {} : { detail: `current: ${current.provider}/${current.model}` },
     ...initialValue === undefined ? {} : { initialValue },
     choices,
-  }, options.onSubagentModels)
+  }, options)
   if (picked === undefined) return undefined
   const chosen = models[Number(picked)]
   if (chosen === undefined) return undefined
-  return apply(ctx, selection, chosen, current)
+  return apply(ctx, selection, chosen, current, options)
 }
 
 /**
@@ -339,6 +352,7 @@ export async function pickModel(
  * @param ctx - context carrying the llm registry.
  * @param chosen - the model being switched to.
  * @param wanted - the effort the previous selection carried.
+ * @param signal - optional cooperative cancellation for exact-model resolution.
  * @returns `wanted` when the target advertises it, or when capability
  *   resolution fails and support is therefore unknown; undefined when exact
  *   model resolution succeeds but the target does not advertise `wanted`,
@@ -348,9 +362,10 @@ async function stillSupported(
   ctx: Context,
   chosen: ModelOption,
   wanted: ReasoningEffortId,
+  signal?: AbortSignal,
 ): Promise<ReasoningEffortId | undefined> {
   try {
-    const info = await ctx.llm.resolveModelInfo(chosen.provider, chosen.model)
+    const info = await ctx.llm.resolveModelInfo(chosen.provider, chosen.model, signal)
     return info.reasoning?.efforts.some(effort => effort.id === wanted) === true ? wanted : undefined
   } catch {
     return wanted
@@ -363,28 +378,35 @@ async function stillSupported(
  * @param selection - the agent's mutable selection ref.
  * @param chosen - the model to select.
  * @param current - the selection being replaced, for what it carries forward.
- * @returns the applied change, always `done`: the ref above is written before
- *   persistence is attempted, so a save failure only adds a note.
+ * @param options - the initiating gesture's authority and window refresh callback.
+ * @returns the admitted change, or undefined after retirement. A save failure
+ *   only adds a note; it never rolls back an admitted window change.
  */
 async function apply(
   ctx: Context,
   selection: ModelSelectionRef,
   chosen: ModelOption,
   current: ModelSelectionRef['current'],
-): Promise<SelectionOutcome> {
+  options: PickModelOptions,
+): Promise<SelectionOutcome | undefined> {
   // Preserve the reasoning effort across the switch, but only when the target
   // route still advertises it \u2014 carrying forward one it does not would send
   // the very next model step straight into UNSUPPORTED_REASONING_EFFORT.
   const wanted = current?.reasoningEffort
-  const reasoningEffort = wanted === undefined ? undefined : await stillSupported(ctx, chosen, wanted)
+  const reasoningEffort = wanted === undefined ? undefined : await stillSupported(ctx, chosen, wanted, options.signal)
+  // Picker settlement and capability resolution both cross awaits. This admits
+  // the WINDOW write and its default save together, even if the provider ignored
+  // cancellation. Neither an already-admitted change nor save is rolled back.
+  if (options.mayAct?.() === false) return undefined
   const next = {
     provider: chosen.provider,
     model: chosen.model,
     ...reasoningEffort === undefined ? {} : { reasoningEffort },
   }
-  // The ref is written FIRST and unconditionally. The turn about to run reads it,
+  // Once admitted, the ref is written FIRST. The turn about to run reads it,
   // and a storage failure is no reason for that turn to use the old model.
   selection.current = next
+  options.onApplied?.()
   const said = [`model set to ${chosen.provider} / ${chosen.model}`]
   if (wanted !== undefined && reasoningEffort === undefined) said.push('reasoning reset to provider default')
   const note = await rememberSelection(ctx, next)
