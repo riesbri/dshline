@@ -1034,13 +1034,17 @@ another terminal is live in a directory: Harness reports a session as live only
 for the process asking, and publishes no cross-process ownership state, so a
 row that said "running elsewhere" would be inventing one.
 
-**One process per session.** Harness does not currently publish cross-process
-ownership for a persisted session, so neither `/worktrees` nor `/sessions` can
-tell whether one is already open somewhere else. Do not reopen the same session
-in two dshline processes at once: the shipped JSONL persistence requires one
-live writer per session, and nothing enforces that across processes. Working in
-several directories at the same time is fine and is what several terminals are
-for — it is the same *session* in two places that has no defined behaviour.
+**One process per session.** Harness publishes no cross-process ownership for a
+persisted session, so neither `/worktrees` nor `/sessions` can tell whether one
+is already open somewhere else before you pick it. The shipped JSONL backend
+does enforce one writer per session, though: it holds a kernel lock beside the
+log for the life of the write handle, and a second process that opens the same
+session is refused with Harness's `already owned by an active write handle`,
+which dshline shows on the resume-failure line before asking you to choose
+again. It cannot know the id was taken until the open fails, so close the other
+window that holds it, or pick a different session. Working in several
+directories at the same time is fine and is what several terminals are for — it
+is the same *session* in two places that has no defined behaviour.
 
 Opening a session reopens it exactly as `/sessions` does, under the same
 refusals, and a reopened session keeps the directory it was created in — its
