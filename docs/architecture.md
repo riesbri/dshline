@@ -926,22 +926,20 @@ refused with `SessionAlreadyOwnedError`, whose message is `session "<id>" is
 already owned by an active write handle`. The kernel releases the lock when the
 holder's descriptor closes, including on process death, so a crashed holder
 never blocks a successor; there is deliberately no expiry that could
-expropriate a stalled writer. (POSIX first materialization also uses `link()`,
-so two processes racing to create the same NEW id collide safely.)
+expropriate a stalled writer whose resumed appends would tear the log. (POSIX
+first materialization also uses `link()`, so two processes racing to create the
+same NEW id collide safely.)
 
 So the honest reading is: dshline still cannot tell whether a persisted session
 is currently open in another dshline process, because the lock is kernel-held
 and `SessionRecord` publishes no ownership field. It does not claim otherwise,
 and it does not invent the contract itself — no pid files, lock files,
-heartbeats, sockets, or process scanning. The enforcement is not new — it has
-been present in every generation this repository has adopted — so an earlier
-version of this paragraph, which described the JSONL backend as stating a
-requirement on callers rather than enforcing one, was out of date rather than
-describing a change. A second process is refused at open time rather than
-allowed to race, and that refusal reaches the reader as Harness's own reason on
-the resume-failure line. The user-facing consequence still belongs in
-documentation rather than in a badge on every row: do not drive one session
-from two processes at once. This is `/sessions`'s limitation too, and
+heartbeats, sockets, or process scanning. A second process is refused at open
+time rather than allowed to race, and that refusal reaches the reader as
+Harness's own reason on the resume-failure line. The user-facing consequence
+still belongs in documentation rather than in a badge on every row: do not
+drive one session from two processes at once. This is `/sessions`'s limitation
+too, and
 `/worktrees` makes no stronger promise than it does.
 
 ## Connect: configuration is four seams, not one

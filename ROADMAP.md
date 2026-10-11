@@ -751,5 +751,7 @@ does not promise is that any older prerelease generation keeps working.
   parsing, or a dirty-state policy — Git owns Git, and a Harness capability is
   what would publish it
 - cross-process session takeover, agent discovery, or process locks — pid
-  files, lock files, heartbeats, and sockets are all a frontend inventing an
-  ownership contract Harness has not defined
+  files, lock files, heartbeats, and sockets are all a frontend inventing a
+  queryable ownership contract Harness has not defined: the shipped JSONL
+  backend holds a kernel lock, but it answers only by refusing a second open,
+  so no row can report an owner before one is attempted
