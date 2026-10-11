@@ -95,6 +95,18 @@ export interface SetupSpec {
   readonly selection: ModelSelectionRef
   /** Re-resolve model metadata after the route changes; the window owns it. */
   readonly onModelChanged: () => void
+  /**
+   * Whether this run still has authority to mount UI or edit window state.
+   *
+   * `/setup` is reachable from two callers with different lifetimes: the
+   * window's own first-run offer, which outlives any attachment, and the
+   * `/setup` command an attachment owns. Omitting this — as the window caller
+   * does — means "unfenced", which is right there and wrong here, so the
+   * attachment passes the same epoch authority `/model` and `/reasoning` use.
+   */
+  readonly mayAct?: () => boolean
+  /** Withdraw this run's pickers when the initiating attachment retires. */
+  readonly signal?: AbortSignal
 }
 
 /**
@@ -191,11 +203,19 @@ export function blockedLines(): string[] {
  */
 export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
   const { ctx, commit } = spec
+  // Every continuation below can resume after the initiating attachment has
+  // begun retirement, and each one either mounts UI or commits rows into a
+  // transcript that no longer belongs to the window. The window's first-run
+  // offer omits `mayAct`, so this reads "unfenced" there and "fenced" for the
+  // `/setup` command — the distinction the two callers actually have. A retired
+  // run returns `continued` because its caller has already stopped listening.
+  const retired = (): boolean => spec.mayAct?.() === false
   for (;;) {
     // Re-read every pass. The reader has just been inside `/connect`, so the
     // previous reading is exactly the thing most likely to be out of date, and
     // showing the checklist again is how they see what their own action did.
     const facts = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
+    if (retired()) return 'continued'
     const checks = setupChecks(facts)
     commit(reportLines(facts))
     // The one finding that forbids reaching a session. The report is already on
@@ -221,6 +241,9 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
     }
     const steps = setupSteps(facts)
     const picked = await promptSelect(ctx, {
+      // The checklist is a picker like any other: a retiring attachment takes it
+      // down rather than leaving it on screen over a session that is going away.
+      ...spec.signal === undefined ? {} : { signal: spec.signal },
       title: 'Setup',
       view: 'Setup',
       detail: setupDetail(facts),
@@ -230,6 +253,7 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
         description: step.description,
       })),
     })
+    if (retired()) return 'continued'
     // Dismissal is the same answer as `Not now`: leave, having changed nothing
     // that was not changed by an action the reader took inside a browser.
     if (picked === undefined || picked === 'skip') {
@@ -238,6 +262,9 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
     }
     if (picked === 'connect') {
       await openConnect({ ctx, commit })
+      // `/connect` is a browser with its own lifetime, and re-reading for it is
+      // the first thing here that can land after this attachment retired.
+      if (retired()) return 'continued'
       // Connecting is only ever half the job, and the other half is one
       // keystroke a beginner has no way to know is waiting. So the conductor —
       // never `/connect`, which stays a browser and knows nothing about setup —
@@ -248,6 +275,7 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
       // Only then. A selection that already works is not replaced, because
       // adding a second provider is not a request to change models.
       const after = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
+      if (retired()) return 'continued'
       if (!needsModelChoice(after)) continue
       if (await chooseModel(spec)) return 'continued'
       continue
@@ -268,7 +296,22 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
  * @returns whether the flow is finished.
  */
 async function chooseModel(spec: SetupSpec): Promise<boolean> {
-  const outcome = await pickModel(spec.ctx, spec.selection)
+  const outcome = await pickModel(spec.ctx, spec.selection, '', {
+    // The same lifetime controls `/model` passes. `/setup` reaches this picker
+    // through an attachment's own command, so a catalog that resolves late must
+    // not mount an overlay or admit a selection once that attachment retired.
+    ...spec.mayAct === undefined ? {} : { mayAct: spec.mayAct },
+    ...spec.signal === undefined ? {} : { signal: spec.signal },
+    // Metadata is refreshed at the admitted write rather than after it, exactly
+    // as `/model` does: the route is already this window's, and persistence may
+    // still be waiting when the attachment goes away.
+    onApplied: spec.onModelChanged,
+  })
+  // This frame's own presentation is fenced separately. `pickModel` refuses to
+  // ADMIT a change without authority, but it still returns its outcome here, and
+  // a retired attachment must not commit a line into a transcript it no longer
+  // owns.
+  if (spec.mayAct?.() === false) return false
   // A dismissal leaves the reader on the checklist, and a refusal must too:
   // `pickModel` worded why nothing changed, so this only presents it. Neither
   // is a model change, so neither re-resolves metadata or ends the flow.
@@ -277,11 +320,12 @@ async function chooseModel(spec: SetupSpec): Promise<boolean> {
     spec.commit([paint(escapeControls(`\u2717 ${outcome.message}`), 'error')])
     return false
   }
-  spec.onModelChanged()
+  // `onModelChanged` already ran at the admitted write.
   spec.commit([paint(escapeControls(`\u00b7 ${outcome.message}`), 'muted')])
   // A selection that can actually serve a turn is the end of the flow; staying
   // would put the checklist back on screen to say what the line above said.
   if (await setupNeeded(spec.ctx, spec.selection)) return false
+  if (spec.mayAct?.() === false) return false
   spec.commit(['', paint('✓ Ready.', 'success'), ''])
   return true
 }

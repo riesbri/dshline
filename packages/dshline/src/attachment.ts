@@ -1456,13 +1456,22 @@ async function runSessionEpoch(
           commit,
           version: w.version,
           selection,
+          // `/setup` is an attachment gesture in the same sense `/model` is,
+          // even though everything it reports is window-level. Its checklist and
+          // its model picker both cross awaits, so a continuation that lands
+          // after this epoch retired must not mount a picker, admit a selection,
+          // or commit into a transcript this attachment no longer owns. The
+          // window's own first-run offer omits these deliberately: it outlives
+          // any attachment, so it has no epoch to be fenced to.
+          mayAct: attachmentMayAct,
+          signal: attachmentAbort.signal,
           onModelChanged: () => {
             w.refreshModelInfo()
             attention.show(modelRouteAttention(seen, selection.current))
             seen = selection.current
           },
         })
-        draw()
+        if (attachmentMayAct()) draw()
       },
     },
     {
