@@ -67,6 +67,9 @@ async function fixture({ delaySave = false } = {}) {
   })
   ctx.provide('llm', {
     listProviders: () => [{ id: 'route', name: 'Route' }], listModels, resolveModelInfo,
+    // `/connect` reads the configurable directory, which the catalog walks even
+    // when it is empty.
+    listConfigurableProviders: () => [],
   } as never)
   ctx.provide('agentDefaultModel', { saveSelection } as never)
   ctx.provide('tools', { get: () => undefined } as never)
@@ -445,6 +448,22 @@ describe('attachment authority for window model selection', () => {
       await flush()
       expect(f.ctx.tuiSlots.activeOverlay).toBeUndefined()
       expect(f.snapshot()).toEqual(before)
+    } finally { await f.stop() }
+  })
+
+  it('withdraws the browser the /connect command opened', async () => {
+    // `/connect` is the one browser a command opens directly, and the dynamic
+    // import before it is itself an await, so its spec has to receive the
+    // attachment lifetime rather than assume the epoch still owns the screen.
+    const f = await fixture()
+    f.start()
+    try {
+      f.submit('/connect')
+      // Behind a dynamic import and a catalog refresh: a real module load, not
+      // one microtask turn.
+      await vi.waitFor(() => { expect(f.ctx.tuiSlots.activeOverlay).toBeDefined() })
+      f.press('ctrl-d')
+      await vi.waitFor(() => { expect(f.ctx.tuiSlots.activeOverlay).toBeUndefined() })
     } finally { await f.stop() }
   })
 

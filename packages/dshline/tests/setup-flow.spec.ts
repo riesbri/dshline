@@ -58,6 +58,11 @@ interface Environment {
   /** Whether a credential seam is mounted. */
   credentials?: boolean
   /**
+   * Routes the directory lists but whose settings profile is absent, so the
+   * browser reads them as dormant and offers to activate them.
+   */
+  dormant?: string[]
+  /**
    * Held open before the model roster answers, so a test can retire the
    * attachment while discovery is in flight. Awaiting `undefined` is a no-op,
    * which is every other test's case.
@@ -84,6 +89,8 @@ interface Harness {
   readonly described: number
   /** Every credential reference asked about, in call order. */
   readonly credentialReads: string[]
+  /** Every credential reference a write was attempted against, in call order. */
+  readonly credentialWrites: string[]
   readonly selection: ModelSelectionRef
 }
 
@@ -101,11 +108,13 @@ function harness(environment: Environment): Harness {
   let discovered = 0
   let described = 0
   const credentialReads: string[] = []
+  const credentialWrites: string[] = []
   const configurable = environment.configurable ?? []
   // The route profiles a settings section would resolve to. A route with no
   // entry in `refs` stores no reference at all, which is what the reading has
   // to treat as "nothing established" rather than "missing".
-  const profiles = Object.fromEntries(configurable.map(provider => [
+  const dormant = new Set(environment.dormant ?? [])
+  const profiles = Object.fromEntries(configurable.filter(provider => !dormant.has(provider)).map(provider => [
     provider,
     environment.refs?.[provider] === undefined ? {} : { apiKeyEnv: environment.refs[provider] },
   ]))
@@ -139,7 +148,7 @@ function harness(environment: Environment): Harness {
       if (environment.unreadable?.includes(ref) === true) throw new Error('the store is offline')
       return { configured: environment.configured?.includes(ref) === true, writable: true }
     },
-    set: async () => {},
+    set: async (ref: string) => { credentialWrites.push(ref) },
     unset: async () => {},
     describeRecord: async () => ({ configured: false, writable: true }),
     deleteRecord: async () => {},
@@ -205,6 +214,7 @@ function harness(environment: Environment): Harness {
     get discovered() { return discovered },
     get described() { return described },
     credentialReads,
+    credentialWrites,
   }
 }
 
@@ -765,6 +775,78 @@ describe('a retired attachment cannot drive the guided flow', () => {
     // this attachment.
     await running
     expect(h.mounted()).toBe(false)
+  })
+
+  it('withdraws Connect action picker and admits no settings write on retirement', async () => {
+    // The confirmed reproduction: a dormant configurable route, a settings
+    // provider, and no credential provider — so the action picker offers
+    // `Activate this route`, whose confirmation reaches `settings.mutate`.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'], dormant: ['openai'], credentials: false })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    await h.press(ENTER) // `Connect a provider` opens the browser
+    await h.press(ENTER) // the dormant `openai` row opens its action picker
+    expect(h.text()).toContain('Activate')
+    controller.abort()
+    await settle()
+    // The child picker goes with the browser it belongs to...
+    expect(h.mounted()).toBe(false)
+    // ...and a confirmation decoded for it cannot reach settings afterwards.
+    await h.press(ENTER)
+    await settle()
+    expect(h.mutations).toEqual([])
+    await running
+  })
+
+  it('withdraws the secret prompt and admits no credential write on retirement', async () => {
+    // The same lifetime covers the one prompt whose answer is stored: an API
+    // key must not be written by a browser that has already closed.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'] })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    await h.press(ENTER) // `Connect a provider`
+    await h.press(ENTER) // the `openai` action picker
+    // The first offered action for a dormant route is storing its key, which is
+    // the prompt this test is about.
+    await h.press(ENTER)
+    await settle()
+    controller.abort()
+    await settle()
+    expect(h.mounted()).toBe(false)
+    expect(h.mutations).toEqual([])
+    expect(h.credentialWrites).toEqual([])
+    await running
+  })
+
+  it('withdraws the route editor and admits no save on retirement', async () => {
+    // The deepest nesting the browser owns: `Edit route` opens a wizard whose
+    // prompts are many levels down. Its lifetime comes from `runRouteEditor`,
+    // so a wizard that never sets one keeps its menu after the browser closes.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'] })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    await h.press(ENTER) // `Connect a provider`
+    await h.press(ENTER) // the `openai` row: opens the action picker
+    await h.press(DOWN, ENTER) // `Edit route` is the second action: opens the wizard
+    await settle()
+    expect(h.mounted()).toBe(true)
+    controller.abort()
+    await settle()
+    expect(h.mounted()).toBe(false)
+    expect(h.mutations).toEqual([])
+    await running
   })
 
   it('leaves the unfenced window caller alone', async () => {

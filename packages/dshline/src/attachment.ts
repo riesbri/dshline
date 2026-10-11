@@ -1504,8 +1504,19 @@ async function runSessionEpoch(
         // touches this session — a route it activates is read by the NEXT step's
         // model selection, which is what `/model` then offers.
         const { openConnect } = await import('./connect/index.ts')
-        await openConnect({ ctx, commit, query: rawInput.trim() })
-        draw()
+        // The import is itself an await, so authority is re-checked after it:
+        // `/connect` is the one browser opened by a command rather than by
+        // `/setup`, and a module graph that loads late must not mount over a
+        // session that has already retired this epoch.
+        if (!attachmentMayAct()) return
+        await openConnect({
+          ctx,
+          commit,
+          query: rawInput.trim(),
+          mayAct: attachmentMayAct,
+          signal: attachmentAbort.signal,
+        })
+        if (attachmentMayAct()) draw()
       },
     },
     {

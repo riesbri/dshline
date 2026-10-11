@@ -284,7 +284,7 @@ async function perform(
   reread: () => Promise<ConnectState>,
 ): Promise<ConnectActionOutcome | undefined> {
   const { ctx } = spec
-  if (row.kind === 'create') return createRouteAction(spec, seams, row)
+  if (row.kind === 'create') return createRouteAction(spec, seams, row, attempt)
   const capabilities = {
     settings: seams.settings !== undefined,
     credentials: seams.credentials !== undefined,
@@ -297,6 +297,10 @@ async function perform(
     return { kind: 'failed', message: noActionsReason(row, capabilities) }
   }
   const picked = await promptSelect(ctx, {
+    // The browser's own lifetime. This picker is a child of it, so a reader who
+    // quits — or whose attachment retires — must not leave it mounted over
+    // whatever replaces the browser.
+    signal: attempt.signal,
     title: row.kind === 'provider' ? `Configure ${row.provider}` : `Sign in · ${row.label}`,
     view: row.kind === 'provider' ? 'Configure' : 'Sign in',
     detail: subtitle(row),
@@ -307,10 +311,13 @@ async function perform(
     })),
   })
   if (picked === undefined) return undefined
+  // The picker can settle after the browser closed: a confirmation decoded in
+  // the same batch as the quit, say. Its continuation must not run the action.
+  if (attempt.signal.aborted) return undefined
   const action = actions.find(candidate => candidate.id === picked)
   if (action === undefined) return undefined
   return row.kind === 'provider'
-    ? providerAction(spec, seams, row, action)
+    ? providerAction(spec, seams, row, action, attempt)
     : signInAction(spec, seams, row, action, attempt, reread)
 }
 
@@ -320,6 +327,7 @@ async function perform(
  * @param seams - the Harness seams.
  * @param row - the provider row.
  * @param action - what the reader chose.
+ * @param attempt - the browser's in-flight slot, whose signal withdraws this.
  * @returns the outcome, or undefined when a required answer was dismissed.
  */
 async function providerAction(
@@ -327,10 +335,15 @@ async function providerAction(
   seams: ConnectSeams,
   row: ConnectProviderRow,
   action: ConnectAction,
+  attempt: ConnectAttempt,
 ): Promise<ConnectActionOutcome | undefined> {
+  if (attempt.signal.aborted) return undefined
   switch (action.id) {
     case 'set-key': {
       const typed = await promptText(spec.ctx, {
+        // The secret prompt is a child of the browser too, and its answer is the
+        // one that gets written somewhere: it belongs to the same lifetime.
+        signal: attempt.signal,
         title: `API key · ${row.provider}`,
         view: 'API key',
         message: `Paste the key ${row.displayName} issued you.`,
@@ -339,16 +352,16 @@ async function providerAction(
       })
       // Dismissed rather than answered: nothing was written, so nothing is said.
       if (typed === undefined) return undefined
-      return setApiKey(seams, row, typed)
+      return setApiKey(seams, row, typed, attempt.signal)
     }
     case 'clear-key':
-      return clearApiKey(seams, row)
+      return clearApiKey(seams, row, attempt.signal)
     case 'activate':
-      return activateRoute(seams, row)
+      return activateRoute(seams, row, attempt.signal)
     case 'deactivate':
-      return deactivateRoute(seams, row)
+      return deactivateRoute(seams, row, attempt.signal)
     case 'edit-route':
-      return runRouteEditor(spec.ctx, seams, row)
+      return runRouteEditor(spec.ctx, seams, row, attempt.signal)
     default:
       return undefined
   }
@@ -366,16 +379,19 @@ async function providerAction(
  * @param spec - the context and where transcript rows go.
  * @param seams - the Harness seams.
  * @param row - the create row the reader selected.
+ * @param attempt - the browser's in-flight slot, whose signal withdraws this.
  * @returns the outcome, or undefined when the reader backed out before writing anything.
  */
 async function createRouteAction(
   spec: ConnectSpec,
   seams: ConnectSeams,
   row: ConnectCreateRow,
+  attempt: ConnectAttempt,
 ): Promise<ConnectActionOutcome | undefined> {
+  if (attempt.signal.aborted) return undefined
   const target = row.targets[0]
   if (target === undefined) return { kind: 'failed', message: 'nothing is currently declarable' }
-  return runCreateRoute(spec.ctx, seams, target)
+  return runCreateRoute(spec.ctx, seams, target, attempt.signal)
 }
 
 /**
@@ -395,14 +411,17 @@ async function signInAction(
   attempt: ConnectAttempt,
   reread: () => Promise<ConnectState>,
 ): Promise<ConnectActionOutcome | undefined> {
-  if (action.id === 'sign-out') return forgetSignIn(seams, row)
+  if (action.id === 'sign-out') return forgetSignIn(seams, row, attempt.signal)
   if (action.id !== 'sign-in') return undefined
   const { authorization } = seams
   if (authorization === undefined) {
     return { kind: 'failed', message: 'this profile mounts no authorization service' }
   }
-  const method = await chooseMethod(spec.ctx, row)
+  const method = await chooseMethod(spec.ctx, row, attempt.signal)
   if (method === undefined && row.methods.length > 1) return undefined
+  // The method picker can settle after the browser closed, and the flow it
+  // selects is the longest-running thing here.
+  if (attempt.signal.aborted) return undefined
   // Marked only once the flow is actually about to run: a method picker the
   // reader dismissed withdrew nothing, and saying otherwise on close would
   // report a sign-in that never began.
@@ -438,12 +457,14 @@ async function signInAction(
  * first when a caller names none, so one method costs no picker.
  * @param ctx - context carrying the slot registry.
  * @param row - the sign-in row.
+ * @param signal - the browser's lifetime, so the question is withdrawn with it.
  * @returns the method id, or undefined when there was no choice to make or the
  *   reader dismissed it.
  */
-async function chooseMethod(ctx: Context, row: ConnectSignInRow): Promise<string | undefined> {
+async function chooseMethod(ctx: Context, row: ConnectSignInRow, signal?: AbortSignal): Promise<string | undefined> {
   if (row.methods.length <= 1) return undefined
   return promptSelect(ctx, {
+    ...signal === undefined ? {} : { signal },
     title: `Sign in · ${row.label}`,
     view: 'Sign in',
     detail: 'Harness offers more than one way to obtain this credential.',

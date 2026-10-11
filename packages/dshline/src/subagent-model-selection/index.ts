@@ -111,14 +111,16 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
   let resolveOpen = (): void => {}
 
   /**
-   * Whether the epoch that opened this editor still owns the screen.
+   * Whether this editor has stopped owning the screen.
    *
-   * The editor is a child of the `/model` picker, so the parent's retirement is
-   * this editor's too. Everything that could outlive it — the overlay, a catalog
-   * read, a settings write, a repaint — is checked against this rather than
-   * against `closed`, which the withdrawal itself sets.
+   * Two ways that happens, and both matter. The parent `/model` picker can
+   * retire, and the editor is its child, so that lifetime is this one too. Or
+   * the editor closes on its own — Escape, or a landed Save — while the
+   * attachment stays perfectly healthy, and a catalog read or a save already in
+   * flight finishes into a surface that is gone. Checking only the first let a
+   * held `listModels()` call `tuiSlots.invalidate()` after Escape.
    */
-  const retired = (): boolean => spec.mayAct?.() === false
+  const retired = (): boolean => closed || spec.mayAct?.() === false
   const invalidate = (): void => {
     // A retired epoch owns no screen: the overlay has been withdrawn, so a
     // repaint would touch a frame that now belongs to whatever replaced it.

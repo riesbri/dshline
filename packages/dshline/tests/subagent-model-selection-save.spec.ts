@@ -141,6 +141,8 @@ function slots(): {
   slots: { pushOverlay(overlay: TuiOverlay): () => void; invalidate(): void }
   top: () => TuiOverlay | undefined
   depth: () => number
+  /** How many repaints the slot registry was asked for. */
+  invalidations: () => number
   /**
    * Remove every overlay the way `TuiSlots` teardown does: drop the
    * registrations first, then dispose each one. This is the external-removal
@@ -149,6 +151,7 @@ function slots(): {
   teardown: () => void
 } {
   const stack: TuiOverlay[] = []
+  let invalidations = 0
   return {
     slots: {
       pushOverlay(overlay) {
@@ -160,10 +163,11 @@ function slots(): {
           overlay.dispose?.()
         }
       },
-      invalidate: () => {},
+      invalidate: () => { invalidations += 1 },
     },
     top: () => stack.at(-1),
     depth: () => stack.length,
+    invalidations: () => invalidations,
     teardown: () => {
       for (const overlay of stack.splice(0)) overlay.dispose?.()
     },
@@ -721,5 +725,63 @@ describe('a retired initiating gesture', () => {
     // longer owns.
     expect(view.committed.join('\n')).not.toContain('applies to new sessions')
     expect(view.stack.depth()).toBe(0)
+  })
+})
+
+describe('a catalog read that lands after the editor is gone', () => {
+  const SAVED = { enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] }
+
+  /**
+   * The registry with its roster held open until the test releases it.
+   * @returns the registry and the two ways to settle the read.
+   */
+  function heldCatalog() {
+    let settleGate = () => {}
+    let failGate = () => {}
+    const gate = new Promise((resolve, reject) => { settleGate = resolve; failGate = reject })
+    return {
+      llm: {
+        listProviders: () => Object.keys(CATALOG).map(id => ({ id, name: id })),
+        listModels: async (provider) => { await gate; return CATALOG[provider] ?? [] },
+      },
+      release: () => { settleGate() },
+      fail: error => { failGate(error) },
+    }
+  }
+
+  it.each(['resolves', 'rejects'])('is dropped when it %s after Escape', async settlement => {
+    // The confirmed reproduction: hold the roster, close the editor, then let
+    // the read finish. The editor owns no screen, so its repaint would land on
+    // a frame that belongs to whatever replaced it.
+    const settings = fakeSettings(SAVED)
+    const held = heldCatalog()
+    const view = await openEditor(settings, { llm: held.llm })
+    await vi.waitFor(() => { expect(view.stack.top()).toBeDefined() })
+    view.stack.top()?.handleKey(key('escape'))
+    await settlesWithin(view.running)
+    const before = view.stack.invalidations()
+    if (settlement === 'resolves') held.release()
+    else held.fail(new Error('the catalog is unavailable'))
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(view.stack.depth()).toBe(0)
+    expect(view.stack.invalidations()).toBe(before)
+  })
+
+  it('is dropped when it lands after the attachment retired', async () => {
+    const settings = fakeSettings(SAVED)
+    const held = heldCatalog()
+    const controller = new AbortController()
+    const view = await openEditor(settings, { llm: held.llm }, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => { expect(view.stack.top()).toBeDefined() })
+    controller.abort()
+    await settlesWithin(view.running)
+    const before = view.stack.invalidations()
+    held.release()
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(view.stack.depth()).toBe(0)
+    expect(view.stack.invalidations()).toBe(before)
   })
 })
