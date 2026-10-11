@@ -214,17 +214,34 @@ export function changesetFor(version) {
  * governed `dsh-*` specs resolve through it at the adopted revision.
  * @param tree - a GitHub git-tree response for the candidate revision.
  * @returns the directory names, as a set.
- * @throws when the tree came back truncated, where an absent path would mean
- *   "the listing stopped" rather than "the package was removed".
+ * @throws when the tree is truncated, carries no entries, or names no
+ *   workspace packages. Each is an absence of evidence rather than evidence of
+ *   absence, and reading one as "every governed package was retired" would
+ *   delete the whole Harness line.
  */
 export function packageDirsFromTree(tree) {
   if (tree?.truncated === true) {
     throw new Error('the harness tree came back truncated; an absent package cannot be told from an omitted subtree')
   }
+  // An API error shape, a permission failure, or a relaid-out upstream all
+  // arrive here with no `tree` array. Falling through to an empty set is what
+  // would make every governed spec look retired.
+  if (!Array.isArray(tree?.tree)) {
+    throw new Error('the harness tree response carried no entries; an absent package cannot be told from an unread response')
+  }
   const dirs = new Set()
-  for (const entry of tree?.tree ?? []) {
+  for (const entry of tree.tree) {
     const match = /^packages\/[^/]+\/(?<name>[^/]+)\/package\.json$/u.exec(entry?.path ?? '')
     if (match !== null && match.groups !== undefined) dirs.add(match.groups.name)
+  }
+  // The most destructive outcome this module has: an empty set makes
+  // `retiredSpecs` report EVERY governed package as retired, and
+  // `applyCandidate` would then remove the entire Harness line while still
+  // printing "Adoption proposed". The Harness repository always carries
+  // hundreds of workspaces, so a listing this empty is never a fact about
+  // upstream.
+  if (dirs.size === 0) {
+    throw new Error('the harness tree named no workspace packages; refusing to read every governed spec as retired')
   }
   return dirs
 }

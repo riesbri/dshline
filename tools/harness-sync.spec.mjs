@@ -358,6 +358,23 @@ describe('a generation that retires a governed package is still adoptable', () =
     expect(() => packageDirsFromTree({ truncated: true, tree: ADOPTED_TREE.tree })).toThrow(/truncated/u)
   })
 
+  it.each([
+    ['an absent response', undefined],
+    ['an empty object', {}],
+    ['a response with no tree array', { truncated: false }],
+    ['an empty listing', { truncated: false, tree: [] }],
+    ['an error body', { message: 'Not Found' }],
+  ])('refuses %s, which would otherwise retire every governed spec', (_label, tree) => {
+    // The most destructive failure this module has. An empty directory set
+    // makes `retiredSpecs` report EVERY governed package as retired, and
+    // `applyCandidate` would then delete the entire Harness line while still
+    // printing "Adoption proposed" — `--mechanical` reports nothing wrong with
+    // zero governed specs, so nothing downstream catches it. `truncated` is
+    // only one shape of absence-of-evidence; these are what an API error, a
+    // permission failure, or a relaid-out upstream actually return.
+    expect(() => packageDirsFromTree(tree)).toThrow(/no entries|no workspace packages/u)
+  })
+
   it('names the governed spec the candidate no longer publishes', () => {
     const governed = ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-invariants']
     // Present at the adopted revision, retired at the candidate: the same two
@@ -596,6 +613,37 @@ describe('the workflow stays a proposer, never a second opinion', () => {
     const refused = workflow.slice(workflow.indexOf('$KIND'))
     expect(refused).toContain('No pull request was opened')
     expect(refused).toContain('Read the run log')
+  })
+
+  it('distinguishes a pull-request step that failed from one that never ran', async () => {
+    const workflow = await workflowCode()
+    // `PROPOSED` is `failure` when the step ran and failed — a bad credential,
+    // say. Telling the reader it "never reached the pull-request step" names
+    // the wrong log, which is exactly when the summary is needed most. This is
+    // the state that produced the defect this suite exists to prevent, one
+    // branch further along.
+    const failure = workflow.indexOf("elif [ \"$PROPOSED\" = 'failure' ]")
+    const unreached = workflow.indexOf("elif [ \"$KIND\" = 'candidate' ]")
+    expect(failure).toBeGreaterThan(-1)
+    expect(unreached).toBeGreaterThan(failure)
+    const text = workflow.slice(failure, unreached)
+    expect(text).toContain('ran and failed')
+    expect(text).not.toContain('never')
+  })
+
+  it('gives the step that applies a candidate the token its upstream read needs', async () => {
+    const workflow = await workflowCode()
+    // `gh` does not inherit the job token from the environment, and deciding
+    // which governed specs a generation retired fetches that generation's git
+    // tree from inside `--apply`. Without the token the adoption dies at this
+    // step in CI while passing locally, where `gh` is already authenticated —
+    // an inert fix that looks green on the machine that wrote it.
+    const applyStep = workflow.slice(
+      workflow.indexOf('apply the candidate'),
+      workflow.indexOf('refresh the lockfile'),
+    )
+    expect(applyStep).toContain('GH_TOKEN')
+    expect(applyStep).toContain('github.token')
   })
 
   it('keeps a refused candidate red instead of inventing a quiet outcome for it', async () => {

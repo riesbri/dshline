@@ -99,6 +99,13 @@ jobs:
           REVISION: ${{ steps.candidate.outputs.revision }}
           TAG: ${{ steps.candidate.outputs.tag }}
           PR_BODY_PATH: ${{ runner.temp }}/harness-sync-body.md
+          # The retirement read fetches the candidate's git tree to learn which
+          # packages it still publishes, so this step needs the same read-only
+          # token the resolve step uses. GitHub does not export the job token
+          # into a step's environment and `gh` refuses to run without it — which
+          # failed the whole adoption here, before anything was written, and was
+          # invisible locally where `gh` is already authenticated.
+          GH_TOKEN: ${{ github.token }}
         run: node tools/harness-sync.mjs --apply "$VERSION" "$REVISION" "$TAG"
 
       # pnpm is the authority on whether the candidate may be installed yet.
@@ -226,13 +233,24 @@ jobs:
               echo 'for the previous one. A red `Harness target` check can also mean a HARNESS_COMPAT'
               echo 'record still names the previous generation and needs a deliberate decision: confirm'
               echo 'the defect remains and bump the record, or delete the shim with its wiring and tests.'
+            elif [ "$PROPOSED" = 'failure' ]; then
+              # The pull-request step RAN and failed. Claiming it "never reached"
+              # here would be false, and this is the state a missing or
+              # under-scoped credential produces — which is exactly when a
+              # reader most needs the summary to point at the right log.
+              echo
+              echo '**The pull-request step ran and failed**, so no adoption was proposed. The'
+              echo 'install and the mechanical coherence check both succeeded; the failure is in'
+              echo 'creating or updating the pull request itself, most often a missing or'
+              echo 'under-scoped credential. Read that step log, not the installer log.'
             elif [ "$KIND" = 'candidate' ]; then
               echo
               echo '**No pull request was opened**, and nothing was bypassed: this candidate never'
-              echo 'reached the pull-request step. The installer refused it, or the mechanical state'
-              echo 'failed its coherence check. Either upstream has not finished publishing this'
-              echo 'generation, or it retired a package this repository governs — the second is a'
-              echo 'breaking change that only a hand migration can answer. Read the run log; do not'
-              echo 'adopt a version the registry does not serve.'
+              echo 'reached the pull-request step. A failed `--apply`, a refused install, or a'
+              echo 'failed coherence check all leave no pull request behind. Either upstream has'
+              echo 'not finished publishing this generation, or it retired a package this'
+              echo 'repository governs — the second is a breaking change that only a hand'
+              echo 'migration can answer. Read the run log; do not adopt a version the registry'
+              echo 'does not serve.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
