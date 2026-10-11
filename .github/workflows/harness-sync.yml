@@ -136,10 +136,22 @@ jobs:
 
       # Any install failure that is NOT the release-age quarantine is a real
       # problem a human has to see, not something to open a pull request about.
+      #
+      # This stays RED, deliberately. Two very different refusals land here and
+      # pnpm reports them identically: upstream may simply not have finished
+      # publishing this generation, or upstream may have RETIRED a package this
+      # repository governs. The first is lag; the second is a breaking change
+      # that no mechanical proposal can express, and only CI plus a migration
+      # can answer it. This workflow cannot tell them apart from the install log
+      # alone, and guessing "lag" would green-wash a documented breaking change
+      # for as long as it went unnoticed. Fail closed, and let a human read it.
       - name: fail on an install refusal that is not quarantine
         if: steps.install.outcome == 'failure' && steps.quarantine.outputs.quarantined != 'true'
         run: |
           printf '%s\n' 'The candidate could not be installed, and not because of the release-age window.' >&2
+          printf '%s\n' 'Either upstream has not finished publishing this generation, or it retired a' >&2
+          printf '%s\n' 'package this repository governs. The second is a migration and is deliberately not' >&2
+          printf '%s\n' 'green here: this lane proposes, and the pull request CI would open is what decides.' >&2
           tail -40 install.log >&2
           exit 1
 
@@ -166,6 +178,7 @@ jobs:
       # release token, no npm credential, no OIDC. It is scoped to this step,
       # so nothing that installed or built upstream code ever saw it.
       - name: open or update the adoption pull request
+        id: pr
         if: steps.install.outcome == 'success'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # zizmor: ignore[superfluous-actions] updates one stable branch rather than creating a pull request per run; v8.1.1
         with:
@@ -184,6 +197,7 @@ jobs:
           SUMMARY: ${{ steps.candidate.outputs.summary }}
           BLOCKED_BY: ${{ steps.open-pr.outputs.number }}
           QUARANTINED: ${{ steps.quarantine.outputs.quarantined }}
+          PROPOSED: ${{ steps.pr.outcome }}
         run: |
           {
             echo "### Harness sync"
@@ -198,12 +212,27 @@ jobs:
               echo 'The generation exists but its packages are still inside the repository'
               echo '`minimumReleaseAge` window, so pnpm refused to install them. No pull request'
               echo 'was opened and nothing was bypassed; the next scheduled run will retry.'
-            elif [ "$KIND" = 'candidate' ]; then
+            elif [ "$PROPOSED" = 'success' ]; then
+              # The ONLY branch that may claim an adoption exists. It is gated on
+              # the pull-request step's own outcome rather than on the candidate
+              # being found, because every failure between here and there — a
+              # refused install, a failed `--apply`, a failed coherence check —
+              # leaves a candidate with no pull request behind it. Keying this on
+              # the candidate instead is how a run reported "ordinary CI on that
+              # pull request" for a pull request that was never opened.
               echo
               echo 'Adoption proposed from mechanical state only. Ordinary CI on that pull request is'
               echo 'authoritative for compatibility; red means migrate forward, never restore support'
               echo 'for the previous one. A red `Harness target` check can also mean a HARNESS_COMPAT'
               echo 'record still names the previous generation and needs a deliberate decision: confirm'
               echo 'the defect remains and bump the record, or delete the shim with its wiring and tests.'
+            elif [ "$KIND" = 'candidate' ]; then
+              echo
+              echo '**No pull request was opened**, and nothing was bypassed: this candidate never'
+              echo 'reached the pull-request step. The installer refused it, or the mechanical state'
+              echo 'failed its coherence check. Either upstream has not finished publishing this'
+              echo 'generation, or it retired a package this repository governs — the second is a'
+              echo 'breaking change that only a hand migration can answer. Read the run log; do not'
+              echo 'adopt a version the registry does not serve.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

@@ -21,10 +21,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   applyCandidate,
   changesetFor,
+  governedSpecs,
   newestRelease,
+  packageDirsFromTree,
   pullRequestBody,
   RELEASE_TAG,
   resolveCandidate,
+  retiredSpecs,
   summarize,
   versionOfTag,
 } from './harness-sync.mjs'
@@ -220,29 +223,33 @@ describe('one revision cannot be two generations', () => {
   })
 })
 
-describe('applying a candidate writes exactly the adoption state', () => {
-  /**
-   * A manifest pair whose governed and non-governed specs are distinguishable.
-   * @param root - the fixture root.
-   */
-  async function seedManifests(root) {
-    await writeFile(join(root, 'package.json'), `${JSON.stringify({
-      name: 'dshline-workspace',
-      devDependencies: {
-        '@deepseek-ai/dsh-agent': ADOPTED.version,
-        '@deepseek-ai/cordis': '4.0.2',
-        typescript: '^7.0.2',
-      },
-    }, null, 2)}\n`)
-    await writeFile(join(root, 'packages', 'dshline', 'package.json'), `${JSON.stringify({
-      name: '@dshline/dshline',
-      version: '0.15.0',
-      dependencies: { '@deepseek-ai/dsh-atomic-write': ADOPTED.version, '@deepseek-ai/schemastery': '^3.18.2' },
-      devDependencies: { '@deepseek-ai/dsh-session': ADOPTED.version },
-      peerDependencies: { '@deepseek-ai/dsh-llm': ADOPTED.version, '@deepseek-ai/cordis': '^4.0.2' },
-    }, null, 2)}\n`)
-  }
+/**
+ * A manifest pair whose governed and non-governed specs are distinguishable.
+ *
+ * Module scope rather than one describe's local: both the adoption block and the
+ * retirement block need the same governed line, and a second copy here would be
+ * free to drift from the fixtures that actually get edited.
+ * @param root - the fixture root.
+ */
+async function seedManifests(root) {
+  await writeFile(join(root, 'package.json'), `${JSON.stringify({
+    name: 'dshline-workspace',
+    devDependencies: {
+      '@deepseek-ai/dsh-agent': ADOPTED.version,
+      '@deepseek-ai/cordis': '4.0.2',
+      typescript: '^7.0.2',
+    },
+  }, null, 2)}\n`)
+  await writeFile(join(root, 'packages', 'dshline', 'package.json'), `${JSON.stringify({
+    name: '@dshline/dshline',
+    version: '0.15.0',
+    dependencies: { '@deepseek-ai/dsh-atomic-write': ADOPTED.version, '@deepseek-ai/schemastery': '^3.18.2' },
+    devDependencies: { '@deepseek-ai/dsh-session': ADOPTED.version },
+    peerDependencies: { '@deepseek-ai/dsh-llm': ADOPTED.version, '@deepseek-ai/cordis': '^4.0.2' },
+  }, null, 2)}\n`)
+}
 
+describe('applying a candidate writes exactly the adoption state', () => {
   it('rewrites HARNESS_TARGET to exactly the candidate, comments intact', async () => {
     const root = await fixtureRepo()
     await seedManifests(root)
@@ -307,6 +314,134 @@ describe('applying a candidate writes exactly the adoption state', () => {
       { version: ADOPTED.version, revision: ADOPTED.revision, tag: 'dsh-v0.1.2-alpha.5', from: ADOPTED },
       root,
     )).rejects.toThrow(/did not change/u)
+  })
+})
+
+describe('a generation that retires a governed package is still adoptable', () => {
+  /**
+   * The candidate revision's tree. `invariants` is absent from it: upstream
+   * removed the package and every `<package>/invariant` subpath, which is the
+   * whole situation this block exists to cover. Compare {@link ADOPTED_TREE},
+   * where it is still present.
+   */
+  const TREE = {
+    truncated: false,
+    tree: [
+      { path: 'packages/agent/agent/package.json' },
+      { path: 'packages/session/session/package.json' },
+      { path: 'packages/llm/llm/package.json' },
+      { path: 'README.md' },
+      { path: 'packages/agent/agent/src/index.ts' },
+      // Two segments below `packages/`, and not a package. A matcher that
+      // stopped at the directory instead of the manifest would read this as a
+      // package named CODEOWNERS, and every governed spec whose unscoped name
+      // is not present would then look retired.
+      { path: 'packages/runtime-diagnostics/CODEOWNERS' },
+    ],
+  }
+
+  /** The adopted revision's tree, where the same package is still published. */
+  const ADOPTED_TREE = {
+    truncated: false,
+    tree: [...TREE.tree, { path: 'packages/runtime-diagnostics/invariants/package.json' }],
+  }
+
+  it('reads the package directories out of one upstream tree', () => {
+    // The `package.json` level, not the directory: sibling source files under a
+    // package must not read as packages of their own.
+    expect([...packageDirsFromTree(ADOPTED_TREE)].sort()).toEqual(['agent', 'invariants', 'llm', 'session'])
+  })
+
+  it('refuses a truncated tree, where absence would prove nothing', () => {
+    // A truncated listing means "the listing stopped", not "the package is
+    // gone". Reading retirement from one would delete a live dependency.
+    expect(() => packageDirsFromTree({ truncated: true, tree: ADOPTED_TREE.tree })).toThrow(/truncated/u)
+  })
+
+  it('names the governed spec the candidate no longer publishes', () => {
+    const governed = ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-invariants']
+    // Present at the adopted revision, retired at the candidate: the same two
+    // names must answer differently at two revisions.
+    expect(retiredSpecs(governed, packageDirsFromTree(ADOPTED_TREE))).toEqual([])
+    expect(retiredSpecs(governed, packageDirsFromTree(TREE))).toEqual(['@deepseek-ai/dsh-invariants'])
+  })
+
+  it('never treats an ungoverned package as retired', () => {
+    // cordis and schemastery are not cut from the Harness revision and are
+    // never retired by it; a bare `@deepseek-ai/` test would delete both.
+    const dirs = packageDirsFromTree(TREE)
+    expect(retiredSpecs(['@deepseek-ai/cordis', '@deepseek-ai/schemastery'], dirs)).toEqual([])
+  })
+
+  it('removes the retired spec instead of pinning a version that does not exist', async () => {
+    const root = await fixtureRepo()
+    await seedManifests(root)
+    await writeFile(join(root, 'package.json'), `${JSON.stringify({
+      name: 'dshline-workspace',
+      devDependencies: {
+        '@deepseek-ai/dsh-agent': ADOPTED.version,
+        '@deepseek-ai/dsh-invariants': ADOPTED.version,
+        '@deepseek-ai/cordis': '4.0.2',
+      },
+    }, null, 2)}\n`)
+    const { removed, pinned } = await applyCandidate(
+      { version: '0.1.2-alpha.6', revision: NEXT, tag: 'dsh-v0.1.2-alpha.6', from: ADOPTED },
+      root,
+      { retired: ['@deepseek-ai/dsh-invariants'] },
+    )
+    const root_ = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+    // Gone from the manifest, and never pinned to the candidate version.
+    expect(root_.devDependencies['@deepseek-ai/dsh-invariants']).toBeUndefined()
+    expect(pinned.join('\n')).not.toContain('dsh-invariants')
+    expect(removed.join('\n')).toContain('@deepseek-ai/dsh-invariants')
+    // Everything else is adopted as usual, and the non-governed line is untouched.
+    expect(root_.devDependencies['@deepseek-ai/dsh-agent']).toBe('0.1.2-alpha.6')
+    expect(root_.devDependencies['@deepseek-ai/cordis']).toBe('4.0.2')
+  })
+
+  it('removes a retired peer too, because a promise cannot outlive its package', async () => {
+    const root = await fixtureRepo()
+    await seedManifests(root)
+    await applyCandidate(
+      { version: '0.1.2-alpha.6', revision: NEXT, tag: 'dsh-v0.1.2-alpha.6', from: ADOPTED },
+      root,
+      { retired: ['@deepseek-ai/dsh-llm'] },
+    )
+    const published = JSON.parse(await readFile(join(root, 'packages', 'dshline', 'package.json'), 'utf8'))
+    expect(published.peerDependencies['@deepseek-ai/dsh-llm']).toBeUndefined()
+    // cordis shares that peer map and keeps its own caret range.
+    expect(published.peerDependencies['@deepseek-ai/cordis']).toBe('^4.0.2')
+    // The rest of the governed line still moves.
+    expect(published.dependencies['@deepseek-ai/dsh-atomic-write']).toBe('0.1.2-alpha.6')
+  })
+
+  it('collects the governed line from every manifest field, deduplicated', async () => {
+    const root = await fixtureRepo()
+    await seedManifests(root)
+    const governed = await governedSpecs(root)
+    // Present in dependencies, devDependencies and peerDependencies across two manifests.
+    expect(governed).toContain('@deepseek-ai/dsh-atomic-write')
+    expect(governed).toContain('@deepseek-ai/dsh-llm')
+    expect(new Set(governed).size).toBe(governed.length)
+    expect(governed.filter(name => name === '@deepseek-ai/dsh-llm')).toHaveLength(1)
+    expect(governed).not.toContain('@deepseek-ai/cordis')
+  })
+
+  it('tells the reviewer which packages the generation retired', () => {
+    const body = pullRequestBody(
+      { version: '0.1.2-alpha.6', revision: NEXT, tag: 'dsh-v0.1.2-alpha.6', from: ADOPTED },
+      ['@deepseek-ai/dsh-invariants'],
+    )
+    expect(body).toContain('@deepseek-ai/dsh-invariants')
+    expect(body).toContain('removed from the manifests rather than pinned')
+  })
+
+  it('says nothing about retirement when the generation retired nothing', () => {
+    const body = pullRequestBody(
+      { version: '0.1.2-alpha.6', revision: NEXT, tag: 'dsh-v0.1.2-alpha.6', from: ADOPTED },
+      [],
+    )
+    expect(body).not.toContain('retire')
   })
 })
 
@@ -428,6 +563,56 @@ describe('the workflow stays a proposer, never a second opinion', () => {
     // candidate cannot produce one.
     const prStep = workflow.slice(workflow.indexOf('open or update the adoption pull request'))
     expect(prStep).toContain("if: steps.install.outcome == 'success'")
+  })
+
+  it('claims an adoption exists only when the pull request step actually ran', async () => {
+    const workflow = await workflowCode()
+    // The mechanical root of a summary that reported "ordinary CI on that pull
+    // request" for a pull request that was never opened: this step carried no
+    // id, so there was no step outcome for the summary to ask.
+    const prStep = workflow.slice(
+      workflow.indexOf('open or update the adoption pull request'),
+      workflow.indexOf('uses: peter-evans'),
+    )
+    expect(prStep).toContain('id: pr')
+    expect(workflow).toContain('steps.pr.outcome')
+    // And the claim is gated on that outcome, ahead of the candidate-only branch
+    // it used to fall into. `$KIND` occurs exactly once, in that old branch.
+    const proposed = workflow.indexOf('$PROPOSED')
+    const refused = workflow.indexOf('$KIND')
+    expect(proposed).toBeGreaterThan(-1)
+    expect(refused).toBeGreaterThan(proposed)
+    const claim = workflow.indexOf('Adoption proposed from mechanical state only')
+    expect(claim).toBeGreaterThan(proposed)
+    expect(claim).toBeLessThan(refused)
+  })
+
+  it('says plainly when a candidate reached no pull request', async () => {
+    const workflow = await workflowCode()
+    // Every failure between finding a candidate and opening its pull request
+    // lands here: a refused install, a failed `--apply`, a failed coherence
+    // check. Saying only that one "could not be installed" would be wrong for
+    // two of the three.
+    const refused = workflow.slice(workflow.indexOf('$KIND'))
+    expect(refused).toContain('No pull request was opened')
+    expect(refused).toContain('Read the run log')
+  })
+
+  it('keeps a refused candidate red instead of inventing a quiet outcome for it', async () => {
+    const workflow = await workflowCode()
+    // ERR_PNPM_NO_MATCHING_VERSION means one of two opposite things: upstream
+    // has not finished publishing, or upstream RETIRED a governed package. The
+    // install log cannot tell them apart, so classifying it as benign lag would
+    // green-wash a documented breaking change for as long as nobody noticed.
+    expect(workflow).not.toContain('ERR_PNPM_NO_MATCHING_VERSION')
+    const failStep = workflow.slice(
+      workflow.indexOf('fail on an install refusal'),
+      workflow.indexOf('the proposed tree is mechanically coherent'),
+    )
+    expect(failStep).toContain('exit 1')
+    // And it names both possibilities rather than asserting one of them.
+    expect(failStep).toContain('not finished publishing')
+    expect(failStep).toContain('retired a')
   })
 
   it('refuses to supersede an adoption that is already open', async () => {

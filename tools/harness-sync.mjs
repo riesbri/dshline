@@ -33,7 +33,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { CHECKED_FIELDS, pinTargetVersion, readTarget } from './harness-target.mjs'
+import { CHECKED_FIELDS, HARNESS_LINE_SCOPE, pinTargetVersion, readManifests, readTarget } from './harness-target.mjs'
 
 /** Repository root, resolved from this file rather than the caller's cwd. */
 const repoRoot = resolvePath(dirname(fileURLToPath(import.meta.url)), '..')
@@ -196,6 +196,115 @@ export function changesetFor(version) {
 }
 
 /**
+ * The Harness workspace package directory names that exist at one revision.
+ *
+ * Read from the upstream GIT TREE, never from the registry, and that choice is
+ * the whole reason this function exists. `ERR_PNPM_NO_MATCHING_VERSION` means
+ * two opposite things — upstream has not finished publishing, or upstream
+ * RETIRED the package — and they are indistinguishable from the install log.
+ * Asking the registry would reproduce the ambiguity, and resolving it by
+ * assuming "not published yet" would delete a dependency out from under a
+ * breaking change. The tree at the commit the release was cut from is a fact
+ * instead of a timing: the package is in that commit or it is not.
+ *
+ * Upstream names a package directory after its unscoped package name —
+ * `@deepseek-ai/dsh-invariants` lives in `packages/runtime-diagnostics/invariants`.
+ * That convention is what makes one recursive tree read sufficient instead of a
+ * manifest fetch per package, and it was checked rather than assumed: all 51
+ * governed `dsh-*` specs resolve through it at the adopted revision.
+ * @param tree - a GitHub git-tree response for the candidate revision.
+ * @returns the directory names, as a set.
+ * @throws when the tree came back truncated, where an absent path would mean
+ *   "the listing stopped" rather than "the package was removed".
+ */
+export function packageDirsFromTree(tree) {
+  if (tree?.truncated === true) {
+    throw new Error('the harness tree came back truncated; an absent package cannot be told from an omitted subtree')
+  }
+  const dirs = new Set()
+  for (const entry of tree?.tree ?? []) {
+    const match = /^packages\/[^/]+\/(?<name>[^/]+)\/package\.json$/u.exec(entry?.path ?? '')
+    if (match !== null && match.groups !== undefined) dirs.add(match.groups.name)
+  }
+  return dirs
+}
+
+/**
+ * The governed specs a candidate generation no longer publishes.
+ *
+ * Scoped to the governed line on purpose: cordis and schemastery are not cut
+ * from the Harness revision and are never retired by it, so a bare
+ * `@deepseek-ai/` test would let this delete packages that must keep their
+ * ordinary caret ranges.
+ * @param governed - the governed `dsh-*` names the repository declares.
+ * @param dirs - the candidate revision's workspace package directory names.
+ * @returns the governed names with no directory at that revision, sorted.
+ */
+export function retiredSpecs(governed, dirs) {
+  return governed
+    .filter(name => HARNESS_LINE_SCOPE.test(name) && !dirs.has(name.replace(/^@deepseek-ai\/dsh-/u, '')))
+    .sort()
+}
+
+/**
+ * Every governed spec the repository currently declares, across both manifests.
+ *
+ * Deduplicated across manifests and fields: a package listed in one manifest's
+ * dependencies and another's peerDependencies is one retirement, and removing
+ * it twice would be reported twice.
+ * @param root - repository root; overridden by tests.
+ * @returns the sorted governed names.
+ */
+export async function governedSpecs(root = repoRoot) {
+  const names = new Set()
+  for (const { manifest } of await readManifests(root)) {
+    for (const field of CHECKED_FIELDS) {
+      for (const name of Object.keys(manifest[field] ?? {})) {
+        if (HARNESS_LINE_SCOPE.test(name)) names.add(name)
+      }
+    }
+  }
+  return [...names].sort()
+}
+
+/**
+ * Delete named specs from both manifests, peers included.
+ *
+ * Peers deliberately included, unlike `harness-target.mjs --pin`: a peer range
+ * is the public compatibility promise, and a promise naming a package the
+ * generation deleted is worse than no promise at all. `applyCandidate` is
+ * already the operation that moves that promise, so it is the one place a
+ * retired package may leave it.
+ *
+ * Removal happens BEFORE {@link pinTargetVersion} runs, so the pinner never
+ * sees a retired spec and cannot write a version that does not exist.
+ * @param names - the retired package names to remove.
+ * @param root - repository root; overridden by tests.
+ * @returns one human-readable line per removed spec, in manifest order.
+ */
+export async function removeRetired(names, root = repoRoot) {
+  const applied = []
+  if (names.length === 0) return applied
+  const retiring = new Set(names)
+  for (const { relative, manifest } of await readManifests(root)) {
+    let changed = false
+    for (const field of CHECKED_FIELDS) {
+      const dependencies = manifest[field]
+      if (dependencies === undefined) continue
+      const removed = Object.keys(dependencies).filter(name => retiring.has(name))
+      if (removed.length === 0) continue
+      for (const name of removed) {
+        delete dependencies[name]
+        applied.push(`${relative.join('/')} (${field}): removed retired ${name}`)
+      }
+      changed = true
+    }
+    if (changed) await writeFile(join(root, ...relative), `${JSON.stringify(manifest, null, 2)}\n`)
+  }
+  return applied
+}
+
+/**
  * Write the candidate into the working tree, and nothing beyond it.
  *
  * Three mechanical edits: the two lines of `HARNESS_TARGET`, every governed
@@ -205,14 +314,25 @@ export function changesetFor(version) {
  * trust downgrade) get their say rather than being bypassed by a tool that
  * edited YAML directly.
  *
+ * `retired` is the one edit that is a deletion rather than a rewrite. A
+ * generation that retires a governed package cannot be adopted by pinning it
+ * to a version the registry does not serve, so without this the proposer has
+ * no move at all: it would pin the dead name, the installer would refuse
+ * forever, and a human would have to hand-write the whole adoption. Removing it
+ * here instead leaves an openable pull request that is red for the RIGHT
+ * reason — the compatibility and HARNESS_COMPAT decision — with the removal
+ * visible in its own diff for review.
+ *
  * Peers are included, unlike `harness-target.mjs --pin`. Adopting a generation
  * is precisely the decision that moves the public compatibility promise, so it
  * moves here and nowhere else — see {@link pinTargetVersion}.
  * @param candidate - the resolved candidate.
  * @param root - repository root, for tests.
- * @returns the changeset path and one line per rewritten spec.
+ * @param options.retired - governed specs the candidate generation no longer
+ *   publishes, removed before anything is pinned.
+ * @returns the changeset path, one line per removed spec, and one per rewritten spec.
  */
-export async function applyCandidate(candidate, root = repoRoot) {
+export async function applyCandidate(candidate, root = repoRoot, { retired = [] } = {}) {
   const targetPath = join(root, 'HARNESS_TARGET')
   const before = await readFile(targetPath, 'utf8')
   const after = before
@@ -221,21 +341,23 @@ export async function applyCandidate(candidate, root = repoRoot) {
   if (after === before) throw new Error('HARNESS_TARGET did not change; refusing to propose an empty adoption')
   await writeFile(targetPath, after)
 
+  const removed = await removeRetired(retired, root)
   const pinned = await pinTargetVersion(candidate.version, CHECKED_FIELDS, root)
 
   const changeset = changesetFor(candidate.version)
   const changesetPath = join(root, '.changeset', changeset.name)
   await writeFile(changesetPath, changeset.body)
 
-  return { changesetPath, pinned }
+  return { changesetPath, pinned, removed }
 }
 
 /**
  * The pull-request body for a candidate.
  * @param candidate - the resolved candidate.
+ * @param retired - governed specs the candidate generation no longer publishes.
  * @returns the markdown body.
  */
-export function pullRequestBody(candidate) {
+export function pullRequestBody(candidate, retired = []) {
   return [
     `Adopt DeepSeek Harness \`${candidate.version}\`.`,
     '',
@@ -250,6 +372,16 @@ export function pullRequestBody(candidate) {
     'This pull request contains only mechanical adoption state: `HARNESS_TARGET`,',
     'the governed `@deepseek-ai/dsh-*` pins, the lockfile, and a changeset. No',
     'source was read and no compatibility was assessed to produce it.',
+    ...(retired.length === 0 ? [] : [
+      '',
+      `> **This generation retires ${String(retired.length)} package(s) this repository governs:**`,
+      ...retired.map(name => `> - \`${name}\``),
+      '>',
+      '> They were removed from the manifests rather than pinned, because the',
+      '> registry does not serve them at this version. If anything here still',
+      '> imports one, `Harness target` will say so — that is a migration, and',
+      '> the fix is to stop using it, not to reintroduce the pin.',
+    ]),
     '',
     'Existing CI decides whether this generation is directly compatible.',
     'If Harness-facing source changes are required, do not add compatibility;',
@@ -302,6 +434,9 @@ export const liveReads = {
     return JSON.parse(Buffer.from(content, 'base64').toString('utf8')).version
   },
   compare: async (base, head) => githubApi(`repos/${HARNESS_REPO}/compare/${base}...${head}`, '.status'),
+  workspaceDirs: async revision => packageDirsFromTree(
+    await githubApi(`repos/${HARNESS_REPO}/git/trees/${revision}?recursive=1`),
+  ),
 }
 
 if (process.argv[1] !== undefined && import.meta.url === new URL(process.argv[1], 'file:').href) {
@@ -315,9 +450,14 @@ if (process.argv[1] !== undefined && import.meta.url === new URL(process.argv[1]
       process.exit(2)
     }
     const target = await readTarget()
-    const { changesetPath, pinned } = await applyCandidate({
+    // Read the candidate's tree before writing anything: a retirement is the
+    // difference between an openable proposal and a pin the registry refuses
+    // forever, and it is only knowable from the revision.
+    const retired = retiredSpecs(await governedSpecs(repoRoot), await liveReads.workspaceDirs(revision))
+    const { changesetPath, pinned, removed } = await applyCandidate({
       version, revision, tag: tag ?? `dsh-v${version}`, from: target,
-    })
+    }, repoRoot, { retired })
+    for (const line of removed) process.stdout.write(`${line}\n`)
     for (const line of pinned) process.stdout.write(`${line}\n`)
     process.stdout.write(`wrote ${changesetPath.slice(repoRoot.length + 1)} and HARNESS_TARGET ${version} @ ${revision.slice(0, 8)}\n`)
     // Written outside the repository on purpose: the pull-request body is not
@@ -326,7 +466,7 @@ if (process.argv[1] !== undefined && import.meta.url === new URL(process.argv[1]
     if (process.env.PR_BODY_PATH !== undefined) {
       await writeFile(process.env.PR_BODY_PATH, `${pullRequestBody({
         version, revision, tag: tag ?? `dsh-v${version}`, from: target,
-      })}\n`)
+      }, retired)}\n`)
     }
     process.exit(0)
   }

@@ -246,6 +246,25 @@ async function defaultFetchPackument(name) {
 }
 
 /**
+ * Both governed manifests, parsed, with the path they were read from.
+ *
+ * Exported because a caller that has to decide something per governed spec —
+ * which ones a candidate generation still publishes, say — needs the same two
+ * files and the same path knowledge {@link pinTargetVersion} uses. Reading them
+ * again here instead would be a second copy of the list, and a manifest added
+ * to {@link MANIFEST_PATHS} would silently escape anything that used it.
+ * @param root - repository root the manifests are resolved against; overridden by tests.
+ * @returns `{ relative, manifest }` per manifest, in {@link MANIFEST_PATHS} order.
+ */
+export async function readManifests(root = repoRoot) {
+  const manifests = []
+  for (const relative of MANIFEST_PATHS) {
+    manifests.push({ relative, manifest: JSON.parse(await readFile(join(root, ...relative), 'utf8')) })
+  }
+  return manifests
+}
+
+/**
  * Rewrite every governed `dsh-*` spec in both manifests to one exact version.
  *
  * The single implementation of "what the governed line is and how it is
