@@ -7,11 +7,14 @@
  * longer be erased, and the next redraw corrupts committed scrollback.
  */
 
+import { getEventListeners } from 'node:events'
 import { describe, expect, it } from 'vitest'
+import type { Context } from '@deepseek-ai/cordis'
 import type { Key } from '@dshline/renderer'
 import { displayWidth, stripAnsi, wrapToWidth } from '@dshline/renderer'
 import type { SelectChoice } from '../src/select.ts'
-import { createSelectOverlay, filterChoices, SEARCHABLE_CHOICES } from '../src/select.ts'
+import { createSelectOverlay, filterChoices, promptSelect, SEARCHABLE_CHOICES } from '../src/select.ts'
+import type { TuiOverlay } from '../src/slots.ts'
 
 /** Width and height of a comfortable terminal. */
 const COLUMNS = 80
@@ -457,6 +460,75 @@ describe('owner-contributed help', () => {
     expect(narrow).not.toContain(OWNER_PHRASE)
     // Whole-segment dropping: no truncated prefix of the dropped phrase.
     expect(narrow).not.toContain('x frob')
+  })
+})
+
+describe('the picker withdrawal listener', () => {
+  /**
+   * A context whose slot registry hands each pushed overlay to the test.
+   * @returns the context, a way to press into whatever is mounted, and whether
+   *   anything still is.
+   */
+  function mountedPicker(): {
+    ctx: Context
+    press: (name: Extract<Key, { kind: 'key' }>['name']) => void
+    mounted: () => boolean
+  } {
+    const stack: TuiOverlay[] = []
+    const ctx = {
+      tuiSlots: {
+        pushOverlay: (overlay: TuiOverlay) => {
+          stack.push(overlay)
+          return (): void => {
+            const index = stack.indexOf(overlay)
+            if (index >= 0) stack.splice(index, 1)
+          }
+        },
+        invalidate: (): void => {},
+      },
+    } as unknown as Context
+    return {
+      ctx,
+      press: name => { stack.at(-1)?.handleKey(key(name)) },
+      mounted: () => stack.length > 0,
+    }
+  }
+
+  const CHOICES: SelectChoice[] = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]
+
+  it('detaches on a normal settle, so a long-lived signal does not accumulate', async () => {
+    // The signal is the initiating attachment's and outlives every picker it
+    // opens. `once` stops the listener firing twice, not accumulating: twelve
+    // pickers answered against one signal used to leave twelve listeners on it,
+    // each retaining a settled closure for the rest of the session.
+    const controller = new AbortController()
+    const { ctx, press } = mountedPicker()
+    for (let index = 0; index < 12; index += 1) {
+      const answered = promptSelect(ctx, { title: 'Pick', view: 'Pick', choices: CHOICES, signal: controller.signal })
+      press('enter')
+      await expect(answered).resolves.toBe('a')
+    }
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+  })
+
+  it('detaches when Escape dismisses it', async () => {
+    const controller = new AbortController()
+    const { ctx, press } = mountedPicker()
+    const answered = promptSelect(ctx, { title: 'Pick', view: 'Pick', choices: CHOICES, signal: controller.signal })
+    press('escape')
+    await expect(answered).resolves.toBeUndefined()
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+  })
+
+  it('detaches when the signal withdraws it, and settles exactly once', async () => {
+    const controller = new AbortController()
+    const { ctx, mounted } = mountedPicker()
+    const answered = promptSelect(ctx, { title: 'Pick', view: 'Pick', choices: CHOICES, signal: controller.signal })
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1)
+    controller.abort()
+    await expect(answered).resolves.toBeUndefined()
+    expect(mounted()).toBe(false)
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
   })
 })
 

@@ -261,7 +261,17 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
       return 'continued'
     }
     if (picked === 'connect') {
-      await openConnect({ ctx, commit })
+      await openConnect({
+        ctx,
+        commit,
+        // Connect is opened BY this epoch and runs inside it, so it is withdrawn
+        // with it: a sign-in waiting on a browser callback must not outlive the
+        // attachment that started it, and the `retired()` check below cannot run
+        // while this await is pending. The window's first-run offer supplies no
+        // controls and therefore stays unfenced.
+        ...spec.mayAct === undefined ? {} : { mayAct: spec.mayAct },
+        ...spec.signal === undefined ? {} : { signal: spec.signal },
+      })
       // `/connect` is a browser with its own lifetime, and re-reading for it is
       // the first thing here that can land after this attachment retired.
       if (retired()) return 'continued'

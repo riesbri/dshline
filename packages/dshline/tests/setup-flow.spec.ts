@@ -738,6 +738,35 @@ describe('a retired attachment cannot drive the guided flow', () => {
     await running
   })
 
+  it('withdraws Connect when the attachment retires with the browser open', async () => {
+    // `runSetup` awaits `openConnect`, so nothing after that await can run while
+    // the browser is open — the fix has to withdraw it from inside, through the
+    // browser's own life controller.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'] })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    // `Connect a provider` is the only step besides `Not now` while nothing is
+    // registered, so it opens first.
+    await h.press(ENTER)
+    await settle()
+    expect(h.mounted()).toBe(true)
+    const before = [...h.committed]
+    controller.abort()
+    await settle()
+    // Withdrawn, and silent: a retired epoch must not commit why a sign-in
+    // stopped into a transcript it no longer owns.
+    expect(h.mounted()).toBe(false)
+    expect(h.committed).toEqual(before)
+    // And the flow settles rather than reopening a picker over whatever replaced
+    // this attachment.
+    await running
+    expect(h.mounted()).toBe(false)
+  })
+
   it('leaves the unfenced window caller alone', async () => {
     // The same flow with no controls — what the first-run offer passes — must
     // still reach its checklist. A fence that needed `mayAct` would silently

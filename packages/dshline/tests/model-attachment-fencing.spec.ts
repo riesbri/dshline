@@ -426,6 +426,28 @@ describe('attachment authority for window model selection', () => {
     } finally { await f.stop() }
   })
 
+  it('withdraws the ctrl-k editor with the epoch that opened it', async () => {
+    // The editor is a CHILD of the model picker, so it inherits that gesture's
+    // epoch rather than owning one. Withdrawing the parent removes only the
+    // parent's own registration, so before this the child stayed mounted over
+    // whatever replaced the attachment.
+    const f = await fixture()
+    f.start()
+    try {
+      await openModel(f)
+      f.press('ctrl-k')
+      await flush()
+      // Two surfaces: the model picker, and the editor it opened over it.
+      expect(f.snapshot().opened).toBe(2)
+      expect(f.ctx.tuiSlots.activeOverlay).toBeDefined()
+      f.press('ctrl-d')
+      const before = f.snapshot()
+      await flush()
+      expect(f.ctx.tuiSlots.activeOverlay).toBeUndefined()
+      expect(f.snapshot()).toEqual(before)
+    } finally { await f.stop() }
+  })
+
   it('keeps admitted reasoning state and default save but suppresses its late acknowledgement in B', async () => {
     const f = await fixture({ delaySave: true })
     const a = f.start()

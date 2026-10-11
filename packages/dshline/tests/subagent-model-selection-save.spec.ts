@@ -7,6 +7,7 @@
  * Agent's model selection or the default-model setting.
  */
 
+import { getEventListeners } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
@@ -179,11 +180,14 @@ const llm = {
  * Open the editor over a fresh fake context.
  * @param settings - the settings document.
  * @param overrides - substitutions for the llm registry or the settings lookup.
+ * @param controls - the initiating gesture's lifetime, when the editor is opened
+ *   as a child of one; the direct `/plugins`-style callers pass none.
  * @returns the mounted stack, the committed lines, and the running promise.
  */
 async function openEditor(
   settings: FakeSettings,
   overrides: { llm?: unknown; settings?: unknown; withoutSettings?: boolean } = {},
+  controls: { mayAct?: () => boolean; signal?: AbortSignal } = {},
 ): Promise<{
   stack: ReturnType<typeof slots>
   committed: string[]
@@ -203,6 +207,7 @@ async function openEditor(
   const running = openSubagentModelSelection({
     ctx,
     commit: lines => { committed.push(...lines) },
+    ...controls,
   })
   await vi.waitFor(() => { expect(stack.top()).toBeDefined() })
   return {
@@ -650,5 +655,71 @@ describe('the /model seam', () => {
     stack.top()?.handleKey(key('escape'))
     stack.top()?.handleKey(key('escape'))
     await running
+  })
+})
+
+describe('a retired initiating gesture', () => {
+  const SAVED = { enabled: true, allowedModels: [{ provider: 'deepseek-official', model: 'deepseek-chat' }] }
+
+  it('withdraws the overlay and detaches from the signal', async () => {
+    const settings = fakeSettings(SAVED)
+    const controller = new AbortController()
+    const view = await openEditor(settings, {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await readyEditor(view)
+    expect(view.stack.depth()).toBe(1)
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1)
+    controller.abort()
+    await view.running
+    // The overlay is gone, and the signal that outlives every editor opened
+    // against it retains nothing.
+    expect(view.stack.depth()).toBe(0)
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+  })
+
+  it('admits no new save, even from a key still addressed to the overlay', async () => {
+    const settings = fakeSettings(SAVED)
+    const controller = new AbortController()
+    const view = await openEditor(settings, {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await readyEditor(view)
+    // Held across the retirement: a key decoded in the same batch as the
+    // retirement can still be handed to the surface it was decoded for.
+    const top = view.stack.top()
+    controller.abort()
+    top?.handleKey({ kind: 'text', text: 'e' })
+    top?.handleKey({ kind: 'text', text: 's' })
+    expect(settings.writes).toEqual([])
+    await view.running
+  })
+
+  it('lets an already-submitted write land, without a late acknowledgement', async () => {
+    const settings = fakeSettings(SAVED)
+    const controller = new AbortController()
+    const view = await openEditor(settings, {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await readyEditor(view)
+    // Submit, then hold the write open so retirement lands while it is in
+    // flight — the case the acknowledgement has to be suppressed for.
+    const release = settings.deferNext()
+    view.stack.top()?.handleKey({ kind: 'text', text: 'e' })
+    view.stack.top()?.handleKey({ kind: 'text', text: 's' })
+    await vi.waitFor(() => { expect(settings.writes).toHaveLength(1) })
+    controller.abort()
+    release()
+    await view.running
+    // The write the reader asked for while this epoch owned the screen is NOT
+    // rolled back...
+    expect(settings.stored().enabled).toBe(false)
+    // ...and a retired epoch commits no acknowledgement into a transcript it no
+    // longer owns.
+    expect(view.committed.join('\n')).not.toContain('applies to new sessions')
+    expect(view.stack.depth()).toBe(0)
   })
 })

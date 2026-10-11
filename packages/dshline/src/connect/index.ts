@@ -118,6 +118,18 @@ export interface ConnectSpec {
   readonly query?: string
   /** Current time; injected so notice expiry is assertable. */
   readonly now?: () => number
+  /**
+   * Whether the gesture that opened the browser still has authority to run.
+   *
+   * `/connect` has two callers with different lifetimes: the guided first run,
+   * which owns the window and outlives any attachment, and the `/setup` and
+   * `/connect` commands an attachment owns. Only the second has an epoch to be
+   * withdrawn with, so only the second passes controls — omitting them means
+   * unfenced, which is what the first-run offer wants.
+   */
+  readonly mayAct?: () => boolean
+  /** Withdraw the browser, and everything it started, when that epoch retires. */
+  readonly signal?: AbortSignal
 }
 
 /**
@@ -161,6 +173,18 @@ export async function openConnect(spec: ConnectSpec): Promise<void> {
   const life = new AbortController()
   const attempt: ConnectAttempt = { signal: life.signal, signingIn: undefined }
   let closed = false
+  /** Whether the gesture that opened this browser still owns the screen. */
+  const retired = (): boolean => spec.mayAct?.() === false
+  /**
+   * Withdraw the browser because the gesture that opened it is over.
+   *
+   * Deliberately NOT the overlay's `close`: that path commits why a sign-in
+   * stopped, and a retired epoch must not write a line into a transcript it no
+   * longer owns. The withdrawal still goes through `settle`, so `life` is
+   * aborted and an authorization waiting on a browser callback is cancelled
+   * rather than left to prompt over whatever replaces this.
+   */
+  let withdraw = (): void => {}
   try {
     await new Promise<void>(resolve => {
       let dismiss = (): void => {}
@@ -171,12 +195,13 @@ export async function openConnect(spec: ConnectSpec): Promise<void> {
         dismiss()
         resolve()
       }
+      withdraw = (): void => { settle() }
       overlay = createConnectOverlay({
         state: () => catalog.state(),
         ...spec.query === undefined || spec.query === '' ? {} : { query: spec.query },
         refresh: () => { catalog.refresh() },
         act: row => {
-          if (busy) return
+          if (busy || retired()) return
           busy = true
           void perform(spec, seams, row, attempt, async () => catalog.reread())
             .then(outcome => {
@@ -212,8 +237,13 @@ export async function openConnect(spec: ConnectSpec): Promise<void> {
         invalidate: () => { ctx.tuiSlots.invalidate() },
       })
       dismiss = ctx.tuiSlots.pushOverlay(overlay)
+      // Detached when the browser closes on its own: the signal belongs to the
+      // attachment epoch and outlives every browser opened against it.
+      if (spec.signal?.aborted === true) withdraw()
+      else spec.signal?.addEventListener('abort', withdraw, { once: true })
     })
   } finally {
+    spec.signal?.removeEventListener('abort', withdraw)
     unwatch()
     catalog.dispose()
   }

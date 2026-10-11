@@ -1189,7 +1189,18 @@ async function runSessionEpoch(
               ...options,
               onSubagentModels: () => {
                 if (!attachmentMayAct()) return
-                void openSubagentModelSelection({ ctx, commit }).catch((error: unknown) => {
+                void openSubagentModelSelection({
+                  ctx,
+                  commit,
+                  // The editor is a CHILD of this picker, so it inherits the
+                  // parent gesture's epoch rather than having one of its own.
+                  // Withdrawing the model picker removes only that picker's
+                  // registration, so without these the editor outlives the
+                  // gesture that opened it — keeping its overlay, its catalog
+                  // read, and its settings write.
+                  mayAct: attachmentMayAct,
+                  signal: attachmentAbort.signal,
+                }).catch((error: unknown) => {
                   if (!attachmentMayAct()) return
                   // The editor reports its own read and write refusals; this is
                   // only for a programming failure, which has nowhere else to go.
