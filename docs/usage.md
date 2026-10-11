@@ -1043,8 +1043,8 @@ session is refused with Harness's `already owned by an active write handle`,
 which dshline shows on the resume-failure line before asking you to choose
 again. It cannot know the id was taken until the open fails, so close the other
 window that holds it, or pick a different session. Working in several
-directories at the same time is fine and is what several terminals are for — it
-is the same *session* in two places that has no defined behaviour.
+directories at the same time is fine and is what several terminals are for; it
+is the same *session* in two places that is refused.
 
 Opening a session reopens it exactly as `/sessions` does, under the same
 refusals, and a reopened session keeps the directory it was created in — its
