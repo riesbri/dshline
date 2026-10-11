@@ -213,7 +213,9 @@ export function changesetFor(version) {
  * manifest fetch per package, and it was checked rather than assumed: all 51
  * governed `dsh-*` specs resolve through it at the adopted revision.
  * @param tree - a GitHub git-tree response for the candidate revision.
- * @returns the directory names, as a set.
+ * @returns each workspace directory name mapped to its `package.json` path, so
+ *   a caller can read a directory's declared name without scanning the tree
+ *   again.
  * @throws when the tree is truncated, carries no entries, or names no
  *   workspace packages. Each is an absence of evidence rather than evidence of
  *   absence, and reading one as "every governed package was retired" would
@@ -229,10 +231,10 @@ export function packageDirsFromTree(tree) {
   if (!Array.isArray(tree?.tree)) {
     throw new Error('the harness tree response carried no entries; an absent package cannot be told from an unread response')
   }
-  const dirs = new Set()
+  const dirs = new Map()
   for (const entry of tree.tree) {
     const match = /^packages\/[^/]+\/(?<name>[^/]+)\/package\.json$/u.exec(entry?.path ?? '')
-    if (match !== null && match.groups !== undefined) dirs.add(match.groups.name)
+    if (match !== null && match.groups !== undefined) dirs.set(match.groups.name, entry.path)
   }
   // The most destructive outcome this module has: an empty set makes
   // `retiredSpecs` report EVERY governed package as retired, and
@@ -247,19 +249,64 @@ export function packageDirsFromTree(tree) {
 }
 
 /**
+ * The npm names the candidate declares in directories the adopted revision did
+ * not have.
+ *
+ * A directory basename is not an npm identity. Upstream names a package's
+ * directory after its unscoped name, but nothing enforces that, so a release
+ * that MOVES a package to a differently-named directory while keeping its npm
+ * name would read as a retirement — and this module deletes what it reports
+ * retired. The directories the adopted revision did not have are the only place
+ * a move can hide, and there are only ever a handful of them, so reading their
+ * manifests is a bounded way to establish identity rather than infer it.
+ *
+ * Deliberately not a registry read: absence from npm means either "retired" or
+ * "not published yet", and the second resolves itself, so a heuristic there
+ * would delete a live dependency during an ordinary publication lag.
+ * @param adopted - the adopted revision's directory names.
+ * @param candidate - the candidate revision's directory names, mapped to paths.
+ * @param readName - reads the package name a manifest path declares.
+ * @param revision - the candidate revision the manifests are read at.
+ * @returns the declared names, as a set.
+ * @throws when a moved directory's manifest cannot be read or declares no name.
+ *   Failing closed here leaves the adoption to a human rather than deleting a
+ *   dependency on an unread answer.
+ */
+export async function movedNames(adopted, candidate, readName, revision) {
+  const names = new Set()
+  for (const [basename, path] of candidate) {
+    if (adopted.has(basename)) continue
+    const declared = await readName(path, revision)
+    if (typeof declared !== 'string' || declared === '') {
+      throw new Error(`the candidate manifest at ${path} declares no package name; refusing to infer a retirement from it`)
+    }
+    names.add(declared)
+  }
+  return names
+}
+
+/**
  * The governed specs a candidate generation no longer publishes.
  *
  * Scoped to the governed line on purpose: cordis and schemastery are not cut
  * from the Harness revision and are never retired by it, so a bare
  * `@deepseek-ai/` test would let this delete packages that must keep their
  * ordinary caret ranges.
+ *
+ * A name is retired only when the candidate has no directory named for it AND
+ * no directory it gained declares it — see {@link movedNames}. Both halves are
+ * required: the first alone is the basename inference that would read a move as
+ * a deletion.
  * @param governed - the governed `dsh-*` names the repository declares.
- * @param dirs - the candidate revision's workspace package directory names.
+ * @param dirs - the candidate revision's directory names.
+ * @param declared - npm names the candidate declares in directories it gained.
  * @returns the governed names with no directory at that revision, sorted.
  */
-export function retiredSpecs(governed, dirs) {
+export function retiredSpecs(governed, dirs, declared = new Set()) {
   return governed
-    .filter(name => HARNESS_LINE_SCOPE.test(name) && !dirs.has(name.replace(/^@deepseek-ai\/dsh-/u, '')))
+    .filter(name => HARNESS_LINE_SCOPE.test(name)
+      && !dirs.has(name.replace(/^@deepseek-ai\/dsh-/u, ''))
+      && !declared.has(name))
     .sort()
 }
 
@@ -454,6 +501,12 @@ export const liveReads = {
   workspaceDirs: async revision => packageDirsFromTree(
     await githubApi(`repos/${HARNESS_REPO}/git/trees/${revision}?recursive=1`),
   ),
+  // One `contents` read per directory the candidate GAINED, never a scan of the
+  // tree: see `movedNames` for why a basename is not an npm identity.
+  manifestName: async (path, revision) => {
+    const content = await githubApi(`repos/${HARNESS_REPO}/contents/${path}?ref=${revision}`, '.content')
+    return JSON.parse(Buffer.from(content, 'base64').toString('utf8')).name
+  },
 }
 
 if (process.argv[1] !== undefined && import.meta.url === new URL(process.argv[1], 'file:').href) {
@@ -470,7 +523,17 @@ if (process.argv[1] !== undefined && import.meta.url === new URL(process.argv[1]
     // Read the candidate's tree before writing anything: a retirement is the
     // difference between an openable proposal and a pin the registry refuses
     // forever, and it is only knowable from the revision.
-    const retired = retiredSpecs(await governedSpecs(repoRoot), await liveReads.workspaceDirs(revision))
+    const candidate = await liveReads.workspaceDirs(revision)
+    // What the candidate gained, read by NAME. A directory that moved keeps its
+    // npm name, and this module deletes whatever it reports retired, so the
+    // basename alone is not enough to call a governed package gone.
+    const declared = await movedNames(
+      await liveReads.workspaceDirs(target.revision),
+      candidate,
+      liveReads.manifestName,
+      revision,
+    )
+    const retired = retiredSpecs(await governedSpecs(repoRoot), candidate, declared)
     const { changesetPath, pinned, removed } = await applyCandidate({
       version, revision, tag: tag ?? `dsh-v${version}`, from: target,
     }, repoRoot, { retired })

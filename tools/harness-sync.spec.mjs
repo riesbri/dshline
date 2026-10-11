@@ -22,6 +22,7 @@ import {
   applyCandidate,
   changesetFor,
   governedSpecs,
+  movedNames,
   newestRelease,
   packageDirsFromTree,
   pullRequestBody,
@@ -349,7 +350,11 @@ describe('a generation that retires a governed package is still adoptable', () =
   it('reads the package directories out of one upstream tree', () => {
     // The `package.json` level, not the directory: sibling source files under a
     // package must not read as packages of their own.
-    expect([...packageDirsFromTree(ADOPTED_TREE)].sort()).toEqual(['agent', 'invariants', 'llm', 'session'])
+    const dirs = packageDirsFromTree(ADOPTED_TREE)
+    expect([...dirs.keys()].sort()).toEqual(['agent', 'invariants', 'llm', 'session'])
+    // The path travels with the name, so a caller can read a directory's
+    // declared name without walking the tree a second time.
+    expect(dirs.get('invariants')).toBe('packages/runtime-diagnostics/invariants/package.json')
   })
 
   it('refuses a truncated tree, where absence would prove nothing', () => {
@@ -381,6 +386,61 @@ describe('a generation that retires a governed package is still adoptable', () =
     // names must answer differently at two revisions.
     expect(retiredSpecs(governed, packageDirsFromTree(ADOPTED_TREE))).toEqual([])
     expect(retiredSpecs(governed, packageDirsFromTree(TREE))).toEqual(['@deepseek-ai/dsh-invariants'])
+  })
+
+  it('keeps a governed spec whose directory was renamed but whose npm name was not', async () => {
+    // A basename is not an npm identity. Naming a directory after the unscoped
+    // package name is a convention upstream follows, not a rule it enforces —
+    // and this module DELETES what it reports retired, so a rename must not read
+    // as a deletion.
+    const adopted = packageDirsFromTree(ADOPTED_TREE)
+    const renamed = packageDirsFromTree({
+      truncated: false,
+      tree: [
+        ...TREE.tree,
+        // Same npm name, a different directory.
+        { path: 'packages/runtime-diagnostics/invariant-registry/package.json' },
+      ],
+    })
+    const read = []
+    const declared = await movedNames(adopted, renamed, async (path, revision) => {
+      read.push([path, revision])
+      return '@deepseek-ai/dsh-invariants'
+    }, 'candidate-rev')
+    // Only the directory the adopted revision did NOT have is read: bounded by
+    // what the release gained, not by the size of the tree.
+    expect(read).toEqual([['packages/runtime-diagnostics/invariant-registry/package.json', 'candidate-rev']])
+    expect(declared).toEqual(new Set(['@deepseek-ai/dsh-invariants']))
+    const governed = ['@deepseek-ai/dsh-invariants']
+    // The basename is gone, so the declared name is the only thing keeping the
+    // spec alive — which is exactly what the basename inference alone would
+    // have deleted.
+    expect(retiredSpecs(governed, renamed)).toEqual(governed)
+    expect(retiredSpecs(governed, renamed, declared)).toEqual([])
+  })
+
+  it('still retires a spec the candidate genuinely no longer has', async () => {
+    // The other half of the same rule: nothing the candidate gained declares
+    // this name, so the retirement stands.
+    const adopted = packageDirsFromTree(ADOPTED_TREE)
+    const declared = await movedNames(adopted, packageDirsFromTree(TREE), async () => '@deepseek-ai/dsh-something-else', 'candidate-rev')
+    expect(retiredSpecs(['@deepseek-ai/dsh-invariants'], packageDirsFromTree(TREE), declared))
+      .toEqual(['@deepseek-ai/dsh-invariants'])
+  })
+
+  it('fails closed when a gained directory declares no readable name', async () => {
+    // An unreadable manifest is an absence of evidence, not evidence of
+    // absence. Retiring on it would delete a dependency nobody confirmed gone,
+    // so the adoption is left to a human instead.
+    const adopted = packageDirsFromTree(ADOPTED_TREE)
+    const renamed = packageDirsFromTree({
+      truncated: false,
+      tree: [...TREE.tree, { path: 'packages/runtime-diagnostics/invariant-registry/package.json' }],
+    })
+    await expect(movedNames(adopted, renamed, async () => undefined, 'candidate-rev'))
+      .rejects.toThrow(/declares no package name/u)
+    await expect(movedNames(adopted, renamed, async () => { throw new Error('manifest unreadable') }, 'candidate-rev'))
+      .rejects.toThrow(/manifest unreadable/u)
   })
 
   it('never treats an ungoverned package as retired', () => {
