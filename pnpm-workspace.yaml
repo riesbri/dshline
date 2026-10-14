@@ -1,6 +1,32 @@
 packages:
   - packages/*
 
+# A security pin, not a version preference. `pnpm audit --audit-level moderate`
+# gates every pull request, and GHSA-68fv-2mgg-jv7q covers every source-map-js
+# below 1.2.2. It reaches this workspace only as `vite > postcss > source-map-js`,
+# and postcss is not a direct dependency of either package, so `pnpm update`
+# cannot move it: a transitive package is re-resolved only when its parent does,
+# and `pnpm update postcss` resolves everything, adds nothing, and writes an
+# unchanged lockfile. postcss@8.5.26 already declares `^1.2.1`, which admits
+# 1.2.2 — the range was never the problem, reachability was. pnpm applies an
+# override to the whole graph, devDependencies included.
+#
+# The exact version is deliberate, and it is a ceiling as much as a floor: this
+# repository pins a line it has decided on rather than a range nothing tests, so
+# a later update cannot move it back off the patched version by itself.
+#
+# This comment sits ABOVE the block, with the blank line before it, for two
+# reasons. `readWorkspaceOverrides` in tools/harness-graph.mjs stops at the
+# first line that is not a quoted entry, so a comment inside would silently drop
+# every entry after it; and `writeWorkspaceOverrides` always prepends a blank
+# line, so already having one is what makes a `link-harness` link/restore round
+# trip byte-identical instead of leaving a one-line whitespace diff.
+#
+# Remove this once an ordinary update resolves 1.2.2 on its own.
+
+overrides:
+  'source-map-js': '1.2.2'
+
 # esbuild arrives transitively through vitest and links a platform binary from a
 # postinstall script. Approving it here keeps a fresh clone's first install silent
 # instead of stopping to ask. It is a devDependency and never reaches a published
