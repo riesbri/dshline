@@ -907,37 +907,40 @@ optional upstream capability publishing structured worktree facts can be
 reconciled with it later; until one exists there is no `ctx.worktrees` here,
 and no subprocess standing in for it.
 
-**"Running" is used precisely, and the limit is a requirement rather than a
-guard.** The persisted corpus deliberately includes sessions other dshline
-processes created, and navigating them is the point. But `SessionRecord.live`
-means live in the process that asked, `ctx.agents` is process-local, and the
-adopted generation publishes no cross-process ownership or liveness contract —
-so `current` marks the directory THIS window's session is rooted in and claims
+**"Running" is used precisely, and it cannot be seen across processes.** The
+persisted corpus deliberately includes sessions other dshline processes
+created, and navigating them is the point. But `SessionRecord.live` means live
+in the process that asked, `ctx.agents` is process-local, and the adopted
+generation publishes no cross-process ownership or liveness contract — so
+`current` marks the directory THIS window's session is rooted in and claims
 nothing else. No row says "live in another terminal", "safe to take over", or
 "idle in another process".
 
-What Harness enforces is narrower than it first looks, and the distinction
-matters enough to write down. `SessionPersistenceCoordinator` refuses to
-prepare a session that is live — `prepare()` throws `cannot prepare session
-"<id>" while it is live` — but the fact it consults is `this.ctx.sessions`,
-which is this process's own store, and its serialization, live-owner, and
-retirement bookkeeping are in-memory maps on one backend instance. The shipped
-JSONL backend states the rest as a REQUIREMENT on callers, not as an
-enforcement: "another instance or process must not write the same session until
-that owner reaches quiescent disposal". There is no lease, pid owner,
-heartbeat, or advisory lock anywhere in the session or storage packages at this
-revision. (POSIX first materialization does use `link()`, so two processes
-racing to create the same NEW id collide safely — but that says nothing about
-reopening a session whose log already exists.)
+What Harness does enforce is single-writer, at two layers, and neither is a
+queryable fact. In process, a write open of an id that already holds an active
+write handle is refused from the backend's own handle registry. Across
+processes, the shipped JSONL backend holds a kernel lock for the life of that
+handle — `session.lock` beside the log, taken with `flock(2)` on POSIX and a
+named kernel semaphore on Windows — and a second opener of the same session is
+refused with `SessionAlreadyOwnedError`, whose message is `session "<id>" is
+already owned by an active write handle`. The kernel releases the lock when the
+holder's descriptor closes, including on process death, so a crashed holder
+never blocks a successor; there is deliberately no expiry that could
+expropriate a stalled writer whose resumed appends would tear the log. (POSIX
+first materialization also uses `link()`, so two processes racing to create the
+same NEW id collide safely.)
 
-So the honest reading is: this refusal is process-local, and dshline cannot
-tell whether a persisted session is currently open in another dshline process.
-It does not claim otherwise, and it does not invent the missing contract — no
-pid files, lock files, heartbeats, sockets, process scanning, or cross-process
-agent discovery. The user-facing consequence belongs in documentation rather
-than in a badge on every row: do not drive one session from two processes at
-once. This is `/sessions`'s limitation too, and `/worktrees` makes no stronger
-promise than it does.
+So the honest reading is: dshline still cannot tell whether a persisted session
+is currently open in another dshline process, because the lock is kernel-held
+and `SessionRecord` publishes no ownership field. It does not claim otherwise,
+and it does not invent the contract itself — no pid files, lock files,
+heartbeats, sockets, or process scanning. A second process is refused at open
+time rather than allowed to race, and that refusal reaches the reader as
+Harness's own reason on the resume-failure line. The user-facing consequence
+still belongs in documentation rather than in a badge on every row: do not
+drive one session from two processes at once. This is `/sessions`'s limitation
+too, and
+`/worktrees` makes no stronger promise than it does.
 
 ## Connect: configuration is four seams, not one
 

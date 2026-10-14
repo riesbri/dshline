@@ -665,16 +665,17 @@ does not promise is that any older prerelease generation keeps working.
   asking process, `ctx.agents` is process-local, and the adopted generation
   publishes no cross-process ownership contract, so nothing here reports a
   session as idle elsewhere or safe to take over. **dshline cannot tell whether
-  a persisted session is currently open in another dshline process.** Harness's
-  own refusal is process-local: the persistence coordinator's `prepare()`
-  throws for a session that is live, but the fact it consults is
-  `ctx.sessions`, this process's store, and its ownership bookkeeping is
-  in-memory per backend instance. The shipped JSONL backend states the rest as
-  a requirement on callers rather than an enforcement — "another instance or
-  process must not write the same session until that owner reaches quiescent
-  disposal" — and there is no lease, pid owner, heartbeat, or lock in the
-  session or storage packages at this revision. So do not drive one session
-  from two dshline processes at once; nothing will stop you.
+  a persisted session is currently open in another dshline process** before it
+  tries. Harness enforces one writer anyway: in process, a write open of an id
+  whose handle is already active is refused from the backend's handle registry;
+  across processes, the shipped JSONL backend holds a kernel lock
+  (`session.lock` beside the log; `flock(2)` on POSIX) for the life of the
+  write handle and refuses a second opener with `SessionAlreadyOwnedError` —
+  "already owned by an active write handle". The kernel releases it when the
+  holder closes or dies, so a crashed holder never blocks a successor. So do not
+  drive one session from two dshline processes at once: the second open is
+  refused at file-open time, and `/sessions` cannot warn you before you pick
+  because the lock is kernel-held and the corpus publishes no ownership field.
 - **Reopening waits for quiet.** A window refuses to reopen a session while a
   turn is running or while jobs or subagents are attached to the one being left,
   because no generic seam defines what happens to work whose owner is retired.
@@ -750,5 +751,7 @@ does not promise is that any older prerelease generation keeps working.
   parsing, or a dirty-state policy — Git owns Git, and a Harness capability is
   what would publish it
 - cross-process session takeover, agent discovery, or process locks — pid
-  files, lock files, heartbeats, and sockets are all a frontend inventing an
-  ownership contract Harness has not defined
+  files, lock files, heartbeats, and sockets are all a frontend inventing a
+  queryable ownership contract Harness has not defined: the shipped JSONL
+  backend holds a kernel lock, but it answers only by refusing a second open,
+  so no row can report an owner before one is attempted
