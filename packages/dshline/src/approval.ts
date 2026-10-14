@@ -40,7 +40,18 @@ export function installApprovalAnswerer(
     if (request.signal?.aborted === true) return 'cancelled'
     return new Promise<ApprovalOutcome>(resolve => {
       let dismiss = (): void => {}
+      let answered = false
+      // Named so settlement can detach it. `request.signal` belongs to whatever
+      // asked for approval and may outlive this one question, so an anonymous
+      // once-only listener accumulates on it. `once` stops it firing twice, not
+      // accumulating.
+      const withdraw = (): void => { settled('cancelled') }
       const settled = (outcome: ApprovalOutcome): void => {
+        // Once-only, so a keypress and a withdrawal racing cannot dismiss the
+        // overlay twice or answer the same request twice.
+        if (answered) return
+        answered = true
+        request.signal?.removeEventListener('abort', withdraw)
         dismiss()
         resolve(outcome)
       }
@@ -57,7 +68,7 @@ export function installApprovalAnswerer(
       bell()
       // A withdrawn request must take its prompt down even though no key was
       // pressed, or the user is left answering a question nobody is waiting on.
-      request.signal?.addEventListener('abort', () => { settled('cancelled') }, { once: true })
+      request.signal?.addEventListener('abort', withdraw, { once: true })
     })
   })
 }

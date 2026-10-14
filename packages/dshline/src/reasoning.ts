@@ -119,14 +119,19 @@ function currentReasoningChoiceValue(
  * @param ctx - context carrying the default-model service.
  * @param selection - the agent's mutable selection ref.
  * @param effort - the effort to set, or undefined to restore the provider's default.
- * @returns the applied change, always `done`: the ref below is written before
- *   persistence is attempted, so a save failure only adds a note.
+ * @param mayAct - whether the initiating gesture still owns mutation authority.
+ * @returns the admitted change, or undefined after retirement; save failure
+ *   never rolls back an admitted window change.
  */
 async function apply(
   ctx: Context,
   selection: ModelSelectionRef,
   effort: LlmReasoningEffortInfo | undefined,
-): Promise<SelectionOutcome> {
+  mayAct?: () => boolean,
+): Promise<SelectionOutcome | undefined> {
+  // A picked result may outlive its gesture. Admit the WINDOW write and the
+  // default save at this same synchronous boundary, not after persistence.
+  if (mayAct?.() === false) return undefined
   const current = selection.current
   if (current === undefined) {
     return { kind: 'failed', message: 'no model is selected; choose one with /model first' }
@@ -136,7 +141,7 @@ async function apply(
     model: current.model,
     ...effort === undefined ? {} : { reasoningEffort: effort.id },
   }
-  // Written to the ref first and unconditionally, as the model switch is: the
+  // Once admitted, written to the ref first, as the model switch is: the
   // next step reads it, and a storage failure must not send that step at a level
   // the user has just been told is no longer set.
   selection.current = next
@@ -153,15 +158,18 @@ async function apply(
  * @param selection - the agent's mutable selection ref.
  * @param reasoning - what the adapter published for the current route, when resolved.
  * @param argument - the text after `/reasoning`; empty opens the picker.
- * @returns a typed line to report in the transcript, or undefined when the user
- *   dismissed the picker without choosing.
+ * @param options - the initiating gesture's authority and picker withdrawal signal.
+ * @returns a typed line to report, or undefined on picker dismissal or retirement
+ *   before the shared selection/default save is admitted.
  */
 export async function pickReasoning(
   ctx: Context,
   selection: ModelSelectionRef,
   reasoning: LlmModelReasoningInfo | undefined,
   argument: string,
+  options: { readonly mayAct?: () => boolean; readonly signal?: AbortSignal } = {},
 ): Promise<SelectionOutcome | undefined> {
+  if (options.mayAct?.() === false) return undefined
   if (selection.current === undefined) {
     return { kind: 'failed', message: 'no model is selected; choose one with /model first' }
   }
@@ -170,7 +178,7 @@ export async function pickReasoning(
   // `default` is not one of the adapter's levels — it deletes the stored
   // effort — so it must work even when the route advertises none, including a
   // route reached with a stale effort a previous model's switch left behind.
-  if (wanted.toLowerCase() === DEFAULT_CHOICE) return apply(ctx, selection, undefined)
+  if (wanted.toLowerCase() === DEFAULT_CHOICE) return apply(ctx, selection, undefined, options.mayAct)
   // An unresolved route and one that genuinely reasons at a fixed level look the
   // same from here, so the message names the route rather than claiming either.
   if (efforts.length === 0) {
@@ -185,7 +193,7 @@ export async function pickReasoning(
       const names = [...efforts.map(one => one.id), DEFAULT_CHOICE].join(', ')
       return { kind: 'failed', message: `no reasoning level named ${wanted}; try one of: ${names}` }
     }
-    return apply(ctx, selection, effort)
+    return apply(ctx, selection, effort, options.mayAct)
   }
 
   const choices: SelectChoice[] = efforts.map((effort, index) => ({
@@ -203,6 +211,7 @@ export async function pickReasoning(
   const current = selection.current.reasoningEffort
   const initialValue = currentReasoningChoiceValue(current, efforts)
   const picked = await promptSelect(ctx, {
+    ...options.signal === undefined ? {} : { signal: options.signal },
     title: 'Select a reasoning level',
     view: 'Reasoning',
     detail: `current: ${current ?? 'whatever the provider decides'}`,
@@ -210,8 +219,8 @@ export async function pickReasoning(
     choices,
   })
   if (picked === undefined) return undefined
-  if (picked === DEFAULT_CHOICE) return apply(ctx, selection, undefined)
+  if (picked === DEFAULT_CHOICE) return apply(ctx, selection, undefined, options.mayAct)
   const chosen = efforts[Number(picked)]
   if (chosen === undefined) return undefined
-  return apply(ctx, selection, chosen)
+  return apply(ctx, selection, chosen, options.mayAct)
 }

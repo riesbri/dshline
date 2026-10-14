@@ -57,6 +57,17 @@ interface Environment {
   unreadable?: string[]
   /** Whether a credential seam is mounted. */
   credentials?: boolean
+  /**
+   * Routes the directory lists but whose settings profile is absent, so the
+   * browser reads them as dormant and offers to activate them.
+   */
+  dormant?: string[]
+  /**
+   * Held open before the model roster answers, so a test can retire the
+   * attachment while discovery is in flight. Awaiting `undefined` is a no-op,
+   * which is every other test's case.
+   */
+  catalogGate?: Promise<void>
 }
 
 /** A harness under test, and everything it was asked to do. */
@@ -78,6 +89,8 @@ interface Harness {
   readonly described: number
   /** Every credential reference asked about, in call order. */
   readonly credentialReads: string[]
+  /** Every credential reference a write was attempted against, in call order. */
+  readonly credentialWrites: string[]
   readonly selection: ModelSelectionRef
 }
 
@@ -95,11 +108,13 @@ function harness(environment: Environment): Harness {
   let discovered = 0
   let described = 0
   const credentialReads: string[] = []
+  const credentialWrites: string[] = []
   const configurable = environment.configurable ?? []
   // The route profiles a settings section would resolve to. A route with no
   // entry in `refs` stores no reference at all, which is what the reading has
   // to treat as "nothing established" rather than "missing".
-  const profiles = Object.fromEntries(configurable.map(provider => [
+  const dormant = new Set(environment.dormant ?? [])
+  const profiles = Object.fromEntries(configurable.filter(provider => !dormant.has(provider)).map(provider => [
     provider,
     environment.refs?.[provider] === undefined ? {} : { apiKeyEnv: environment.refs[provider] },
   ]))
@@ -133,7 +148,7 @@ function harness(environment: Environment): Harness {
       if (environment.unreadable?.includes(ref) === true) throw new Error('the store is offline')
       return { configured: environment.configured?.includes(ref) === true, writable: true }
     },
-    set: async () => {},
+    set: async (ref: string) => { credentialWrites.push(ref) },
     unset: async () => {},
     describeRecord: async () => ({ configured: false, writable: true }),
     deleteRecord: async () => {},
@@ -152,6 +167,7 @@ function harness(environment: Environment): Harness {
           : { error: environment.diagnostics[provider] },
       })),
       listModels: async (provider: string) => {
+        await environment.catalogGate
         listedModels.push(provider)
         return environment.models?.[provider] ?? []
       },
@@ -198,6 +214,7 @@ function harness(environment: Environment): Harness {
     get discovered() { return discovered },
     get described() { return described },
     credentialReads,
+    credentialWrites,
   }
 }
 
@@ -205,15 +222,22 @@ function harness(environment: Environment): Harness {
  * Run the flow with a harness's seams.
  * @param h - the harness.
  * @param onModelChanged - observes a model change the conductor acknowledges.
+ * @param controls - the attachment lifetime controls `/setup` passes; omitted by
+ *   the window's first-run offer, which outlives any attachment.
  * @returns the promise the flow settles.
  */
-function run(h: Harness, onModelChanged: () => void = () => {}): Promise<void> {
+function run(
+  h: Harness,
+  onModelChanged: () => void = () => {},
+  controls: { mayAct?: () => boolean; signal?: AbortSignal } = {},
+): Promise<void> {
   return runSetup({
     ctx: h.ctx,
     commit: lines => { h.committed.push(...lines.map(stripAnsi)) },
     version: '0.17.0',
     selection: h.selection,
     onModelChanged,
+    ...controls,
   })
 }
 
@@ -619,6 +643,220 @@ describe('the guided flow', () => {
       expect(drawn.length).toBeLessThanOrEqual(rows)
       for (const line of drawn) expect(displayWidth(line)).toBeLessThanOrEqual(columns)
     }
+    await h.press(ESCAPE)
+    await running
+  })
+})
+
+describe('a retired attachment cannot drive the guided flow', () => {
+  // `/setup` has two callers with different lifetimes. The window's first-run
+  // offer outlives any attachment and passes no controls; the `/setup` command
+  // is an attachment gesture and passes its epoch authority, exactly as `/model`
+  // and `/reasoning` do. These are the defects those two were fixed for, on the
+  // path the review found still open: a continuation that lands after the epoch
+  // retired must not mount an overlay, admit a selection, or write a line into a
+  // transcript this attachment no longer owns.
+  it('commits nothing and mounts nothing when authority is already gone', async () => {
+    const h = harness({ registered: ['openai'], configurable: ['openai'] })
+    await run(h, () => {}, { mayAct: () => false })
+    expect(h.committed).toEqual([])
+    expect(h.mounted()).toBe(false)
+    expect(h.mutations).toEqual([])
+  })
+
+  it('takes the open checklist down when the attachment retires', async () => {
+    const controller = new AbortController()
+    const h = harness({ registered: ['openai'], configurable: ['openai'] })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    expect(h.mounted()).toBe(true)
+    const before = [...h.committed]
+    controller.abort()
+    await settle()
+    // Withdrawn, and nothing further written: the reader is looking at a session
+    // that has gone away, not at a checklist for it.
+    expect(h.mounted()).toBe(false)
+    expect(h.committed).toEqual(before)
+    await running
+  })
+
+  it('admits no selection when the attachment retires with the picker up', async () => {
+    // The path the review found open: `/setup` → choose a model, then retire
+    // while the roster is in flight. `pickModel` must refuse the selection
+    // outright rather than merely stop presenting it — `selection.current` and
+    // the stored default are window state this epoch no longer owns.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'], models: { openai: [{ id: 'gpt-x', name: 'GPT X' }] } })
+    const before = h.selection.current
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    // `Connect a provider` is the only step besides `Not now` while nothing is
+    // registered, so it opens first.
+    await h.press(ENTER)
+    await settle()
+    h.registerRoute('openai')
+    // Close `/connect`; the conductor re-reads and opens the model picker.
+    await h.press(ESCAPE)
+    await settle()
+    expect(h.text()).toContain('Select a model')
+    controller.abort()
+    await settle()
+    // Withdrawn, and nothing admitted: no selection written, no default saved.
+    expect(h.selection.current).toEqual(before)
+    expect(h.mutations).toEqual([])
+    await running
+  })
+
+  it('mounts nothing when the attachment retires while the roster is in flight', async () => {
+    // Discovery has no cancellation API of its own, so a catalog that resolves
+    // late is data rather than renewed authority to mount a picker. The signal
+    // is what withdraws this one — `attachmentMayAct` and `attachmentAbort` are
+    // the same condition in the attaching caller, so either control alone is
+    // sufficient here; what the test pins is the observable outcome for a
+    // catalogue that lands after retirement.
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const controller = new AbortController()
+    const h = harness({
+      configurable: ['openai'],
+      models: { openai: [{ id: 'gpt-x', name: 'GPT X' }] },
+      catalogGate: gate,
+    })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    await h.press(ENTER) // `Connect a provider` is the first step while nothing is registered.
+    await settle()
+    h.registerRoute('openai')
+    // Close `/connect`; the conductor re-reads and opens the picker, which
+    // starts discovery and then waits on the gate.
+    await h.press(ESCAPE)
+    await settle()
+    controller.abort()
+    release()
+    await settle()
+    expect(h.mounted()).toBe(false)
+    expect(h.selection.current).toBeUndefined()
+    await running
+  })
+
+  it('withdraws Connect when the attachment retires with the browser open', async () => {
+    // `runSetup` awaits `openConnect`, so nothing after that await can run while
+    // the browser is open — the fix has to withdraw it from inside, through the
+    // browser's own life controller.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'] })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    // `Connect a provider` is the only step besides `Not now` while nothing is
+    // registered, so it opens first.
+    await h.press(ENTER)
+    await settle()
+    expect(h.mounted()).toBe(true)
+    const before = [...h.committed]
+    controller.abort()
+    await settle()
+    // Withdrawn, and silent: a retired epoch must not commit why a sign-in
+    // stopped into a transcript it no longer owns.
+    expect(h.mounted()).toBe(false)
+    expect(h.committed).toEqual(before)
+    // And the flow settles rather than reopening a picker over whatever replaced
+    // this attachment.
+    await running
+    expect(h.mounted()).toBe(false)
+  })
+
+  it('withdraws Connect action picker and admits no settings write on retirement', async () => {
+    // The confirmed reproduction: a dormant configurable route, a settings
+    // provider, and no credential provider — so the action picker offers
+    // `Activate this route`, whose confirmation reaches `settings.mutate`.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'], dormant: ['openai'], credentials: false })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    await h.press(ENTER) // `Connect a provider` opens the browser
+    await h.press(ENTER) // the dormant `openai` row opens its action picker
+    expect(h.text()).toContain('Activate')
+    controller.abort()
+    await settle()
+    // The child picker goes with the browser it belongs to...
+    expect(h.mounted()).toBe(false)
+    // ...and a confirmation decoded for it cannot reach settings afterwards.
+    await h.press(ENTER)
+    await settle()
+    expect(h.mutations).toEqual([])
+    await running
+  })
+
+  it('withdraws the secret prompt and admits no credential write on retirement', async () => {
+    // The same lifetime covers the one prompt whose answer is stored: an API
+    // key must not be written by a browser that has already closed.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'] })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    await h.press(ENTER) // `Connect a provider`
+    await h.press(ENTER) // the `openai` action picker
+    // The first offered action for a dormant route is storing its key, which is
+    // the prompt this test is about.
+    await h.press(ENTER)
+    await settle()
+    controller.abort()
+    await settle()
+    expect(h.mounted()).toBe(false)
+    expect(h.mutations).toEqual([])
+    expect(h.credentialWrites).toEqual([])
+    await running
+  })
+
+  it('withdraws the route editor and admits no save on retirement', async () => {
+    // The deepest nesting the browser owns: `Edit route` opens a wizard whose
+    // prompts are many levels down. Its lifetime comes from `runRouteEditor`,
+    // so a wizard that never sets one keeps its menu after the browser closes.
+    const controller = new AbortController()
+    const h = harness({ configurable: ['openai'] })
+    const running = run(h, () => {}, {
+      mayAct: () => !controller.signal.aborted,
+      signal: controller.signal,
+    })
+    await settle()
+    await h.press(ENTER) // `Connect a provider`
+    await h.press(ENTER) // the `openai` row: opens the action picker
+    await h.press(DOWN, ENTER) // `Edit route` is the second action: opens the wizard
+    await settle()
+    expect(h.mounted()).toBe(true)
+    controller.abort()
+    await settle()
+    expect(h.mounted()).toBe(false)
+    expect(h.mutations).toEqual([])
+    await running
+  })
+
+  it('leaves the unfenced window caller alone', async () => {
+    // The same flow with no controls — what the first-run offer passes — must
+    // still reach its checklist. A fence that needed `mayAct` would silently
+    // disable setup on every launch instead of closing a hole.
+    const h = harness({ registered: ['openai'], configurable: ['openai'] })
+    const running = run(h)
+    await settle()
+    expect(h.mounted()).toBe(true)
     await h.press(ESCAPE)
     await running
   })

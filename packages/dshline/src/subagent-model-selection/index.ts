@@ -50,6 +50,19 @@ export interface SubagentModelSelectionSpec {
   readonly ctx: Context
   /** Write the acknowledgement into the terminal's scrollback. */
   readonly commit: (lines: readonly string[]) => void
+  /**
+   * Whether the gesture that opened the editor still has authority to mount UI
+   * or write window state.
+   *
+   * The editor is opened from inside the `/model` picker, so its lifetime is the
+   * attachment epoch that began THAT gesture — not the editor's own. Without
+   * this it outlives its parent: withdrawing the model picker removes only that
+   * picker's registration, and the child keeps its overlay, its catalog read,
+   * and its settings write.
+   */
+  readonly mayAct?: () => boolean
+  /** Withdraw the editor when the initiating attachment retires. */
+  readonly signal?: AbortSignal
 }
 
 /**
@@ -97,7 +110,25 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
   let dismiss = (): void => {}
   let resolveOpen = (): void => {}
 
-  const invalidate = (): void => { ctx.tuiSlots.invalidate() }
+  /**
+   * Whether this editor has stopped owning the screen.
+   *
+   * Two ways that happens, and both matter. The parent `/model` picker can
+   * retire, and the editor is its child, so that lifetime is this one too. Or
+   * the editor closes on its own — Escape, or a landed Save — while the
+   * attachment stays perfectly healthy, and a catalog read or a save already in
+   * flight finishes into a surface that is gone. Checking only the first let a
+   * held `listModels()` call `tuiSlots.invalidate()` after Escape.
+   */
+  const retired = (): boolean => closed || spec.mayAct?.() === false
+  const invalidate = (): void => {
+    // A retired epoch owns no screen: the overlay has been withdrawn, so a
+    // repaint would touch a frame that now belongs to whatever replaced it.
+    if (retired()) return
+    ctx.tuiSlots.invalidate()
+  }
+  /** Withdraw this editor because the gesture that opened it is over. */
+  const withdraw = (): void => { finish(true) }
   /**
    * Complete the editor exactly once, from either way it can end.
    *
@@ -113,6 +144,7 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
   const finish = (dismissSelf: boolean): void => {
     if (closed) return
     closed = true
+    spec.signal?.removeEventListener('abort', withdraw)
     if (dismissSelf) dismiss()
     resolveOpen()
   }
@@ -162,7 +194,7 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
    * retry after an unavailable read; it is the only path that moves `revision`.
    */
   const loadAll = async (): Promise<void> => {
-    if (busy || saving) return
+    if (busy || saving || retired()) return
     busy = true
     loading = true
     failure = undefined
@@ -192,7 +224,7 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
   }
   /** Re-read only the live catalog; the draft and the opening revision stay. */
   const refreshCatalog = async (): Promise<void> => {
-    if (busy || saving) return
+    if (busy || saving || retired()) return
     busy = true
     try {
       await readCatalog()
@@ -216,7 +248,9 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
     }
   }
   const save = (): void => {
-    if (saving) return
+    // A retired epoch admits no new mutation: the editor is gone, and a settings
+    // write begun now would belong to a gesture nobody is still making.
+    if (saving || retired()) return
     if (busy) {
       // A catalog refresh is in flight. Saying so beats a key that silently
       // does nothing while the footer still advertises it.
@@ -253,15 +287,17 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
     void settings.mutate(SUBAGENT_MODEL_SELECTION_NAMESPACE, ops, revision)
       .then(() => {
         // A window or session teardown can dispose the overlay while the write
-        // is in flight; the acknowledgement then has no surface to land on.
-        if (closed) return
+        // is in flight; the acknowledgement then has no surface to land on. The
+        // write itself is already committed and is deliberately NOT rolled back:
+        // the reader asked for it while this epoch still owned the screen.
+        if (closed || retired()) return
         commit([paint(`· ${SAVED_MESSAGE}`, 'muted')])
         settle()
       })
       .catch((error: unknown) => {
         // A teardown can dispose the surface while the write is in flight;
         // there is no reader left to report a refusal to.
-        if (closed) return
+        if (closed || retired()) return
         saving = false
         // The draft stays open with the reader's edit intact: a conflict is
         // theirs to resolve, and a Harness refusal is the authority speaking.
@@ -279,13 +315,13 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
     const overlay = createSubagentModelSelectionOverlay({
       reading: readingOf,
       toggle: entry => {
-        if (saving) return
+        if (saving || retired()) return
         draft = withToggled(draft, entry.route)
         refusal = undefined
         invalidate()
       },
       flipEnabled: () => {
-        if (saving) return
+        if (saving || retired()) return
         draft = withEnabled(draft, !draft.enabled)
         refusal = undefined
         invalidate()
@@ -302,6 +338,12 @@ export async function openSubagentModelSelection(spec: SubagentModelSelectionSpe
     // without dismissing again — but it still resolves the caller's promise.
     overlay.dispose = () => { finish(false) }
     dismiss = ctx.tuiSlots.pushOverlay(overlay)
+    // Withdraw with the parent, and detach when the editor ends on its own: the
+    // signal belongs to the attachment epoch and outlives every editor opened
+    // against it, so an anonymous listener would accumulate the way the
+    // picker's did.
+    if (spec.signal?.aborted === true) withdraw()
+    else spec.signal?.addEventListener('abort', withdraw, { once: true })
     void loadAll()
   })
 }

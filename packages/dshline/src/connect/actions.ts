@@ -46,8 +46,13 @@ export async function setApiKey(
   seams: ConnectSeams,
   row: ConnectProviderRow,
   raw: string,
+  signal?: AbortSignal,
 ): Promise<ConnectActionOutcome> {
   const { credentials, settings } = seams
+  // A retired browser admits no new mutation: this write would belong to a
+  // gesture nobody is still making, and its report has no transcript to land
+  // in. Checked again below, because storing the reference is itself an await.
+  if (retired(signal)) return { kind: 'done', message: `${row.provider}: withdrawn before writing` }
   if (credentials === undefined) return failed('this profile mounts no credential provider')
   // The same judgement every adapter applies before putting a key in a header,
   // taken from the LLM seam rather than restated: a value no HTTP header can
@@ -75,6 +80,9 @@ export async function setApiKey(
       return failed(`${row.settingsNs} refused the reference: ${messageOf(error)}`)
     }
   }
+  // The reference write above was already submitted and is left alone; the key
+  // is a SECOND write, and a retired browser admits none.
+  if (retired(signal)) return { kind: 'done', message: `${row.provider}: withdrawn after recording the reference` }
   try {
     await credentials.set(ref, checked.value)
   } catch (error) {
@@ -94,9 +102,14 @@ export async function setApiKey(
  * @param row - the route whose key is being forgotten.
  * @returns what Harness answered.
  */
-export async function clearApiKey(seams: ConnectSeams, row: ConnectProviderRow): Promise<ConnectActionOutcome> {
+export async function clearApiKey(
+  seams: ConnectSeams,
+  row: ConnectProviderRow,
+  signal?: AbortSignal,
+): Promise<ConnectActionOutcome> {
   const { credentials } = seams
   const ref = row.credential.ref
+  if (retired(signal)) return { kind: 'done', message: `${row.provider}: withdrawn before writing` }
   if (credentials === undefined) return failed('this profile mounts no credential provider')
   if (ref === undefined) return failed(`${row.provider} names no credential reference`)
   try {
@@ -119,8 +132,13 @@ export async function clearApiKey(seams: ConnectSeams, row: ConnectProviderRow):
  * @param row - the dormant route being activated.
  * @returns what Harness answered.
  */
-export async function activateRoute(seams: ConnectSeams, row: ConnectProviderRow): Promise<ConnectActionOutcome> {
+export async function activateRoute(
+  seams: ConnectSeams,
+  row: ConnectProviderRow,
+  signal?: AbortSignal,
+): Promise<ConnectActionOutcome> {
   const { settings } = seams
+  if (retired(signal)) return { kind: 'done', message: `${row.provider}: withdrawn before writing` }
   if (settings === undefined) return failed('this profile mounts no settings provider')
   // An empty path means the whole section IS the profile, so "activating" it
   // would replace every field the namespace holds. That is a bigger action than
@@ -147,8 +165,13 @@ export async function activateRoute(seams: ConnectSeams, row: ConnectProviderRow
  * @param row - the route being removed.
  * @returns what Harness answered.
  */
-export async function deactivateRoute(seams: ConnectSeams, row: ConnectProviderRow): Promise<ConnectActionOutcome> {
+export async function deactivateRoute(
+  seams: ConnectSeams,
+  row: ConnectProviderRow,
+  signal?: AbortSignal,
+): Promise<ConnectActionOutcome> {
   const { settings } = seams
+  if (retired(signal)) return { kind: 'done', message: `${row.provider}: withdrawn before writing` }
   if (settings === undefined) return failed('this profile mounts no settings provider')
   if (row.settingsPath.length === 0) {
     return failed(`${row.settingsNs} configures this route as its whole section; edit it in settings`)
@@ -172,8 +195,13 @@ export async function deactivateRoute(seams: ConnectSeams, row: ConnectProviderR
  * @param row - the sign-in being forgotten.
  * @returns what Harness answered.
  */
-export async function forgetSignIn(seams: ConnectSeams, row: ConnectSignInRow): Promise<ConnectActionOutcome> {
+export async function forgetSignIn(
+  seams: ConnectSeams,
+  row: ConnectSignInRow,
+  signal?: AbortSignal,
+): Promise<ConnectActionOutcome> {
   const { credentials } = seams
+  if (retired(signal)) return { kind: 'done', message: `${row.label}: withdrawn before writing` }
   if (credentials === undefined) return failed('this profile mounts no credential provider')
   try {
     await credentials.deleteRecord(row.key)
@@ -188,6 +216,20 @@ export async function forgetSignIn(seams: ConnectSeams, row: ConnectSignInRow): 
  * @param message - why it was refused.
  * @returns the outcome.
  */
+/**
+ * Whether the browser that asked for this write has already closed.
+ *
+ * Read through a call rather than a captured boolean, deliberately: the signal
+ * can be aborted during any await below, and a value read once would still say
+ * "open" at the second guard — the one that matters, because it sits between a
+ * submitted reference write and the credential write that follows it.
+ * @param signal - the browser lifetime, when the caller supplied one.
+ * @returns true when the write must not be admitted.
+ */
+function retired(signal?: AbortSignal): boolean {
+  return signal?.aborted === true
+}
+
 function failed(message: string): ConnectActionOutcome {
   return { kind: 'failed', message }
 }

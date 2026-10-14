@@ -100,6 +100,33 @@ import type { ModelEntrySchema, ReasoningEffortsValue, RouteModelSchema } from '
 import { credentialRefFields, profileNode, valueAt } from './schema.ts'
 import type { CuratedFieldChange } from './pi-ai.ts'
 
+/**
+ * One editor invocation's prompt context and authority.
+ *
+ * A withdrawn browser does not join a settings write already in flight. Its
+ * successor can therefore start before the old editor settles; neither may
+ * replace or clear the other's cancellation signal.
+ */
+interface EditorRun {
+  readonly context: Context
+  readonly signal?: AbortSignal
+}
+
+/** Whether this invocation's browser has withdrawn its authority. */
+function retired(ctx: EditorRun): boolean {
+  return ctx.signal?.aborted === true
+}
+
+/** Ask a choice owned by this invocation, including after asynchronous reads. */
+function ask(ctx: EditorRun, spec: Parameters<typeof promptSelect>[1]): Promise<string | undefined> {
+  return promptSelect(ctx.context, { ...spec, ...ctx.signal === undefined ? {} : { signal: ctx.signal } })
+}
+
+/** Ask a typed answer owned by this invocation rather than the current editor. */
+function askText(ctx: EditorRun, spec: Parameters<typeof promptText>[1]): Promise<string | undefined> {
+  return promptText(ctx.context, { ...spec, ...ctx.signal === undefined ? {} : { signal: ctx.signal } })
+}
+
 /** A refused action, worded the same way {@link runCreateRoute} and `actions.ts` do. */
 function failed(message: string): ConnectActionOutcome {
   return { kind: 'failed', message }
@@ -178,10 +205,27 @@ function headersSummary(entries: readonly HeaderDraftEntry[]): string {
  * @param ctx - context carrying the slot registry.
  * @param seams - the Harness seams.
  * @param row - the route being edited.
+ * @param signal - the browser's lifetime, so this run's questions are withdrawn with it.
  * @returns what Harness answered, or undefined when the reader left without saving.
  */
 export async function runRouteEditor(
   ctx: Context,
+  seams: ConnectSeams,
+  row: ConnectProviderRow,
+  signal?: AbortSignal,
+): Promise<ConnectActionOutcome | undefined> {
+  return runRouteEditorBody({ context: ctx, ...signal === undefined ? {} : { signal } }, seams, row)
+}
+
+/**
+ * {@link runRouteEditor}'s body, with a per-invocation prompt context and lifetime.
+ * @param ctx - context carrying the slot registry.
+ * @param seams - the Harness seams.
+ * @param row - the route being edited.
+ * @returns what Harness answered, or undefined when the reader left without saving.
+ */
+async function runRouteEditorBody(
+  ctx: EditorRun,
   seams: ConnectSeams,
   row: ConnectProviderRow,
 ): Promise<ConnectActionOutcome | undefined> {
@@ -213,7 +257,7 @@ export async function runRouteEditor(
           ? 'inherited from adapter'
           : `overrides · ${String(includedEntries(draft.models).length)}`
         : `customized · ${String(includedEntries(draft.models).length)}`
-      const choice = await promptSelect(ctx, {
+      const choice = await ask(ctx, {
         title: `Edit ${row.displayName}`,
         view: 'Edit route',
         detail: notice ?? `${row.settingsNs}${row.settingsPath.length > 0 ? ` · ${row.settingsPath.join('.')}` : ''}`,
@@ -239,7 +283,7 @@ export async function runRouteEditor(
       notice = undefined
       if (choice === undefined || choice === 'cancel') return undefined
       if (choice === 'base-url') {
-        const typed = await promptText(ctx, {
+        const typed = await askText(ctx, {
           title: 'Base URL',
           view: 'Edit route',
           message: 'The base URL this route calls.',
@@ -250,7 +294,7 @@ export async function runRouteEditor(
         continue
       }
       if (choice === 'protocol') {
-        const picked = await promptSelect(ctx, {
+        const picked = await ask(ctx, {
           title: 'Protocol',
           view: 'Edit route',
           choices: protocolOptions.map(option => ({ value: option, label: option })),
@@ -259,7 +303,7 @@ export async function runRouteEditor(
         continue
       }
       if (choice === 'display-name') {
-        const typed = await promptText(ctx, {
+        const typed = await askText(ctx, {
           title: 'Display name',
           view: 'Edit route',
           message: 'Shown in /connect and /model. Leave blank to show the route id instead.',
@@ -320,6 +364,10 @@ export async function runRouteEditor(
     }
     const ops = buildRouteOps(draft, original, row.settingsPath, editableIdentity, headersOffered)
     if (ops.length === 0) return { kind: 'done', message: `${row.provider}: nothing changed` }
+    // The browser can close while a submenu is open. A save nobody is waiting
+    // for, reported into a transcript nobody is reading, is what the lifetime
+    // exists to refuse.
+    if (retired(ctx)) return undefined
     try {
       await settings.mutate(row.settingsNs, ops, descriptor.revision)
       return { kind: 'done', message: `${row.provider}: route updated` }
@@ -440,10 +488,10 @@ function samePath(left: readonly string[], right: readonly string[]): boolean {
  * @param taken - route keys already in the directory, across every namespace.
  * @returns the id, or undefined when the reader backed out.
  */
-async function promptRouteId(ctx: Context, taken: ReadonlySet<string>): Promise<string | undefined> {
+async function promptRouteId(ctx: EditorRun, taken: ReadonlySet<string>): Promise<string | undefined> {
   let detail: string | undefined
   for (;;) {
-    const raw = await promptText(ctx, {
+    const raw = await askText(ctx, {
       title: 'Provider ID',
       view: 'Add custom provider',
       message: 'Lowercase letters, digits, and hyphens; becomes the route key.',
@@ -481,8 +529,8 @@ interface CreateDraft {
  * @param initial - the field's current value, prefilled.
  * @returns the trimmed URL, or undefined when the reader backed out.
  */
-async function promptBaseURL(ctx: Context, initial: string): Promise<string | undefined> {
-  const typed = await promptText(ctx, {
+async function promptBaseURL(ctx: EditorRun, initial: string): Promise<string | undefined> {
+  const typed = await askText(ctx, {
     title: 'Endpoint',
     view: 'Add custom provider',
     message: 'The base URL this route calls.',
@@ -500,10 +548,10 @@ async function promptBaseURL(ctx: Context, initial: string): Promise<string | un
  * @returns the normalized key, undefined for "no key", or `'cancel'` when the
  *   reader backed out (distinct from undefined, which is a deliberate answer).
  */
-async function promptApiKey(ctx: Context): Promise<string | undefined | 'cancel'> {
+async function promptApiKey(ctx: EditorRun): Promise<string | undefined | 'cancel'> {
   let detail: string | undefined
   for (;;) {
-    const typed = await promptText(ctx, {
+    const typed = await askText(ctx, {
       title: 'API key',
       view: 'Add custom provider',
       message: 'Optional. Leave blank if this endpoint needs none.',
@@ -534,11 +582,29 @@ async function promptApiKey(ctx: Context): Promise<string | undefined | 'cancel'
  * @param ctx - context carrying the slot registry.
  * @param seams - the Harness seams.
  * @param target - where the new route's profile would be written.
+ * @param signal - the browser's lifetime, so this run's questions are withdrawn with it.
  * @returns what Harness answered, or undefined when the reader backed out
  *   before the final confirmation, having written nothing.
  */
 export async function runCreateRoute(
   ctx: Context,
+  seams: ConnectSeams,
+  target: ConnectNewRouteTarget,
+  signal?: AbortSignal,
+): Promise<ConnectActionOutcome | undefined> {
+  return runCreateRouteBody({ context: ctx, ...signal === undefined ? {} : { signal } }, seams, target)
+}
+
+/**
+ * {@link runCreateRoute}'s body, with a per-invocation prompt context and lifetime.
+ * @param ctx - context carrying the slot registry.
+ * @param seams - the Harness seams.
+ * @param target - where the new route's profile would be written.
+ * @returns what Harness answered, or undefined when the reader backed out
+ *   before the final confirmation, having written nothing.
+ */
+async function runCreateRouteBody(
+  ctx: EditorRun,
   seams: ConnectSeams,
   target: ConnectNewRouteTarget,
 ): Promise<ConnectActionOutcome | undefined> {
@@ -591,7 +657,7 @@ export async function runCreateRoute(
   const baseURL = await promptBaseURL(ctx, draft.baseURL)
   if (baseURL === undefined) return undefined
   draft.baseURL = baseURL
-  const firstProtocol = await promptSelect(ctx, {
+  const firstProtocol = await ask(ctx, {
     title: 'Protocol',
     view: 'Add custom provider',
     choices: protocolOptions.map(option => ({ value: option, label: option })),
@@ -620,7 +686,7 @@ export async function runCreateRoute(
   let notice: string | undefined
   for (;;) {
     const keyProvided = draft.apiKey !== undefined
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: `Add custom provider · ${id}`,
       view: 'Add custom provider',
       detail: notice === undefined ? `Provider ID  ${id}` : `${notice}\nProvider ID  ${id}`,
@@ -640,7 +706,7 @@ export async function runCreateRoute(
     notice = undefined
     if (choice === undefined || choice === 'cancel') return undefined
     if (choice === 'display-name') {
-      const typed = await promptText(ctx, {
+      const typed = await askText(ctx, {
         title: 'Display name',
         view: 'Add custom provider',
         message: 'Optional; shown in /connect and /model. Leave blank to show the route id instead.',
@@ -656,7 +722,7 @@ export async function runCreateRoute(
       continue
     }
     if (choice === 'protocol') {
-      const picked = await promptSelect(ctx, {
+      const picked = await ask(ctx, {
         title: 'Protocol',
         view: 'Add custom provider',
         choices: protocolOptions.map(option => ({ value: option, label: option })),
@@ -725,6 +791,7 @@ export async function runCreateRoute(
     credentialField: keyProvided ? credentialField : undefined,
     credentialRef,
   })
+  if (retired(ctx)) return undefined
   try {
     await settings.mutate(target.settingsNs, [op], descriptor.revision)
   } catch (error) {
@@ -732,6 +799,11 @@ export async function runCreateRoute(
   }
   const apiKey = draft.apiKey
   if (apiKey === undefined || credentialRef === undefined) return { kind: 'done', message: `${id}: route created` }
+  // The profile write above was already submitted and is left alone; the key is
+  // a SECOND write, and a retired browser admits none. The route stays created
+  // without it, which the reader can finish from /connect — better than storing
+  // a secret for an action nobody is still taking.
+  if (retired(ctx)) return { kind: 'done', message: `${id}: route created` }
   if (credentials === undefined) {
     return { kind: 'done', message: `${id}: route created, but this profile mounts no credential provider to store the key` }
   }
@@ -762,13 +834,13 @@ function keyIdentity(apiKey: string | undefined): Pick<LlmModelDiscoveryRequestR
  * @returns the trimmed name, or undefined when the reader backed out.
  */
 async function promptHeaderName(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   taken: readonly string[],
 ): Promise<string | undefined> {
   let detail: string | undefined
   for (;;) {
-    const typed = await promptText(ctx, {
+    const typed = await askText(ctx, {
       title: 'Header name',
       view,
       message: 'Sent with every request this route makes, for example X-Tenant-Id.',
@@ -797,14 +869,14 @@ async function promptHeaderName(
  * @returns the value, or undefined when the reader backed out.
  */
 async function promptHeaderValue(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   name: string,
   initial: string,
 ): Promise<string | undefined> {
   let detail: string | undefined
   for (;;) {
-    const typed = await promptText(ctx, {
+    const typed = await askText(ctx, {
       title: name,
       view,
       message: `The value sent as ${name}.`,
@@ -851,7 +923,7 @@ async function promptHeaderValue(
  * @returns the draft after every add, edit, and removal.
  */
 async function editHeaders(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   entries: readonly HeaderDraftEntry[],
 ): Promise<HeaderDraftEntry[]> {
@@ -859,7 +931,7 @@ async function editHeaders(
   const ROW_PREFIX = 'header:'
   let current = [...entries]
   for (;;) {
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: 'Request headers',
       view,
       detail: 'Sent with every request this route makes. Harness attribution wins a reserved name.',
@@ -890,7 +962,7 @@ async function editHeaders(
     const targetIndex = Number(choice.slice(ROW_PREFIX.length))
     const target = current[targetIndex]
     if (!choice.startsWith(ROW_PREFIX) || target === undefined) continue
-    const next = await promptSelect(ctx, {
+    const next = await ask(ctx, {
       title: target.name,
       view,
       choices: [
@@ -967,7 +1039,7 @@ interface ModelsEditResult {
  *   whether it would write anything different from `entries`.
  */
 async function editModels(
-  ctx: Context,
+  ctx: EditorRun,
   seams: ConnectSeams,
   settingsNs: string,
   identity: Pick<LlmModelDiscoveryRequestRead, 'provider' | 'apiKey'>,
@@ -1000,7 +1072,7 @@ async function editModels(
     // note is a standing condition of this whole submenu, so it is what the
     // detail line falls back to rather than something shown once and lost.
     const detail = notice ?? discoveryNote
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: 'Models',
       view: 'Models',
       ...detail === undefined ? {} : { detail },
@@ -1046,7 +1118,7 @@ async function editModels(
     const target = current.find(entry => entry.id === choice)
     if (target === undefined) continue
     const locked = storage === 'override' && target.included && !ownedOverrideIds.has(target.id)
-    const next = await promptSelect(ctx, {
+    const next = await ask(ctx, {
       title: target.id,
       view: 'Models',
       ...locked
@@ -1141,7 +1213,7 @@ function reasoningSummary(value: ReasoningEffortsValue | undefined): string {
  * @returns the parsed number, or undefined both when left blank and when cancelled.
  */
 async function promptOptionalCapacity(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   title: string,
   initial: number | undefined,
@@ -1149,7 +1221,7 @@ async function promptOptionalCapacity(
 ): Promise<number | undefined | 'cancel'> {
   let detail: string | undefined
   for (;;) {
-    const raw = await promptText(ctx, {
+    const raw = await askText(ctx, {
       title,
       view,
       message: `${title}. Leave blank to omit.`,
@@ -1175,11 +1247,11 @@ async function promptOptionalCapacity(
  * @returns the updated draft, or the refusal reason when one applies.
  */
 async function promptNewModel(
-  ctx: Context,
+  ctx: EditorRun,
   entries: readonly ModelDraftEntry[],
   storage: ModelStorage,
 ): Promise<{ ok: true; entries: ModelDraftEntry[] } | { ok: false; reason: string | undefined }> {
-  const id = await promptText(ctx, { title: 'Model id', view: 'Add model', message: 'The id this route should offer.', kind: 'text' })
+  const id = await askText(ctx, { title: 'Model id', view: 'Add model', message: 'The id this route should offer.', kind: 'text' })
   if (id === undefined || id.trim() === '') return { ok: false, reason: undefined }
   const result = addManual(entries, {
     id: id.trim(),
@@ -1205,7 +1277,7 @@ async function promptNewModel(
  * @returns the entry after the reader leaves; unchanged when nothing changed.
  */
 async function editModelFields(
-  ctx: Context,
+  ctx: EditorRun,
   target: ModelDraftEntry,
   schema: RouteModelSchema,
 ): Promise<ModelDraftEntry> {
@@ -1215,7 +1287,7 @@ async function editModelFields(
   let dirty = false
   for (;;) {
     const advanced = entry.input.length > 0 || reasoningOfferable(entry)
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: target.id,
       view: 'Edit model',
       choices: [
@@ -1242,7 +1314,7 @@ async function editModelFields(
       return dirty ? { ...current, included: true } : target
     }
     if (choice === 'name') {
-      const typed = await promptText(ctx, {
+      const typed = await askText(ctx, {
         title: 'Display name',
         view: 'Edit model',
         message: 'Optional; leave blank to inherit the catalog name.',
@@ -1319,14 +1391,14 @@ function reasoningMappingOfferable(entry: ModelEntrySchema): boolean {
  * @returns the updated entry, or undefined when the reader backed out unchanged.
  */
 async function editAdvanced(
-  ctx: Context,
+  ctx: EditorRun,
   current: ModelDraftEntry,
   entry: ModelEntrySchema,
 ): Promise<ModelDraftEntry | undefined> {
   let working = { ...current }
   let dirty = false
   for (;;) {
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: 'Advanced',
       view: 'Edit model',
       choices: [
@@ -1370,13 +1442,13 @@ async function editAdvanced(
  * @returns the chosen list (undefined for inherit), or `'cancel'`.
  */
 async function editInputModalities(
-  ctx: Context,
+  ctx: EditorRun,
   selected: readonly string[] | undefined,
   vocab: readonly string[],
 ): Promise<readonly string[] | undefined | 'cancel'> {
   let current = selected === undefined ? [] : [...selected]
   for (;;) {
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: 'Input modalities',
       view: 'Edit model',
       detail: 'Unselected means inherit the installed catalog, then the route default.',
@@ -1413,12 +1485,12 @@ async function editInputModalities(
  * @returns the chosen value, or `'cancel'` when the reader backed out.
  */
 async function editReasoningEfforts(
-  ctx: Context,
+  ctx: EditorRun,
   current: ReasoningEffortsValue | undefined,
   entry: ModelEntrySchema,
 ): Promise<{ readonly value: ReasoningEffortsValue | undefined } | 'cancel'> {
   for (;;) {
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: 'Reasoning capability',
       view: 'Edit model',
       choices: [
@@ -1461,7 +1533,7 @@ async function editReasoningEfforts(
  * @returns the mapping, or `'cancel'`.
  */
 async function editReasoningMapping(
-  ctx: Context,
+  ctx: EditorRun,
   current: Record<string, string | null> | undefined,
   entry: ModelEntrySchema,
 ): Promise<Record<string, string | null> | 'cancel'> {
@@ -1469,7 +1541,7 @@ async function editReasoningMapping(
   const wire = entry.reasoningWire
   let mapping: Record<string, string | null> = current === undefined ? {} : { ...current }
   for (;;) {
-    const choice = await promptSelect(ctx, {
+    const choice = await ask(ctx, {
       title: 'Reasoning mapping',
       view: 'Edit model',
       detail: 'Each level maps to the wire value dispatch should send; a level may also send no wire value.',
@@ -1487,7 +1559,7 @@ async function editReasoningMapping(
     if (choice === '__done') return mapping
     const level = choice.startsWith('l:') ? choice.slice(2) : undefined
     if (level === undefined || !levels.includes(level)) continue
-    const action = await promptSelect(ctx, {
+    const action = await ask(ctx, {
       title: level,
       view: 'Edit model',
       choices: [
@@ -1507,7 +1579,7 @@ async function editReasoningMapping(
       continue
     }
     if (action === 'wire') {
-      const typed = await promptText(ctx, {
+      const typed = await askText(ctx, {
         title: `${level} wire value`,
         view: 'Edit model',
         message: 'The value dispatch sends for this level.',

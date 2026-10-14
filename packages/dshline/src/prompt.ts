@@ -347,9 +347,15 @@ export async function promptText(
   return new Promise<string | undefined>(resolve => {
     let dismiss = (): void => {}
     let settled = false
+    // Named so `finish` can detach it. A caller may hand this the signal of
+    // something that outlives the question — an authorization attempt, or a
+    // browser scope — so an anonymous once-only listener accumulates on it.
+    // `once` stops it firing twice, not accumulating.
+    const withdraw = (): void => { finish(undefined) }
     const finish = (value: string | undefined): void => {
       if (settled) return
       settled = true
+      spec.signal?.removeEventListener('abort', withdraw)
       dismiss()
       resolve(value)
     }
@@ -360,6 +366,6 @@ export async function promptText(
     })
     dismiss = ctx.tuiSlots.pushOverlay(overlay)
     if (spec.signal?.aborted === true) finish(undefined)
-    else spec.signal?.addEventListener('abort', () => { finish(undefined) }, { once: true })
+    else spec.signal?.addEventListener('abort', withdraw, { once: true })
   })
 }

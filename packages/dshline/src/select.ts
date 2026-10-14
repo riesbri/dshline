@@ -521,11 +521,18 @@ export async function promptSelect(
   return new Promise<string | undefined>(resolve => {
     let dismiss = (): void => {}
     let settled = false
+    // Named so `finish` can detach it. The signal a caller passes here is often
+    // the initiating attachment's, which outlives this picker by design, so an
+    // anonymous once-only listener is retained by it for the rest of the
+    // session: twelve pickers in one attachment left twelve listeners on one
+    // signal. `once` stops it firing twice, not accumulating.
+    const withdraw = (): void => { finish(undefined) }
     // Shared by the overlay and the withdrawal listener, because either can be
     // first and the loser must not dismiss an overlay someone else has replaced.
     const finish = (value: string | undefined): void => {
       if (settled) return
       settled = true
+      spec.signal?.removeEventListener('abort', withdraw)
       dismiss()
       resolve(value)
     }
@@ -536,6 +543,6 @@ export async function promptSelect(
     })
     dismiss = ctx.tuiSlots.pushOverlay(overlay)
     if (spec.signal?.aborted === true) finish(undefined)
-    else spec.signal?.addEventListener('abort', () => { finish(undefined) }, { once: true })
+    else spec.signal?.addEventListener('abort', withdraw, { once: true })
   })
 }
