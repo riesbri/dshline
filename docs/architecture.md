@@ -624,7 +624,9 @@ ctx.subagents.prompt         → human queue / steer
 
 Discovery is `listChildren(parentSessionId)`, whose rows are Harness facts:
 durable id, label, `one-shot` versus `continuable`, session-store residency, and
-whether the child has children. A diagnostic row is kept rather than dropped, so
+whether the child has children. `external` descriptors instead expose a parent-owned
+result without a local child session; they are listed but never inspected or
+followed up through the local conversation seams. A diagnostic row is kept rather than dropped, so
 a corrupt or unreadable candidate degrades honestly. Opening a child reads its
 own log through `ctx.sessionQuery.listEvents` and one bounded `readEvent` window
 and renders each event with Harness's `extractSessionEventText`; the child is
@@ -1626,8 +1628,9 @@ delivery, suppresses no notice, and never enters the model's tool path.
 
 `ctx.subagents.interrupt(..., { kind: 'user', parentSessionId })` remains the
 other half of this section: the seam explicitly models human authority to stop a
-live continuable child, and it still needs no confirmation because it ends a
-turn rather than a producer. A workflow run still gets no control, because
+live continuable or external child. Continuable interruption preserves the
+inbox and descendants; external interruption ends the activation. Both remain
+Harness-owned and need no additional confirmation. A workflow run still gets no control, because
 `ctx.workflowEngine` publishes `start()` alone. The rule applies to every future
 capability, not only Work. Likewise, Work presents lifecycle and job state,
 not provider reasoning, commands, tool activity, or diffs unless Harness

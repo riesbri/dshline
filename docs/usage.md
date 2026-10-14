@@ -1138,7 +1138,9 @@ id, its label, `one-shot` or `continuable`, session-store residency, and whether
 it has children. Opening one reads that child's own session log through
 `ctx.sessionQuery` without resuming the child, and a continuable child can
 receive a human follow-up (`m`) or a steer (`s`). A one-shot child is
-inspectable and read-only. Follow-up and steer use Harness's human prompt
+inspectable and read-only. An `external` row has only the parent-owned result,
+not a local child session: no transcript inspection or follow-up is offered.
+Follow-up and steer use Harness's human prompt
 operation, so acceptance is Harness's own; the message appears in the child's
 transcript only when its session log says so. Interrupt stays on `/work`, where
 an open lifecycle epoch is the stronger premise.
@@ -1231,7 +1233,7 @@ leads with what
 the child is doing and what it is doing it to, then its model and reasoning
 effort when its route carries them, its backend, how long it has worked, its
 token total when that figure is attributable to it, and its mode
-(`continuable`/`one-shot`), then its workflow, phase, and member label
+(`continuable`/`one-shot`/`external`), then its workflow, phase, and member label
 when that relationship is authoritative, and finally the identities a report
 needs: durable session id, live Agent status, session residency, child
 sessions, lifecycle run id, and whether the run published an in-process child.
@@ -1302,7 +1304,8 @@ worse than one that admits a hole.
 
 A continuable subagent may offer `k interrupt`, which asks Harness to
 interrupt that child's current turn — keeping its conversation, inbox, and
-descendants intact. A one-shot subagent does not. Interrupt failures,
+descendants intact. An external subagent may also offer interrupt, ending its
+external activation; Harness still owns settlement. A one-shot subagent does not. Interrupt failures,
 including authorization failures, are shown briefly in the overlay rather
 than discarded.
 

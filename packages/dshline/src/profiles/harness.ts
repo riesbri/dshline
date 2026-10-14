@@ -26,7 +26,7 @@
  * Deliberately NOT importing `@deepseek-ai/dsh-app-boot`, even though it
  * exports `resolveProfileDir`/`readProfileManifest`/`PROFILES_DIR`. That
  * package's own peer list is nine entries (four `cordis-plugin-*`,
- * `dsh-launch-environment`, `dsh-invariants`, `dsh-home-paths`,
+ * `dsh-launch-environment`, `dsh-home-paths`,
  * `dsh-system-prompt`, `cordis`), and declaring them here would print
  * unmet-peer warnings for every profile that composes a frontend without the
  * launcher's boot graph — for helpers that, on the read side, amount to a
