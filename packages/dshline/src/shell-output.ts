@@ -1,7 +1,7 @@
 /**
  * TEMPORARY COMPATIBILITY SHIM for the adopted Harness generation, registered
- * in HARNESS_COMPAT. Confirmed against 0.2.0-rc.2 at
- * 639ed015397290b3745d163aafe02ffee4aa3f84: subprocess-local/src/output.ts
+ * in HARNESS_COMPAT. Confirmed against 0.2.1-alpha.2 at
+ * d743267388641bc76f17c45ce8b4c231aed1d32c: subprocess-local/src/output.ts
  * readFrom independently decodes each retained byte slice, and bash-local's
  * consuming reader advances through incomplete UTF-8 characters.
  *

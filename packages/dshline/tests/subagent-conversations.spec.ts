@@ -377,6 +377,23 @@ describe('durable subagent discovery vocabulary', () => {
     expect(subagentRowFollowUp(row, true)).toBe(false)
   })
 
+  it('lists external executions without inventing a stored child conversation', () => {
+    const reading = catalogReading([{ ...child('outside', 'one-shot', 'inactive'), mode: 'external', label: 'Remote helper' }])
+    const row = firstRow(reading)
+    expect(row).toEqual({ kind: 'external', id: 'outside', label: 'Remote helper' })
+    expect(subagentRowOpenable(row)).toBe(false)
+    expect(subagentRowFollowUp(row, true)).toBe(false)
+    const inspect: string[] = []
+    const overlay = createSubagentCatalogOverlay({
+      reading: () => reading, origin: 'command', inspect: id => { inspect.push(id) },
+      refresh: () => {}, settle: () => {}, invalidate: () => {},
+    })
+    expect(stripAnsi(overlay.render(100, 20).join('\n'))).toContain('external')
+    expect(stripAnsi(overlay.render(100, 20).join('\n'))).not.toContain('stored')
+    overlay.handleKey({ kind: 'key', name: 'enter' })
+    expect(inspect).toEqual([])
+  })
+
   it('reports the absence of the prompt seam rather than a one-shot mode', () => {
     const reading = catalogReading([child('c', 'continuable', 'running')])
     expect(subagentRowFollowUp(firstRow(reading), false)).toBe(false)

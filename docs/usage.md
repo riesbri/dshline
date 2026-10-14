@@ -124,7 +124,7 @@ Start a line with `!` to run a shell command yourself, without asking the model:
 
 Leading whitespace before `!` is accepted. Only that prefix is removed; everything after `!`, including trailing whitespace, is preserved. Bare `!` (or only whitespace after it) gives a local hint and never reaches the model. This is not a slash command and adds nothing to the `/` menu. When shell capability is available and there is enough room, the idle empty composer adds `! shell` after `/ menu`; narrower or busy hints stay unchanged.
 
-The command runs in the attached session's workspace, including after a resume or a workspace switch, with its current Harness sandbox policy. An unavailable shell or a sandbox-capable executor without policy authority is a local error. A denial never triggers automatic escalation: use `/permission` deliberately, then submit the command again if you want to retry.
+The command runs in the attached session's current execution directory, including after a resume or a native `working_directory` change, with its current Harness sandbox policy. This can differ from the original project recorded in the session header; changing directory does not expand permissions. An unavailable shell or a sandbox-capable executor without policy authority is a local error. A denial never triggers automatic escalation: use `/permission` deliberately, then submit the command again if you want to retry.
 
 Each command is a one-shot, non-login, non-PTY execution with stdin closed. `cd`, exported variables, and shell functions do not persist between commands. Interactive editors and password prompts are not supported. Harness selects the platform shell and keeps its scrubbed environment: Bash sets `TERM=dumb`, while PowerShell does not override `TERM`. Both disable color and set `PAGER`/`GIT_PAGER` to `cat`. Direct human commands do not receive the managed `DSH_*` overlay used by model tool executions.
 
@@ -1138,7 +1138,9 @@ id, its label, `one-shot` or `continuable`, session-store residency, and whether
 it has children. Opening one reads that child's own session log through
 `ctx.sessionQuery` without resuming the child, and a continuable child can
 receive a human follow-up (`m`) or a steer (`s`). A one-shot child is
-inspectable and read-only. Follow-up and steer use Harness's human prompt
+inspectable and read-only. An `external` row has only the parent-owned result,
+not a local child session: no transcript inspection or follow-up is offered.
+Follow-up and steer use Harness's human prompt
 operation, so acceptance is Harness's own; the message appears in the child's
 transcript only when its session log says so. Interrupt stays on `/work`, where
 an open lifecycle epoch is the stronger premise.
@@ -1231,7 +1233,7 @@ leads with what
 the child is doing and what it is doing it to, then its model and reasoning
 effort when its route carries them, its backend, how long it has worked, its
 token total when that figure is attributable to it, and its mode
-(`continuable`/`one-shot`), then its workflow, phase, and member label
+(`continuable`/`one-shot`/`external`), then its workflow, phase, and member label
 when that relationship is authoritative, and finally the identities a report
 needs: durable session id, live Agent status, session residency, child
 sessions, lifecycle run id, and whether the run published an in-process child.
@@ -1302,7 +1304,8 @@ worse than one that admits a hole.
 
 A continuable subagent may offer `k interrupt`, which asks Harness to
 interrupt that child's current turn — keeping its conversation, inbox, and
-descendants intact. A one-shot subagent does not. Interrupt failures,
+descendants intact. An external subagent may also offer interrupt, ending its
+external activation; Harness still owns settlement. A one-shot subagent does not. Interrupt failures,
 including authorization failures, are shown briefly in the overlay rather
 than discarded.
 

@@ -24,7 +24,13 @@ packages:
 #
 # Remove this once an ordinary update resolves 1.2.2 on its own.
 
+# Harness 0.2.1-alpha.2 fs-local still requests chokidar 4.0.3, whose release
+# lacks the provenance carried by earlier 4.x releases and fails no-downgrade.
+# Use the attested 5.0.0 only on that edge; its ESM/Node 20.19 floor fits this
+# ESM-only workspace's Node 22.19 floor. Keep the policy and all other edges.
+# Revisit this pin on the next Harness adoption; verify fs watch/close semantics.
 overrides:
+  '@deepseek-ai/dsh-fs-local>chokidar': '5.0.0'
   'source-map-js': '1.2.2'
 
 # esbuild arrives transitively through vitest and links a platform binary from a

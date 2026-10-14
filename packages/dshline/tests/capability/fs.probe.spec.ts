@@ -19,12 +19,16 @@
  * @module
  */
 
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AttachmentStore from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentLimits, SaveFileStreamAttachment } from '@deepseek-ai/dsh-attachment'
 import FileSystem, { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import type { FsDirEntry, FsEditRequest, FsInfo, FsTarget, FsWriteIntent, FsWriteOutcome } from '@deepseek-ai/dsh-fs'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { readImageDrafts } from '../../src/attachment-drafts.ts'
 import type { FileDraft, ImageDraft } from '../../src/attachment-drafts.ts'
 import { admitFileDraft } from '../../src/file-admission.ts'
@@ -253,5 +257,45 @@ describe('capability: fs', () => {
     }
     await expect(admitFileDraft(FILE, fs, store, '/ws', new AbortController().signal, 4))
       .rejects.toMatchObject({ code: 'FILE_CHANGED_DURING_ATTACHMENT' })
+  })
+})
+
+/** Scratch directories this probe created, removed after each test. */
+const scratch: string[] = []
+
+afterEach(async () => {
+  await Promise.all(scratch.splice(0).map(path => rm(path, { recursive: true, force: true })))
+})
+
+describe('capability: the fs-local watcher under the pinned chokidar', () => {
+  it('readies, reports a real change, and closes', async () => {
+    // The compatibility evidence for the scoped `dsh-fs-local>chokidar` override
+    // in `pnpm-workspace.yaml`: fs-local still resolves the packages it declares
+    // and its watcher still readies, notifies on a real filesystem change, and
+    // closes asynchronously — driven through the REAL `@deepseek-ai/dsh-fs-local`
+    // service, not a fake, so the override is not a silent semantic change.
+    const directory = await mkdtemp(join(tmpdir(), 'dshline-fs-watch-'))
+    scratch.push(directory)
+    const ctx = new Context()
+    await ctx.plugin(LocalFileSystem, { cwd: directory })
+    try {
+      const control = new AbortController()
+      const target = await ctx.fs.resolve(directory, { signal: control.signal })
+      let settle!: (error?: unknown) => void
+      const changed = new Promise<unknown>(resolve => { settle = resolve })
+      const close = await ctx.fs.watch(target, error => settle(error), control.signal)
+      await writeFile(join(directory, 'proof.txt'), 'a real filesystem change')
+      const outcome = await Promise.race([
+        changed,
+        new Promise((_, reject) => {
+          const timer = setTimeout(() => reject(new Error('the watcher reported nothing within 5s')), 5000)
+          timer.unref()
+        }),
+      ])
+      expect(outcome).toBeUndefined()
+      await close()
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 })

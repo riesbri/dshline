@@ -24,7 +24,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
@@ -130,6 +130,10 @@ async function consumer(): Promise<{ ctx: Context; agent: Agent }> {
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
+  // The adopted consumer resolves the effective execution directory rather
+  // than reading the original Session header directly. Use Harness's own
+  // non-driving collaborator; discovery and directory mutations are not tested.
+  provideWorkingDirectoryFixture(ctx, CWD)
   await ctx.plugin(toolSkill)
   ctx.skills.register({
     name: 'review-pr',

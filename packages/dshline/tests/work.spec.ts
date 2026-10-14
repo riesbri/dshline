@@ -576,6 +576,30 @@ describe('generic Harness Work capability projection', () => {
     work.dispose()
   })
 
+  it('projects external activation authority without inventing child-session facts', async () => {
+    let started: StartListener | undefined
+    const calls: unknown[][] = []
+    const work = new HarnessWork({
+      agent,
+      subagents: {
+        listDescendants: async () => [{ ...CONTINUABLE_CHILD, mode: 'external' as const }],
+        interrupt: (...args: unknown[]) => { calls.push(args) },
+      } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
+      invalidate: () => {},
+    })
+    await settled()
+    started?.({ runId: SubagentRunId('outside'), provider: 'generic', id: SessionId('child'), local: false })
+    await settled()
+    const row = work.snapshot().subagents[0]!
+    expect(row).toMatchObject({ id: 'child', mode: 'external', interruptible: true })
+    expect(row.residency).toBeUndefined()
+    expect(row.hasChildren).toBeUndefined()
+    expect(work.interruptSubagent(row).kind).toBe('requested')
+    expect(calls).toEqual([[SessionId('child'), { kind: 'user', parentSessionId: agent.session.id }]])
+    work.dispose()
+  })
+
   it('marks a discovered one-shot subagent as non-interruptible', async () => {
     let started: StartListener | undefined
     const work = new HarnessWork({
