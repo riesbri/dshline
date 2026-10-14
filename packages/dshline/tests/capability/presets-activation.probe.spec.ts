@@ -126,7 +126,7 @@ describe('shipped preset declarations activate', () => {
     const preset = declaration('../../presets/standard.patch.yml')
     const rows = rowsOf(preset)
     const names = rows.map(row => row.name)
-    // The rows the adopted generation's own standard declaration carries and a
+    // The rows the previous generation's standard declaration carried and a
     // terminal session has always had. Each was verified against
     // `packages/bundle/web-app/presets/standard.patch.yml` at 0.2.0-rc.2 (git blob
     // 0b898bf7, byte-identical to 0.2.0-rc.1's and to 0.1.7-rc.2's).

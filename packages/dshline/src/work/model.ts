@@ -258,8 +258,8 @@ export interface WorkSnapshot {
  * The outcome of asking Harness to interrupt one subagent, or to stop one Job.
  *
  * Shared because both are one request answered with one short sentence, not
- * because they are the same operation: a subagent interrupt cancels a turn and
- * a Job stop cancels a producer, and the two are separate methods on this
+ * because they are the same operation: a subagent interrupt cancels a local turn
+ * or external activation, while a Job stop cancels a producer, and the two are separate methods on this
  * side rather than one `control(item)` whose meaning has to be rediscovered
  * from `source`.
  */

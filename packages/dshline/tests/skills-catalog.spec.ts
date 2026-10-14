@@ -20,6 +20,10 @@ import type {
   SkillProviderControl,
   SkillProviderObservation,
 } from '@deepseek-ai/dsh-skill'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { SkillCatalog } from '../src/skills/catalog.ts'
 
@@ -102,9 +106,11 @@ interface Harness {
  * @param scope - the viewing scope.
  * @returns the catalog and its teardown.
  */
-function install(ctx: Context, scope: object = {}): Harness {
+function install(ctx: Context, scope: object = {}, session = Session.create(SessionId('skill-catalog-test'), undefined, {
+  version: SESSION_FORMAT_VERSION, id: SessionId('skill-catalog-test'), createdAt: 0, cwd: CWD, isSeeded: false,
+})): Harness {
   let changes = 0
-  const catalog = new SkillCatalog({ ctx, scope, cwd: CWD, changed: () => { changes += 1 } })
+  const catalog = new SkillCatalog({ ctx, scope, session, cwd: CWD, changed: () => { changes += 1 } })
   const stop = catalog.install()
   return { catalog, changes: () => changes, dispose: stop }
 }

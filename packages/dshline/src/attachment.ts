@@ -138,6 +138,7 @@ import { goalInspection, goalReading } from './goals/model.ts'
 import { createGoalOverlay } from './goals/overlay.ts'
 import { todoReading, todoSummary } from './todos/model.ts'
 import { createTodosPresenter } from './todos/presenter.ts'
+import type {} from '@deepseek-ai/dsh-working-directory'
 import { SkillCatalog } from './skills/catalog.ts'
 import { slashCandidates } from './skills/model.ts'
 import { pendingUserInput } from './steering.ts'
@@ -534,10 +535,10 @@ async function runSessionEpoch(
   w.setExit(requestAttachmentExit)
   scope.own(() => { w.setExit(undefined) })
 
-  // A resumed session keeps the workspace it was created in: the header is the
-  // authority, and resuming into the directory that happens to be current would
-  // silently re-root the conversation.
+  // Original project identity stays immutable for banners, session grouping,
+  // and new-session gestures. Execution paths follow Harness's committed cwd.
   const workspace = agent.session.header.cwd ?? startup.cwd
+  const executionCwd = (): string => ctx.get('workingDirectory')?.get(agent.session) ?? workspace
   // Whether this is a delegated child conversation, from the one durable fact
   // Harness itself guards generic file intake with: its own staged-upload
   // service refuses a file outright when `agent.session.header.origin` says the
@@ -607,6 +608,7 @@ async function runSessionEpoch(
   const skills = new SkillCatalog({
     ctx,
     scope: agent,
+    session: agent.session,
     cwd: workspace,
     changed: () => { skillsChanged() },
   })
@@ -1775,7 +1777,7 @@ async function runSessionEpoch(
       const fs = ctx.get('fs')
       if (fs === undefined) return []
       try {
-        const target = await fs.resolve(directory === '' ? '.' : directory, { cwd: workspace })
+        const target = await fs.resolve(directory === '' ? '.' : directory, { cwd: executionCwd() })
         return (await fs.listDir(target)).map(entry => ({
           name: entry.name,
           directory: entry.type === 'directory',
@@ -2253,7 +2255,7 @@ async function runSessionEpoch(
       // deadline on a streamed transfer is a size policy in everything but name.
       const admissionSignal = AbortSignal.any([attachmentAbort.signal, admission.signal])
       try {
-        blocks = await admitAttachmentBatch(batch, fs, attachments, workspace, admissionSignal)
+        blocks = await admitAttachmentBatch(batch, fs, attachments, executionCwd(), admissionSignal)
         // Durable publication cannot be interrupted. Honour a reader
         // cancellation that arrived while it ran before any of those blocks can
         // reach an Agent inbox.
@@ -2385,7 +2387,7 @@ async function runSessionEpoch(
             shell: ctx.get('shell'),
             sandboxPolicy: ctx.get('sandboxPolicy'),
             session: agent.session,
-            workdir: workspace,
+            workdir: executionCwd(),
             signal: AbortSignal.any([attachmentAbort.signal, abort.signal]),
             output: run.output,
             changed: present,
@@ -2589,7 +2591,7 @@ async function runSessionEpoch(
           inputs = await readImageDrafts(
             batch,
             fs,
-            workspace,
+            executionCwd(),
             attachments.imageLimits.maxImageBytes,
             attachments.imageLimits.maxMessageImageBytes,
             // Image-only, so the image deadline is the right one here. A command

@@ -100,7 +100,7 @@ importers:
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(f0c856b76dc777b353fb535d9a9fad31)
       '@deepseek-ai/schemastery':
-        specifier: ~3.18.5-alpha.1
+        specifier: ^3.18.5-alpha.1
         version: 3.18.5-alpha.1
       '@dshline/renderer':
         specifier: workspace:^
@@ -145,6 +145,9 @@ importers:
       '@deepseek-ai/dsh-fs':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-llm@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-sandbox@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))))
+      '@deepseek-ai/dsh-fs-local':
+        specifier: 0.2.1-alpha.2
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-fs@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-brand@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-llm@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-sandbox@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-session@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)))))
       '@deepseek-ai/dsh-goal':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(608777efe779f1f454b330f011846565)
@@ -223,6 +226,9 @@ importers:
       '@deepseek-ai/dsh-workflow':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(bf168820f45d9b7647a714bd87de80b7)
+      '@deepseek-ai/dsh-working-directory':
+        specifier: 0.2.1-alpha.2
+        version: 0.2.1-alpha.2(d976939610dbb2a3e3f6077cd5c00314)
       commander:
         specifier: ^15.0.0
         version: 15.0.0
