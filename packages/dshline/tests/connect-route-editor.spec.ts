@@ -1657,3 +1657,51 @@ describe('conflict-safe override writes', () => {
     }])
   })
 })
+
+it('a successor editor cannot revive a retired credential write', async () => {
+  const a = slots()
+  const b = slots()
+  const fixture = seamsFor({ descriptor: { ns: 'llm-pi-ai', schema: PI_AI_SCHEMA, value: {}, revision: 9 } })
+  let release!: () => void
+  let admitted = false
+  const pendingWrite = new Promise<void>(resolve => { release = resolve })
+  const firstSettings = fixture.seams.settings!
+  const held: ConnectSeams = {
+    ...fixture.seams,
+    settings: {
+      ...firstSettings,
+      mutate: async (ns, ops, revision) => {
+        admitted = true
+        await pendingWrite
+        return firstSettings.mutate(ns, ops, revision)
+      },
+    },
+  }
+  const oldLifetime = new AbortController()
+  const nextLifetime = new AbortController()
+  const oldRun = runCreateRoute(a.ctx, held, TARGET, oldLifetime.signal)
+  await a.type('local-llama')
+  await a.press(ENTER)
+  await a.type('http://127.0.0.1:11434/v1')
+  await a.press(ENTER)
+  await a.press(ENTER)
+  await a.type('fake-review-key')
+  await a.press(ENTER)
+  await a.press(DOWN, ENTER)
+  await a.type('llama3')
+  await a.press(ENTER)
+  await a.press(UP, ENTER)
+  await a.press(UP, UP, ENTER)
+  expect(admitted).toBe(true)
+  oldLifetime.abort()
+  const nextRun = runCreateRoute(b.ctx, fixture.seams, TARGET, nextLifetime.signal)
+  release()
+  await oldRun
+  expect(fixture.credentialCalls).toEqual([])
+  await b.type('successor')
+  await b.press(ENTER)
+  expect(b.text()).toContain('Endpoint')
+  nextLifetime.abort()
+  expect(b.text()).toBe('')
+  await nextRun
+})

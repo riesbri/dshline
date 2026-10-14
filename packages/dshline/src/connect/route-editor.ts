@@ -101,46 +101,30 @@ import { credentialRefFields, profileNode, valueAt } from './schema.ts'
 import type { CuratedFieldChange } from './pi-ai.ts'
 
 /**
- * The lifetime of the editor run currently on screen.
+ * One editor invocation's prompt context and authority.
  *
- * Connect mounts one browser at a time and this editor is modal over it, so
- * there is exactly one run in flight and every question it asks belongs to that
- * one lifetime. Threading a signal through the sixteen nested prompt helpers
- * below would be a far wider change for the same answer, so the two entry
- * points set this for the duration of their run and clear it in a `finally`.
- *
- * Without it, a browser that closes — because its attachment retired, or
- * because the reader quit — leaves the editor's prompts mounted over whatever
- * replaces it, and their continuations still reach `settings.mutate`.
+ * A withdrawn browser does not join a settings write already in flight. Its
+ * successor can therefore start before the old editor settles; neither may
+ * replace or clear the other's cancellation signal.
  */
-let lifetime: AbortSignal | undefined
-
-/**
- * Whether the browser that opened this editor is still open.
- * @returns true once the run has been withdrawn.
- */
-function retired(): boolean {
-  return lifetime?.aborted === true
+interface EditorRun {
+  readonly context: Context
+  readonly signal?: AbortSignal
 }
 
-/**
- * Ask a question that belongs to the running editor's lifetime.
- * @param ctx - context carrying the slot registry.
- * @param spec - the prompt and its choices.
- * @returns the confirmed value, or undefined when cancelled or withdrawn.
- */
-function ask(ctx: Context, spec: Parameters<typeof promptSelect>[1]): Promise<string | undefined> {
-  return promptSelect(ctx, { ...spec, ...lifetime === undefined ? {} : { signal: lifetime } })
+/** Whether this invocation's browser has withdrawn its authority. */
+function retired(ctx: EditorRun): boolean {
+  return ctx.signal?.aborted === true
 }
 
-/**
- * Type an answer that belongs to the running editor's lifetime.
- * @param ctx - context carrying the slot registry.
- * @param spec - the question and its presentation.
- * @returns the typed value, or undefined when cancelled or withdrawn.
- */
-function askText(ctx: Context, spec: Parameters<typeof promptText>[1]): Promise<string | undefined> {
-  return promptText(ctx, { ...spec, ...lifetime === undefined ? {} : { signal: lifetime } })
+/** Ask a choice owned by this invocation, including after asynchronous reads. */
+function ask(ctx: EditorRun, spec: Parameters<typeof promptSelect>[1]): Promise<string | undefined> {
+  return promptSelect(ctx.context, { ...spec, ...ctx.signal === undefined ? {} : { signal: ctx.signal } })
+}
+
+/** Ask a typed answer owned by this invocation rather than the current editor. */
+function askText(ctx: EditorRun, spec: Parameters<typeof promptText>[1]): Promise<string | undefined> {
+  return promptText(ctx.context, { ...spec, ...ctx.signal === undefined ? {} : { signal: ctx.signal } })
 }
 
 /** A refused action, worded the same way {@link runCreateRoute} and `actions.ts` do. */
@@ -230,25 +214,18 @@ export async function runRouteEditor(
   row: ConnectProviderRow,
   signal?: AbortSignal,
 ): Promise<ConnectActionOutcome | undefined> {
-  // Every question below belongs to the browser that opened this editor rather
-  // than to the editor itself: see `lifetime`.
-  lifetime = signal
-  try {
-    return await runRouteEditorBody(ctx, seams, row)
-  } finally {
-    lifetime = undefined
-  }
+  return runRouteEditorBody({ context: ctx, ...signal === undefined ? {} : { signal } }, seams, row)
 }
 
 /**
- * {@link runRouteEditor}'s body, run with `lifetime` set.
+ * {@link runRouteEditor}'s body, with a per-invocation prompt context and lifetime.
  * @param ctx - context carrying the slot registry.
  * @param seams - the Harness seams.
  * @param row - the route being edited.
  * @returns what Harness answered, or undefined when the reader left without saving.
  */
 async function runRouteEditorBody(
-  ctx: Context,
+  ctx: EditorRun,
   seams: ConnectSeams,
   row: ConnectProviderRow,
 ): Promise<ConnectActionOutcome | undefined> {
@@ -390,7 +367,7 @@ async function runRouteEditorBody(
     // The browser can close while a submenu is open. A save nobody is waiting
     // for, reported into a transcript nobody is reading, is what the lifetime
     // exists to refuse.
-    if (retired()) return undefined
+    if (retired(ctx)) return undefined
     try {
       await settings.mutate(row.settingsNs, ops, descriptor.revision)
       return { kind: 'done', message: `${row.provider}: route updated` }
@@ -511,7 +488,7 @@ function samePath(left: readonly string[], right: readonly string[]): boolean {
  * @param taken - route keys already in the directory, across every namespace.
  * @returns the id, or undefined when the reader backed out.
  */
-async function promptRouteId(ctx: Context, taken: ReadonlySet<string>): Promise<string | undefined> {
+async function promptRouteId(ctx: EditorRun, taken: ReadonlySet<string>): Promise<string | undefined> {
   let detail: string | undefined
   for (;;) {
     const raw = await askText(ctx, {
@@ -552,7 +529,7 @@ interface CreateDraft {
  * @param initial - the field's current value, prefilled.
  * @returns the trimmed URL, or undefined when the reader backed out.
  */
-async function promptBaseURL(ctx: Context, initial: string): Promise<string | undefined> {
+async function promptBaseURL(ctx: EditorRun, initial: string): Promise<string | undefined> {
   const typed = await askText(ctx, {
     title: 'Endpoint',
     view: 'Add custom provider',
@@ -571,7 +548,7 @@ async function promptBaseURL(ctx: Context, initial: string): Promise<string | un
  * @returns the normalized key, undefined for "no key", or `'cancel'` when the
  *   reader backed out (distinct from undefined, which is a deliberate answer).
  */
-async function promptApiKey(ctx: Context): Promise<string | undefined | 'cancel'> {
+async function promptApiKey(ctx: EditorRun): Promise<string | undefined | 'cancel'> {
   let detail: string | undefined
   for (;;) {
     const typed = await askText(ctx, {
@@ -615,16 +592,11 @@ export async function runCreateRoute(
   target: ConnectNewRouteTarget,
   signal?: AbortSignal,
 ): Promise<ConnectActionOutcome | undefined> {
-  lifetime = signal
-  try {
-    return await runCreateRouteBody(ctx, seams, target)
-  } finally {
-    lifetime = undefined
-  }
+  return runCreateRouteBody({ context: ctx, ...signal === undefined ? {} : { signal } }, seams, target)
 }
 
 /**
- * {@link runCreateRoute}'s body, run with `lifetime` set.
+ * {@link runCreateRoute}'s body, with a per-invocation prompt context and lifetime.
  * @param ctx - context carrying the slot registry.
  * @param seams - the Harness seams.
  * @param target - where the new route's profile would be written.
@@ -632,7 +604,7 @@ export async function runCreateRoute(
  *   before the final confirmation, having written nothing.
  */
 async function runCreateRouteBody(
-  ctx: Context,
+  ctx: EditorRun,
   seams: ConnectSeams,
   target: ConnectNewRouteTarget,
 ): Promise<ConnectActionOutcome | undefined> {
@@ -819,7 +791,7 @@ async function runCreateRouteBody(
     credentialField: keyProvided ? credentialField : undefined,
     credentialRef,
   })
-  if (retired()) return undefined
+  if (retired(ctx)) return undefined
   try {
     await settings.mutate(target.settingsNs, [op], descriptor.revision)
   } catch (error) {
@@ -831,7 +803,7 @@ async function runCreateRouteBody(
   // a SECOND write, and a retired browser admits none. The route stays created
   // without it, which the reader can finish from /connect — better than storing
   // a secret for an action nobody is still taking.
-  if (retired()) return { kind: 'done', message: `${id}: route created` }
+  if (retired(ctx)) return { kind: 'done', message: `${id}: route created` }
   if (credentials === undefined) {
     return { kind: 'done', message: `${id}: route created, but this profile mounts no credential provider to store the key` }
   }
@@ -862,7 +834,7 @@ function keyIdentity(apiKey: string | undefined): Pick<LlmModelDiscoveryRequestR
  * @returns the trimmed name, or undefined when the reader backed out.
  */
 async function promptHeaderName(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   taken: readonly string[],
 ): Promise<string | undefined> {
@@ -897,7 +869,7 @@ async function promptHeaderName(
  * @returns the value, or undefined when the reader backed out.
  */
 async function promptHeaderValue(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   name: string,
   initial: string,
@@ -951,7 +923,7 @@ async function promptHeaderValue(
  * @returns the draft after every add, edit, and removal.
  */
 async function editHeaders(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   entries: readonly HeaderDraftEntry[],
 ): Promise<HeaderDraftEntry[]> {
@@ -1067,7 +1039,7 @@ interface ModelsEditResult {
  *   whether it would write anything different from `entries`.
  */
 async function editModels(
-  ctx: Context,
+  ctx: EditorRun,
   seams: ConnectSeams,
   settingsNs: string,
   identity: Pick<LlmModelDiscoveryRequestRead, 'provider' | 'apiKey'>,
@@ -1241,7 +1213,7 @@ function reasoningSummary(value: ReasoningEffortsValue | undefined): string {
  * @returns the parsed number, or undefined both when left blank and when cancelled.
  */
 async function promptOptionalCapacity(
-  ctx: Context,
+  ctx: EditorRun,
   view: string,
   title: string,
   initial: number | undefined,
@@ -1275,7 +1247,7 @@ async function promptOptionalCapacity(
  * @returns the updated draft, or the refusal reason when one applies.
  */
 async function promptNewModel(
-  ctx: Context,
+  ctx: EditorRun,
   entries: readonly ModelDraftEntry[],
   storage: ModelStorage,
 ): Promise<{ ok: true; entries: ModelDraftEntry[] } | { ok: false; reason: string | undefined }> {
@@ -1305,7 +1277,7 @@ async function promptNewModel(
  * @returns the entry after the reader leaves; unchanged when nothing changed.
  */
 async function editModelFields(
-  ctx: Context,
+  ctx: EditorRun,
   target: ModelDraftEntry,
   schema: RouteModelSchema,
 ): Promise<ModelDraftEntry> {
@@ -1419,7 +1391,7 @@ function reasoningMappingOfferable(entry: ModelEntrySchema): boolean {
  * @returns the updated entry, or undefined when the reader backed out unchanged.
  */
 async function editAdvanced(
-  ctx: Context,
+  ctx: EditorRun,
   current: ModelDraftEntry,
   entry: ModelEntrySchema,
 ): Promise<ModelDraftEntry | undefined> {
@@ -1470,7 +1442,7 @@ async function editAdvanced(
  * @returns the chosen list (undefined for inherit), or `'cancel'`.
  */
 async function editInputModalities(
-  ctx: Context,
+  ctx: EditorRun,
   selected: readonly string[] | undefined,
   vocab: readonly string[],
 ): Promise<readonly string[] | undefined | 'cancel'> {
@@ -1513,7 +1485,7 @@ async function editInputModalities(
  * @returns the chosen value, or `'cancel'` when the reader backed out.
  */
 async function editReasoningEfforts(
-  ctx: Context,
+  ctx: EditorRun,
   current: ReasoningEffortsValue | undefined,
   entry: ModelEntrySchema,
 ): Promise<{ readonly value: ReasoningEffortsValue | undefined } | 'cancel'> {
@@ -1561,7 +1533,7 @@ async function editReasoningEfforts(
  * @returns the mapping, or `'cancel'`.
  */
 async function editReasoningMapping(
-  ctx: Context,
+  ctx: EditorRun,
   current: Record<string, string | null> | undefined,
   entry: ModelEntrySchema,
 ): Promise<Record<string, string | null> | 'cancel'> {
