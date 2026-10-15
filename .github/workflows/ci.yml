@@ -114,6 +114,9 @@ jobs:
 
       - run: pnpm run test
 
+      # Phase 2: no Rust implementation exists yet; never report native parity.
+      - run: pnpm run test:renderer-parity
+
   windows-launcher:
     # Focused on purpose: the whole suite already runs on Linux, and what only
     # Windows can answer is the launcher hand-off. What npm installs there is a

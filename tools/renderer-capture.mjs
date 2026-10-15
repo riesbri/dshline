@@ -1,9 +1,9 @@
 /** Capture actual reference calls, not guessed expectations. No session discovery. */
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { open, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { loadVerifiedRenderer, rendererIdentity } from './renderer-identity.mjs'
 import { CaptureInputSchema } from './renderer-schema.mjs'
-const { identity: loadedIdentity, renderer } = await loadVerifiedRenderer()
+const { identity: loadedIdentity, renderer } = await loadVerifiedRenderer(undefined, { referenceOnly: true })
 
 export const syntheticInput = {
   version: 1,
@@ -56,11 +56,18 @@ function evaluate(input) {
   return renderer[op](input.text, input.columns)
 }
 
-export function capture(value) {
+/** Canonical admitted request with the explicit default resolved palette. */
+export function normalizeCaptureInput(value) {
   const source = CaptureInputSchema.parse(value)
+  const palette = source.palette ?? { id: 'markdown', depth: 4, roles: Object.fromEntries(Object.entries(renderer.MARKDOWN_ROLES).map(([role, color]) => [role, color.ansi])) }
+  return { ...source, palette }
+}
+
+export function capture(value) {
+  const source = normalizeCaptureInput(value)
   const identity = rendererIdentity()
   if (JSON.stringify(identity) !== JSON.stringify(loadedIdentity)) throw new Error('Renderer changed since module loading; restart capture process')
-  const palette = source.palette ?? { id: 'markdown', depth: 4, roles: Object.fromEntries(Object.entries(renderer.MARKDOWN_ROLES).map(([role, color]) => [role, color.ansi])) }
+  const palette = source.palette
   const roles = Object.fromEntries(Object.entries(palette.roles).map(([role, ansi]) => [role, { ansi }]))
   const restore = renderer.setPalette({ id: palette.id, name: palette.id, description: 'Resolved presentation snapshot', depth: palette.depth, roles }, palette.depth)
   try {
@@ -78,6 +85,22 @@ export function captureResult(value) {
   }
 }
 
+/** Read at most limit+1 bytes from one opened inode; path replacement/growth cannot bypass the cap. */
+export async function readBoundedJson(path, limit = 1_048_576) {
+  const handle = await open(path, 'r')
+  try {
+    const bytes = Buffer.alloc(limit + 1)
+    let offset = 0
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, null)
+      if (!bytesRead) break
+      offset += bytesRead
+    }
+    if (offset > limit) throw new Error('RESOURCE_LIMIT')
+    return JSON.parse(bytes.subarray(0, offset).toString('utf8'))
+  } finally { await handle.close() }
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2)
   if (args.length !== 2 || !['--synthetic', '--session-input'].includes(args[0])) {
@@ -87,12 +110,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   else {
     let result
     try {
-      if ((await stat(args[1])).size > 1_048_576) result = { ok: false, error: { code: 'RESOURCE_LIMIT', fallbackEligible: false } }
-      else {
-        const value = JSON.parse(await readFile(args[1], 'utf8'))
-        result = value?.provenance?.kind === 'observed' ? captureResult(value) : { ok: false, error: { code: 'INVALID_INPUT', fallbackEligible: false } }
-      }
-    } catch { result = { ok: false, error: { code: 'INVALID_INPUT', fallbackEligible: false } } }
+      const value = await readBoundedJson(args[1])
+      result = value?.provenance?.kind === 'observed' ? captureResult(value) : { ok: false, error: { code: 'INVALID_INPUT', fallbackEligible: false } }
+    } catch (error) { result = { ok: false, error: { code: error.message === 'RESOURCE_LIMIT' ? 'RESOURCE_LIMIT' : 'INVALID_INPUT', fallbackEligible: false } } }
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     if (!result.ok) process.exitCode = 1
   }

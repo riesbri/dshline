@@ -101,6 +101,62 @@
       "nonblockingNotes": [
         "Verified temporary graph omits sourcemaps; benign Vitest warnings."
       ]
+    },
+    {
+      "phase": 2,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "REQUEST_CHANGES",
+      "artifactTreeSha256": "a8fc5a25bd677328ded584dfc2727c094263f57141cb679e013236584c356d05",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since622150f excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-parity.mjs:41-44",
+          "finding": "Only case IDs bind checked-in fixtures to canonical corpus; input/palette/provenance changes under same ID silently remain unexercised.",
+          "required": "Full normalized request equality, duplicate/missing/stale rejection and same-ID input-drift regression."
+        }
+      ],
+      "verifiedChecks": [
+        "15/15 focused tests passed",
+        "86 reference goldens, native and host-adapter zero and PENDING",
+        "Missing required backend fails",
+        "Bilingual check passed",
+        "Bounded handle reader verified",
+        "Four observed controlled startup fixtures distinct from synthetic streaming"
+      ],
+      "invariantsPassed": [
+        "Independent direct-module TS oracle",
+        "Screen and markdown sequence orchestration remain TS",
+        "No Phase3 implementation"
+      ],
+      "nonblockingNotes": [
+        "Initial corpus is useful but not exhaustive Unicode/ANSI/markdown conformance."
+      ]
+    },
+    {
+      "phase": 2,
+      "round": 2,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "APPROVE",
+      "artifactTreeSha256": "6b502455976e389eb077d395facd9fea376969c0d798577e2bb17396df2d5063",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since622150f excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "17/17 focused tests passed",
+        "86 reference fixtures:82synthetic,4observed",
+        "Native and host-adapter zero; parity explicitly PENDING",
+        "11 bilingual pairs consistent",
+        "Canonical full-request equality and duplicate/missing/stale regressions verified"
+      ],
+      "invariantsPassed": [
+        "Independent verified TS oracle",
+        "Bounded handle reads",
+        "Lossless UTF-16 exact ANSI comparison",
+        "Screen/markdown sequence host state remains TS"
+      ],
+      "nonblockingNotes": [
+        "Initial corpus is not exhaustive conformance."
+      ]
     }
   ]
 }

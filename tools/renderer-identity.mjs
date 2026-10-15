@@ -34,7 +34,7 @@ export function rendererIdentity(root = defaultRoot) {
 }
 
 /** Execute verified bytes from a unique complete module graph, never the caller's ESM cache. */
-export async function loadVerifiedRenderer(root = defaultRoot) {
+export async function loadVerifiedRenderer(root = defaultRoot, { referenceOnly = false } = {}) {
   const identity = rendererIdentity(root)
   const build = filesAt(join(root, 'packages/renderer/lib'), /(?:\.js|\.d\.ts)$/u)
   if (digest(build) !== identity.executedBuild) throw new Error('Renderer changed while snapshotting verified artifacts')
@@ -43,7 +43,9 @@ export async function loadVerifiedRenderer(root = defaultRoot) {
     writeFileSync(join(snapshot, 'package.json'), '{"type":"module"}')
     for (const [name, bytes] of build) writeFileSync(join(snapshot, name), bytes)
     if (digest(filesAt(snapshot, /(?:\.js|\.d\.ts)$/u)) !== identity.executedBuild) throw new Error('Renderer snapshot digest mismatch')
-    const renderer = await import(pathToFileURL(join(snapshot, 'index.js')).href)
+    const renderer = referenceOnly
+      ? Object.assign({}, ...await Promise.all(['width', 'text', 'box', 'markdown', 'screen', 'theme'].map(name => import(pathToFileURL(join(snapshot, `${name}.js`)).href))))
+      : await import(pathToFileURL(join(snapshot, 'index.js')).href)
     if (JSON.stringify(rendererIdentity(root)) !== JSON.stringify(identity)) throw new Error('Renderer changed during module loading')
     return { identity, renderer }
   } finally { rmSync(snapshot, { recursive: true, force: true }) }

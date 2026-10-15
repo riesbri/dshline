@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "provenance": {
+    "kind": "synthetic",
+    "description": "Deterministic hand-authored presentation request; actual TypeScript output captured, not a real Harness session."
+  },
+  "palette": {
+    "id": "resolved-4",
+    "depth": 4,
+    "roles": {
+      "heading-1": [
+        1,
+        35
+      ],
+      "strong": [
+        1,
+        31
+      ],
+      "emphasis": [
+        3
+      ],
+      "code": [
+        44,
+        33
+      ],
+      "muted": [
+        2
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "inline-palette-4",
+      "input": {
+        "op": "renderInline",
+        "text": "**bold** `code` _em_ ~~gone~~"
+      },
+      "output": "\u001b[1;31mbold\u001b[0m \u001b[44;33mcode\u001b[0m \u001b[3mem\u001b[0m gone"
+    }
+  ],
+  "reference": {
+    "identity": {
+      "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+      "source": "23691111c21c00dce1b7077a5d7ab8cef4d3021e3fddfb72feb5cb92ca048dc5",
+      "executedBuild": "3577aedf98501c1e28275f365103e61f08d88bd81a5fa215e3b6e0392041c033",
+      "compilerAndConfig": "6526880549391eb3d96e0093f0da97a3fdcad9227712c1c45e7c8903a060e33d"
+    },
+    "package": "@dshline/renderer",
+    "palette": {
+      "id": "resolved-4",
+      "depth": 4
+    },
+    "transport": "JSON UTF-16 strings; Screen writes are JavaScript strings before host encoding"
+  }
+}

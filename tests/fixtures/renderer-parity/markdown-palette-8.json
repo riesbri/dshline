@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "provenance": {
+    "kind": "synthetic",
+    "description": "Deterministic hand-authored presentation request; actual TypeScript output captured, not a real Harness session."
+  },
+  "palette": {
+    "id": "resolved-8",
+    "depth": 8,
+    "roles": {
+      "heading-1": [
+        38,
+        5,
+        123
+      ],
+      "strong": [
+        1,
+        31
+      ],
+      "emphasis": [
+        3
+      ],
+      "code": [
+        44,
+        33
+      ],
+      "muted": [
+        2
+      ]
+    }
+  },
+  "cases": [
+    {
+      "id": "markdown-palette-8",
+      "input": {
+        "op": "renderMarkdown",
+        "text": "# Hi\n**bold** [link](url)\n> quote"
+      },
+      "output": [
+        "\u001b[38;5;123mHi\u001b[0m",
+        "\u001b[1;31mbold\u001b[0m link (url)",
+        "▏ quote"
+      ]
+    }
+  ],
+  "reference": {
+    "identity": {
+      "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+      "source": "23691111c21c00dce1b7077a5d7ab8cef4d3021e3fddfb72feb5cb92ca048dc5",
+      "executedBuild": "3577aedf98501c1e28275f365103e61f08d88bd81a5fa215e3b6e0392041c033",
+      "compilerAndConfig": "6526880549391eb3d96e0093f0da97a3fdcad9227712c1c45e7c8903a060e33d"
+    },
+    "package": "@dshline/renderer",
+    "palette": {
+      "id": "resolved-8",
+      "depth": 8
+    },
+    "transport": "JSON UTF-16 strings; Screen writes are JavaScript strings before host encoding"
+  }
+}

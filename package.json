@@ -16,6 +16,7 @@
     "lint:workflows": "node tools/lint-workflows.mjs",
     "security": "pnpm run audit && pnpm run lint:workflows",
     "test": "vitest run",
+    "test:renderer-parity": "node tools/renderer-parity.mjs --reference-only",
     "test:codex": "node tools/test-codex.mjs",
     "test:consumer": "node tools/consumer-smoke.mjs",
     "typecheck": "tsc -b && pnpm run typecheck:capabilities",

@@ -2,5 +2,5 @@
 # as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-docs --write docs/rust-renderer-notes.md
-rust-renderer-notes.md: ca4b2a9b38e6ec8a82201cde39e26ed7c67eef26
-rust-renderer-notes.zh.md: f986d17f6e66312eab999658f4a4430936d4f8eb
+rust-renderer-notes.md: a75dc60dd424c0b7545c42c6e78baf1770606927
+rust-renderer-notes.zh.md: 65c08dc88e68cfced280c16366555152a9769540

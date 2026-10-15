@@ -1,0 +1,168 @@
+{
+  "version": 1,
+  "provenance": {
+    "kind": "synthetic",
+    "description": "Deterministic hand-authored presentation request; actual TypeScript output captured, not a real Harness session."
+  },
+  "cases": [
+    {
+      "id": "screen-resize-bce",
+      "input": {
+        "op": "screenSequence",
+        "columns": 18,
+        "calls": [
+          {
+            "method": "setLive",
+            "lines": [
+              "\u001b[41;33mAB",
+              "second"
+            ],
+            "cursor": {
+              "row": 0,
+              "column": 1
+            }
+          },
+          {
+            "method": "setLive",
+            "lines": [
+              "\u001b[41;33mAB",
+              "second"
+            ],
+            "cursor": {
+              "row": 0,
+              "column": 1
+            }
+          },
+          {
+            "method": "commit",
+            "lines": [
+              "done"
+            ]
+          },
+          {
+            "method": "resize",
+            "columns": 10
+          },
+          {
+            "method": "markStale"
+          },
+          {
+            "method": "setLive",
+            "lines": [
+              "short"
+            ],
+            "cursor": {
+              "row": 0,
+              "column": 2
+            }
+          },
+          {
+            "method": "close"
+          }
+        ]
+      },
+      "output": [
+        {
+          "writes": [
+            "\u001b[?2026h\u001b[?25l\r\u001b[0K\u001b[41;33mAB\u001b[0m\r\n\u001b[0Ksecond\u001b[1A\r\u001b[1C\u001b[?25h\u001b[?2026l"
+          ],
+          "height": 2
+        },
+        {
+          "writes": [],
+          "height": 2
+        },
+        {
+          "writes": [
+            "\u001b[?2026h\u001b[?25l\u001b[1B\r\u001b[1A\u001b[0J\u001b[0Kdone\r\n\u001b[0K\u001b[41;33mAB\u001b[0m\r\n\u001b[0Ksecond\u001b[1A\r\u001b[1C\u001b[?25h\u001b[?2026l"
+          ],
+          "height": 2
+        },
+        {
+          "writes": [],
+          "height": 2
+        },
+        {
+          "writes": [],
+          "height": 2
+        },
+        {
+          "writes": [
+            "\u001b[?2026h\u001b[?25l\u001b[1B\r\u001b[1A\u001b[0J\u001b[0Kshort\r\u001b[2C\u001b[?25h\u001b[?2026l"
+          ],
+          "height": 1
+        },
+        {
+          "writes": [
+            "\r\u001b[0J\u001b[?25h"
+          ],
+          "height": 0
+        }
+      ]
+    }
+  ],
+  "palette": {
+    "id": "markdown",
+    "depth": 4,
+    "roles": {
+      "heading-1": [
+        1,
+        36
+      ],
+      "heading-2": [
+        1
+      ],
+      "heading-3": [
+        1,
+        2
+      ],
+      "strong": [
+        1
+      ],
+      "emphasis": [
+        3
+      ],
+      "strike": [
+        2
+      ],
+      "code": [
+        36
+      ],
+      "link": [
+        36
+      ],
+      "link-target": [
+        90
+      ],
+      "quote": [
+        2
+      ],
+      "quote-bar": [
+        90
+      ],
+      "bullet": [
+        90
+      ],
+      "rule": [
+        90
+      ],
+      "muted": [
+        90
+      ]
+    }
+  },
+  "reference": {
+    "identity": {
+      "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+      "source": "23691111c21c00dce1b7077a5d7ab8cef4d3021e3fddfb72feb5cb92ca048dc5",
+      "executedBuild": "3577aedf98501c1e28275f365103e61f08d88bd81a5fa215e3b6e0392041c033",
+      "compilerAndConfig": "6526880549391eb3d96e0093f0da97a3fdcad9227712c1c45e7c8903a060e33d"
+    },
+    "package": "@dshline/renderer",
+    "palette": {
+      "id": "markdown",
+      "depth": 4
+    },
+    "transport": "JSON UTF-16 strings; Screen writes are JavaScript strings before host encoding"
+  }
+}
