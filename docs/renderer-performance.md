@@ -23,7 +23,7 @@ snapshots were copied even in forced TypeScript mode.
 | Cached palette snapshot | Caller-owned SGR arrays may change after installation | Reject stale caching; create snapshots lazily |
 | Full TypeScript streaming shadow | Duplicates successful native rendering | Replace with lazy restoration from explicit fence state |
 
-## Measured results
+## Historical optimization measurements
 
 Measurements use release builds on Linux arm64, Raspberry Pi 5/Cortex-A76,
 Node 24.18.0, Unicode 17.0. They are CPU-sensitive local microbenchmarks, not
@@ -50,7 +50,10 @@ compares the original public auto backend, optimized public auto, explicit TS,
 direct Rust and the independent TS implementation. Eight varying inputs per main transform corpus
 case (narrow-width and streaming probes repeat one input) prevent a one-key cache from masquerading as a general improvement. Exact
 outputs are asserted before timing. Missing native code is a hard error.
-The environment includes native and source digests; previous baseline snapshots
+The environment includes current native and source digests. The historical
+baseline records its addon digest but does not independently verify the old TS
+source/build provenance; retain this comparison as an exploratory historical
+experiment, not final exact-source readiness evidence. Previous baseline snapshots
 must contain matching compiled `lib/` and `native/` files.
 
 Public-path comparison (ASCII inputs; streaming uses styled bilingual prose):
@@ -91,6 +94,7 @@ Do not run CPU benchmarks alongside a full test suite.
 
 ```sh
 pnpm build
+node tools/build-renderer-native.mjs --required
 node tools/renderer-bench.mjs --output /tmp/renderer-bench.json
 node tools/renderer-bench.mjs --baseline /path/to/previous-renderer-package --output /tmp/renderer-compare.json
 node tools/renderer-soak.mjs 10000
@@ -99,8 +103,10 @@ node tools/renderer-soak.mjs 10000
 Each benchmark uses warmup, calibrated batches, then the median and maximum of
 five batch averages. The `maxBatchMeanNsPerCall` field is the maximum of five averages,
 not a measured individual-call p95 latency. No timing assertions gate correctness.
-The direct-addon soak is seeded and reports exact comparison counts and addon
-identity. It does not claim coverage instrumentation, sanitizers, production
+The direct-addon soak requires clean exact-commit addon provenance, is seeded,
+and reports observed width/UTF-16 length coverage and exact comparison counts.
+It binds TS source/build/compiler, native inputs, original binary proof and tool
+hashes, rejecting identities that change during execution. It does not claim coverage instrumentation, sanitizers, production
 traffic or an indefinitely long memory-leak test.
 
 Verification for this optimization includes all 86 native goldens, 90,000 seeded
@@ -110,3 +116,48 @@ state-transition probes. Full-suite results: 5560 passed, 26 skipped, three
 pre-existing host-dependent launcher prerequisite failures. The earlier native
 picker timeouts disappeared without adjusting test limits. This is not a claim
 that every CI platform is green; six-platform builds remain independently gated.
+
+## Final source-bound evidence (2026-10-16)
+
+The [fresh 230-case benchmark](../benchmarks/renderer-final-arm64-2026-10-16.json)
+uses the clean hosted Linux ARM64 release addon and verified current compiled TS,
+without the historical baseline. Its source/build identity matches the branch;
+[distribution evidence](../benchmarks/renderer-final-evidence-2026-10-16.json)
+retains CI's actual merge commit `82d25b11` and verifies its tree equals head
+`740e406`, without rewriting artifact provenance. The six-platform archive,
+generated declarations, license notices and all archived binary hashes validate.
+
+| Operation / UTF-16 units | Current TS comparison (µs) | Auto (µs) |
+| --- | ---: | ---: |
+| displayWidth / 2048 | 26.85 | 3.19 |
+| tailToWidth / 2048 | 66.84 | 17.41 |
+| wrapToWidth / 192 | 18.88 | 8.68 |
+| stream.line / 104 | 10.74 | 9.70 |
+| stream.partial / 104 | 9.78 | 10.15 |
+
+The first three compare public explicit-TS against public auto; streaming compares
+the standalone TS renderer against public auto. These are independent batch
+medians, not precise universal speed ratios. Streaming remains TS in auto; the
+slightly slower partial row is retained to avoid a blanket speedup claim. Across
+this run, no native-selected auto case regressed against public TS; tiny TS-only
+wrappers still show measurement/dispatch overhead. Only this Linux ARM64 host
+was benchmarked; six-platform correctness does not imply equal performance.
+
+The [corrected final soak](../benchmarks/renderer-final-soak-arm64-2026-10-16.json)
+passes 2701224 actual-addon comparisons: 300000 random plus 136 explicit boundary
+cases, nine transforms each. Every budget (-256, -1, 0, 1, 8, 40, 120, 256) has
+37517 cases. All eight budgets cross 17 exact UTF-16 boundary sizes through 2048,
+including both sides of dispatch thresholds. Regression tests independently
+anchor required sizes and reject collapsed-budget and missing-2048 mutations.
+The old generator's low-bit correlation selected width 1 almost exclusively;
+earlier 90000/900000 counts are historical comparisons, not balanced coverage.
+The corrected run reports and rechecks source/build/native/tool identities.
+
+Hosted Core passes at `740e406`: Node 24/26 each 5575 passed, 26 skipped;
+Node 22.19 has 5573 passed, 28 skipped. Required actual-addon parity also passes
+on all six OS/architecture targets. Harness source, packed consumer, Windows
+launcher, tmux, docs and security pass. Two new generator regression tests pass
+locally and will run with the final tooling commit's CI. Final review does not
+authorize merge or release; latest-head PR checks remain authoritative. No model
+turn, private profile, cross-platform timing, instrumented fuzzing, per-call tail
+latency or memory-leak certification is claimed.

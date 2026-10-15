@@ -329,6 +329,79 @@
       "nonblockingNotes": [
         "Hosted six-target run and final readiness remain pending."
       ]
+    },
+    {
+      "phase": 6,
+      "round": 1,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "REQUEST_CHANGES",
+      "baseCommit": "740e406",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-soak.mjs random budget sampling",
+          "finding": "Correlated low LCG bits select width1 for9999of10000cases; six listed budgets never exercised.",
+          "required": "Balanced deterministic budgets, explicit UTF16 boundary matrix, observed coverage counts and source/native/tool provenance."
+        }
+      ],
+      "verifiedChecks": [
+        "Generator-only replay reproduces missing budgets; no rendering/CPU benchmark rerun."
+      ]
+    },
+    {
+      "phase": 6,
+      "round": 2,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "REQUEST_CHANGES",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-soak-corpus.spec.mjs",
+          "finding": "Expected boundaries imported from implementation; removing2048 still passes both tests.",
+          "required": "Independently anchor required budgets/sizes and exact136matrix count; prove missing2048 mutation rejected."
+        }
+      ],
+      "verifiedChecks": [
+        "Budget-collapse deliberate mutation correctly fails.",
+        "Missing2048 deliberate mutation incorrectly survives before correction."
+      ]
+    },
+    {
+      "phase": 6,
+      "round": 3,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "APPROVE_TOOLING",
+      "artifactTreeSha256": "1722b365046145956d4cba83dafa1de6eb9ffcb20019823c13934d0a8a0dcfcf",
+      "artifactIdentityMethod": "Sorted three soak-tool paths; SHA256(path+NUL+fileSHA256+LF).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "2generator regressions pass.",
+        "Missing2048 mutation fails128vs136; budget-collapse mutation fails.",
+        "Strict native proof and before/after TS/native/tool identities inspected; WindowsfileURLToPath corrected."
+      ]
+    },
+    {
+      "phase": 6,
+      "round": 4,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "APPROVE",
+      "baseCommit": "740e4061fe75c915db6cfe8c5db6ab535d00b718",
+      "artifactTreeSha256": "31c0f59229b9f1759e846f3d795fc27af7c5aa71af21cd2f9d9105017102dca6",
+      "artifactIdentityMethod": "Sorted12changed/untracked paths since740e406 excluding review ledger; SHA256(path+NUL+fileSHA256+LF).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Independently queried exact-head hosted CI38818222630 all15jobs and security38818222674 success.",
+        "Core24/26 each5575pass26skip;22.19 5573pass28skip verified from hosted logs.",
+        "Six downloaded original proofs/binary digests and native-input digest verified; actual CImerge82d25b11 tree equals branch740e406.",
+        "Six-addon archive SHA256 and checker validated; native distribution--check passed.",
+        "Independent compiled20frames120streaminglines;1224boundary direct-addon comparisons passed.",
+        "230benchmark cases;2701224correctedsoak comparisons and37517cases per budget; identities/arithmetic verified.",
+        "Fresh table numbers and64main+3narrow selected-auto no-regression claims checked.",
+        "2generator tests,2bilingual pairs and diff pass; EN/ZH limitations accurate."
+      ],
+      "nonblockingNotes": [
+        "Latest-head CI required after committing final tooling/docs/evidence.",
+        "Approval is implementation/evidence readiness, not merge or release authorization.",
+        "Performance localLinuxARM64only; oldbaseline/historicalbiasedsoak not final breadth evidence."
+      ]
     }
   ],
   "scopeDecisions": [

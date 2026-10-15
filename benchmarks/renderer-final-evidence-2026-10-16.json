@@ -1,0 +1,204 @@
+{
+  "schema": 1,
+  "headCommit": "740e4061fe75c915db6cfe8c5db6ab535d00b718",
+  "ciCheckoutCommit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+  "identicalHeadAndCiTree": "cfc541c422d353d832b54a27f8df6f5253009b6d",
+  "ciUrl": "https://github.com/riesbri/dshline/actions/runs/38818222630",
+  "securityUrl": "https://github.com/riesbri/dshline/actions/runs/38818222674",
+  "ciConclusion": "success",
+  "securityConclusion": "success",
+  "jobs": [
+    {
+      "name": "Harness target \u00b7 adopted source revision",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119292"
+    },
+    {
+      "name": "required native renderer builds / native \u00b7 win32-x64",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119575"
+    },
+    {
+      "name": "Harness published \u00b7 consumer install path",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119586"
+    },
+    {
+      "name": "Windows launcher \u00b7 npm .cmd shim",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119607"
+    },
+    {
+      "name": "Terminal \u00b7 tmux modern",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119628"
+    },
+    {
+      "name": "Docs \u00b7 EN/ZH pairing",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119684"
+    },
+    {
+      "name": "required native renderer builds / native \u00b7 linux-x64",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119713"
+    },
+    {
+      "name": "required native renderer builds / native \u00b7 darwin-arm64",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119757"
+    },
+    {
+      "name": "required native renderer builds / native \u00b7 win32-arm64",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119771"
+    },
+    {
+      "name": "required native renderer builds / native \u00b7 linux-arm64",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119841"
+    },
+    {
+      "name": "required native renderer builds / native \u00b7 darwin-x64",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116708119925"
+    },
+    {
+      "name": "Core \u00b7 Node 24",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116709660202"
+    },
+    {
+      "name": "Core \u00b7 Node 26",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116709660316"
+    },
+    {
+      "name": "Core \u00b7 Node 22.19",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116709660384"
+    },
+    {
+      "name": "CI \u00b7 required",
+      "conclusion": "success",
+      "url": "https://github.com/riesbri/dshline/actions/runs/38818222630/job/116710165695"
+    }
+  ],
+  "coreSuiteCounts": {
+    "22.19": {
+      "passed": 5573,
+      "skipped": 28
+    },
+    "24": {
+      "passed": 5575,
+      "skipped": 26
+    },
+    "26": {
+      "passed": 5575,
+      "skipped": 26
+    }
+  },
+  "nativeProvenance": {
+    "darwin-arm64": {
+      "schema": 1,
+      "platform": "darwin-arm64",
+      "commit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+      "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+      "cleanInputs": true,
+      "binarySha256": "2b8e3e0b4b55a588b65e49ab62075b11d0ddb961f000a61f898faefc34ec777e"
+    },
+    "darwin-x64": {
+      "schema": 1,
+      "platform": "darwin-x64",
+      "commit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+      "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+      "cleanInputs": true,
+      "binarySha256": "6b5fb18a2f31e15516148b8521eb0ebeabe83170955ed989c0fb951368383029"
+    },
+    "win32-arm64": {
+      "schema": 1,
+      "platform": "win32-arm64",
+      "commit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+      "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+      "cleanInputs": true,
+      "binarySha256": "dcf9fb647ca36c3b7ab21f261521cce18782726bb51d60f1b46f356d0133c296"
+    },
+    "linux-x64": {
+      "schema": 1,
+      "platform": "linux-x64",
+      "commit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+      "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+      "cleanInputs": true,
+      "binarySha256": "7cb53326de3c5689efb57063b0d0598d5df58d6bace442f72096dee053d0d5df"
+    },
+    "linux-arm64": {
+      "schema": 1,
+      "platform": "linux-arm64",
+      "commit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+      "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+      "cleanInputs": true,
+      "binarySha256": "e20d9c4d5111c4bab4ec60c7403d29a69a76891a937c384033e2f40906002f9a"
+    },
+    "win32-x64": {
+      "schema": 1,
+      "platform": "win32-x64",
+      "commit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+      "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+      "cleanInputs": true,
+      "binarySha256": "99bb437ae5213be8787fea46d4e135c1e727ac4feb9f60cbcb948f9019d723df"
+    }
+  },
+  "nativeManifest": {
+    "schema": 1,
+    "commit": "82d25b11ac5977b60519dade1b0c19125fc6a4bd",
+    "files": {
+      "darwin-arm64": {
+        "binarySha256": "2b8e3e0b4b55a588b65e49ab62075b11d0ddb961f000a61f898faefc34ec777e",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16"
+      },
+      "darwin-x64": {
+        "binarySha256": "6b5fb18a2f31e15516148b8521eb0ebeabe83170955ed989c0fb951368383029",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16"
+      },
+      "linux-arm64": {
+        "binarySha256": "e20d9c4d5111c4bab4ec60c7403d29a69a76891a937c384033e2f40906002f9a",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16"
+      },
+      "linux-x64": {
+        "binarySha256": "7cb53326de3c5689efb57063b0d0598d5df58d6bace442f72096dee053d0d5df",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16"
+      },
+      "win32-arm64": {
+        "binarySha256": "dcf9fb647ca36c3b7ab21f261521cce18782726bb51d60f1b46f356d0133c296",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16"
+      },
+      "win32-x64": {
+        "binarySha256": "99bb437ae5213be8787fea46d4e135c1e727ac4feb9f60cbcb948f9019d723df",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16"
+      }
+    }
+  },
+  "packedArchiveSha256": "97feec6003806b69b9ff0fa4bc3e6e43d6fbdedab6a4973376ffdfd98fcf0a02",
+  "packedNativeCount": 6,
+  "compiledAcceptance": {
+    "palettes": 5,
+    "frames": 20,
+    "streamingLines": 120
+  },
+  "measurements": {
+    "renderer-final-arm64-2026-10-16.json": "5f370f1b42438a7e174d607b438a9df46c22cb3663425513cbaee26fda396950",
+    "renderer-final-soak-arm64-2026-10-16.json": "f856f405db84cd4b063738962a796c9a9f913318fbb53dc6e439c78f0aa5cb52"
+  },
+  "toolSha256": {
+    "renderer-bench.mjs": "f5180583ac087ae112bb7dc2f0cab9091c4822a502bdb09af5a1d51a1d22a71f",
+    "renderer-soak.mjs": "427d59bab2b82025f1da8f3637364ff78835b187aea4dbbb77c872e474190f6c",
+    "renderer-soak-corpus.mjs": "610806d1dba0d15231b0b32ef4a683c5030b2f375de0aacdb4c5e652b4c06b5d",
+    "renderer-soak-corpus.spec.mjs": "9797283eb67c3c004d6a8be21c95d253bdb2476aaaac3dc5de6d9c9c3e21d0cc"
+  },
+  "limits": [
+    "Measurements use local Linux ARM64 Node24.18.0 only, not all-platform performance or whole-turn latency.",
+    "PR artifacts retain GitHub synthetic merge commit provenance; its source tree exactly matches the branch head.",
+    "Two corrected soak corpus regression tests are additional local checks; the referenced hosted run predates these tooling-only tests.",
+    "No merge or release authorized."
+  ]
+}

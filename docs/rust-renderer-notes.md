@@ -10,7 +10,7 @@ Existing-solutions preflight considered maintained napi-rs bindings and unicode-
 
 ## Sequential gates
 
-1. Spec/schema/capture: current phase; exact public declarations, normalized Zod schema, deterministic live-call capture and architecture decisions. Independent review must approve this phase before proceeding.
+1. Spec/schema/capture: exact public declarations, normalized Zod schema, deterministic live-call capture and architecture decisions. Independent review must approve this phase before proceeding.
 2. Corpus/differential harness: only after phase 1 approval; expand consented/synthetic inputs and terminal-cell evidence. No corpus/harness is introduced in phase 1.
 3. Pure Rust renderer crate: only after phase 2 approval; no bindings; implement pure transformations and pass every golden parity test, then obtain independent approval.
 4. napi-rs bindings and TS integration: only after phase 3 approval; add the auto/rust/typescript selector and dshline configuration flag, preserve TS host I/O, then obtain independent approval.
@@ -19,7 +19,7 @@ Existing-solutions preflight considered maintained napi-rs bindings and unicode-
 
 ## Current status and gaps
 
-Phase 1 is independently approved after three review rounds; exact execution provenance, full Unicode code-point admission and aggregate resource limits are verified. Phase 2 is independently approved: 82 synthetic and 4 observed isolated-startup fixtures, an exact differential harness and a reference-only CI hook are now present. This is not an exhaustive or live-model production-session corpus. No private session/profile is accessed. Phase 3 is independently approved. Phase 4 bindings, selection, configuration and performance correction are independently approved at `97f2001`; native packaging/prebuild CI are now Phase 5 work. The spec records bounded-integer normalized admission and prohibits unchecked fallback of rejected work; direct public TS semantics remain unchanged; resolved palette snapshots and the pure markdown transition ABI are specified now; exhaustive edge cases and benchmarks remain later gated work. Native packaging must reconcile optional transport with the renderer's no-runtime-dependency rule before integration; phase 1 grants no exception.
+Phases 1–5 are independently approved. Required hosted builds and actual-addon parity now pass on Linux, macOS and Windows, each on x64 and ARM64. The [successful CI run](https://github.com/riesbri/dshline/actions/runs/38818222630) also passes Core on Node 22.19/24/26, the adopted Harness source, packed published consumer, Windows launcher, tmux and documentation checks; security passes separately. [Final evidence](../benchmarks/renderer-final-evidence-2026-10-16.json) binds source, CI checkout, native binaries, package validation and current measurements. This is a reviewable draft, not authorization to merge or release. TypeScript remains the reference and permanent fallback; no private session/profile or model turn was used for acceptance.
 
 ## Reproducible checks
 
@@ -255,9 +255,11 @@ The fuzz-only `r-efi` 6.0.0 MIT license alternative has an exact-version license
 exception because the deny-list action also matches its unused LGPL option;
 advisory checks and the general deny list are unchanged.
 
-Implementation and local checks are not all-platform evidence. Phase 5 still
-requires independent review and successful required hosted jobs before final
-readiness can be claimed.
+All six required hosted jobs now pass at head `740e406`. Intel macOS needed the
+Node-backed pnpm npm package with a committed integrity lock: pinning the setup
+action's requested version alone still took its unsupported standalone self-update
+path. Integrity, frozen installs and dependency trust policy remain unchanged.
+The previous consumer-install timeout did not recur; no timeout was relaxed.
 
 The final public-mode acceptance runs compiled package resolution in a separate
 Node process (no Vitest source aliases): five shipped themes at four depths,
@@ -265,3 +267,30 @@ Node process (no Vitest source aliases): five shipped themes at four depths,
 Rust mode. Public out-of-subset values preselect the host; admitted native
 failures still propagate. The larger seeded soak matched 900000 direct-addon
 transformations. These checks do not substitute for all-platform CI.
+
+## Phase 6 final evidence
+
+The final 230-case benchmark and corrected direct-addon soak use the downloaded
+clean CI Linux ARM64 addon, not the earlier locally dirty-built binary. GitHub
+checks out PR merge `82d25b11`; its complete tree matches branch head `740e406`.
+The isolated validation checkout retains that exact merge identity and original
+six provenance records. Source-input digests, the complete native manifest and
+packed archive bytes validate before the benchmark or soak.
+
+Independent review found that the old soak's correlated low PRNG bits selected
+width 1 almost exclusively. Earlier comparison counts remain historical results,
+not evidence of balanced width/size coverage. The corrected generator explicitly
+crosses eight budgets with 17 UTF-16 boundary lengths, then balances all random
+budgets; regression tests detect both collapsed budgets and a missing 2048-unit
+boundary. A final 300136 cases / 2701224 direct-addon comparisons pass, with 37517
+cases per budget. Results bind TS source/build/compiler, native inputs, original
+artifact proof and tool hashes, and reject identity changes during the run.
+
+The six-artifact archive passes packed-byte verification; compiled required-Rust
+acceptance matches 20 composer frames and 120 streaming lines across five themes
+and four color depths. [Performance results](renderer-performance.md) distinguish
+fresh source-bound measurements from historical baseline experiments. Timings are
+local microbenchmarks, not cross-platform speed or whole-model-turn guarantees;
+soak is not sanitizer/coverage-instrumented fuzzing or a memory-leak certification.
+Live latest-head PR checks remain the merge-readiness authority. No merge,
+publishing, user-profile change or service/model configuration change is included.
