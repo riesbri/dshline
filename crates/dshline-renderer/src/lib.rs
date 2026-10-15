@@ -96,46 +96,67 @@ fn ansi_end(s: &[u16], i: usize) -> Option<usize> {
         _ => None,
     }
 }
-#[derive(Clone, Debug)]
-struct Token {
-    v: Text,
+#[derive(Clone, Copy, Debug)]
+struct Token<'a> {
+    v: &'a [u16],
     w: i32,
     esc: bool,
 }
-fn tokens(s: &[u16]) -> Vec<Token> {
-    let mut out = vec![];
+// Borrow source spans instead of allocating a Vec for every character. Prefix
+// consumers stop scanning at their budget; measurements allocate no tokens.
+fn tokens(s: &[u16]) -> impl Iterator<Item = Token<'_>> {
     let mut i = 0;
-    while i < s.len() {
-        if let Some(end) = ansi_end(s, i) {
-            out.push(Token {
-                v: s[i..end].to_vec(),
-                w: 0,
-                esc: true,
-            });
+    std::iter::from_fn(move || {
+        if i == s.len() {
+            return None;
+        }
+        let start = i;
+        let (w, esc) = if let Some(end) = ansi_end(s, i) {
             i = end;
+            (0, true)
         } else {
             let (c, n) = point(s, i);
-            out.push(Token {
-                v: s[i..i + n].to_vec(),
-                w: code_point_width(c),
-                esc: c == 27,
-            });
-            i += n
-        }
-    }
-    out
+            i += n;
+            (code_point_width(c), c == 27)
+        };
+        Some(Token {
+            v: &s[start..i],
+            w,
+            esc,
+        })
+    })
 }
 fn closes(s: &[u16]) -> bool {
-    s == text("\x1b[m") || s == reset()
+    s == [27, 91, 109] || s == [27, 91, 48, 109]
 }
-fn joined(t: &[Token]) -> Text {
+fn joined(t: &[Token<'_>]) -> Text {
     t.iter().flat_map(|t| t.v.iter().copied()).collect()
 }
-fn width(t: &[Token]) -> i32 {
+fn width(t: &[Token<'_>]) -> i32 {
     t.iter().map(|t| t.w).sum()
 }
 pub fn display_width(s: &[u16]) -> i32 {
-    width(&tokens(s))
+    let mut total = 0;
+    let mut i = 0;
+    while i < s.len() {
+        let unit = s[i];
+        if unit < 127 {
+            if unit == 27 {
+                if let Some(end) = ansi_end(s, i) {
+                    i = end;
+                    continue;
+                }
+            } else if unit >= 32 {
+                total += 1;
+            }
+            i += 1;
+        } else {
+            let (code, length) = point(s, i);
+            total += code_point_width(code);
+            i += length;
+        }
+    }
+    total
 }
 pub fn strip_ansi(s: &[u16]) -> Text {
     let mut out = vec![];
@@ -160,7 +181,7 @@ pub fn truncate(s: &[u16], n: i32) -> Text {
     for t in tokens(s) {
         if t.w == 0 {
             if t.esc {
-                open = !closes(&t.v)
+                open = !closes(t.v)
             }
         } else if used + t.w > n {
             if open {
@@ -169,7 +190,7 @@ pub fn truncate(s: &[u16], n: i32) -> Text {
             return out;
         }
         used += t.w;
-        append(&mut out, &t.v)
+        append(&mut out, t.v)
     }
     out
 }
@@ -177,7 +198,7 @@ pub fn tail(s: &[u16], n: i32) -> Text {
     if n <= 0 {
         return vec![];
     }
-    let ts = tokens(s);
+    let ts: Vec<_> = tokens(s).collect();
     let mut used = 0;
     let mut from = ts.len();
     for i in (0..ts.len()).rev() {
@@ -191,7 +212,7 @@ pub fn tail(s: &[u16], n: i32) -> Text {
     if from > 0 {
         while from < ts.len() && ts[from].w == 0 {
             if ts[from].esc {
-                append(&mut out, &ts[from].v)
+                append(&mut out, ts[from].v)
             }
             from += 1
         }
@@ -242,13 +263,13 @@ pub fn chunk(s: &[u16], n: i32) -> Vec<Text> {
         for t in tokens(p) {
             if t.w == 0 {
                 if t.esc {
-                    if closes(&t.v) {
+                    if closes(t.v) {
                         open.clear()
                     } else {
-                        append(&mut open, &t.v)
+                        append(&mut open, t.v)
                     }
                 }
-                append(&mut row, &t.v);
+                append(&mut row, t.v);
                 continue;
             }
             if used + t.w > budget {
@@ -259,7 +280,7 @@ pub fn chunk(s: &[u16], n: i32) -> Vec<Text> {
                 row = open.clone();
                 used = 0
             }
-            append(&mut row, &t.v);
+            append(&mut row, t.v);
             used += t.w
         }
         if !open.is_empty() {
@@ -273,25 +294,24 @@ pub fn wrap(s: &[u16], n: i32) -> Vec<Text> {
     let budget = n.max(1);
     let mut out = vec![];
     for p in s.split(|c| *c == 10) {
-        let ts = tokens(p);
-        if ts.is_empty() {
+        if p.is_empty() {
             out.push(vec![]);
             continue;
         }
-        let mut row: Vec<Token> = vec![];
+        let mut row: Vec<Token<'_>> = vec![];
         let mut used = 0;
         let mut open: Text = vec![];
         let mut prefix: Text = vec![];
         let mut last: Option<usize> = None;
         let mut last_open = vec![];
         let mut broken = false;
-        for t in ts {
+        for t in tokens(p) {
             if t.w == 0 {
                 if t.esc {
-                    if closes(&t.v) {
+                    if closes(t.v) {
                         open.clear()
                     } else {
-                        append(&mut open, &t.v)
+                        append(&mut open, t.v)
                     }
                 }
                 row.push(t);
@@ -324,7 +344,7 @@ pub fn wrap(s: &[u16], n: i32) -> Vec<Text> {
                 }
                 out.push(line);
                 prefix = break_open;
-                let rest = if split < row.len() && row[split].v == text(" ") {
+                let rest = if split < row.len() && row[split].v == [32] {
                     split + 1
                 } else {
                     split
@@ -335,10 +355,10 @@ pub fn wrap(s: &[u16], n: i32) -> Vec<Text> {
                 last_open.clear();
                 broken = true
             }
-            if t.v == text(" ") && used == 0 && broken {
+            if t.v == [32] && used == 0 && broken {
                 continue;
             }
-            if t.v == text(" ") {
+            if t.v == [32] {
                 last = Some(row.len());
                 last_open = open.clone()
             }

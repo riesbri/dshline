@@ -15,11 +15,11 @@ Existing-solutions preflight considered maintained napi-rs bindings and unicode-
 3. Pure Rust renderer crate: only after phase 2 approval; no bindings; implement pure transformations and pass every golden parity test, then obtain independent approval.
 4. napi-rs bindings and TS integration: only after phase 3 approval; add the auto/rust/typescript selector and dshline configuration flag, preserve TS host I/O, then obtain independent approval.
 5. CI/prebuilds and documentation: only after phase 4 approval; cover Linux, Darwin and Windows on x64 and arm64, update documentation and CONTRIBUTING, then obtain independent approval.
-6. Benchmarks, soak and final readiness: only after phase 5 approval; benchmark, add a soak script and report final branch readiness. Each phase author self-reviews; the parent owns commits, push and draft PR on feat/rust-renderer. Rebase when main changes; no merge or release is authorized.
+6. Benchmarks, soak and final readiness: only after phase 5 approval (the subsequent explicit optimization request brings exploratory measurements and direct-FFI soak into phase 4, not final readiness); benchmark, add a soak script and report final branch readiness. Each phase author self-reviews; the parent owns commits, push and draft PR on feat/rust-renderer. Rebase when main changes; no merge or release is authorized.
 
 ## Current status and gaps
 
-Phase 1 is independently approved after three review rounds; exact execution provenance, full Unicode code-point admission and aggregate resource limits are verified. Phase 2 is independently approved: 82 synthetic and 4 observed isolated-startup fixtures, an exact differential harness and a reference-only CI hook are now present. This is not an exhaustive or live-model production-session corpus. No private session/profile is accessed. Phase 3 pure Rust implementation and its verification host adapter are in progress. No bindings, native/prebuild CI or dshline runtime integration is added. The spec records bounded-integer normalized admission and prohibits unchecked fallback of rejected work; direct public TS semantics remain unchanged; resolved palette snapshots and the pure markdown transition ABI are specified now; exhaustive edge cases and benchmarks remain later gated work. Native packaging must reconcile optional transport with the renderer's no-runtime-dependency rule before integration; phase 1 grants no exception.
+Phase 1 is independently approved after three review rounds; exact execution provenance, full Unicode code-point admission and aggregate resource limits are verified. Phase 2 is independently approved: 82 synthetic and 4 observed isolated-startup fixtures, an exact differential harness and a reference-only CI hook are now present. This is not an exhaustive or live-model production-session corpus. No private session/profile is accessed. Phase 3 is independently approved. Phase 4 bindings, selection and configuration are undergoing integration checks and review; native packaging/prebuild CI remain Phase 5. The spec records bounded-integer normalized admission and prohibits unchecked fallback of rejected work; direct public TS semantics remain unchanged; resolved palette snapshots and the pure markdown transition ABI are specified now; exhaustive edge cases and benchmarks remain later gated work. Native packaging must reconcile optional transport with the renderer's no-runtime-dependency rule before integration; phase 1 grants no exception.
 
 ## Reproducible checks
 
@@ -102,7 +102,7 @@ fence state. No Screen, composer, keyboard or agent state machine moves to Rust.
 Current verification: all 86 goldens match (83 pure native cases and three TS-host
 sequence cases), plus 442 additional deterministic adversarial comparisons and a
 separate lone-surrogate palette metadata check. These are not exhaustive Unicode
-or markdown conformance claims. Independent Phase 3 approval is still pending.
+or markdown conformance claims. Independent Phase 3 review approved this implementation and matched 1000 additional adversarial requests.
 
 ```sh
 cargo test --manifest-path crates/dshline-renderer/Cargo.toml
@@ -114,11 +114,107 @@ Width/zero-width ranges are copied from the project's Unicode 17 tables rather
 than substituting different grapheme or ANSI-parser policies. Markdown L/N word
 properties are generated with Node v24.18.0, Unicode 17.0; the generator requires
 Unicode 17.0. Other supported Node releases may use different property tables.
-Phase 4 must guard native markdown compatibility on the host's Unicode version;
-width operations remain governed by the project's fixed width tables. This is a
-known integration requirement, not a claim that the guard already exists.
+Phase 4 now guards native markdown compatibility on the host's Unicode version;
+width operations remain governed by the project's fixed width tables.
 
 Two cargo-fuzz targets cover malformed ANSI/UTF-16 and bounded JSON admission.
 Seeded stable libFuzzer smoke runs completed 10000 executions per target; those
 runs did not enable coverage instrumentation or sanitizers. Instrumented nightly
 fuzzing remains an additional check, not a completed coverage claim.
+
+
+## Phase 4 native binding and selection
+
+The separate `crates/dshline-renderer-node` napi-rs crate depends on the pure
+renderer, never the other way around. Bounded `execute` JSON transport remains
+for verification and forced Rust composite operations. Direct width, stripping,
+escaping, sanitization, truncation, tail, fit, chunk and wrap methods avoid JSON
+and numeric-array transport. Inputs are checked before allocating an owned Rust
+copy; direct text is capped at 2048 UTF-16 units and column budgets at ±256.
+Output expansion for these single-input transforms is bounded by those limits.
+Each FFI operation is panic-guarded. Generated napi compiler metadata owns
+`native/index.d.ts`. `JsStringUtf16` includes a C terminator in its slice; the
+binding slices to the measured JavaScript length, preserving real trailing NULs
+and lone surrogates without accidentally rendering the sentinel.
+
+The pure scanner borrows token spans instead of allocating a vector per
+character. Width measurement allocates no tokens and handles printable ASCII
+without a Unicode table lookup. Prefix truncation stops scanning when its budget
+is exhausted. Reverse-tail selection retains borrowed token spans where a
+forward ANSI scan is necessary.
+
+The public renderer keeps previous signatures and adds `setRendererBackend`
+and `rendererBackend`. `auto` is intentionally hybrid: measured direct operations
+use native code only for text lengths 64–2048 (chunk: 512–2048); wrap requires 32–256 columns and chunk 64–256. Width, tail and fit are the other native candidates.
+Individual code-point lookups, prefix truncation, stripping, escaping,
+sanitization and JSON-backed composite/markdown operations stay TypeScript in
+auto because their complete boundary cost did not demonstrate a general win.
+Thresholds are conservative local measurements, not cross-platform guarantees.
+Native output errors never trigger an unbounded TypeScript retry.
+
+Missing/corrupt artifacts and public inputs outside auto admission use original
+TypeScript semantics before native execution. Sparse arrays, callbacks, getters,
+unknown option fields and caller-owned objects are not traversed by an alternate
+native path. `rust` requires an addon and explicitly rejects unsupported or
+out-of-budget inputs; it is a correctness/debugging choice, not a promise that
+every operation is faster. `typescript` never invokes native operations.
+Native markdown additionally requires host Unicode 17.0 to preserve flanking
+properties. Arbitrary border callbacks remain a TS-only public feature.
+
+Streaming markdown keeps explicit native fence state in TypeScript and lazily
+constructs a reference renderer from that fence on fallback. It no longer fully
+renders every committed line twice. A committed TS fallback owns the remainder
+of that document; forcing Rust afterward fails rather than guessing its state.
+Partial fallback does not commit state. Palette snapshots are created only for
+native markdown work. They are not cached: existing caller-owned SGR arrays may
+mutate, and original TS behavior observes those mutations.
+
+The dshline composition-time `renderer` field accepts `auto`, `rust` or
+`typescript`. The reviewer approved only the existing argument/option plumbing
+through `run` into `createWindow`; inject dependencies, callbacks, error handling
+and ownership are unchanged. Selection is disposed with the window and is not a
+volatile setting or Harness capability.
+
+```yaml
+- id: dshline
+  config:
+    renderer: auto
+```
+
+The actual addon passes all 86 differential fixtures, including TS-host recipes
+with counted native calls. Tests cover direct malformed UTF-16/ANSI/NUL outputs,
+missing/corrupt artifacts, typed failures without retry, streaming fallback state,
+mutable palettes, sparse arrays and ignored host getters. The optimized full
+suite reports 5560 passed, 26 skipped and only the three previously observed
+launcher-prerequisite failures on this host (its `/usr/bin` contains pnpm).
+Native-induced picker timeouts are gone without changing test timeouts.
+Cross-platform prebuild packaging remains the next gated phase. Phase 4
+independent approval is pending.
+
+## Optimization experiments and reproduction
+
+The original release build allocated a text buffer for every token and paid
+numeric UTF-16 arrays plus JSON on most public calls. Measurements compared that
+implementation, an allocation-free scan, direct napi methods and the final
+hybrid public selector. Narrow-column tests also rejected a tempting native
+policy: returning hundreds of one-character rows made native chunking up to
+seven times slower than TS despite its faster scan.
+
+The reproducible tools assert exact output before timing; they fail when native
+code is missing rather than benchmarking a TS fallback as Rust. The benchmark
+records the environment, addon digest, median and maximum of five calibrated
+batch averages. Those maxima are not per-call p95 tail latencies. A previous
+package snapshot may be supplied with `--baseline`; it must include its matching
+`lib/` and `native/` artifacts. No repeated-input cache is used.
+
+```sh
+pnpm build
+node tools/renderer-bench.mjs --output /tmp/renderer-bench.json
+node tools/renderer-soak.mjs 10000
+```
+
+The soak is deterministic direct-addon differential testing, not a
+coverage-instrumented or sanitizer fuzzing claim. Independent review additionally
+checks every Unicode code-point width, malformed UTF-16 and palette/backend
+transitions. [Performance results](renderer-performance.md) distinguish raw
+kernel/FFI improvements from public-path measurements and record limitations.

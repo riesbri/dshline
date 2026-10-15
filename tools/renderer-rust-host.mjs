@@ -79,17 +79,23 @@ async function nativeScreen(native) {
   }
 }
 
-export async function runRustHost(value, binary = defaultBinary) {
+export async function runRustHost(value, binary = defaultBinary, executeTransport) {
   const source = CaptureInputSchema.parse(value)
   const palette = source.palette ?? { id: 'markdown', depth: 4, roles: Object.fromEntries(Object.entries((await import('../packages/renderer/lib/theme.js')).MARKDOWN_ROLES).map(([role, color]) => [role, color.ansi])) }
   let nativeCalls = 0
   const native = input => {
     nativeCalls++
     const request = encode({ ...input, palette })
-    const result = spawnSync(binary, [], { input: JSON.stringify(request), encoding: 'utf8', timeout: 10_000, maxBuffer: 1_048_576, shell: false })
-    if (result.error || result.status !== 0) throw new BackendError()
+    let stdout
+    if (executeTransport) stdout = executeTransport(JSON.stringify(request))
+    else {
+      const result = spawnSync(binary, [], { input: JSON.stringify(request), encoding: 'utf8', timeout: 10_000, maxBuffer: 1_048_576, shell: false })
+      if (result.error || result.status !== 0) throw new BackendError()
+      stdout = result.stdout
+    }
+    if (typeof stdout !== 'string' || Buffer.byteLength(stdout) > 1_048_576) throw new BackendError('RESOURCE_LIMIT')
     let envelope
-    try { envelope = JSON.parse(result.stdout) } catch { throw new BackendError() }
+    try { envelope = JSON.parse(stdout) } catch { throw new BackendError() }
     if (envelope?.ok !== true) throw new BackendError(['INVALID_INPUT', 'RESOURCE_LIMIT', 'BACKEND_FAILURE'].includes(envelope?.error?.code) ? envelope.error.code : 'BACKEND_FAILURE')
     return decode(input.op, envelope.value)
   }

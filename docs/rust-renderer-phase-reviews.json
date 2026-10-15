@@ -186,6 +186,56 @@
         "Phase4 must guard native markdown host Unicode-property-version mismatch (tables17.0).",
         "Fuzz smoke is not instrumented coverage/sanitizer evidence."
       ]
+    },
+    {
+      "phase": 4,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE",
+      "artifactTreeSha256": "662b6a781058e9e8868f6d0b67b986df3730e548e18f6d20e70ac00570d631f8",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since90153c5 excluding review ledger; SHA-256 of path + NUL + file SHA-256 + LF (113 paths).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "32 focused native/parity/spec tests passed",
+        "86 actual addon goldens:83pure,3TS-host",
+        "90,000 seeded direct-addon soak comparisons passed",
+        "Independent22,500direct transform comparisons matched TS",
+        "Independent exhaustive1,114,112codepoint widths matched TS",
+        "Independent56palette/state and4coercion assertions passed",
+        "5malformed envelope regressions normalize typed BACKEND_FAILURE",
+        "230public/direct benchmark cases with exact source/build/addon identity",
+        "Build/typecheck/security passed;12bilingual pairs consistent",
+        "Full suite5560passed,26skipped;3pre-existing host-dependent launcher prerequisite failures; native picker timeouts eliminated without timeout changes"
+      ],
+      "invariantsPassed": [
+        "PureRust presentation only; noHarness/Cordis/state ownership moved",
+        "TSimplementation modules unchanged; UTF16 including trailingNUL/lone surrogates lossless",
+        "Native admission before copies; bounded panic-guarded direct operations",
+        "Hybridauto uses measured native subset, no post-admission retry",
+        "Caller host getters/sparse arrays/callbacks retain original TS evaluation",
+        "Streaming restores TS from explicit fence without full shadow rendering",
+        "Configargument plumbing only, noCordis apply/inject logic change"
+      ],
+      "nonblockingNotes": [
+        "Cross-platform packaging and CI remain Phase5; no rollout readiness claim.",
+        "Eight varying inputs applies to main transform benchmark corpus; narrow and streaming probes repeat one input.",
+        "Only local ARM64 performance measured; thresholds are not cross-platform guarantees."
+      ]
+    }
+  ],
+  "scopeDecisions": [
+    {
+      "phase": 4,
+      "reviewer": "Sol6.1independentreviewer/root/phase1_gate_recovery",
+      "status": "APPROVE_DATA_PLUMBING_ONLY",
+      "decision": "Pass config?.renderer through existing run argument, optional typed run parameter, and createWindow option; requested configuration plumbing is not a Cordis apply/inject logic change.",
+      "conditions": [
+        "Inject dependencies, registrations, callbacks, error handling, control flow and lifecycle ownership unchanged",
+        "Ordinary composition-time config, not volatile/newcapability",
+        "Backend loading outside apply/injectcallback",
+        "No Cordis internal config reads or context/global-state workaround"
+      ],
+      "phaseGateApproved": false
     }
   ]
 }

@@ -23,3 +23,5 @@ private/
 target/
 crates/dshline-renderer/fuzz/artifacts/
 crates/dshline-renderer/fuzz/corpus/
+# Locally built optional native renderer artifacts; prebuild packaging owns distribution.
+packages/renderer/native/*.node

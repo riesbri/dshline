@@ -276,3 +276,10 @@ export function setPalette(palette: Palette, depth: ColorDepth): () => void {
 export function activePalette(): { readonly id: string; readonly depth: ColorDepth } {
   return { id: active.id, depth: active.depth }
 }
+
+/** Internal lossless resolved presentation snapshot for the native transport.
+ * @returns a detached palette, including opaque role keys and metadata.
+ */
+export function nativePaletteSnapshot(): { id: string; depth: ColorDepth; roles: Record<string, readonly number[]> } {
+  return { id: active.id, depth: active.depth, roles: Object.fromEntries(Object.entries(active.roles).map(([role, params]) => [role, [...params ?? []]])) }
+}
