@@ -157,6 +157,35 @@
       "nonblockingNotes": [
         "Initial corpus is not exhaustive conformance."
       ]
+    },
+    {
+      "phase": 3,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "APPROVE",
+      "artifactTreeSha256": "1171dc0b0ac35c00b81dbb243a9db4efc99ea55d62498574281f0b71a9bca7a7",
+      "artifactIdentityMethod": "Sorted changed/untracked paths sincebc04a3e excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF (18paths).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "11/11 Rust tests and formatting passed",
+        "86/86 real Rust goldens:83pure,3TS-host",
+        "1000 additional independent adversarial requests matched TS",
+        "2 seeded fuzz targets each10000smoke runs no crashes; uninstrumented",
+        "123wide and371zero-width ranges match TS",
+        "Oversized aggregate palettes return RESOURCE_LIMIT",
+        "11 bilingual pairs consistent"
+      ],
+      "invariantsPassed": [
+        "Lossless UTF16 text/paletteIDs/rolekeys",
+        "Purecrate noNode/Cordis/terminalownership",
+        "Screen and markdownsequence orchestration stayTS",
+        "Strict bounded CLI and nonfallback errors",
+        "No bindings/productionselector yet"
+      ],
+      "nonblockingNotes": [
+        "Phase4 must guard native markdown host Unicode-property-version mismatch (tables17.0).",
+        "Fuzz smoke is not instrumented coverage/sanitizer evidence."
+      ]
     }
   ]
 }

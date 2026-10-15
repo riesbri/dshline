@@ -19,7 +19,7 @@ Existing-solutions preflight considered maintained napi-rs bindings and unicode-
 
 ## Current status and gaps
 
-Phase 1 is independently approved after three review rounds; exact execution provenance, full Unicode code-point admission and aggregate resource limits are verified. Phase 2 implementation is complete and awaiting independent approval: 82 synthetic and 4 observed isolated-startup fixtures, an exact differential harness and a reference-only CI hook are now present. This is not an exhaustive or live-model production-session corpus. No private session/profile is accessed. No Rust crate, bindings, native/prebuild CI or dshline runtime integration is added. The spec records bounded-integer normalized admission and prohibits unchecked fallback of rejected work; direct public TS semantics remain unchanged; resolved palette snapshots and the pure markdown transition ABI are specified now; exhaustive edge cases and benchmarks remain later gated work. Native packaging must reconcile optional transport with the renderer's no-runtime-dependency rule before integration; phase 1 grants no exception.
+Phase 1 is independently approved after three review rounds; exact execution provenance, full Unicode code-point admission and aggregate resource limits are verified. Phase 2 is independently approved: 82 synthetic and 4 observed isolated-startup fixtures, an exact differential harness and a reference-only CI hook are now present. This is not an exhaustive or live-model production-session corpus. No private session/profile is accessed. Phase 3 pure Rust implementation and its verification host adapter are in progress. No bindings, native/prebuild CI or dshline runtime integration is added. The spec records bounded-integer normalized admission and prohibits unchecked fallback of rejected work; direct public TS semantics remain unchanged; resolved palette snapshots and the pure markdown transition ABI are specified now; exhaustive edge cases and benchmarks remain later gated work. Native packaging must reconcile optional transport with the renderer's no-runtime-dependency rule before integration; phase 1 grants no exception.
 
 ## Reproducible checks
 
@@ -80,3 +80,45 @@ independent approval.
 File admission reads at most 1048577 bytes from one opened file handle before
 JSON parsing, rejecting the extra byte. It does not trust a prior path stat, so
 file replacement or growth cannot bypass the 1048576-byte cap.
+
+
+## Phase 3 pure Rust verification
+
+The pure `crates/dshline-renderer` library and bounded CLI implement normalized
+presentation transforms without Node, Cordis, Harness or terminal I/O. Text is
+`Vec<u16>` throughout: the verification transport uses numeric UTF-16 arrays,
+including palette IDs and role keys. Palette roles cross as key/parameter pairs,
+not JSON object keys; lone surrogates therefore never pass through a lossy Rust
+UTF-8 string. Operation names and fixed enum tags remain ordinary JSON strings.
+Input and output admission is enforced; errors are bounded typed envelopes.
+
+`tools/renderer-rust-host.mjs` is verification tooling, not production dispatch.
+It invokes the real Rust executable for every pure transform and reports native
+call counts. For Screen recipes it loads the unchanged verified TS Screen with
+only wrapping replaced by the native operation. Markdown sequence state remains
+in the TS host, invoking pure Rust transitions with explicit incoming/outgoing
+fence state. No Screen, composer, keyboard or agent state machine moves to Rust.
+
+Current verification: all 86 goldens match (83 pure native cases and three TS-host
+sequence cases), plus 442 additional deterministic adversarial comparisons and a
+separate lone-surrogate palette metadata check. These are not exhaustive Unicode
+or markdown conformance claims. Independent Phase 3 approval is still pending.
+
+```sh
+cargo test --manifest-path crates/dshline-renderer/Cargo.toml
+cargo build --manifest-path crates/dshline-renderer/Cargo.toml
+node tools/renderer-parity.mjs --require-rust --backend '["node","tools/renderer-rust-host.mjs"]'
+```
+
+Width/zero-width ranges are copied from the project's Unicode 17 tables rather
+than substituting different grapheme or ANSI-parser policies. Markdown L/N word
+properties are generated with Node v24.18.0, Unicode 17.0; the generator requires
+Unicode 17.0. Other supported Node releases may use different property tables.
+Phase 4 must guard native markdown compatibility on the host's Unicode version;
+width operations remain governed by the project's fixed width tables. This is a
+known integration requirement, not a claim that the guard already exists.
+
+Two cargo-fuzz targets cover malformed ANSI/UTF-16 and bounded JSON admission.
+Seeded stable libFuzzer smoke runs completed 10000 executions per target; those
+runs did not enable coverage instrumentation or sanitizers. Instrumented nightly
+fuzzing remains an additional check, not a completed coverage claim.

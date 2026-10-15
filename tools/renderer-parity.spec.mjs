@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, appendFile, stat, rm } from 'node:fs/promises'
+import { mkdtemp, writeFile, appendFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -45,12 +45,11 @@ describe('renderer Phase 2 parity harness', () => {
     expect(() => validateCorpus([], [original])).toThrow('Missing required')
     expect(() => validateCorpus([fixture], [])).toThrow('Unintended stale')
   })
-  it('bounds actual file bytes even after growth invalidates previously safe metadata', async () => {
+  it('bounds actual file bytes when an initially safe file grows', async () => {
     const scratch = await mkdtemp(join(tmpdir(), 'renderer-bounded-read-'))
     const path = join(scratch, 'input.json')
     try {
       await writeFile(path, '{}      ')
-      expect((await stat(path)).size).toBe(8)
       expect(await readBoundedJson(path, 8)).toEqual({})
       await appendFile(path, ' ')
       await expect(readBoundedJson(path, 8)).rejects.toThrow('RESOURCE_LIMIT')

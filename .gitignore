@@ -18,3 +18,8 @@ private/
 *.local.md
 *.log
 .DS_Store
+
+# Isolated Rust verification builds and generated fuzz findings.
+target/
+crates/dshline-renderer/fuzz/artifacts/
+crates/dshline-renderer/fuzz/corpus/
