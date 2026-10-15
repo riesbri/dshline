@@ -305,6 +305,30 @@
       "nonblockingNotes": [
         "Real native jobs passed on5of6 platforms; macOSx64 failed in pnpm bootstrap before Rust. Corrected hosted rerun still required."
       ]
+    },
+    {
+      "phase": 5,
+      "round": 4,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "APPROVE",
+      "baseCommit": "fc385f4",
+      "artifactTreeSha256": "8b35de6dd8287555284588d2a39a2e169ea2fc2514e6a775654c9410736a14ba",
+      "artifactIdentityMethod": "Sorted three reviewed paths; SHA256(path+NUL+fileSHA256+LF).",
+      "reviewedFiles": {
+        ".github/workflows/renderer-native.yml": "18ad5207e0245c561c2218364b599ebd190c497a7b90b68eb0ca82204b17dd73",
+        "tools/pnpm-bootstrap/package.json": "5bf45cd9e35dbf74383ffd8c93d61e913b97829d17eecaa4d07c1ef804c3863e",
+        "tools/pnpm-bootstrap/package-lock.json": "90bfc62b960c14ce80c790bece38c068011e6ce8a62a3bce91b179efb3f32990"
+      },
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Independent isolated npm ci executes Node-backed pnpm11.22.0 without standalone self-update",
+        "Deliberately corrupted integrity digest fails EINTEGRITY",
+        "42workflow/release/native-pipeline checks pass",
+        "Workflow lint/diff pass; frozen lock and trust policies unchanged"
+      ],
+      "nonblockingNotes": [
+        "Hosted six-target run and final readiness remain pending."
+      ]
     }
   ],
   "scopeDecisions": [

@@ -1,0 +1,9 @@
+{
+  "name": "dshline-ci-pnpm-bootstrap",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Integrity-locked pnpm bootstrap for the macOS x64 native build runner",
+  "devDependencies": {
+    "pnpm": "11.22.0"
+  }
+}
