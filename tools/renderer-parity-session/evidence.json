@@ -1,0 +1,36 @@
+{
+  "kind": "controlled-real-plugin-run",
+  "date": "2026-10-15",
+  "command": "node tools/consumer-smoke.mjs --launcher-version 0.2.0-rc.2",
+  "launcher": "@deepseek-ai/dsh@0.2.0-rc.2",
+  "frontend": "@dshline/dshline@0.26.1",
+  "geometry": {
+    "columns": 80,
+    "rows": 24
+  },
+  "sourceCommit": "622150fc376a397e446022eb3c3e9ebd49596a48",
+  "isolation": "Temporary consumer install, DSH_HOME and empty session-folder. Both workspace packages loaded from packed tarballs. No working profile or private logs.",
+  "observation": "Node registerHooks prepended a side-effect-only logging call to public wrap/chunk/truncate/tail functions in loaded renderer JS; original behavior/outputs unchanged.",
+  "capturedCalls": 17,
+  "selectedCalls": 4,
+  "selection": "Banner, stock model label, composer hint and ready status; absolute scratch paths excluded, remaining values unchanged.",
+  "checks": [
+    "profile loaded",
+    "startup banner showed version",
+    "renderer resolved to packed tarball",
+    "workspace title emitted",
+    "ready composer shown",
+    "ctrl-d exited cleanly"
+  ],
+  "modelTurns": 0,
+  "limitations": [
+    "Real startup/session presentation only, not a live-model streaming observation. Streaming and hostile-input fixtures are synthetic."
+  ],
+  "rendererIdentity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "23691111c21c00dce1b7077a5d7ab8cef4d3021e3fddfb72feb5cb92ca048dc5",
+    "executedBuild": "3577aedf98501c1e28275f365103e61f08d88bd81a5fa215e3b6e0392041c033",
+    "compilerAndConfig": "6526880549391eb3d96e0093f0da97a3fdcad9227712c1c45e7c8903a060e33d"
+  },
+  "observerSha256": "1ac9924565d5a7e7e63535741c4d5bec0990e0d835c05cb5ed2c8e7f7739586d"
+}

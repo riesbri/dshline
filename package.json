@@ -16,6 +16,7 @@
     "lint:workflows": "node tools/lint-workflows.mjs",
     "security": "pnpm run audit && pnpm run lint:workflows",
     "test": "vitest run",
+    "test:renderer-parity": "node tools/renderer-parity.mjs --reference-only",
     "test:codex": "node tools/test-codex.mjs",
     "test:consumer": "node tools/consumer-smoke.mjs",
     "typecheck": "tsc -b && pnpm run typecheck:capabilities",
@@ -43,6 +44,7 @@
     "@types/node": "^26.6.4",
     "@xterm/headless": "^6.0.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.3",
+    "zod": "4.6.5"
   }
 }

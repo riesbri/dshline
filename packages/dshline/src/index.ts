@@ -80,6 +80,8 @@ const VERSION = '0.26.1'
  * honest reading — see {@link parsePricing}.
  */
 export interface Config {
+  /** Composition-time renderer backend; auto uses an optional native addon. */
+  renderer?: import('@dshline/renderer').RendererBackend
   /**
    * Dollars per million tokens, keyed `provider/model` — e.g.
    * `deepseek-official/deepseek-v4-flash` — or by model id alone to cover every
@@ -159,6 +161,7 @@ export const Config = z.object({
   // is — and the only thing this schema actually decides is which fields are
   // `.volatile()`, which is a question about when a value may change, not what
   // it may contain.
+  renderer: z.union<import('@dshline/renderer').RendererBackend>(['auto', 'rust', 'typescript']).default('auto'),
   pricing: z.any(),
   peakHoursUtc: z.any(),
   theme: z.string().default(FALLBACK_THEME.id).volatile(),
@@ -193,7 +196,7 @@ export function apply(ctx: Context, config?: Config): void {
     // A rejected boot must be reported and exit non-zero. Discarding it would
     // leave the process alive holding a terminal it never painted, which is the
     // same silent-idle failure the non-TTY guard exists to prevent.
-    run(hostCtx, pricing, peakHours, settings).catch((error: unknown) => {
+    run(hostCtx, pricing, peakHours, settings, config?.renderer).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error)
       // Carriage return included: raw mode may already be on, where a bare
       // newline leaves the next line indented to the cursor column.
@@ -226,8 +229,9 @@ async function run(
   pricing: PricingTable,
   peakHours: readonly PeakWindow[],
   settings: DshlineSettings,
+  renderer?: import('@dshline/renderer').RendererBackend,
 ): Promise<void> {
-  const w = await createWindow(ctx, { pricing, peakHours, version: VERSION, settings })
+  const w = await createWindow(ctx, { pricing, peakHours, version: VERSION, settings, renderer: renderer ?? 'auto' })
   // Before the first target, and before any session exists: a window whose
   // Harness registers no provider route cannot send a turn, so the useful
   // thing to open is the flow that fixes that rather than a composer that

@@ -1,0 +1,74 @@
+[
+  {
+    "version": 1,
+    "provenance": {
+      "kind": "observed",
+      "description": "Actual presentation call observed from a fresh packed dshline 0.26.1 run with pinned Harness 0.2.0-rc.2 under consumer-smoke PTY at 80x24. Reached ready composer and exited with Ctrl-D. Observation-only Node loader; no model turn or private session/profile data. Selected calls contain no scratch paths.",
+      "consent": "explicitly-provided-normalized-data"
+    },
+    "cases": [
+      {
+        "id": "observed-boot-1",
+        "input": {
+          "op": "wrapToWidth",
+          "text": "dshline 0.26.1",
+          "columns": 75
+        }
+      }
+    ]
+  },
+  {
+    "version": 1,
+    "provenance": {
+      "kind": "observed",
+      "description": "Actual presentation call observed from a fresh packed dshline 0.26.1 run with pinned Harness 0.2.0-rc.2 under consumer-smoke PTY at 80x24. Reached ready composer and exited with Ctrl-D. Observation-only Node loader; no model turn or private session/profile data. Selected calls contain no scratch paths.",
+      "consent": "explicitly-provided-normalized-data"
+    },
+    "cases": [
+      {
+        "id": "observed-boot-2",
+        "input": {
+          "op": "wrapToWidth",
+          "text": "deepseek-official / deepseek-flash",
+          "columns": 75
+        }
+      }
+    ]
+  },
+  {
+    "version": 1,
+    "provenance": {
+      "kind": "observed",
+      "description": "Actual presentation call observed from a fresh packed dshline 0.26.1 run with pinned Harness 0.2.0-rc.2 under consumer-smoke PTY at 80x24. Reached ready composer and exited with Ctrl-D. Observation-only Node loader; no model turn or private session/profile data. Selected calls contain no scratch paths.",
+      "consent": "explicitly-provided-normalized-data"
+    },
+    "cases": [
+      {
+        "id": "observed-boot-3",
+        "input": {
+          "op": "wrapToWidth",
+          "text": "\u203a ask anything \u00b7 / menu \u00b7 ! shell",
+          "columns": 75
+        }
+      }
+    ]
+  },
+  {
+    "version": 1,
+    "provenance": {
+      "kind": "observed",
+      "description": "Actual presentation call observed from a fresh packed dshline 0.26.1 run with pinned Harness 0.2.0-rc.2 under consumer-smoke PTY at 80x24. Reached ready composer and exited with Ctrl-D. Observation-only Node loader; no model turn or private session/profile data. Selected calls contain no scratch paths.",
+      "consent": "explicitly-provided-normalized-data"
+    },
+    "cases": [
+      {
+        "id": "observed-boot-4",
+        "input": {
+          "op": "truncateToWidth",
+          "text": "\u25cf ready \u00b7 workspace-write \u00b7 \u21910 \u21930 \u00b7 alt-enter newline \u00b7 ctrl-d quit",
+          "columns": 78
+        }
+      }
+    ]
+  }
+]

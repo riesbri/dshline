@@ -31,8 +31,8 @@ import type { LlmModelReasoningInfo, ModelModality } from '@deepseek-ai/dsh-llm'
 // selection. Neither has to be mounted for the frontend to run.
 import type {} from '@deepseek-ai/dsh-cmdline'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import type { ColorDepth, Key, Palette, Terminal } from '@dshline/renderer'
-import { acquireTerminal, escapeControls, paint, Screen, setPalette } from '@dshline/renderer'
+import type { ColorDepth, Key, Palette, RendererBackend, Terminal } from '@dshline/renderer'
+import { acquireTerminal, escapeControls, paint, Screen, setPalette, setRendererBackend } from '@dshline/renderer'
 import { DEFAULT_PALETTE } from './theme.ts'
 import type { BusyEnter } from './delivery.ts'
 import { FALLBACK_THEME, findTheme } from './themes/builtin.ts'
@@ -106,6 +106,8 @@ export interface ModelInfo {
 
 /** What a deployment configured, gathered before the window exists. */
 export interface WindowOptions {
+  /** Composition-time native presentation selection. */
+  readonly renderer?: RendererBackend
   /** Rates for the usage meter, already validated. */
   readonly pricing: PricingTable
   /** When those rates charge the standard price. */
@@ -328,6 +330,8 @@ export function createModelCompletionCatalog(ctx: Context): ModelCompletionCatal
  * @returns the window, ready to attach a session.
  */
 export async function createWindow(ctx: Context, options: WindowOptions): Promise<Window> {
+  const restoreRenderer = setRendererBackend(options.renderer ?? 'auto')
+  ctx.effect(() => restoreRenderer)
   const exit = ctx.get('appExit')
   const startup = ctx.tuiStartup.options
   const terminal = acquireTerminal({ input: process.stdin, output: process.stdout })

@@ -12,7 +12,8 @@
   },
   "files": [
     "lib",
-    "src"
+    "src",
+    "native"
   ],
   "engines": {
     "node": "^22.19 || >=24"

@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "provenance": {
+    "kind": "synthetic",
+    "description": "Deterministic hand-authored presentation request; actual TypeScript output captured, not a real Harness session."
+  },
+  "cases": [
+    {
+      "id": "sanitizePasted-unicode",
+      "input": {
+        "op": "sanitizePasted",
+        "text": "A中文 é 👩‍👩‍👧‍👦 𐏿"
+      },
+      "output": "A中文 é 👩‍👩‍👧‍👦 𐏿"
+    }
+  ],
+  "palette": {
+    "id": "markdown",
+    "depth": 4,
+    "roles": {
+      "heading-1": [
+        1,
+        36
+      ],
+      "heading-2": [
+        1
+      ],
+      "heading-3": [
+        1,
+        2
+      ],
+      "strong": [
+        1
+      ],
+      "emphasis": [
+        3
+      ],
+      "strike": [
+        2
+      ],
+      "code": [
+        36
+      ],
+      "link": [
+        36
+      ],
+      "link-target": [
+        90
+      ],
+      "quote": [
+        2
+      ],
+      "quote-bar": [
+        90
+      ],
+      "bullet": [
+        90
+      ],
+      "rule": [
+        90
+      ],
+      "muted": [
+        90
+      ]
+    }
+  },
+  "reference": {
+    "identity": {
+      "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+      "source": "dfbfee38e42d9b7c463e57bb84dcbd46c29660bcbd696dcf2fdbb79b6efa9d9a",
+      "executedBuild": "f20b732ca8d1d4de0fe7f783ea0feecc9d3df1017c90c72652ef1cdd9ac18080",
+      "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+    },
+    "package": "@dshline/renderer",
+    "palette": {
+      "id": "markdown",
+      "depth": 4
+    },
+    "transport": "JSON UTF-16 strings; Screen writes are JavaScript strings before host encoding"
+  }
+}

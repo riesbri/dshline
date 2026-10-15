@@ -21,6 +21,7 @@
  * @module @dshline/renderer/theme
  */
 
+import { types } from 'node:util'
 import { sgr } from './text.ts'
 
 /**
@@ -275,4 +276,32 @@ export function setPalette(palette: Palette, depth: ColorDepth): () => void {
  */
 export function activePalette(): { readonly id: string; readonly depth: ColorDepth } {
   return { id: active.id, depth: active.depth }
+}
+
+// Match the normalized SGR transport bounds; other host values remain TS.
+const MAX_NATIVE_SGR_PARAMS = 16
+const MAX_NATIVE_SGR_PARAMETER = 9999
+
+/** Internal lossless resolved presentation snapshot for the native transport.
+ * @returns a detached data-only palette, or undefined for caller-owned behavior.
+ */
+export function nativePaletteSnapshot(): { id: string; depth: ColorDepth; roles: Record<string, readonly number[]> } | undefined {
+  const roles: Record<string, readonly number[]> = {}
+  for (const [role, params] of Object.entries(active.roles)) {
+    if (params === undefined) { Object.defineProperty(roles, role, { value: [], enumerable: true }); continue }
+    // Snapshotting unused roles must not run getters, proxy traps or custom
+    // iteration that the original formatter would never have touched.
+    if (types.isProxy(params) || !Array.isArray(params) || Object.getPrototypeOf(params) !== Array.prototype || params.length > MAX_NATIVE_SGR_PARAMS || Object.getOwnPropertySymbols(params).length !== 0) return undefined
+    const descriptors = Object.getOwnPropertyDescriptors(params)
+    if (Object.entries(descriptors).some(([key, d]) => !('value' in d) || key !== 'length' && !/^(0|[1-9][0-9]*)$/u.test(key))) return undefined
+    const copy: number[] = []
+    for (let i = 0; i < params.length; i++) {
+      const descriptor = descriptors[String(i)]
+      const value: unknown = descriptor?.value
+      if (!descriptor || typeof value !== 'number' || !Number.isInteger(value) || Math.abs(value) > MAX_NATIVE_SGR_PARAMETER) return undefined
+      copy.push(value)
+    }
+    Object.defineProperty(roles, role, { value: copy, enumerable: true })
+  }
+  return { id: active.id, depth: active.depth, roles }
 }

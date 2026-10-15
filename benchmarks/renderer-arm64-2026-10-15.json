@@ -1,0 +1,6690 @@
+{
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "511b898990395a1725137d092563118c5ae7e76464ab5928110ec0c5fdfe3cfd",
+    "executedBuild": "a35e0cf0b9b0182b976169d8383e2b98d9321e7b5ba28efc7234c0bd57283988",
+    "compilerAndConfig": "6526880549391eb3d96e0093f0da97a3fdcad9227712c1c45e7c8903a060e33d"
+  },
+  "environment": {
+    "node": "v24.18.0",
+    "unicode": "17.0",
+    "platform": "linux",
+    "arch": "arm64",
+    "cpu": "Cortex-A76",
+    "addonSha256": "fa0b5d86ba57a71aee6b547731bea11c0a2b81e89ff7bd5dafd7b1146ff62c6e",
+    "backendSourceSha256": "30a42cfad1f3a129fb1bbb957dfab03d1a220ea5e13a7aa6a9bbfda551c70218",
+    "baselineAddonSha256": "b9151b081f5aa95346e74d2d28a364982e3889217a2a9d7be5be72cdf3b9463f"
+  },
+  "procedure": "Release addon; 500 warmup calls; calibrated >=5ms batches; median and max of five batch averages. Local CPU-sensitive timings, not per-call tail latency or a cross-platform guarantee.",
+  "checksum": -60609656,
+  "rows": [
+    {
+      "op": "displayWidth",
+      "kind": "ascii",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 316,
+        "maxBatchMeanNsPerCall": 704,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 288,
+        "maxBatchMeanNsPerCall": 357,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 3142,
+        "maxBatchMeanNsPerCall": 3543,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 275,
+        "maxBatchMeanNsPerCall": 293,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 291,
+        "maxBatchMeanNsPerCall": 293,
+        "callsPerBatch": 32768
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ascii",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1345,
+        "maxBatchMeanNsPerCall": 2044,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 449,
+        "maxBatchMeanNsPerCall": 454,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 9566,
+        "maxBatchMeanNsPerCall": 10730,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 962,
+        "maxBatchMeanNsPerCall": 990,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 436,
+        "maxBatchMeanNsPerCall": 460,
+        "callsPerBatch": 16384
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ascii",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 2542,
+        "maxBatchMeanNsPerCall": 2716,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 610,
+        "maxBatchMeanNsPerCall": 612,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 12405,
+        "maxBatchMeanNsPerCall": 12446,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 1887,
+        "maxBatchMeanNsPerCall": 1970,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 573,
+        "maxBatchMeanNsPerCall": 579,
+        "callsPerBatch": 16384
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ascii",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 4907,
+        "maxBatchMeanNsPerCall": 5021,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 1058,
+        "maxBatchMeanNsPerCall": 1098,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 5550,
+        "maxBatchMeanNsPerCall": 5607,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 4962,
+        "maxBatchMeanNsPerCall": 5527,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 1038,
+        "maxBatchMeanNsPerCall": 1063,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 26779,
+        "maxBatchMeanNsPerCall": 26967,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 3214,
+        "maxBatchMeanNsPerCall": 3984,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 28354,
+        "maxBatchMeanNsPerCall": 32989,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 27621,
+        "maxBatchMeanNsPerCall": 37052,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 6624,
+        "maxBatchMeanNsPerCall": 7297,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ansi",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 368,
+        "maxBatchMeanNsPerCall": 510,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 363,
+        "maxBatchMeanNsPerCall": 488,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2393,
+        "maxBatchMeanNsPerCall": 2512,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 329,
+        "maxBatchMeanNsPerCall": 336,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 320,
+        "maxBatchMeanNsPerCall": 321,
+        "callsPerBatch": 16384
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ansi",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1368,
+        "maxBatchMeanNsPerCall": 1382,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 496,
+        "maxBatchMeanNsPerCall": 820,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 5563,
+        "maxBatchMeanNsPerCall": 5844,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 1355,
+        "maxBatchMeanNsPerCall": 1453,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 461,
+        "maxBatchMeanNsPerCall": 466,
+        "callsPerBatch": 16384
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ansi",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 2685,
+        "maxBatchMeanNsPerCall": 2813,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 657,
+        "maxBatchMeanNsPerCall": 687,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 13418,
+        "maxBatchMeanNsPerCall": 13706,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 2630,
+        "maxBatchMeanNsPerCall": 2647,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 641,
+        "maxBatchMeanNsPerCall": 644,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ansi",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 7084,
+        "maxBatchMeanNsPerCall": 7250,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 1176,
+        "maxBatchMeanNsPerCall": 1194,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 7640,
+        "maxBatchMeanNsPerCall": 7660,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 7264,
+        "maxBatchMeanNsPerCall": 7333,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 1145,
+        "maxBatchMeanNsPerCall": 1148,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 37662,
+        "maxBatchMeanNsPerCall": 39094,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 3642,
+        "maxBatchMeanNsPerCall": 3741,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 46186,
+        "maxBatchMeanNsPerCall": 55968,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 38133,
+        "maxBatchMeanNsPerCall": 39356,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 3606,
+        "maxBatchMeanNsPerCall": 3910,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "cjk",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 2328,
+        "maxBatchMeanNsPerCall": 2471,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2084,
+        "maxBatchMeanNsPerCall": 2218,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2929,
+        "maxBatchMeanNsPerCall": 3321,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 2057,
+        "maxBatchMeanNsPerCall": 2239,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 843,
+        "maxBatchMeanNsPerCall": 860,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "cjk",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 8328,
+        "maxBatchMeanNsPerCall": 8631,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 2597,
+        "maxBatchMeanNsPerCall": 2630,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 9633,
+        "maxBatchMeanNsPerCall": 9790,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 8355,
+        "maxBatchMeanNsPerCall": 8415,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2571,
+        "maxBatchMeanNsPerCall": 2600,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "cjk",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 17468,
+        "maxBatchMeanNsPerCall": 17553,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 4910,
+        "maxBatchMeanNsPerCall": 4930,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 17862,
+        "maxBatchMeanNsPerCall": 17927,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 17623,
+        "maxBatchMeanNsPerCall": 18309,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 4879,
+        "maxBatchMeanNsPerCall": 4901,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "cjk",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 46471,
+        "maxBatchMeanNsPerCall": 47184,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 12536,
+        "maxBatchMeanNsPerCall": 12578,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 45124,
+        "maxBatchMeanNsPerCall": 45866,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 44705,
+        "maxBatchMeanNsPerCall": 44925,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 12506,
+        "maxBatchMeanNsPerCall": 12551,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 186083,
+        "maxBatchMeanNsPerCall": 187051,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 49071,
+        "maxBatchMeanNsPerCall": 49828,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 187702,
+        "maxBatchMeanNsPerCall": 189408,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 186566,
+        "maxBatchMeanNsPerCall": 187596,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 49011,
+        "maxBatchMeanNsPerCall": 49046,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "emoji",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 1323,
+        "maxBatchMeanNsPerCall": 1373,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1137,
+        "maxBatchMeanNsPerCall": 1205,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2234,
+        "maxBatchMeanNsPerCall": 2338,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1157,
+        "maxBatchMeanNsPerCall": 1231,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 572,
+        "maxBatchMeanNsPerCall": 577,
+        "callsPerBatch": 16384
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "emoji",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 4321,
+        "maxBatchMeanNsPerCall": 4333,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 1508,
+        "maxBatchMeanNsPerCall": 1544,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 6246,
+        "maxBatchMeanNsPerCall": 7154,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 4338,
+        "maxBatchMeanNsPerCall": 4362,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1484,
+        "maxBatchMeanNsPerCall": 1485,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "emoji",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 9388,
+        "maxBatchMeanNsPerCall": 9427,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 2726,
+        "maxBatchMeanNsPerCall": 2758,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 12694,
+        "maxBatchMeanNsPerCall": 14507,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 8571,
+        "maxBatchMeanNsPerCall": 8622,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2669,
+        "maxBatchMeanNsPerCall": 2677,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "emoji",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 24928,
+        "maxBatchMeanNsPerCall": 25344,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 6671,
+        "maxBatchMeanNsPerCall": 6707,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 25330,
+        "maxBatchMeanNsPerCall": 25665,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 24640,
+        "maxBatchMeanNsPerCall": 24744,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 6669,
+        "maxBatchMeanNsPerCall": 6880,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 100790,
+        "maxBatchMeanNsPerCall": 125018,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 25758,
+        "maxBatchMeanNsPerCall": 25947,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 100626,
+        "maxBatchMeanNsPerCall": 126563,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 98926,
+        "maxBatchMeanNsPerCall": 100590,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 25586,
+        "maxBatchMeanNsPerCall": 25748,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ascii",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 242,
+        "maxBatchMeanNsPerCall": 246,
+        "callsPerBatch": 32768
+      },
+      "auto": {
+        "medianNsPerCall": 268,
+        "maxBatchMeanNsPerCall": 272,
+        "callsPerBatch": 32768
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 18633,
+        "maxBatchMeanNsPerCall": 19383,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 88,
+        "maxBatchMeanNsPerCall": 91,
+        "callsPerBatch": 65536
+      },
+      "directRust": {
+        "medianNsPerCall": 683,
+        "maxBatchMeanNsPerCall": 685,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ascii",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 282,
+        "maxBatchMeanNsPerCall": 285,
+        "callsPerBatch": 32768
+      },
+      "auto": {
+        "medianNsPerCall": 309,
+        "maxBatchMeanNsPerCall": 325,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 36953,
+        "maxBatchMeanNsPerCall": 38598,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 133,
+        "maxBatchMeanNsPerCall": 133,
+        "callsPerBatch": 65536
+      },
+      "directRust": {
+        "medianNsPerCall": 1144,
+        "maxBatchMeanNsPerCall": 1164,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ascii",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 342,
+        "maxBatchMeanNsPerCall": 343,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 375,
+        "maxBatchMeanNsPerCall": 400,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 60227,
+        "maxBatchMeanNsPerCall": 64629,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 193,
+        "maxBatchMeanNsPerCall": 195,
+        "callsPerBatch": 32768
+      },
+      "directRust": {
+        "medianNsPerCall": 1593,
+        "maxBatchMeanNsPerCall": 1625,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ascii",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 546,
+        "maxBatchMeanNsPerCall": 550,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 580,
+        "maxBatchMeanNsPerCall": 588,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 1107,
+        "maxBatchMeanNsPerCall": 1238,
+        "callsPerBatch": 8192
+      },
+      "reference": {
+        "medianNsPerCall": 399,
+        "maxBatchMeanNsPerCall": 401,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 2786,
+        "maxBatchMeanNsPerCall": 2894,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ascii",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 1531,
+        "maxBatchMeanNsPerCall": 1540,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1561,
+        "maxBatchMeanNsPerCall": 1569,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2123,
+        "maxBatchMeanNsPerCall": 2166,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 1383,
+        "maxBatchMeanNsPerCall": 1388,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 8279,
+        "maxBatchMeanNsPerCall": 8368,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ansi",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 312,
+        "maxBatchMeanNsPerCall": 328,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 332,
+        "maxBatchMeanNsPerCall": 356,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 17354,
+        "maxBatchMeanNsPerCall": 18441,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 132,
+        "maxBatchMeanNsPerCall": 137,
+        "callsPerBatch": 65536
+      },
+      "directRust": {
+        "medianNsPerCall": 675,
+        "maxBatchMeanNsPerCall": 698,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ansi",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 568,
+        "maxBatchMeanNsPerCall": 587,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 599,
+        "maxBatchMeanNsPerCall": 603,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 36167,
+        "maxBatchMeanNsPerCall": 38609,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 435,
+        "maxBatchMeanNsPerCall": 471,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1218,
+        "maxBatchMeanNsPerCall": 1276,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ansi",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 971,
+        "maxBatchMeanNsPerCall": 1158,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1044,
+        "maxBatchMeanNsPerCall": 1430,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 61366,
+        "maxBatchMeanNsPerCall": 80029,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 696,
+        "maxBatchMeanNsPerCall": 766,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 1581,
+        "maxBatchMeanNsPerCall": 1610,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ansi",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 1877,
+        "maxBatchMeanNsPerCall": 1894,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2020,
+        "maxBatchMeanNsPerCall": 2228,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2431,
+        "maxBatchMeanNsPerCall": 2491,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1721,
+        "maxBatchMeanNsPerCall": 1737,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 2762,
+        "maxBatchMeanNsPerCall": 2867,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "ansi",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 6996,
+        "maxBatchMeanNsPerCall": 8093,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 6819,
+        "maxBatchMeanNsPerCall": 6950,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 7756,
+        "maxBatchMeanNsPerCall": 9833,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 7899,
+        "maxBatchMeanNsPerCall": 23131,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 8490,
+        "maxBatchMeanNsPerCall": 8764,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "cjk",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 256,
+        "maxBatchMeanNsPerCall": 267,
+        "callsPerBatch": 32768
+      },
+      "auto": {
+        "medianNsPerCall": 300,
+        "maxBatchMeanNsPerCall": 401,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 21082,
+        "maxBatchMeanNsPerCall": 22469,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 95,
+        "maxBatchMeanNsPerCall": 102,
+        "callsPerBatch": 65536
+      },
+      "directRust": {
+        "medianNsPerCall": 714,
+        "maxBatchMeanNsPerCall": 782,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "cjk",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 298,
+        "maxBatchMeanNsPerCall": 308,
+        "callsPerBatch": 32768
+      },
+      "auto": {
+        "medianNsPerCall": 328,
+        "maxBatchMeanNsPerCall": 356,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 44365,
+        "maxBatchMeanNsPerCall": 52405,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 140,
+        "maxBatchMeanNsPerCall": 146,
+        "callsPerBatch": 65536
+      },
+      "directRust": {
+        "medianNsPerCall": 1162,
+        "maxBatchMeanNsPerCall": 1254,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "cjk",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 355,
+        "maxBatchMeanNsPerCall": 382,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 388,
+        "maxBatchMeanNsPerCall": 419,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 71982,
+        "maxBatchMeanNsPerCall": 77314,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 201,
+        "maxBatchMeanNsPerCall": 203,
+        "callsPerBatch": 32768
+      },
+      "directRust": {
+        "medianNsPerCall": 1552,
+        "maxBatchMeanNsPerCall": 1597,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "cjk",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 562,
+        "maxBatchMeanNsPerCall": 586,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 642,
+        "maxBatchMeanNsPerCall": 691,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 1153,
+        "maxBatchMeanNsPerCall": 1267,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 405,
+        "maxBatchMeanNsPerCall": 440,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 3012,
+        "maxBatchMeanNsPerCall": 3236,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "cjk",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 1568,
+        "maxBatchMeanNsPerCall": 1712,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1599,
+        "maxBatchMeanNsPerCall": 1702,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2207,
+        "maxBatchMeanNsPerCall": 2388,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 1432,
+        "maxBatchMeanNsPerCall": 1528,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 8974,
+        "maxBatchMeanNsPerCall": 9988,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "emoji",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 259,
+        "maxBatchMeanNsPerCall": 400,
+        "callsPerBatch": 32768
+      },
+      "auto": {
+        "medianNsPerCall": 292,
+        "maxBatchMeanNsPerCall": 304,
+        "callsPerBatch": 32768
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 19391,
+        "maxBatchMeanNsPerCall": 19785,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 95,
+        "maxBatchMeanNsPerCall": 102,
+        "callsPerBatch": 65536
+      },
+      "directRust": {
+        "medianNsPerCall": 708,
+        "maxBatchMeanNsPerCall": 782,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "emoji",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 298,
+        "maxBatchMeanNsPerCall": 309,
+        "callsPerBatch": 32768
+      },
+      "auto": {
+        "medianNsPerCall": 357,
+        "maxBatchMeanNsPerCall": 407,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 48916,
+        "maxBatchMeanNsPerCall": 52560,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 144,
+        "maxBatchMeanNsPerCall": 148,
+        "callsPerBatch": 65536
+      },
+      "directRust": {
+        "medianNsPerCall": 1182,
+        "maxBatchMeanNsPerCall": 1273,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "emoji",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 360,
+        "maxBatchMeanNsPerCall": 397,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 397,
+        "maxBatchMeanNsPerCall": 427,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 88703,
+        "maxBatchMeanNsPerCall": 92064,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 358,
+        "maxBatchMeanNsPerCall": 391,
+        "callsPerBatch": 32768
+      },
+      "directRust": {
+        "medianNsPerCall": 1790,
+        "maxBatchMeanNsPerCall": 2037,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "emoji",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 621,
+        "maxBatchMeanNsPerCall": 664,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 598,
+        "maxBatchMeanNsPerCall": 617,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 1173,
+        "maxBatchMeanNsPerCall": 1510,
+        "callsPerBatch": 8192
+      },
+      "reference": {
+        "medianNsPerCall": 412,
+        "maxBatchMeanNsPerCall": 898,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 3087,
+        "maxBatchMeanNsPerCall": 3210,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "stripAnsi",
+      "kind": "emoji",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 1621,
+        "maxBatchMeanNsPerCall": 2086,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2554,
+        "maxBatchMeanNsPerCall": 2696,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2213,
+        "maxBatchMeanNsPerCall": 2374,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 1436,
+        "maxBatchMeanNsPerCall": 1474,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 19083,
+        "maxBatchMeanNsPerCall": 25577,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ascii",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 446,
+        "maxBatchMeanNsPerCall": 461,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 591,
+        "maxBatchMeanNsPerCall": 1280,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 40848,
+        "maxBatchMeanNsPerCall": 73645,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 386,
+        "maxBatchMeanNsPerCall": 514,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1141,
+        "maxBatchMeanNsPerCall": 2128,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ascii",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 568,
+        "maxBatchMeanNsPerCall": 575,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 622,
+        "maxBatchMeanNsPerCall": 691,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 60516,
+        "maxBatchMeanNsPerCall": 114506,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 442,
+        "maxBatchMeanNsPerCall": 641,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 2589,
+        "maxBatchMeanNsPerCall": 4219,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ascii",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 822,
+        "maxBatchMeanNsPerCall": 871,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 956,
+        "maxBatchMeanNsPerCall": 1730,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 84505,
+        "maxBatchMeanNsPerCall": 97388,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 639,
+        "maxBatchMeanNsPerCall": 878,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 3684,
+        "maxBatchMeanNsPerCall": 3781,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ascii",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 1484,
+        "maxBatchMeanNsPerCall": 1497,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1511,
+        "maxBatchMeanNsPerCall": 1584,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2452,
+        "maxBatchMeanNsPerCall": 2675,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1354,
+        "maxBatchMeanNsPerCall": 2237,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 8450,
+        "maxBatchMeanNsPerCall": 9324,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ascii",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 5017,
+        "maxBatchMeanNsPerCall": 6278,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 4850,
+        "maxBatchMeanNsPerCall": 5240,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 5419,
+        "maxBatchMeanNsPerCall": 5425,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 4618,
+        "maxBatchMeanNsPerCall": 4777,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 31181,
+        "maxBatchMeanNsPerCall": 57204,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ansi",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 677,
+        "maxBatchMeanNsPerCall": 690,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 694,
+        "maxBatchMeanNsPerCall": 713,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 20111,
+        "maxBatchMeanNsPerCall": 24094,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 494,
+        "maxBatchMeanNsPerCall": 558,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1179,
+        "maxBatchMeanNsPerCall": 5922,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ansi",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1464,
+        "maxBatchMeanNsPerCall": 1510,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1559,
+        "maxBatchMeanNsPerCall": 2884,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 40004,
+        "maxBatchMeanNsPerCall": 55600,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 1179,
+        "maxBatchMeanNsPerCall": 1214,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 4468,
+        "maxBatchMeanNsPerCall": 6780,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ansi",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 2720,
+        "maxBatchMeanNsPerCall": 2789,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2261,
+        "maxBatchMeanNsPerCall": 3127,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 67308,
+        "maxBatchMeanNsPerCall": 73376,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1990,
+        "maxBatchMeanNsPerCall": 2026,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 3831,
+        "maxBatchMeanNsPerCall": 3915,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ansi",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 5487,
+        "maxBatchMeanNsPerCall": 5535,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 6264,
+        "maxBatchMeanNsPerCall": 8319,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 6321,
+        "maxBatchMeanNsPerCall": 7122,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 5332,
+        "maxBatchMeanNsPerCall": 5422,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 8367,
+        "maxBatchMeanNsPerCall": 8667,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "ansi",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 20443,
+        "maxBatchMeanNsPerCall": 23526,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 20376,
+        "maxBatchMeanNsPerCall": 21231,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 21332,
+        "maxBatchMeanNsPerCall": 21905,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 20448,
+        "maxBatchMeanNsPerCall": 21954,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 27119,
+        "maxBatchMeanNsPerCall": 28727,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "cjk",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 428,
+        "maxBatchMeanNsPerCall": 459,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 462,
+        "maxBatchMeanNsPerCall": 485,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 18745,
+        "maxBatchMeanNsPerCall": 21032,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 265,
+        "maxBatchMeanNsPerCall": 281,
+        "callsPerBatch": 32768
+      },
+      "directRust": {
+        "medianNsPerCall": 1133,
+        "maxBatchMeanNsPerCall": 1248,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "cjk",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 637,
+        "maxBatchMeanNsPerCall": 680,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 664,
+        "maxBatchMeanNsPerCall": 688,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 39926,
+        "maxBatchMeanNsPerCall": 44281,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 465,
+        "maxBatchMeanNsPerCall": 490,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 2368,
+        "maxBatchMeanNsPerCall": 2486,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "cjk",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 896,
+        "maxBatchMeanNsPerCall": 909,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 910,
+        "maxBatchMeanNsPerCall": 939,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66506,
+        "maxBatchMeanNsPerCall": 68686,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 722,
+        "maxBatchMeanNsPerCall": 764,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 3557,
+        "maxBatchMeanNsPerCall": 3787,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "cjk",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 1719,
+        "maxBatchMeanNsPerCall": 1743,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1751,
+        "maxBatchMeanNsPerCall": 1758,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2322,
+        "maxBatchMeanNsPerCall": 2447,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1600,
+        "maxBatchMeanNsPerCall": 1679,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 7402,
+        "maxBatchMeanNsPerCall": 7965,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "cjk",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 5755,
+        "maxBatchMeanNsPerCall": 6313,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5771,
+        "maxBatchMeanNsPerCall": 6224,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 6442,
+        "maxBatchMeanNsPerCall": 6669,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 5573,
+        "maxBatchMeanNsPerCall": 5756,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 27350,
+        "maxBatchMeanNsPerCall": 30987,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "emoji",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 418,
+        "maxBatchMeanNsPerCall": 432,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 468,
+        "maxBatchMeanNsPerCall": 531,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 19653,
+        "maxBatchMeanNsPerCall": 20180,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 265,
+        "maxBatchMeanNsPerCall": 284,
+        "callsPerBatch": 32768
+      },
+      "directRust": {
+        "medianNsPerCall": 1035,
+        "maxBatchMeanNsPerCall": 1091,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "emoji",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 640,
+        "maxBatchMeanNsPerCall": 698,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 653,
+        "maxBatchMeanNsPerCall": 665,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 40678,
+        "maxBatchMeanNsPerCall": 43821,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 469,
+        "maxBatchMeanNsPerCall": 504,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 2141,
+        "maxBatchMeanNsPerCall": 2177,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "emoji",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 874,
+        "maxBatchMeanNsPerCall": 906,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 899,
+        "maxBatchMeanNsPerCall": 950,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 68296,
+        "maxBatchMeanNsPerCall": 70008,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 704,
+        "maxBatchMeanNsPerCall": 772,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 3158,
+        "maxBatchMeanNsPerCall": 3295,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "emoji",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 1703,
+        "maxBatchMeanNsPerCall": 1730,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1744,
+        "maxBatchMeanNsPerCall": 1768,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2300,
+        "maxBatchMeanNsPerCall": 2469,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1537,
+        "maxBatchMeanNsPerCall": 1640,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 6566,
+        "maxBatchMeanNsPerCall": 7367,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "escapeControls",
+      "kind": "emoji",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 5618,
+        "maxBatchMeanNsPerCall": 6129,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5681,
+        "maxBatchMeanNsPerCall": 5914,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 6330,
+        "maxBatchMeanNsPerCall": 6692,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 5511,
+        "maxBatchMeanNsPerCall": 5529,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 21928,
+        "maxBatchMeanNsPerCall": 25620,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ascii",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 656,
+        "maxBatchMeanNsPerCall": 676,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 652,
+        "maxBatchMeanNsPerCall": 675,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 19488,
+        "maxBatchMeanNsPerCall": 22510,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 479,
+        "maxBatchMeanNsPerCall": 507,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1343,
+        "maxBatchMeanNsPerCall": 1437,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ascii",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 922,
+        "maxBatchMeanNsPerCall": 951,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 939,
+        "maxBatchMeanNsPerCall": 969,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 39713,
+        "maxBatchMeanNsPerCall": 41662,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 742,
+        "maxBatchMeanNsPerCall": 818,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 3144,
+        "maxBatchMeanNsPerCall": 3372,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ascii",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 1218,
+        "maxBatchMeanNsPerCall": 1292,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1280,
+        "maxBatchMeanNsPerCall": 1293,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66178,
+        "maxBatchMeanNsPerCall": 72027,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1074,
+        "maxBatchMeanNsPerCall": 1103,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 4610,
+        "maxBatchMeanNsPerCall": 4743,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ascii",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 2400,
+        "maxBatchMeanNsPerCall": 2538,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2367,
+        "maxBatchMeanNsPerCall": 2472,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 3089,
+        "maxBatchMeanNsPerCall": 3354,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 2177,
+        "maxBatchMeanNsPerCall": 2335,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 9486,
+        "maxBatchMeanNsPerCall": 9818,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ascii",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 7724,
+        "maxBatchMeanNsPerCall": 7884,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 7667,
+        "maxBatchMeanNsPerCall": 8088,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 8363,
+        "maxBatchMeanNsPerCall": 8989,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 7484,
+        "maxBatchMeanNsPerCall": 7921,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 33859,
+        "maxBatchMeanNsPerCall": 38712,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ansi",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 924,
+        "maxBatchMeanNsPerCall": 987,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 983,
+        "maxBatchMeanNsPerCall": 984,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 20882,
+        "maxBatchMeanNsPerCall": 23060,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 698,
+        "maxBatchMeanNsPerCall": 748,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 1379,
+        "maxBatchMeanNsPerCall": 1419,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ansi",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1738,
+        "maxBatchMeanNsPerCall": 1756,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1732,
+        "maxBatchMeanNsPerCall": 1768,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 39543,
+        "maxBatchMeanNsPerCall": 39759,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1535,
+        "maxBatchMeanNsPerCall": 1587,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 3171,
+        "maxBatchMeanNsPerCall": 3789,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ansi",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 2744,
+        "maxBatchMeanNsPerCall": 3078,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2776,
+        "maxBatchMeanNsPerCall": 2883,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 64590,
+        "maxBatchMeanNsPerCall": 70291,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2496,
+        "maxBatchMeanNsPerCall": 2718,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 4758,
+        "maxBatchMeanNsPerCall": 4786,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ansi",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 6396,
+        "maxBatchMeanNsPerCall": 6531,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 6388,
+        "maxBatchMeanNsPerCall": 6546,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 7124,
+        "maxBatchMeanNsPerCall": 7516,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 6732,
+        "maxBatchMeanNsPerCall": 11400,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 10571,
+        "maxBatchMeanNsPerCall": 11126,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "ansi",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 24497,
+        "maxBatchMeanNsPerCall": 24913,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 23665,
+        "maxBatchMeanNsPerCall": 25268,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 24455,
+        "maxBatchMeanNsPerCall": 26177,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 23501,
+        "maxBatchMeanNsPerCall": 25475,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 34188,
+        "maxBatchMeanNsPerCall": 35291,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "cjk",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 701,
+        "maxBatchMeanNsPerCall": 770,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 710,
+        "maxBatchMeanNsPerCall": 783,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 19742,
+        "maxBatchMeanNsPerCall": 21558,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 523,
+        "maxBatchMeanNsPerCall": 530,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1345,
+        "maxBatchMeanNsPerCall": 1385,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "cjk",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 985,
+        "maxBatchMeanNsPerCall": 1014,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 1021,
+        "maxBatchMeanNsPerCall": 1033,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 41107,
+        "maxBatchMeanNsPerCall": 42704,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 820,
+        "maxBatchMeanNsPerCall": 895,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 3089,
+        "maxBatchMeanNsPerCall": 3342,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "cjk",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 1387,
+        "maxBatchMeanNsPerCall": 1443,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1374,
+        "maxBatchMeanNsPerCall": 1423,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 68250,
+        "maxBatchMeanNsPerCall": 70886,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1194,
+        "maxBatchMeanNsPerCall": 1279,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 4518,
+        "maxBatchMeanNsPerCall": 4639,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "cjk",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 2640,
+        "maxBatchMeanNsPerCall": 2653,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2672,
+        "maxBatchMeanNsPerCall": 3013,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 3352,
+        "maxBatchMeanNsPerCall": 3558,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 2470,
+        "maxBatchMeanNsPerCall": 2538,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 10276,
+        "maxBatchMeanNsPerCall": 10372,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "cjk",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 8794,
+        "maxBatchMeanNsPerCall": 9018,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 8840,
+        "maxBatchMeanNsPerCall": 9186,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 9515,
+        "maxBatchMeanNsPerCall": 9943,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 8629,
+        "maxBatchMeanNsPerCall": 13603,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 32785,
+        "maxBatchMeanNsPerCall": 34146,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "emoji",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 736,
+        "maxBatchMeanNsPerCall": 1270,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 728,
+        "maxBatchMeanNsPerCall": 775,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 22414,
+        "maxBatchMeanNsPerCall": 36558,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 528,
+        "maxBatchMeanNsPerCall": 619,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 4376,
+        "maxBatchMeanNsPerCall": 5261,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "emoji",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1021,
+        "maxBatchMeanNsPerCall": 1094,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 1041,
+        "maxBatchMeanNsPerCall": 1296,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 39849,
+        "maxBatchMeanNsPerCall": 44527,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 837,
+        "maxBatchMeanNsPerCall": 843,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 2752,
+        "maxBatchMeanNsPerCall": 2866,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "emoji",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 1357,
+        "maxBatchMeanNsPerCall": 1526,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1367,
+        "maxBatchMeanNsPerCall": 1525,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 73297,
+        "maxBatchMeanNsPerCall": 75321,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1169,
+        "maxBatchMeanNsPerCall": 1253,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 4131,
+        "maxBatchMeanNsPerCall": 4312,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "emoji",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 2668,
+        "maxBatchMeanNsPerCall": 2750,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 6291,
+        "maxBatchMeanNsPerCall": 6618,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 3351,
+        "maxBatchMeanNsPerCall": 6974,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 2450,
+        "maxBatchMeanNsPerCall": 2543,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 9923,
+        "maxBatchMeanNsPerCall": 10192,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "sanitizePasted",
+      "kind": "emoji",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 8698,
+        "maxBatchMeanNsPerCall": 8839,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 8678,
+        "maxBatchMeanNsPerCall": 8889,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 9344,
+        "maxBatchMeanNsPerCall": 9499,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 8556,
+        "maxBatchMeanNsPerCall": 9034,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 28267,
+        "maxBatchMeanNsPerCall": 28902,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ascii",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 480,
+        "maxBatchMeanNsPerCall": 559,
+        "callsPerBatch": 16384
+      },
+      "auto": {
+        "medianNsPerCall": 480,
+        "maxBatchMeanNsPerCall": 490,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 22603,
+        "maxBatchMeanNsPerCall": 24078,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 313,
+        "maxBatchMeanNsPerCall": 328,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 969,
+        "maxBatchMeanNsPerCall": 983,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ascii",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 673,
+        "maxBatchMeanNsPerCall": 692,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 666,
+        "maxBatchMeanNsPerCall": 691,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 42992,
+        "maxBatchMeanNsPerCall": 44683,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 513,
+        "maxBatchMeanNsPerCall": 604,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1270,
+        "maxBatchMeanNsPerCall": 1292,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ascii",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 662,
+        "maxBatchMeanNsPerCall": 819,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 665,
+        "maxBatchMeanNsPerCall": 694,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 68154,
+        "maxBatchMeanNsPerCall": 73016,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 500,
+        "maxBatchMeanNsPerCall": 515,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1304,
+        "maxBatchMeanNsPerCall": 1325,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ascii",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 653,
+        "maxBatchMeanNsPerCall": 838,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 666,
+        "maxBatchMeanNsPerCall": 694,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 1494,
+        "maxBatchMeanNsPerCall": 1524,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 511,
+        "maxBatchMeanNsPerCall": 523,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1451,
+        "maxBatchMeanNsPerCall": 1459,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 667,
+        "maxBatchMeanNsPerCall": 818,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 668,
+        "maxBatchMeanNsPerCall": 695,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 1399,
+        "maxBatchMeanNsPerCall": 1436,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 502,
+        "maxBatchMeanNsPerCall": 514,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1596,
+        "maxBatchMeanNsPerCall": 1640,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ansi",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 584,
+        "maxBatchMeanNsPerCall": 618,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 596,
+        "maxBatchMeanNsPerCall": 605,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 22147,
+        "maxBatchMeanNsPerCall": 24060,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 430,
+        "maxBatchMeanNsPerCall": 461,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 898,
+        "maxBatchMeanNsPerCall": 916,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ansi",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1660,
+        "maxBatchMeanNsPerCall": 1695,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1665,
+        "maxBatchMeanNsPerCall": 1715,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 44059,
+        "maxBatchMeanNsPerCall": 51219,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1478,
+        "maxBatchMeanNsPerCall": 1489,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1432,
+        "maxBatchMeanNsPerCall": 1482,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ansi",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1631,
+        "maxBatchMeanNsPerCall": 1768,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1654,
+        "maxBatchMeanNsPerCall": 1656,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 67222,
+        "maxBatchMeanNsPerCall": 69060,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1450,
+        "maxBatchMeanNsPerCall": 1525,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1435,
+        "maxBatchMeanNsPerCall": 1442,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ansi",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1688,
+        "maxBatchMeanNsPerCall": 1734,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1950,
+        "maxBatchMeanNsPerCall": 2513,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 3184,
+        "maxBatchMeanNsPerCall": 3514,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1476,
+        "maxBatchMeanNsPerCall": 1509,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1661,
+        "maxBatchMeanNsPerCall": 1720,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1659,
+        "maxBatchMeanNsPerCall": 1693,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1677,
+        "maxBatchMeanNsPerCall": 1799,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2381,
+        "maxBatchMeanNsPerCall": 2410,
+        "callsPerBatch": 4096
+      },
+      "reference": {
+        "medianNsPerCall": 1492,
+        "maxBatchMeanNsPerCall": 1570,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1816,
+        "maxBatchMeanNsPerCall": 1824,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "cjk",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 2166,
+        "maxBatchMeanNsPerCall": 2410,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2084,
+        "maxBatchMeanNsPerCall": 2108,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 22927,
+        "maxBatchMeanNsPerCall": 36139,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 1918,
+        "maxBatchMeanNsPerCall": 1971,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1396,
+        "maxBatchMeanNsPerCall": 1431,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "cjk",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 2094,
+        "maxBatchMeanNsPerCall": 2116,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2119,
+        "maxBatchMeanNsPerCall": 2193,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 43151,
+        "maxBatchMeanNsPerCall": 50454,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1930,
+        "maxBatchMeanNsPerCall": 2263,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1441,
+        "maxBatchMeanNsPerCall": 1462,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "cjk",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 2071,
+        "maxBatchMeanNsPerCall": 2083,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2091,
+        "maxBatchMeanNsPerCall": 2184,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 103765,
+        "maxBatchMeanNsPerCall": 111421,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2091,
+        "maxBatchMeanNsPerCall": 2578,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1521,
+        "maxBatchMeanNsPerCall": 1610,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "cjk",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 2239,
+        "maxBatchMeanNsPerCall": 2547,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2199,
+        "maxBatchMeanNsPerCall": 2369,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2794,
+        "maxBatchMeanNsPerCall": 3235,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1969,
+        "maxBatchMeanNsPerCall": 2071,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1675,
+        "maxBatchMeanNsPerCall": 1789,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 2266,
+        "maxBatchMeanNsPerCall": 3027,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2146,
+        "maxBatchMeanNsPerCall": 2286,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 2929,
+        "maxBatchMeanNsPerCall": 3071,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 1920,
+        "maxBatchMeanNsPerCall": 2042,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1988,
+        "maxBatchMeanNsPerCall": 2131,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "emoji",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1412,
+        "maxBatchMeanNsPerCall": 1514,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1317,
+        "maxBatchMeanNsPerCall": 2214,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 21280,
+        "maxBatchMeanNsPerCall": 23302,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 1138,
+        "maxBatchMeanNsPerCall": 1145,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1091,
+        "maxBatchMeanNsPerCall": 1146,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "emoji",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3282,
+        "maxBatchMeanNsPerCall": 3513,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3063,
+        "maxBatchMeanNsPerCall": 3409,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 42969,
+        "maxBatchMeanNsPerCall": 46916,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2901,
+        "maxBatchMeanNsPerCall": 3098,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 2029,
+        "maxBatchMeanNsPerCall": 2859,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "emoji",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3298,
+        "maxBatchMeanNsPerCall": 3596,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3500,
+        "maxBatchMeanNsPerCall": 3707,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 70478,
+        "maxBatchMeanNsPerCall": 71110,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2880,
+        "maxBatchMeanNsPerCall": 3114,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1963,
+        "maxBatchMeanNsPerCall": 2099,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "emoji",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3316,
+        "maxBatchMeanNsPerCall": 3481,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3300,
+        "maxBatchMeanNsPerCall": 3612,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 3911,
+        "maxBatchMeanNsPerCall": 4192,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 2902,
+        "maxBatchMeanNsPerCall": 3163,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 2083,
+        "maxBatchMeanNsPerCall": 2187,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "truncateToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3306,
+        "maxBatchMeanNsPerCall": 3580,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3317,
+        "maxBatchMeanNsPerCall": 3532,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 3815,
+        "maxBatchMeanNsPerCall": 4043,
+        "callsPerBatch": 2048
+      },
+      "reference": {
+        "medianNsPerCall": 2892,
+        "maxBatchMeanNsPerCall": 2988,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 2238,
+        "maxBatchMeanNsPerCall": 2314,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 2460,
+        "maxBatchMeanNsPerCall": 3939,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2512,
+        "maxBatchMeanNsPerCall": 2623,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 20574,
+        "maxBatchMeanNsPerCall": 22328,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 2191,
+        "maxBatchMeanNsPerCall": 3603,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1247,
+        "maxBatchMeanNsPerCall": 1259,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 5737,
+        "maxBatchMeanNsPerCall": 6622,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 2478,
+        "maxBatchMeanNsPerCall": 2689,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 42403,
+        "maxBatchMeanNsPerCall": 45815,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 5030,
+        "maxBatchMeanNsPerCall": 5258,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2058,
+        "maxBatchMeanNsPerCall": 2087,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 8308,
+        "maxBatchMeanNsPerCall": 8757,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 3282,
+        "maxBatchMeanNsPerCall": 3392,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 63877,
+        "maxBatchMeanNsPerCall": 76480,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 8097,
+        "maxBatchMeanNsPerCall": 8402,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2860,
+        "maxBatchMeanNsPerCall": 2893,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 18112,
+        "maxBatchMeanNsPerCall": 22643,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 5871,
+        "maxBatchMeanNsPerCall": 6018,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 20340,
+        "maxBatchMeanNsPerCall": 23945,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 17836,
+        "maxBatchMeanNsPerCall": 18692,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 5476,
+        "maxBatchMeanNsPerCall": 11456,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 71071,
+        "maxBatchMeanNsPerCall": 111514,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 18749,
+        "maxBatchMeanNsPerCall": 23929,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 111299,
+        "maxBatchMeanNsPerCall": 150180,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 76759,
+        "maxBatchMeanNsPerCall": 78804,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 17576,
+        "maxBatchMeanNsPerCall": 17706,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ansi",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 2617,
+        "maxBatchMeanNsPerCall": 3006,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2472,
+        "maxBatchMeanNsPerCall": 2544,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 21187,
+        "maxBatchMeanNsPerCall": 21642,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 2169,
+        "maxBatchMeanNsPerCall": 2202,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1245,
+        "maxBatchMeanNsPerCall": 1349,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ansi",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 5926,
+        "maxBatchMeanNsPerCall": 8087,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 2377,
+        "maxBatchMeanNsPerCall": 3002,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 42725,
+        "maxBatchMeanNsPerCall": 43944,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 5631,
+        "maxBatchMeanNsPerCall": 6006,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2036,
+        "maxBatchMeanNsPerCall": 2237,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ansi",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 10336,
+        "maxBatchMeanNsPerCall": 12021,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 3055,
+        "maxBatchMeanNsPerCall": 3109,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 61731,
+        "maxBatchMeanNsPerCall": 65159,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 9230,
+        "maxBatchMeanNsPerCall": 10096,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2719,
+        "maxBatchMeanNsPerCall": 2754,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ansi",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 21132,
+        "maxBatchMeanNsPerCall": 21514,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 5597,
+        "maxBatchMeanNsPerCall": 5924,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 34865,
+        "maxBatchMeanNsPerCall": 37745,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 21396,
+        "maxBatchMeanNsPerCall": 22323,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 4852,
+        "maxBatchMeanNsPerCall": 5039,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 125353,
+        "maxBatchMeanNsPerCall": 166519,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 21811,
+        "maxBatchMeanNsPerCall": 24959,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 104470,
+        "maxBatchMeanNsPerCall": 109175,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 93537,
+        "maxBatchMeanNsPerCall": 100317,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 15778,
+        "maxBatchMeanNsPerCall": 17198,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "cjk",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 4334,
+        "maxBatchMeanNsPerCall": 14088,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 4315,
+        "maxBatchMeanNsPerCall": 4487,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 24479,
+        "maxBatchMeanNsPerCall": 54744,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 4036,
+        "maxBatchMeanNsPerCall": 4222,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1689,
+        "maxBatchMeanNsPerCall": 1744,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "cjk",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 12839,
+        "maxBatchMeanNsPerCall": 16886,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 4349,
+        "maxBatchMeanNsPerCall": 4725,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 43571,
+        "maxBatchMeanNsPerCall": 44109,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 12022,
+        "maxBatchMeanNsPerCall": 13053,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 3970,
+        "maxBatchMeanNsPerCall": 3972,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "cjk",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 22667,
+        "maxBatchMeanNsPerCall": 24055,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 7297,
+        "maxBatchMeanNsPerCall": 7312,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66504,
+        "maxBatchMeanNsPerCall": 68370,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 22577,
+        "maxBatchMeanNsPerCall": 23667,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 6966,
+        "maxBatchMeanNsPerCall": 7059,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "cjk",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 57165,
+        "maxBatchMeanNsPerCall": 59175,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 16814,
+        "maxBatchMeanNsPerCall": 17170,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 59910,
+        "maxBatchMeanNsPerCall": 60860,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 58092,
+        "maxBatchMeanNsPerCall": 59459,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 16464,
+        "maxBatchMeanNsPerCall": 16683,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 236156,
+        "maxBatchMeanNsPerCall": 241544,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 62055,
+        "maxBatchMeanNsPerCall": 62770,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 236006,
+        "maxBatchMeanNsPerCall": 237884,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 233893,
+        "maxBatchMeanNsPerCall": 234758,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 61731,
+        "maxBatchMeanNsPerCall": 73407,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "emoji",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3039,
+        "maxBatchMeanNsPerCall": 3614,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 2752,
+        "maxBatchMeanNsPerCall": 2944,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 21367,
+        "maxBatchMeanNsPerCall": 22395,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 2444,
+        "maxBatchMeanNsPerCall": 2478,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1318,
+        "maxBatchMeanNsPerCall": 1356,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "emoji",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 7784,
+        "maxBatchMeanNsPerCall": 7979,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 3345,
+        "maxBatchMeanNsPerCall": 3358,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 41729,
+        "maxBatchMeanNsPerCall": 41960,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 7480,
+        "maxBatchMeanNsPerCall": 7584,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 3013,
+        "maxBatchMeanNsPerCall": 3020,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "emoji",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 13433,
+        "maxBatchMeanNsPerCall": 13864,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 5154,
+        "maxBatchMeanNsPerCall": 5162,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 64561,
+        "maxBatchMeanNsPerCall": 64836,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 13142,
+        "maxBatchMeanNsPerCall": 13427,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 4754,
+        "maxBatchMeanNsPerCall": 4858,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "emoji",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 32888,
+        "maxBatchMeanNsPerCall": 33569,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 10916,
+        "maxBatchMeanNsPerCall": 11159,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 33145,
+        "maxBatchMeanNsPerCall": 42422,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 32547,
+        "maxBatchMeanNsPerCall": 39630,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 10425,
+        "maxBatchMeanNsPerCall": 10518,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 129148,
+        "maxBatchMeanNsPerCall": 129582,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 36872,
+        "maxBatchMeanNsPerCall": 38861,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 129385,
+        "maxBatchMeanNsPerCall": 131127,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 128108,
+        "maxBatchMeanNsPerCall": 130050,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 36403,
+        "maxBatchMeanNsPerCall": 36783,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ascii",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 606,
+        "maxBatchMeanNsPerCall": 719,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 553,
+        "maxBatchMeanNsPerCall": 576,
+        "callsPerBatch": 16384
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 25012,
+        "maxBatchMeanNsPerCall": 25356,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 369,
+        "maxBatchMeanNsPerCall": 396,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 622,
+        "maxBatchMeanNsPerCall": 636,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ascii",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3798,
+        "maxBatchMeanNsPerCall": 5338,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2290,
+        "maxBatchMeanNsPerCall": 3025,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 52440,
+        "maxBatchMeanNsPerCall": 53877,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2670,
+        "maxBatchMeanNsPerCall": 2699,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1473,
+        "maxBatchMeanNsPerCall": 1501,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ascii",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 4188,
+        "maxBatchMeanNsPerCall": 4197,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 1892,
+        "maxBatchMeanNsPerCall": 1906,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 79193,
+        "maxBatchMeanNsPerCall": 79872,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 4020,
+        "maxBatchMeanNsPerCall": 4086,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1688,
+        "maxBatchMeanNsPerCall": 2761,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ascii",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 8776,
+        "maxBatchMeanNsPerCall": 8837,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 2483,
+        "maxBatchMeanNsPerCall": 3509,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 12956,
+        "maxBatchMeanNsPerCall": 20884,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 8576,
+        "maxBatchMeanNsPerCall": 8646,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2260,
+        "maxBatchMeanNsPerCall": 2349,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 30542,
+        "maxBatchMeanNsPerCall": 30684,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 4633,
+        "maxBatchMeanNsPerCall": 4647,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 44175,
+        "maxBatchMeanNsPerCall": 44556,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 30374,
+        "maxBatchMeanNsPerCall": 30397,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 4371,
+        "maxBatchMeanNsPerCall": 4556,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ansi",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 614,
+        "maxBatchMeanNsPerCall": 673,
+        "callsPerBatch": 8192
+      },
+      "auto": {
+        "medianNsPerCall": 629,
+        "maxBatchMeanNsPerCall": 761,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 24885,
+        "maxBatchMeanNsPerCall": 25910,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 458,
+        "maxBatchMeanNsPerCall": 481,
+        "callsPerBatch": 16384
+      },
+      "directRust": {
+        "medianNsPerCall": 1203,
+        "maxBatchMeanNsPerCall": 1945,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ansi",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 4980,
+        "maxBatchMeanNsPerCall": 5062,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 1994,
+        "maxBatchMeanNsPerCall": 1995,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 51310,
+        "maxBatchMeanNsPerCall": 52356,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 4231,
+        "maxBatchMeanNsPerCall": 4807,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1711,
+        "maxBatchMeanNsPerCall": 1715,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ansi",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 5974,
+        "maxBatchMeanNsPerCall": 6447,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 2174,
+        "maxBatchMeanNsPerCall": 2185,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 77651,
+        "maxBatchMeanNsPerCall": 78020,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 5449,
+        "maxBatchMeanNsPerCall": 5852,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 1911,
+        "maxBatchMeanNsPerCall": 1914,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ansi",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 10704,
+        "maxBatchMeanNsPerCall": 11286,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 2780,
+        "maxBatchMeanNsPerCall": 2781,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 13589,
+        "maxBatchMeanNsPerCall": 15904,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 10101,
+        "maxBatchMeanNsPerCall": 13829,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 2430,
+        "maxBatchMeanNsPerCall": 2981,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 32283,
+        "maxBatchMeanNsPerCall": 33259,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 5276,
+        "maxBatchMeanNsPerCall": 5289,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 41373,
+        "maxBatchMeanNsPerCall": 42384,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 30957,
+        "maxBatchMeanNsPerCall": 32198,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 5014,
+        "maxBatchMeanNsPerCall": 5042,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "cjk",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 6165,
+        "maxBatchMeanNsPerCall": 6220,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 6178,
+        "maxBatchMeanNsPerCall": 6188,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 26963,
+        "maxBatchMeanNsPerCall": 28014,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 5824,
+        "maxBatchMeanNsPerCall": 5845,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2451,
+        "maxBatchMeanNsPerCall": 2459,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "cjk",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 12724,
+        "maxBatchMeanNsPerCall": 13437,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 4440,
+        "maxBatchMeanNsPerCall": 4923,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 54361,
+        "maxBatchMeanNsPerCall": 67576,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 12568,
+        "maxBatchMeanNsPerCall": 12578,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 4139,
+        "maxBatchMeanNsPerCall": 4153,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "cjk",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 21490,
+        "maxBatchMeanNsPerCall": 21625,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 6700,
+        "maxBatchMeanNsPerCall": 6981,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 86117,
+        "maxBatchMeanNsPerCall": 86359,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 20454,
+        "maxBatchMeanNsPerCall": 20535,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 6409,
+        "maxBatchMeanNsPerCall": 6414,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "cjk",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 50656,
+        "maxBatchMeanNsPerCall": 50802,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 14435,
+        "maxBatchMeanNsPerCall": 14440,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 51366,
+        "maxBatchMeanNsPerCall": 51631,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 50571,
+        "maxBatchMeanNsPerCall": 51521,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 14165,
+        "maxBatchMeanNsPerCall": 14193,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 190886,
+        "maxBatchMeanNsPerCall": 196065,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 51467,
+        "maxBatchMeanNsPerCall": 56905,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 191829,
+        "maxBatchMeanNsPerCall": 192021,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 190596,
+        "maxBatchMeanNsPerCall": 190740,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 51112,
+        "maxBatchMeanNsPerCall": 51361,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "emoji",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1380,
+        "maxBatchMeanNsPerCall": 1518,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1394,
+        "maxBatchMeanNsPerCall": 1395,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 24545,
+        "maxBatchMeanNsPerCall": 25999,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 1200,
+        "maxBatchMeanNsPerCall": 1440,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 1136,
+        "maxBatchMeanNsPerCall": 1143,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "emoji",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 10904,
+        "maxBatchMeanNsPerCall": 10925,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 4125,
+        "maxBatchMeanNsPerCall": 4148,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 52598,
+        "maxBatchMeanNsPerCall": 54626,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 10164,
+        "maxBatchMeanNsPerCall": 10169,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 3856,
+        "maxBatchMeanNsPerCall": 3870,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "emoji",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 15589,
+        "maxBatchMeanNsPerCall": 15659,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 5338,
+        "maxBatchMeanNsPerCall": 5368,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 79684,
+        "maxBatchMeanNsPerCall": 79896,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 15402,
+        "maxBatchMeanNsPerCall": 15452,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 5059,
+        "maxBatchMeanNsPerCall": 5327,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "emoji",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 30990,
+        "maxBatchMeanNsPerCall": 31488,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 9437,
+        "maxBatchMeanNsPerCall": 9547,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 31860,
+        "maxBatchMeanNsPerCall": 32124,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 30963,
+        "maxBatchMeanNsPerCall": 47254,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 9304,
+        "maxBatchMeanNsPerCall": 9822,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 106783,
+        "maxBatchMeanNsPerCall": 107205,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 29535,
+        "maxBatchMeanNsPerCall": 32854,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 106410,
+        "maxBatchMeanNsPerCall": 107470,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 105036,
+        "maxBatchMeanNsPerCall": 105325,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 28138,
+        "maxBatchMeanNsPerCall": 28395,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1160,
+        "maxBatchMeanNsPerCall": 1283,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1157,
+        "maxBatchMeanNsPerCall": 1198,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 24508,
+        "maxBatchMeanNsPerCall": 26713,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 1000,
+        "maxBatchMeanNsPerCall": 1054,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 1517,
+        "maxBatchMeanNsPerCall": 1764,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 5258,
+        "maxBatchMeanNsPerCall": 5517,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 3474,
+        "maxBatchMeanNsPerCall": 3821,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 47889,
+        "maxBatchMeanNsPerCall": 56933,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 3668,
+        "maxBatchMeanNsPerCall": 3856,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 3538,
+        "maxBatchMeanNsPerCall": 3696,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 7332,
+        "maxBatchMeanNsPerCall": 7953,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 6936,
+        "maxBatchMeanNsPerCall": 7400,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 81271,
+        "maxBatchMeanNsPerCall": 94130,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 6806,
+        "maxBatchMeanNsPerCall": 8277,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 6186,
+        "maxBatchMeanNsPerCall": 6604,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 18669,
+        "maxBatchMeanNsPerCall": 19621,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 17324,
+        "maxBatchMeanNsPerCall": 17730,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 18541,
+        "maxBatchMeanNsPerCall": 19846,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 18666,
+        "maxBatchMeanNsPerCall": 19689,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 15308,
+        "maxBatchMeanNsPerCall": 15466,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 68269,
+        "maxBatchMeanNsPerCall": 69615,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 68366,
+        "maxBatchMeanNsPerCall": 69721,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 67209,
+        "maxBatchMeanNsPerCall": 70056,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 65845,
+        "maxBatchMeanNsPerCall": 67940,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 57791,
+        "maxBatchMeanNsPerCall": 57880,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1314,
+        "maxBatchMeanNsPerCall": 1519,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1303,
+        "maxBatchMeanNsPerCall": 1364,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 22438,
+        "maxBatchMeanNsPerCall": 22642,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 1159,
+        "maxBatchMeanNsPerCall": 1252,
+        "callsPerBatch": 8192
+      },
+      "directRust": {
+        "medianNsPerCall": 1561,
+        "maxBatchMeanNsPerCall": 1576,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 4089,
+        "maxBatchMeanNsPerCall": 5315,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 3949,
+        "maxBatchMeanNsPerCall": 4116,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 47383,
+        "maxBatchMeanNsPerCall": 49351,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 3835,
+        "maxBatchMeanNsPerCall": 3923,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 3128,
+        "maxBatchMeanNsPerCall": 3146,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 7694,
+        "maxBatchMeanNsPerCall": 7866,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 7515,
+        "maxBatchMeanNsPerCall": 7729,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 80458,
+        "maxBatchMeanNsPerCall": 82304,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 7244,
+        "maxBatchMeanNsPerCall": 7607,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 5354,
+        "maxBatchMeanNsPerCall": 5444,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 19109,
+        "maxBatchMeanNsPerCall": 21334,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 19767,
+        "maxBatchMeanNsPerCall": 19973,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 20309,
+        "maxBatchMeanNsPerCall": 21473,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 19426,
+        "maxBatchMeanNsPerCall": 19750,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 12592,
+        "maxBatchMeanNsPerCall": 12660,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 79552,
+        "maxBatchMeanNsPerCall": 84767,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 78212,
+        "maxBatchMeanNsPerCall": 79131,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 77929,
+        "maxBatchMeanNsPerCall": 78156,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 77306,
+        "maxBatchMeanNsPerCall": 77837,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 45425,
+        "maxBatchMeanNsPerCall": 45696,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "cjk",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3323,
+        "maxBatchMeanNsPerCall": 3459,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3304,
+        "maxBatchMeanNsPerCall": 3460,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 22524,
+        "maxBatchMeanNsPerCall": 22959,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 3142,
+        "maxBatchMeanNsPerCall": 3293,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 2149,
+        "maxBatchMeanNsPerCall": 2160,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "cjk",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 12295,
+        "maxBatchMeanNsPerCall": 13117,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 12305,
+        "maxBatchMeanNsPerCall": 13043,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 52523,
+        "maxBatchMeanNsPerCall": 52605,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 12122,
+        "maxBatchMeanNsPerCall": 12803,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 6548,
+        "maxBatchMeanNsPerCall": 6611,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "cjk",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 24532,
+        "maxBatchMeanNsPerCall": 25971,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 24551,
+        "maxBatchMeanNsPerCall": 25490,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 91028,
+        "maxBatchMeanNsPerCall": 91305,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 24247,
+        "maxBatchMeanNsPerCall": 25597,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 12439,
+        "maxBatchMeanNsPerCall": 12501,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "cjk",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 64722,
+        "maxBatchMeanNsPerCall": 68515,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 64947,
+        "maxBatchMeanNsPerCall": 67633,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66968,
+        "maxBatchMeanNsPerCall": 71039,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 64348,
+        "maxBatchMeanNsPerCall": 66909,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 32171,
+        "maxBatchMeanNsPerCall": 32272,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 263199,
+        "maxBatchMeanNsPerCall": 303572,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 259414,
+        "maxBatchMeanNsPerCall": 260583,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 260560,
+        "maxBatchMeanNsPerCall": 261914,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 259907,
+        "maxBatchMeanNsPerCall": 260816,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 125393,
+        "maxBatchMeanNsPerCall": 125986,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 1898,
+        "maxBatchMeanNsPerCall": 1984,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1895,
+        "maxBatchMeanNsPerCall": 2027,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 20607,
+        "maxBatchMeanNsPerCall": 22395,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 1734,
+        "maxBatchMeanNsPerCall": 1817,
+        "callsPerBatch": 4096
+      },
+      "directRust": {
+        "medianNsPerCall": 1511,
+        "maxBatchMeanNsPerCall": 1524,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 6681,
+        "maxBatchMeanNsPerCall": 7063,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 6655,
+        "maxBatchMeanNsPerCall": 7018,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 47515,
+        "maxBatchMeanNsPerCall": 49696,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 6471,
+        "maxBatchMeanNsPerCall": 6880,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 3646,
+        "maxBatchMeanNsPerCall": 3798,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 13133,
+        "maxBatchMeanNsPerCall": 13815,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 13156,
+        "maxBatchMeanNsPerCall": 13960,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 80184,
+        "maxBatchMeanNsPerCall": 82596,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 12975,
+        "maxBatchMeanNsPerCall": 13756,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 6825,
+        "maxBatchMeanNsPerCall": 6892,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 34423,
+        "maxBatchMeanNsPerCall": 35551,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 34338,
+        "maxBatchMeanNsPerCall": 35863,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 35011,
+        "maxBatchMeanNsPerCall": 36517,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 34079,
+        "maxBatchMeanNsPerCall": 35468,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 16409,
+        "maxBatchMeanNsPerCall": 17056,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 138718,
+        "maxBatchMeanNsPerCall": 139350,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 138449,
+        "maxBatchMeanNsPerCall": 139026,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 139720,
+        "maxBatchMeanNsPerCall": 139831,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 137808,
+        "maxBatchMeanNsPerCall": 139060,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 63139,
+        "maxBatchMeanNsPerCall": 63210,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3372,
+        "maxBatchMeanNsPerCall": 5064,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3056,
+        "maxBatchMeanNsPerCall": 3220,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 24831,
+        "maxBatchMeanNsPerCall": 30848,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 2705,
+        "maxBatchMeanNsPerCall": 2801,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1769,
+        "maxBatchMeanNsPerCall": 1781,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 11464,
+        "maxBatchMeanNsPerCall": 13181,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 5238,
+        "maxBatchMeanNsPerCall": 5296,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 57450,
+        "maxBatchMeanNsPerCall": 57760,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 10914,
+        "maxBatchMeanNsPerCall": 11325,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 4466,
+        "maxBatchMeanNsPerCall": 4487,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 21479,
+        "maxBatchMeanNsPerCall": 22441,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 9021,
+        "maxBatchMeanNsPerCall": 9105,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 101164,
+        "maxBatchMeanNsPerCall": 101818,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 21078,
+        "maxBatchMeanNsPerCall": 21660,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 8715,
+        "maxBatchMeanNsPerCall": 8725,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 54944,
+        "maxBatchMeanNsPerCall": 56545,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 21965,
+        "maxBatchMeanNsPerCall": 22795,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 56932,
+        "maxBatchMeanNsPerCall": 73603,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 55088,
+        "maxBatchMeanNsPerCall": 57894,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 21619,
+        "maxBatchMeanNsPerCall": 21663,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 219457,
+        "maxBatchMeanNsPerCall": 220841,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 88010,
+        "maxBatchMeanNsPerCall": 88203,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 220279,
+        "maxBatchMeanNsPerCall": 250081,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 207105,
+        "maxBatchMeanNsPerCall": 209941,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 91598,
+        "maxBatchMeanNsPerCall": 92084,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ansi",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3498,
+        "maxBatchMeanNsPerCall": 3589,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3230,
+        "maxBatchMeanNsPerCall": 3437,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 25204,
+        "maxBatchMeanNsPerCall": 25267,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 2902,
+        "maxBatchMeanNsPerCall": 3086,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1841,
+        "maxBatchMeanNsPerCall": 1848,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ansi",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 9542,
+        "maxBatchMeanNsPerCall": 10260,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 4653,
+        "maxBatchMeanNsPerCall": 4703,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 54203,
+        "maxBatchMeanNsPerCall": 55257,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 9202,
+        "maxBatchMeanNsPerCall": 9838,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 4139,
+        "maxBatchMeanNsPerCall": 4156,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ansi",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 17936,
+        "maxBatchMeanNsPerCall": 20006,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 7823,
+        "maxBatchMeanNsPerCall": 7837,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 93659,
+        "maxBatchMeanNsPerCall": 104510,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 18183,
+        "maxBatchMeanNsPerCall": 19065,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 7221,
+        "maxBatchMeanNsPerCall": 7232,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ansi",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 47899,
+        "maxBatchMeanNsPerCall": 50684,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 18413,
+        "maxBatchMeanNsPerCall": 18469,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 49308,
+        "maxBatchMeanNsPerCall": 53791,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 45138,
+        "maxBatchMeanNsPerCall": 50291,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 17267,
+        "maxBatchMeanNsPerCall": 17327,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 180404,
+        "maxBatchMeanNsPerCall": 182465,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 72258,
+        "maxBatchMeanNsPerCall": 72447,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 181158,
+        "maxBatchMeanNsPerCall": 187438,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 177702,
+        "maxBatchMeanNsPerCall": 190661,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 70150,
+        "maxBatchMeanNsPerCall": 70414,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "cjk",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 5697,
+        "maxBatchMeanNsPerCall": 7347,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5450,
+        "maxBatchMeanNsPerCall": 5482,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 26374,
+        "maxBatchMeanNsPerCall": 27593,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 5018,
+        "maxBatchMeanNsPerCall": 5250,
+        "callsPerBatch": 1024
+      },
+      "directRust": {
+        "medianNsPerCall": 2630,
+        "maxBatchMeanNsPerCall": 2635,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "cjk",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 18159,
+        "maxBatchMeanNsPerCall": 18930,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 8678,
+        "maxBatchMeanNsPerCall": 8720,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 62877,
+        "maxBatchMeanNsPerCall": 63061,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 17781,
+        "maxBatchMeanNsPerCall": 18600,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 8696,
+        "maxBatchMeanNsPerCall": 8715,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "cjk",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 36023,
+        "maxBatchMeanNsPerCall": 37396,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 16982,
+        "maxBatchMeanNsPerCall": 17026,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 122117,
+        "maxBatchMeanNsPerCall": 124093,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 35477,
+        "maxBatchMeanNsPerCall": 36287,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 16150,
+        "maxBatchMeanNsPerCall": 16294,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "cjk",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 93877,
+        "maxBatchMeanNsPerCall": 96770,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 42825,
+        "maxBatchMeanNsPerCall": 42866,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 99492,
+        "maxBatchMeanNsPerCall": 102069,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 93337,
+        "maxBatchMeanNsPerCall": 96781,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 42376,
+        "maxBatchMeanNsPerCall": 42685,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 385324,
+        "maxBatchMeanNsPerCall": 386665,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 171988,
+        "maxBatchMeanNsPerCall": 172979,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 401287,
+        "maxBatchMeanNsPerCall": 417836,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 380076,
+        "maxBatchMeanNsPerCall": 383388,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 166541,
+        "maxBatchMeanNsPerCall": 167307,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "emoji",
+      "length": 24,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 3219,
+        "maxBatchMeanNsPerCall": 3389,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3265,
+        "maxBatchMeanNsPerCall": 3436,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 21936,
+        "maxBatchMeanNsPerCall": 22087,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 3070,
+        "maxBatchMeanNsPerCall": 3203,
+        "callsPerBatch": 2048
+      },
+      "directRust": {
+        "medianNsPerCall": 1779,
+        "maxBatchMeanNsPerCall": 1851,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "emoji",
+      "length": 96,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 10605,
+        "maxBatchMeanNsPerCall": 13659,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 5196,
+        "maxBatchMeanNsPerCall": 5322,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 52739,
+        "maxBatchMeanNsPerCall": 52964,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 10423,
+        "maxBatchMeanNsPerCall": 11204,
+        "callsPerBatch": 512
+      },
+      "directRust": {
+        "medianNsPerCall": 4567,
+        "maxBatchMeanNsPerCall": 4583,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "emoji",
+      "length": 192,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 21232,
+        "maxBatchMeanNsPerCall": 21715,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 8630,
+        "maxBatchMeanNsPerCall": 8676,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 90164,
+        "maxBatchMeanNsPerCall": 90745,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 20600,
+        "maxBatchMeanNsPerCall": 20774,
+        "callsPerBatch": 256
+      },
+      "directRust": {
+        "medianNsPerCall": 8259,
+        "maxBatchMeanNsPerCall": 8529,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "emoji",
+      "length": 512,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 54987,
+        "maxBatchMeanNsPerCall": 56893,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 23050,
+        "maxBatchMeanNsPerCall": 23105,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 55256,
+        "maxBatchMeanNsPerCall": 57754,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 53289,
+        "maxBatchMeanNsPerCall": 56497,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 22661,
+        "maxBatchMeanNsPerCall": 22686,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "columns": 40,
+      "typescript": {
+        "medianNsPerCall": 221258,
+        "maxBatchMeanNsPerCall": 222846,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 84324,
+        "maxBatchMeanNsPerCall": 84480,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 225063,
+        "maxBatchMeanNsPerCall": 226950,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 225654,
+        "maxBatchMeanNsPerCall": 230553,
+        "callsPerBatch": 128
+      },
+      "directRust": {
+        "medianNsPerCall": 85603,
+        "maxBatchMeanNsPerCall": 85809,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ascii",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 1684,
+        "maxBatchMeanNsPerCall": 1732,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1426,
+        "maxBatchMeanNsPerCall": 1590,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66816,
+        "maxBatchMeanNsPerCall": 88066,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1123,
+        "maxBatchMeanNsPerCall": 1171,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ascii",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1720,
+        "maxBatchMeanNsPerCall": 1838,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1825,
+        "maxBatchMeanNsPerCall": 1888,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 85365,
+        "maxBatchMeanNsPerCall": 88666,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1553,
+        "maxBatchMeanNsPerCall": 1609,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ascii",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 2476,
+        "maxBatchMeanNsPerCall": 2742,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2477,
+        "maxBatchMeanNsPerCall": 2543,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 9164,
+        "maxBatchMeanNsPerCall": 10071,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 2241,
+        "maxBatchMeanNsPerCall": 2393,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ascii",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 4973,
+        "maxBatchMeanNsPerCall": 5417,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5032,
+        "maxBatchMeanNsPerCall": 5333,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 11768,
+        "maxBatchMeanNsPerCall": 12484,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 4832,
+        "maxBatchMeanNsPerCall": 5216,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ascii",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 21078,
+        "maxBatchMeanNsPerCall": 23250,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 21097,
+        "maxBatchMeanNsPerCall": 22710,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 25377,
+        "maxBatchMeanNsPerCall": 28957,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 17346,
+        "maxBatchMeanNsPerCall": 18081,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ansi",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 1639,
+        "maxBatchMeanNsPerCall": 1914,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1653,
+        "maxBatchMeanNsPerCall": 1825,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66188,
+        "maxBatchMeanNsPerCall": 66341,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1339,
+        "maxBatchMeanNsPerCall": 1387,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ansi",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 2713,
+        "maxBatchMeanNsPerCall": 3284,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2734,
+        "maxBatchMeanNsPerCall": 2947,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 86991,
+        "maxBatchMeanNsPerCall": 88534,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2507,
+        "maxBatchMeanNsPerCall": 2683,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ansi",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 4409,
+        "maxBatchMeanNsPerCall": 4442,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 4380,
+        "maxBatchMeanNsPerCall": 4524,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 10866,
+        "maxBatchMeanNsPerCall": 11562,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 4181,
+        "maxBatchMeanNsPerCall": 5923,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ansi",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 11472,
+        "maxBatchMeanNsPerCall": 11488,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 10356,
+        "maxBatchMeanNsPerCall": 10467,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 17216,
+        "maxBatchMeanNsPerCall": 18921,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 10201,
+        "maxBatchMeanNsPerCall": 10720,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "ansi",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 45212,
+        "maxBatchMeanNsPerCall": 53691,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 37609,
+        "maxBatchMeanNsPerCall": 40657,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 44058,
+        "maxBatchMeanNsPerCall": 48255,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 37226,
+        "maxBatchMeanNsPerCall": 38233,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "cjk",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 1233,
+        "maxBatchMeanNsPerCall": 2591,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 1432,
+        "maxBatchMeanNsPerCall": 1452,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 67900,
+        "maxBatchMeanNsPerCall": 81785,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1122,
+        "maxBatchMeanNsPerCall": 1140,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "cjk",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1735,
+        "maxBatchMeanNsPerCall": 1809,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1776,
+        "maxBatchMeanNsPerCall": 1869,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 86922,
+        "maxBatchMeanNsPerCall": 88870,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1609,
+        "maxBatchMeanNsPerCall": 1639,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "cjk",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 2603,
+        "maxBatchMeanNsPerCall": 2844,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2593,
+        "maxBatchMeanNsPerCall": 2670,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 9192,
+        "maxBatchMeanNsPerCall": 9501,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 2459,
+        "maxBatchMeanNsPerCall": 2550,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "cjk",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 5632,
+        "maxBatchMeanNsPerCall": 6119,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5448,
+        "maxBatchMeanNsPerCall": 5490,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 11878,
+        "maxBatchMeanNsPerCall": 12513,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 5253,
+        "maxBatchMeanNsPerCall": 5302,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "cjk",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 21845,
+        "maxBatchMeanNsPerCall": 21870,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 19209,
+        "maxBatchMeanNsPerCall": 19261,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 25556,
+        "maxBatchMeanNsPerCall": 25771,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 19117,
+        "maxBatchMeanNsPerCall": 20631,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "emoji",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 1379,
+        "maxBatchMeanNsPerCall": 1483,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 1389,
+        "maxBatchMeanNsPerCall": 1458,
+        "callsPerBatch": 8192
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66060,
+        "maxBatchMeanNsPerCall": 67141,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1131,
+        "maxBatchMeanNsPerCall": 1151,
+        "callsPerBatch": 8192
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "emoji",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 1830,
+        "maxBatchMeanNsPerCall": 1908,
+        "callsPerBatch": 4096
+      },
+      "auto": {
+        "medianNsPerCall": 2140,
+        "maxBatchMeanNsPerCall": 2690,
+        "callsPerBatch": 4096
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 100132,
+        "maxBatchMeanNsPerCall": 106259,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 1927,
+        "maxBatchMeanNsPerCall": 1991,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "emoji",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 2856,
+        "maxBatchMeanNsPerCall": 3180,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2765,
+        "maxBatchMeanNsPerCall": 2997,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 9015,
+        "maxBatchMeanNsPerCall": 9422,
+        "callsPerBatch": 1024
+      },
+      "reference": {
+        "medianNsPerCall": 2423,
+        "maxBatchMeanNsPerCall": 2452,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "emoji",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 5560,
+        "maxBatchMeanNsPerCall": 5609,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5579,
+        "maxBatchMeanNsPerCall": 5916,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 12340,
+        "maxBatchMeanNsPerCall": 13005,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 5388,
+        "maxBatchMeanNsPerCall": 5502,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "renderInline",
+      "kind": "emoji",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 19811,
+        "maxBatchMeanNsPerCall": 19873,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 19788,
+        "maxBatchMeanNsPerCall": 20195,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 26067,
+        "maxBatchMeanNsPerCall": 26353,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 19553,
+        "maxBatchMeanNsPerCall": 19672,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ascii",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 3076,
+        "maxBatchMeanNsPerCall": 3273,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2812,
+        "maxBatchMeanNsPerCall": 2921,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 67685,
+        "maxBatchMeanNsPerCall": 68788,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2385,
+        "maxBatchMeanNsPerCall": 2587,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ascii",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 4286,
+        "maxBatchMeanNsPerCall": 4396,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 4073,
+        "maxBatchMeanNsPerCall": 4239,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 87200,
+        "maxBatchMeanNsPerCall": 87538,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 3642,
+        "maxBatchMeanNsPerCall": 3796,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ascii",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 5832,
+        "maxBatchMeanNsPerCall": 6263,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5914,
+        "maxBatchMeanNsPerCall": 6163,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 13120,
+        "maxBatchMeanNsPerCall": 13986,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 5471,
+        "maxBatchMeanNsPerCall": 5833,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ascii",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 11497,
+        "maxBatchMeanNsPerCall": 12122,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 11309,
+        "maxBatchMeanNsPerCall": 12355,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 18888,
+        "maxBatchMeanNsPerCall": 18994,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 10854,
+        "maxBatchMeanNsPerCall": 10991,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ascii",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 37648,
+        "maxBatchMeanNsPerCall": 39760,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 38010,
+        "maxBatchMeanNsPerCall": 39374,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 46356,
+        "maxBatchMeanNsPerCall": 47078,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 37791,
+        "maxBatchMeanNsPerCall": 39028,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ansi",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 3090,
+        "maxBatchMeanNsPerCall": 3274,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3061,
+        "maxBatchMeanNsPerCall": 3448,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 69141,
+        "maxBatchMeanNsPerCall": 70515,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2827,
+        "maxBatchMeanNsPerCall": 2925,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ansi",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 4793,
+        "maxBatchMeanNsPerCall": 4963,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 4732,
+        "maxBatchMeanNsPerCall": 4901,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 88467,
+        "maxBatchMeanNsPerCall": 94151,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 4638,
+        "maxBatchMeanNsPerCall": 5007,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ansi",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 6697,
+        "maxBatchMeanNsPerCall": 7246,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 6685,
+        "maxBatchMeanNsPerCall": 7295,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 14453,
+        "maxBatchMeanNsPerCall": 15036,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 6278,
+        "maxBatchMeanNsPerCall": 6610,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ansi",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 13741,
+        "maxBatchMeanNsPerCall": 14136,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 13859,
+        "maxBatchMeanNsPerCall": 14395,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 20599,
+        "maxBatchMeanNsPerCall": 21035,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 13309,
+        "maxBatchMeanNsPerCall": 14022,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "ansi",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 46563,
+        "maxBatchMeanNsPerCall": 48488,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 45531,
+        "maxBatchMeanNsPerCall": 45831,
+        "callsPerBatch": 128
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 54353,
+        "maxBatchMeanNsPerCall": 56812,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 45680,
+        "maxBatchMeanNsPerCall": 48228,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "cjk",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 2416,
+        "maxBatchMeanNsPerCall": 2672,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2539,
+        "maxBatchMeanNsPerCall": 2595,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 69648,
+        "maxBatchMeanNsPerCall": 74679,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2315,
+        "maxBatchMeanNsPerCall": 2562,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "cjk",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 3597,
+        "maxBatchMeanNsPerCall": 3715,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3370,
+        "maxBatchMeanNsPerCall": 3869,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 88288,
+        "maxBatchMeanNsPerCall": 90355,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2860,
+        "maxBatchMeanNsPerCall": 3061,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "cjk",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 4305,
+        "maxBatchMeanNsPerCall": 4474,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 4288,
+        "maxBatchMeanNsPerCall": 4435,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 11529,
+        "maxBatchMeanNsPerCall": 12021,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 3983,
+        "maxBatchMeanNsPerCall": 4101,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "cjk",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 7869,
+        "maxBatchMeanNsPerCall": 7879,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 7797,
+        "maxBatchMeanNsPerCall": 7812,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 15185,
+        "maxBatchMeanNsPerCall": 15197,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 7462,
+        "maxBatchMeanNsPerCall": 7481,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "cjk",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 24759,
+        "maxBatchMeanNsPerCall": 26010,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 24860,
+        "maxBatchMeanNsPerCall": 24976,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 31950,
+        "maxBatchMeanNsPerCall": 32243,
+        "callsPerBatch": 256
+      },
+      "reference": {
+        "medianNsPerCall": 24412,
+        "maxBatchMeanNsPerCall": 24490,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "emoji",
+      "length": 24,
+      "typescript": {
+        "medianNsPerCall": 2860,
+        "maxBatchMeanNsPerCall": 2933,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 2800,
+        "maxBatchMeanNsPerCall": 2940,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 66784,
+        "maxBatchMeanNsPerCall": 66941,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 2325,
+        "maxBatchMeanNsPerCall": 2355,
+        "callsPerBatch": 4096
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "emoji",
+      "length": 96,
+      "typescript": {
+        "medianNsPerCall": 3788,
+        "maxBatchMeanNsPerCall": 3918,
+        "callsPerBatch": 2048
+      },
+      "auto": {
+        "medianNsPerCall": 3770,
+        "maxBatchMeanNsPerCall": 3958,
+        "callsPerBatch": 2048
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 88686,
+        "maxBatchMeanNsPerCall": 102756,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 3349,
+        "maxBatchMeanNsPerCall": 3433,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "emoji",
+      "length": 192,
+      "typescript": {
+        "medianNsPerCall": 5320,
+        "maxBatchMeanNsPerCall": 5550,
+        "callsPerBatch": 1024
+      },
+      "auto": {
+        "medianNsPerCall": 5192,
+        "maxBatchMeanNsPerCall": 5553,
+        "callsPerBatch": 1024
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 12728,
+        "maxBatchMeanNsPerCall": 13662,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 4801,
+        "maxBatchMeanNsPerCall": 4975,
+        "callsPerBatch": 2048
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "emoji",
+      "length": 512,
+      "typescript": {
+        "medianNsPerCall": 9854,
+        "maxBatchMeanNsPerCall": 10848,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 10007,
+        "maxBatchMeanNsPerCall": 10105,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 16958,
+        "maxBatchMeanNsPerCall": 17729,
+        "callsPerBatch": 512
+      },
+      "reference": {
+        "medianNsPerCall": 9341,
+        "maxBatchMeanNsPerCall": 9682,
+        "callsPerBatch": 1024
+      }
+    },
+    {
+      "op": "renderMarkdown",
+      "kind": "emoji",
+      "length": 2048,
+      "typescript": {
+        "medianNsPerCall": 32523,
+        "maxBatchMeanNsPerCall": 32905,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 32152,
+        "maxBatchMeanNsPerCall": 33697,
+        "callsPerBatch": 256
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 39585,
+        "maxBatchMeanNsPerCall": 40117,
+        "callsPerBatch": 128
+      },
+      "reference": {
+        "medianNsPerCall": 31556,
+        "maxBatchMeanNsPerCall": 31890,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 1,
+      "reference": {
+        "medianNsPerCall": 23374,
+        "maxBatchMeanNsPerCall": 23509,
+        "callsPerBatch": 256
+      },
+      "auto": {
+        "medianNsPerCall": 23322,
+        "maxBatchMeanNsPerCall": 25579,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 8,
+      "reference": {
+        "medianNsPerCall": 19660,
+        "maxBatchMeanNsPerCall": 20251,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 19364,
+        "maxBatchMeanNsPerCall": 20028,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 32,
+      "reference": {
+        "medianNsPerCall": 17375,
+        "maxBatchMeanNsPerCall": 18109,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 17458,
+        "maxBatchMeanNsPerCall": 18077,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 120,
+      "reference": {
+        "medianNsPerCall": 16519,
+        "maxBatchMeanNsPerCall": 17200,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 11158,
+        "maxBatchMeanNsPerCall": 11318,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 1,
+      "reference": {
+        "medianNsPerCall": 121692,
+        "maxBatchMeanNsPerCall": 128206,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 129160,
+        "maxBatchMeanNsPerCall": 141019,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 8,
+      "reference": {
+        "medianNsPerCall": 80312,
+        "maxBatchMeanNsPerCall": 84553,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 75665,
+        "maxBatchMeanNsPerCall": 77425,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 32,
+      "reference": {
+        "medianNsPerCall": 56493,
+        "maxBatchMeanNsPerCall": 59298,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 25221,
+        "maxBatchMeanNsPerCall": 25263,
+        "callsPerBatch": 256
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "narrow-width",
+      "length": 540,
+      "columns": 120,
+      "reference": {
+        "medianNsPerCall": 57390,
+        "maxBatchMeanNsPerCall": 58807,
+        "callsPerBatch": 128
+      },
+      "auto": {
+        "medianNsPerCall": 15440,
+        "maxBatchMeanNsPerCall": 15477,
+        "callsPerBatch": 512
+      }
+    },
+    {
+      "op": "stream.line",
+      "kind": "markdown",
+      "length": 104,
+      "reference": {
+        "medianNsPerCall": 11598,
+        "maxBatchMeanNsPerCall": 12229,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 10053,
+        "maxBatchMeanNsPerCall": 11102,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 128296,
+        "maxBatchMeanNsPerCall": 129935,
+        "callsPerBatch": 128
+      }
+    },
+    {
+      "op": "stream.partial",
+      "kind": "markdown",
+      "length": 104,
+      "reference": {
+        "medianNsPerCall": 9952,
+        "maxBatchMeanNsPerCall": 9964,
+        "callsPerBatch": 512
+      },
+      "auto": {
+        "medianNsPerCall": 10434,
+        "maxBatchMeanNsPerCall": 10834,
+        "callsPerBatch": 512
+      },
+      "baselineAuto": {
+        "medianNsPerCall": 108497,
+        "maxBatchMeanNsPerCall": 110331,
+        "callsPerBatch": 128
+      }
+    }
+  ]
+}

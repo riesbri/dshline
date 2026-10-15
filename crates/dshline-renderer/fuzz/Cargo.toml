@@ -1,0 +1,22 @@
+[package]
+name = "dshline-renderer-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+[package.metadata]
+cargo-fuzz = true
+[dependencies]
+libfuzzer-sys = "0.4"
+dshline-renderer = { path = ".." }
+[[bin]]
+name = "ansi_unicode"
+path = "fuzz_targets/ansi_unicode.rs"
+test = false
+doc = false
+bench = false
+[[bin]]
+name = "json_boundary"
+path = "fuzz_targets/json_boundary.rs"
+test = false
+doc = false
+bench = false

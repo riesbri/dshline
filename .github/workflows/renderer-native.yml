@@ -1,0 +1,79 @@
+name: renderer-native
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: native · ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64, arch: x64, runner: ubuntu-24.04 }
+          - { platform: linux-arm64, arch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: darwin-x64, arch: x64, runner: macos-15-intel }
+          - { platform: darwin-arm64, arch: arm64, runner: macos-15 }
+          - { platform: win32-x64, arch: x64, runner: windows-2025 }
+          - { platform: win32-arm64, arch: arm64, runner: windows-11-arm }
+    runs-on: ${{ matrix.runner }}
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.0
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          architecture: ${{ matrix.arch }}
+          package-manager-cache: false
+      # v6.1.0 always self-updates an embedded bootstrap. pnpm 11 has no
+      # standalone darwin-x64 binary; use its supported Node-backed npm package
+      # with a committed integrity lock instead of that failing self-update.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: matrix.platform != 'darwin-x64'
+        with:
+          version: 11.22.0
+      - name: bootstrap pnpm from the integrity-locked npm package (macOS x64)
+        if: matrix.platform == 'darwin-x64'
+        run: |
+          npm ci --prefix tools/pnpm-bootstrap --ignore-scripts --no-audit --no-fund
+          echo "$GITHUB_WORKSPACE/tools/pnpm-bootstrap/node_modules/.bin" >> "$GITHUB_PATH"
+          test "$(tools/pnpm-bootstrap/node_modules/.bin/pnpm --version)" = "11.22.0"
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run build
+      - name: install the pinned Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: require the pinned runner Rust toolchain
+        run: rustc --version && cargo --version
+      - name: verify requested native target
+        env:
+          EXPECTED_NATIVE_PLATFORM: ${{ matrix.platform }}
+        run: node -e "const actual=process.platform+'-'+process.arch;if(actual!==process.env.EXPECTED_NATIVE_PLATFORM)throw new Error('Expected '+process.env.EXPECTED_NATIVE_PLATFORM+', got '+actual)"
+      - name: validate shipped native license notices
+        run: node tools/check-renderer-native-licenses.mjs
+      - name: cargo tests
+        run: cargo test --locked --manifest-path crates/dshline-renderer/Cargo.toml && cargo test --locked --manifest-path crates/dshline-renderer-node/Cargo.toml
+      - name: build required native addon and generated declarations
+        shell: bash
+        run: node tools/build-renderer-native.mjs --required
+      - name: required actual-addon parity
+        shell: bash
+        env:
+          DSHLINE_REQUIRE_NATIVE: '1'
+        run: pnpm exec vitest run tools/renderer-native.spec.mjs
+      - name: upload exact-commit addon
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: renderer-native-${{ matrix.platform }}
+          path: |
+            packages/renderer/native/${{ matrix.platform }}.node
+            packages/renderer/native/${{ matrix.platform }}.provenance.json
+          if-no-files-found: error
+          overwrite: true

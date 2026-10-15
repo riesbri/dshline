@@ -1,0 +1,435 @@
+{
+  "version": 1,
+  "branch": "feat/rust-renderer",
+  "reviews": [
+    {
+      "phase": 1,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer",
+      "status": "REQUEST_CHANGES",
+      "baseCommit": "8b91e0efb088162fae3b919230378b66ed58d943",
+      "artifactTreeSha256": "b96d589f36ab4f6b76e547906b4a47fe32601765f1704903c878f81fb4373908",
+      "artifactIdentityMethod": "Sorted changed/untracked paths; SHA-256 of concatenated path + NUL + file SHA-256 + LF, before this review record existed.",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-capture.mjs:5,64; tools/renderer-spec.mjs:8-14",
+          "finding": "Captures do not identify the executed reference implementation or detect behavioral source/build drift.",
+          "required": "Record source and executed-build digests including width tables, enforce verifiable freshness, and regression-test drift detection."
+        },
+        {
+          "location": "tools/renderer-schema.mjs:3-6,35,38-61; tools/renderer-capture.mjs:64",
+          "finding": "Schema accepts oversized padding budgets and unbounded aggregate work; MAX_SAFE_INTEGER fitToWidth capture throws RangeError.",
+          "required": "Specify bounded tooling/native admission, aggregate work/output limits, error and TS fallback behavior; reject before renderer execution without altering public TS semantics."
+        }
+      ],
+      "verifiedChecks": [
+        "Focused Vitest 4/4 passed",
+        "API/schema snapshot passed",
+        "Two bilingual pairs consistent",
+        "Read-only oversized padding probe reproduced RangeError"
+      ],
+      "invariantsPassed": [
+        "No production renderer or plugin modifications",
+        "Zod is root development tooling only",
+        "No Cordis/DSH services or domain state crosses native boundary",
+        "Screen, terminal I/O, composer, keyboard and palette globals remain TypeScript",
+        "Markdown state/palette ABI explicit; partial calls preserve state",
+        "UTF-16 and project Unicode/ANSI/BCE semantics specified",
+        "Six sequential gates accurately documented"
+      ],
+      "nonblockingNotes": [
+        "API extraction should fail closed if entry-point export syntax changes.",
+        "Broad Unicode/ANSI/palette/emulator evidence belongs to Phase 2."
+      ]
+    },
+    {
+      "phase": 1,
+      "round": 2,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "REQUEST_CHANGES",
+      "artifactTreeSha256": "77c0d5ab6dda613e05c04355d2d3629d75b25a4093190c2f6d210e68b0fce10a",
+      "artifactIdentityMethod": "Sorted changed/untracked paths excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-capture.mjs:5-8",
+          "finding": "Preexisting fixed-URL ESM cache survives valid rebuild, so capture can label old execution with fresh disk identity.",
+          "required": "Execute uniquely isolated verified module graph and regression-test preloaded old cache plus valid rebuild."
+        },
+        {
+          "location": "tools/renderer-schema.mjs",
+          "finding": "codePointWidth numeric domain +/-9999 excludes CJK and emoji scalar values.",
+          "required": "Separate Unicode code-point domain from resource-sensitive dimensions and parameters."
+        }
+      ],
+      "verifiedChecks": [
+        "Focused Vitest 6/6 passed",
+        "API/schema snapshot passed",
+        "11 bilingual pairs consistent",
+        "Isolated stale ESM cache reproduction: old width1, fresh width2, new identity mislabeled"
+      ],
+      "invariantsPassed": [
+        "No production runtime modifications",
+        "Bounded admission before rendering with typed failures",
+        "Ordinary source/build drift detected"
+      ],
+      "nonblockingNotes": [
+        "Conservative admission intentionally rejects some cheap requests; small 80/120-column requests pass."
+      ]
+    },
+    {
+      "phase": 1,
+      "round": 3,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "APPROVE",
+      "artifactTreeSha256": "11426bcbe97c11ebd9ecb026bbebecdcb07025910803879036dc11b33b36dbc2",
+      "artifactIdentityMethod": "Sorted changed/untracked paths excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Focused Vitest 8/8 passed",
+        "API/schema snapshot passed",
+        "Edited bilingual pairs consistent and prose reviewed",
+        "Preloaded ESM cache plus valid rebuild regression passed",
+        "Unicode full-domain and aggregate admission passed"
+      ],
+      "invariantsPassed": [
+        "Exact verified module graph executes",
+        "No production renderer or plugin source edits",
+        "Zod development tooling only",
+        "Screen/I/O/composer/keyboard/orchestration remain TS",
+        "No domain state or services cross native boundary"
+      ],
+      "nonblockingNotes": [
+        "Verified temporary graph omits sourcemaps; benign Vitest warnings."
+      ]
+    },
+    {
+      "phase": 2,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "REQUEST_CHANGES",
+      "artifactTreeSha256": "a8fc5a25bd677328ded584dfc2727c094263f57141cb679e013236584c356d05",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since622150f excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-parity.mjs:41-44",
+          "finding": "Only case IDs bind checked-in fixtures to canonical corpus; input/palette/provenance changes under same ID silently remain unexercised.",
+          "required": "Full normalized request equality, duplicate/missing/stale rejection and same-ID input-drift regression."
+        }
+      ],
+      "verifiedChecks": [
+        "15/15 focused tests passed",
+        "86 reference goldens, native and host-adapter zero and PENDING",
+        "Missing required backend fails",
+        "Bilingual check passed",
+        "Bounded handle reader verified",
+        "Four observed controlled startup fixtures distinct from synthetic streaming"
+      ],
+      "invariantsPassed": [
+        "Independent direct-module TS oracle",
+        "Screen and markdown sequence orchestration remain TS",
+        "No Phase3 implementation"
+      ],
+      "nonblockingNotes": [
+        "Initial corpus is useful but not exhaustive Unicode/ANSI/markdown conformance."
+      ]
+    },
+    {
+      "phase": 2,
+      "round": 2,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "APPROVE",
+      "artifactTreeSha256": "6b502455976e389eb077d395facd9fea376969c0d798577e2bb17396df2d5063",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since622150f excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "17/17 focused tests passed",
+        "86 reference fixtures:82synthetic,4observed",
+        "Native and host-adapter zero; parity explicitly PENDING",
+        "11 bilingual pairs consistent",
+        "Canonical full-request equality and duplicate/missing/stale regressions verified"
+      ],
+      "invariantsPassed": [
+        "Independent verified TS oracle",
+        "Bounded handle reads",
+        "Lossless UTF-16 exact ANSI comparison",
+        "Screen/markdown sequence host state remains TS"
+      ],
+      "nonblockingNotes": [
+        "Initial corpus is not exhaustive conformance."
+      ]
+    },
+    {
+      "phase": 3,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "APPROVE",
+      "artifactTreeSha256": "1171dc0b0ac35c00b81dbb243a9db4efc99ea55d62498574281f0b71a9bca7a7",
+      "artifactIdentityMethod": "Sorted changed/untracked paths sincebc04a3e excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF (18paths).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "11/11 Rust tests and formatting passed",
+        "86/86 real Rust goldens:83pure,3TS-host",
+        "1000 additional independent adversarial requests matched TS",
+        "2 seeded fuzz targets each10000smoke runs no crashes; uninstrumented",
+        "123wide and371zero-width ranges match TS",
+        "Oversized aggregate palettes return RESOURCE_LIMIT",
+        "11 bilingual pairs consistent"
+      ],
+      "invariantsPassed": [
+        "Lossless UTF16 text/paletteIDs/rolekeys",
+        "Purecrate noNode/Cordis/terminalownership",
+        "Screen and markdownsequence orchestration stayTS",
+        "Strict bounded CLI and nonfallback errors",
+        "No bindings/productionselector yet"
+      ],
+      "nonblockingNotes": [
+        "Phase4 must guard native markdown host Unicode-property-version mismatch (tables17.0).",
+        "Fuzz smoke is not instrumented coverage/sanitizer evidence."
+      ]
+    },
+    {
+      "phase": 4,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE",
+      "artifactTreeSha256": "662b6a781058e9e8868f6d0b67b986df3730e548e18f6d20e70ac00570d631f8",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since90153c5 excluding review ledger; SHA-256 of path + NUL + file SHA-256 + LF (113 paths).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "32 focused native/parity/spec tests passed",
+        "86 actual addon goldens:83pure,3TS-host",
+        "90,000 seeded direct-addon soak comparisons passed",
+        "Independent22,500direct transform comparisons matched TS",
+        "Independent exhaustive1,114,112codepoint widths matched TS",
+        "Independent56palette/state and4coercion assertions passed",
+        "5malformed envelope regressions normalize typed BACKEND_FAILURE",
+        "230public/direct benchmark cases with exact source/build/addon identity",
+        "Build/typecheck/security passed;12bilingual pairs consistent",
+        "Full suite5560passed,26skipped;3pre-existing host-dependent launcher prerequisite failures; native picker timeouts eliminated without timeout changes"
+      ],
+      "invariantsPassed": [
+        "PureRust presentation only; noHarness/Cordis/state ownership moved",
+        "TSimplementation modules unchanged; UTF16 including trailingNUL/lone surrogates lossless",
+        "Native admission before copies; bounded panic-guarded direct operations",
+        "Hybridauto uses measured native subset, no post-admission retry",
+        "Caller host getters/sparse arrays/callbacks retain original TS evaluation",
+        "Streaming restores TS from explicit fence without full shadow rendering",
+        "Configargument plumbing only, noCordis apply/inject logic change"
+      ],
+      "nonblockingNotes": [
+        "Cross-platform packaging and CI remain Phase5; no rollout readiness claim.",
+        "Eight varying inputs applies to main transform benchmark corpus; narrow and streaming probes repeat one input.",
+        "Only local ARM64 performance measured; thresholds are not cross-platform guarantees."
+      ]
+    },
+    {
+      "phase": 5,
+      "round": 1,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "REQUEST_CHANGES",
+      "artifactTreeSha256": "1050eb5365f72ec4ae72fee6e0484fd2aa05a1e0aedf799713a54abd8036927f",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since97f2001 excluding review ledger; SHA256(path+NUL+fileSHA256+LF),121paths.",
+      "blockingFindings": [
+        {
+          "location": "packages/renderer/src/theme.ts nativePaletteSnapshot",
+          "finding": "Copying unused caller SGR arrays invokes accessors/custom iteration that original TS never reads.",
+          "required": "Descriptor-only bounded data preflight; preselect TS for host behavior before cloning."
+        },
+        {
+          "location": "packages/renderer/src/backend.ts plain/dense",
+          "finding": "Native eligibility triggers Proxy prototype/descriptor traps absent in original TS.",
+          "required": "Preselect host TS before inspecting Proxy objects or arrays."
+        }
+      ],
+      "verifiedChecks": [
+        "8pipeline/license tests",
+        "86fixture outputs/requests unchanged afterLF provenance refresh",
+        "CompiledforcedRust20frames/120lines passed except newly isolated host behavior",
+        "License38lockeddeps/exactr-efiMITalternative checked",
+        "Windows compiler JS-entry portability fix inspected",
+        "64MiB packedextraction +2MiB mutation regression inspected"
+      ],
+      "nonblockingNotes": [
+        "ActualsixplatformCI pending."
+      ]
+    },
+    {
+      "phase": 5,
+      "round": 2,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE",
+      "artifactTreeSha256": "77d848405b3a40796d26aeaa021bf36bfeca3fd3a2de755acf14a57d789d1dde",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since97f2001 excluding review ledger; SHA256(path+NUL+fileSHA256+LF),122paths.",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "42focused native/parity/spec/pipeline/license tests passed",
+        "Independentcompiled5themes4depths:20frames120streamlines and getter/iterator/Proxy/coercion probes passed",
+        "Independent8pipeline/license checks passed",
+        "Nativebuild Rust1.99.0+generateddeclarations and11pure semantic tests passed",
+        "86exact outputs unchanged;LFsource/compilerprovenance refreshed",
+        "Fullsuite5572passed,26skipped,3knownhostlauncher prerequisites failed only",
+        "Isolatedpackedconsumerboot/ready/workspacetitle/CtrlD passed;no modelturn oruserprofile",
+        "900000directaddon comparisons bindunchangedfa0b5d86binary",
+        "Build/typecheck/security/12bilingualpairs/diff pass"
+      ],
+      "invariantsPassed": [
+        "6native platformjobs requirepureRust andactualaddon parity;no missing-native skips",
+        "Read-only source/binary proof assembly and noOIDC untilexistingtarballpublisher",
+        "Complete/fresh manifest plus archivedpayloadhash validation;64MiB bound",
+        "No runtime npm dependencies orinstall-time compiler/downloader",
+        "OptionalRustmissing skip vsrequired failure;no usershell/profilechanges",
+        "Publichostfeatures preselectTS beforeadmission evenrequiredRust;rawnormalizederrors neverretry",
+        "Descriptor-safe palettes andProxyguards preserveunusedhostbehavior",
+        "38lockeddependency notices +Rust1.99stdcatalog freshness checked"
+      ],
+      "nonblockingNotes": [
+        "Code review approval permitspushforreal6platformCI, notallplatformreadiness.",
+        "Phase6finalreadiness waitsrequiredhostedjobs.",
+        "Exactversionr-efiMITlicenseexception doesnotrelaxgeneraldeny/advisorypolicy."
+      ]
+    },
+    {
+      "phase": 5,
+      "round": 3,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE",
+      "baseCommit": "f990d33",
+      "reviewedFiles": {
+        ".github/workflows/renderer-native.yml": "639bc7b617ad2387d4acae09a73d8cb2c9a366203035a014a92593cc051db154"
+      },
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Workflow lint and diff check pass",
+        "Exact diff pins pnpm bootstrap to existing packageManager11.22.0; preserves lock and integrity policy"
+      ],
+      "nonblockingNotes": [
+        "Real native jobs passed on5of6 platforms; macOSx64 failed in pnpm bootstrap before Rust. Corrected hosted rerun still required."
+      ]
+    },
+    {
+      "phase": 5,
+      "round": 4,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "APPROVE",
+      "baseCommit": "fc385f4",
+      "artifactTreeSha256": "8b35de6dd8287555284588d2a39a2e169ea2fc2514e6a775654c9410736a14ba",
+      "artifactIdentityMethod": "Sorted three reviewed paths; SHA256(path+NUL+fileSHA256+LF).",
+      "reviewedFiles": {
+        ".github/workflows/renderer-native.yml": "18ad5207e0245c561c2218364b599ebd190c497a7b90b68eb0ca82204b17dd73",
+        "tools/pnpm-bootstrap/package.json": "5bf45cd9e35dbf74383ffd8c93d61e913b97829d17eecaa4d07c1ef804c3863e",
+        "tools/pnpm-bootstrap/package-lock.json": "90bfc62b960c14ce80c790bece38c068011e6ce8a62a3bce91b179efb3f32990"
+      },
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Independent isolated npm ci executes Node-backed pnpm11.22.0 without standalone self-update",
+        "Deliberately corrupted integrity digest fails EINTEGRITY",
+        "42workflow/release/native-pipeline checks pass",
+        "Workflow lint/diff pass; frozen lock and trust policies unchanged"
+      ],
+      "nonblockingNotes": [
+        "Hosted six-target run and final readiness remain pending."
+      ]
+    },
+    {
+      "phase": 6,
+      "round": 1,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "REQUEST_CHANGES",
+      "baseCommit": "740e406",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-soak.mjs random budget sampling",
+          "finding": "Correlated low LCG bits select width1 for9999of10000cases; six listed budgets never exercised.",
+          "required": "Balanced deterministic budgets, explicit UTF16 boundary matrix, observed coverage counts and source/native/tool provenance."
+        }
+      ],
+      "verifiedChecks": [
+        "Generator-only replay reproduces missing budgets; no rendering/CPU benchmark rerun."
+      ]
+    },
+    {
+      "phase": 6,
+      "round": 2,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "REQUEST_CHANGES",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-soak-corpus.spec.mjs",
+          "finding": "Expected boundaries imported from implementation; removing2048 still passes both tests.",
+          "required": "Independently anchor required budgets/sizes and exact136matrix count; prove missing2048 mutation rejected."
+        }
+      ],
+      "verifiedChecks": [
+        "Budget-collapse deliberate mutation correctly fails.",
+        "Missing2048 deliberate mutation incorrectly survives before correction."
+      ]
+    },
+    {
+      "phase": 6,
+      "round": 3,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "APPROVE_TOOLING",
+      "artifactTreeSha256": "1722b365046145956d4cba83dafa1de6eb9ffcb20019823c13934d0a8a0dcfcf",
+      "artifactIdentityMethod": "Sorted three soak-tool paths; SHA256(path+NUL+fileSHA256+LF).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "2generator regressions pass.",
+        "Missing2048 mutation fails128vs136; budget-collapse mutation fails.",
+        "Strict native proof and before/after TS/native/tool identities inspected; WindowsfileURLToPath corrected."
+      ]
+    },
+    {
+      "phase": 6,
+      "round": 4,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_final_review",
+      "status": "APPROVE",
+      "baseCommit": "740e4061fe75c915db6cfe8c5db6ab535d00b718",
+      "artifactTreeSha256": "31c0f59229b9f1759e846f3d795fc27af7c5aa71af21cd2f9d9105017102dca6",
+      "artifactIdentityMethod": "Sorted12changed/untracked paths since740e406 excluding review ledger; SHA256(path+NUL+fileSHA256+LF).",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Independently queried exact-head hosted CI38818222630 all15jobs and security38818222674 success.",
+        "Core24/26 each5575pass26skip;22.19 5573pass28skip verified from hosted logs.",
+        "Six downloaded original proofs/binary digests and native-input digest verified; actual CImerge82d25b11 tree equals branch740e406.",
+        "Six-addon archive SHA256 and checker validated; native distribution--check passed.",
+        "Independent compiled20frames120streaminglines;1224boundary direct-addon comparisons passed.",
+        "230benchmark cases;2701224correctedsoak comparisons and37517cases per budget; identities/arithmetic verified.",
+        "Fresh table numbers and64main+3narrow selected-auto no-regression claims checked.",
+        "2generator tests,2bilingual pairs and diff pass; EN/ZH limitations accurate."
+      ],
+      "nonblockingNotes": [
+        "Latest-head CI required after committing final tooling/docs/evidence.",
+        "Approval is implementation/evidence readiness, not merge or release authorization.",
+        "Performance localLinuxARM64only; oldbaseline/historicalbiasedsoak not final breadth evidence."
+      ]
+    }
+  ],
+  "scopeDecisions": [
+    {
+      "phase": 4,
+      "reviewer": "Sol6.1independentreviewer/root/phase1_gate_recovery",
+      "status": "APPROVE_DATA_PLUMBING_ONLY",
+      "decision": "Pass config?.renderer through existing run argument, optional typed run parameter, and createWindow option; requested configuration plumbing is not a Cordis apply/inject logic change.",
+      "conditions": [
+        "Inject dependencies, registrations, callbacks, error handling, control flow and lifecycle ownership unchanged",
+        "Ordinary composition-time config, not volatile/newcapability",
+        "Backend loading outside apply/injectcallback",
+        "No Cordis internal config reads or context/global-state workaround"
+      ],
+      "phaseGateApproved": false
+    },
+    {
+      "phase": 5,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE_PUBLIC_HOST_PRESELECTION",
+      "decision": "Required rust means addon mandatory and every admitted pure operation native, not unsupported host callbacks/objects/out-of-bound public values. Select unchanged TS before normalized admission for those values and Unicode-incompatible markdown; never retry an admitted native failure. A committed TS streaming document remains TS. This restores ordinary required-Rust dshline startup and identical public semantics.",
+      "conditions": [
+        "Raw normalized protocol and addon bounds/rejection unchanged",
+        "Missing/unusable required addon remains failure",
+        "No Cordis lifecycle/capability/event code changes",
+        "No raw native errors masked by fallback"
+      ],
+      "phaseGateApproved": true
+    }
+  ]
+}

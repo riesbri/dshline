@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "provenance": {
+    "kind": "synthetic",
+    "description": "Deterministic hand-authored presentation request; actual TypeScript output captured, not a real Harness session."
+  },
+  "palette": {
+    "id": "missing",
+    "depth": 24,
+    "roles": {}
+  },
+  "cases": [
+    {
+      "id": "markdown-missing-roles",
+      "input": {
+        "op": "renderMarkdown",
+        "text": "# Hi\n`code`\n> quote"
+      },
+      "output": [
+        "Hi",
+        "code",
+        "▏ quote"
+      ]
+    }
+  ],
+  "reference": {
+    "identity": {
+      "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+      "source": "dfbfee38e42d9b7c463e57bb84dcbd46c29660bcbd696dcf2fdbb79b6efa9d9a",
+      "executedBuild": "f20b732ca8d1d4de0fe7f783ea0feecc9d3df1017c90c72652ef1cdd9ac18080",
+      "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+    },
+    "package": "@dshline/renderer",
+    "palette": {
+      "id": "missing",
+      "depth": 24
+    },
+    "transport": "JSON UTF-16 strings; Screen writes are JavaScript strings before host encoding"
+  }
+}

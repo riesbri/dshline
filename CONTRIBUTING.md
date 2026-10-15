@@ -81,6 +81,18 @@ pnpm typecheck
 pnpm security     # the dependency and workflow checks that CI runs
 ```
 
+The Rust renderer addon is optional for local TypeScript-only work. To build
+the current host addon, install Rust 1.99.0 separately and run
+`node tools/build-renderer-native.mjs`. If Cargo is absent this prints a clear skip
+and exits successfully; `node tools/build-renderer-native.mjs --required` instead
+fails, as CI does. The script never installs Rust or edits shell/profile files.
+Generated napi declarations are checked against the committed
+`packages/renderer/native/index.d.ts`. Release builds use six isolated hosted
+runners and require native parity; their exact-run artifacts are assembled and
+validated before packing. The published renderer package carries these files
+directly, without an npm runtime dependency. Cross-platform availability is
+claimed only after the corresponding required CI builds pass.
+
 All of these must pass. CI runs them on Node 22.19, 24, and 26, plus the
 Harness target lane (the adopted upstream revision in `HARNESS_TARGET`) and
 the Harness published consumer path, and every check is required before a

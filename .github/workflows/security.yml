@@ -72,6 +72,12 @@ jobs:
           # A licence this project cannot ship under is a defect in the same way
           # a vulnerability is, and it is far cheaper to catch before it lands.
           deny-licenses: AGPL-1.0-or-later, AGPL-3.0-or-later, GPL-2.0-or-later, GPL-3.0-or-later, LGPL-3.0-or-later, SSPL-1.0
+          # The fuzz-only UEFI dependency offers MIT OR Apache-2.0 OR LGPL.
+          # Select its MIT alternative; deny-list matching otherwise rejects the
+          # unused LGPL alternative too. Exact-version license exception only:
+          # advisories and every other dependency/version remain fully checked.
+          # Verified AUTHORS + crate checksum: r-efi/r-efi tag v6.0.0.
+          allow-dependencies-licenses: pkg:cargo/r-efi@6.0.0
           comment-summary-in-pr: on-failure
 
   secrets:

@@ -51,6 +51,14 @@ pnpm typecheck
 pnpm security     # the dependency and workflow checks that CI runs
 ```
 
+Rust renderer 插件对本地纯 TypeScript 开发是可选的。单独安装 Rust 1.99.0 后，运行
+`node tools/build-renderer-native.mjs` 构建当前主机插件；若没有 Cargo，脚本会清楚说明跳过并成功退出。
+CI 使用的 `node tools/build-renderer-native.mjs --required` 则会在缺少 Cargo 时失败。脚本不会安装 Rust，
+也不会修改 shell 或用户配置。生成的 napi 声明会与已提交的
+`packages/renderer/native/index.d.ts` 校验。发布构建在六个独立托管 runner 上运行并要求原生 parity；
+打包前会组装并验证本次运行生成的制品。发布的 renderer 包直接包含这些文件，不增加 npm 运行时依赖。
+只有相应必需 CI 构建通过后，才宣称支持该平台。
+
 以上全部必须通过。CI 在 Node 22.19、24 与 26 上运行它们，外加 Harness target 车道（`HARNESS_TARGET` 中已采纳的上游修订版）与 Harness published 消费方路径，合并前每一项检查都必需。
 
 ### 选择加入的真实 Codex 验收
