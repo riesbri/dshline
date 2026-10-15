@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "branch": "feat/rust-renderer",
+  "reviews": [
+    {
+      "phase": 1,
+      "round": 1,
+      "reviewer": "Sol 6.1 independent reviewer",
+      "status": "REQUEST_CHANGES",
+      "baseCommit": "8b91e0efb088162fae3b919230378b66ed58d943",
+      "artifactTreeSha256": "b96d589f36ab4f6b76e547906b4a47fe32601765f1704903c878f81fb4373908",
+      "artifactIdentityMethod": "Sorted changed/untracked paths; SHA-256 of concatenated path + NUL + file SHA-256 + LF, before this review record existed.",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-capture.mjs:5,64; tools/renderer-spec.mjs:8-14",
+          "finding": "Captures do not identify the executed reference implementation or detect behavioral source/build drift.",
+          "required": "Record source and executed-build digests including width tables, enforce verifiable freshness, and regression-test drift detection."
+        },
+        {
+          "location": "tools/renderer-schema.mjs:3-6,35,38-61; tools/renderer-capture.mjs:64",
+          "finding": "Schema accepts oversized padding budgets and unbounded aggregate work; MAX_SAFE_INTEGER fitToWidth capture throws RangeError.",
+          "required": "Specify bounded tooling/native admission, aggregate work/output limits, error and TS fallback behavior; reject before renderer execution without altering public TS semantics."
+        }
+      ],
+      "verifiedChecks": [
+        "Focused Vitest 4/4 passed",
+        "API/schema snapshot passed",
+        "Two bilingual pairs consistent",
+        "Read-only oversized padding probe reproduced RangeError"
+      ],
+      "invariantsPassed": [
+        "No production renderer or plugin modifications",
+        "Zod is root development tooling only",
+        "No Cordis/DSH services or domain state crosses native boundary",
+        "Screen, terminal I/O, composer, keyboard and palette globals remain TypeScript",
+        "Markdown state/palette ABI explicit; partial calls preserve state",
+        "UTF-16 and project Unicode/ANSI/BCE semantics specified",
+        "Six sequential gates accurately documented"
+      ],
+      "nonblockingNotes": [
+        "API extraction should fail closed if entry-point export syntax changes.",
+        "Broad Unicode/ANSI/palette/emulator evidence belongs to Phase 2."
+      ]
+    },
+    {
+      "phase": 1,
+      "round": 2,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "REQUEST_CHANGES",
+      "artifactTreeSha256": "77c0d5ab6dda613e05c04355d2d3629d75b25a4093190c2f6d210e68b0fce10a",
+      "artifactIdentityMethod": "Sorted changed/untracked paths excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [
+        {
+          "location": "tools/renderer-capture.mjs:5-8",
+          "finding": "Preexisting fixed-URL ESM cache survives valid rebuild, so capture can label old execution with fresh disk identity.",
+          "required": "Execute uniquely isolated verified module graph and regression-test preloaded old cache plus valid rebuild."
+        },
+        {
+          "location": "tools/renderer-schema.mjs",
+          "finding": "codePointWidth numeric domain +/-9999 excludes CJK and emoji scalar values.",
+          "required": "Separate Unicode code-point domain from resource-sensitive dimensions and parameters."
+        }
+      ],
+      "verifiedChecks": [
+        "Focused Vitest 6/6 passed",
+        "API/schema snapshot passed",
+        "11 bilingual pairs consistent",
+        "Isolated stale ESM cache reproduction: old width1, fresh width2, new identity mislabeled"
+      ],
+      "invariantsPassed": [
+        "No production runtime modifications",
+        "Bounded admission before rendering with typed failures",
+        "Ordinary source/build drift detected"
+      ],
+      "nonblockingNotes": [
+        "Conservative admission intentionally rejects some cheap requests; small 80/120-column requests pass."
+      ]
+    },
+    {
+      "phase": 1,
+      "round": 3,
+      "reviewer": "Sol 6.1 independent reviewer /root/phase1_gate_recovery",
+      "status": "APPROVE",
+      "artifactTreeSha256": "11426bcbe97c11ebd9ecb026bbebecdcb07025910803879036dc11b33b36dbc2",
+      "artifactIdentityMethod": "Sorted changed/untracked paths excluding review ledger; SHA-256 of concatenated path + NUL + file SHA-256 + LF.",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Focused Vitest 8/8 passed",
+        "API/schema snapshot passed",
+        "Edited bilingual pairs consistent and prose reviewed",
+        "Preloaded ESM cache plus valid rebuild regression passed",
+        "Unicode full-domain and aggregate admission passed"
+      ],
+      "invariantsPassed": [
+        "Exact verified module graph executes",
+        "No production renderer or plugin source edits",
+        "Zod development tooling only",
+        "Screen/I/O/composer/keyboard/orchestration remain TS",
+        "No domain state or services cross native boundary"
+      ],
+      "nonblockingNotes": [
+        "Verified temporary graph omits sourcemaps; benign Vitest warnings."
+      ]
+    }
+  ]
+}
