@@ -287,6 +287,24 @@
         "Phase6finalreadiness waitsrequiredhostedjobs.",
         "Exactversionr-efiMITlicenseexception doesnotrelaxgeneraldeny/advisorypolicy."
       ]
+    },
+    {
+      "phase": 5,
+      "round": 3,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE",
+      "baseCommit": "f990d33",
+      "reviewedFiles": {
+        ".github/workflows/renderer-native.yml": "639bc7b617ad2387d4acae09a73d8cb2c9a366203035a014a92593cc051db154"
+      },
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "Workflow lint and diff check pass",
+        "Exact diff pins pnpm bootstrap to existing packageManager11.22.0; preserves lock and integrity policy"
+      ],
+      "nonblockingNotes": [
+        "Real native jobs passed on5of6 platforms; macOSx64 failed in pnpm bootstrap before Rust. Corrected hosted rerun still required."
+      ]
     }
   ],
   "scopeDecisions": [
