@@ -51,9 +51,14 @@ permissions:
 # and this repository saw `pnpm/action-setup@v4` change commits between two
 # consecutive runs. `.github/workflows/security.yml` checks that this holds.
 jobs:
+  renderer-native:
+    name: required native renderer builds
+    uses: ./.github/workflows/renderer-native.yml
+
   core:
     name: Core · Node ${{ matrix.node }}
     runs-on: ubuntu-latest
+    needs: renderer-native
     strategy:
       fail-fast: false
       matrix:
@@ -110,12 +115,20 @@ jobs:
 
       - run: pnpm run build
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: renderer-native-*
+          path: packages/renderer/native
+          merge-multiple: true
+
       - run: pnpm run typecheck
 
       - run: pnpm run test
 
-      # Phase 2: no Rust implementation exists yet; never report native parity.
-      - run: pnpm run test:renderer-parity
+      - name: actual-addon parity (required)
+        env:
+          DSHLINE_REQUIRE_NATIVE: '1'
+        run: pnpm exec vitest run tools/renderer-native.spec.mjs
 
   windows-launcher:
     # Focused on purpose: the whole suite already runs on Linux, and what only

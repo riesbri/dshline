@@ -48,7 +48,7 @@ describe('renderer Phase 1 boundary', () => {
         const changed = source.replace('code < 0x7f) return 1', 'code < 0x7f) return 2')
         if (changed === source) throw new Error('behavioral mutation did not apply')
         writeFileSync(path, changed)
-        execFileSync('./node_modules/.bin/tsc', ['-p', './packages/renderer/tsconfig.json'])
+        execFileSync(process.execPath, ['./node_modules/typescript/bin/tsc', '-p', './packages/renderer/tsconfig.json'])
         const { capture, syntheticInput } = await import('./tools/renderer-capture.mjs')
         const result = capture({ ...syntheticInput, cases: [{ id: 'new-code', input: { op: 'codePointWidth', code: 65 } }] })
         process.stdout.write(JSON.stringify(result.cases[0].output))

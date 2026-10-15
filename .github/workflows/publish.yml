@@ -31,6 +31,11 @@ permissions:
   contents: read
 
 jobs:
+  renderer-native:
+    name: release native prebuilds
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/renderer-native.yml
+
   trusted-publisher:
     name: verify npm trusted publishers
     # OIDC is exposed only to the reviewed main workflow, never to a dispatch from
@@ -59,6 +64,7 @@ jobs:
     name: validate and pack release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    needs: renderer-native
 
     # This job intentionally has no OIDC permission. Build, tests, package
     # lifecycle hooks, and dependency audit all run before any npm identity exists.
@@ -85,6 +91,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: renderer-native-*
+          path: packages/renderer/native
+          merge-multiple: true
+
       # The tag is read from the environment, never interpolated into the command:
       # a tag name is attacker-controllable text and `${{ }}` inside a run block is
       # how it becomes shell.
@@ -100,8 +112,16 @@ jobs:
 
       - run: pnpm run build
       - run: pnpm run typecheck
+      - name: required actual-addon parity
+        env:
+          DSHLINE_REQUIRE_NATIVE: '1'
+        run: pnpm exec vitest run tools/renderer-native.spec.mjs
+
       - run: pnpm run test
       - run: pnpm run audit
+
+      - name: validate six exact-run prebuilds and source freshness
+        run: node tools/renderer-native-distribution.mjs --write && node tools/renderer-native-distribution.mjs --check && node tools/check-renderer-native-licenses.mjs
 
       # The OIDC job publishes these immutable tarballs with --ignore-scripts.
       # No package prepare/prepublish code runs after a publish identity exists.
@@ -112,6 +132,7 @@ jobs:
           mkdir -p "$ARTIFACT_ROOT"
           pnpm --dir packages/renderer pack --config.ignore-scripts=true --pack-destination "$ARTIFACT_ROOT"
           mv "$ARTIFACT_ROOT"/dshline-renderer-*.tgz "$ARTIFACT_ROOT/renderer.tgz"
+          node tools/check-renderer-native-package.mjs "$ARTIFACT_ROOT/renderer.tgz"
           pnpm --dir packages/dshline pack --config.ignore-scripts=true --pack-destination "$ARTIFACT_ROOT"
           mv "$ARTIFACT_ROOT"/dshline-dshline-*.tgz "$ARTIFACT_ROOT/dshline.tgz"
 

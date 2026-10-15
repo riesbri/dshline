@@ -88,9 +88,9 @@ describe('renderer Phase 4 selection and native boundary', () => {
       const m=await import('./lib/index.js')
       const prose=m.renderInline('**x**')
       m.setRendererBackend('rust')
-      let code;try{m.renderInline('**x**')}catch(e){code=e.code}
-      process.stdout.write(JSON.stringify({styled:prose.includes('\\u001b[1m'),code,calls}))
-    `, 'fixture')).toEqual({ styled: true, code: 'BACKEND_FAILURE', calls: 0 })
+      const forced=m.renderInline('**x**')
+      process.stdout.write(JSON.stringify({styled:prose.includes('\\u001b[1m'),same:forced===prose,calls}))
+    `, 'fixture')).toEqual({ styled: true, same: true, calls: 0 })
   })
   it.runIf(available)('matches every golden through the actual addon, including native-backed TS hosts', async () => {
     for (const fixture of await fixtures()) {
@@ -205,6 +205,19 @@ describe('renderer Phase 4 selection and native boundary', () => {
         expect(api.renderInline('**x**')).toBe('\u001b[31mx\u001b[0m')
       } finally { release() }
     } finally { restore() }
+  })
+  it.runIf(available)('runs shipped callback frames and full-theme streaming through actual compiled package resolution', () => {
+    const output = execFileSync(process.execPath, ['tools/renderer-forced-smoke.mjs'], { cwd: root, encoding: 'utf8', stdio: 'pipe' })
+    expect(JSON.parse(output)).toEqual({ palettes: 5, frames: 20, streamingLines: 120, compiledPackageResolution: true })
+  })
+  it('still propagates admitted JSON errors in required-Rust mode without a TS retry', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      Module._extensions['.node']=m=>{m.exports={execute:()=>JSON.stringify({ok:false,error:{code:'RESOURCE_LIMIT'}})}}
+      const m=await import('./lib/index.js');m.setRendererBackend('rust')
+      let code;try{m.sgr('x',[31])}catch(e){code=e.code}
+      process.stdout.write(JSON.stringify(code))
+    `, 'fixture')).toBe('RESOURCE_LIMIT')
   })
   it.runIf(available)('validates raw native input before allocation and rejects malformed payloads', () => {
     const addon = createRequire(import.meta.url)(addonPath)

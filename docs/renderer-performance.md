@@ -47,8 +47,8 @@ because it creates many JavaScript strings. Auto keeps those paths in TS.
 
 The checked-in [public-path measurement artifact](../benchmarks/renderer-arm64-2026-10-15.json)
 compares the original public auto backend, optimized public auto, explicit TS,
-direct Rust and the independent TS implementation. Eight varying inputs per
-case prevent a one-key cache from masquerading as a general improvement. Exact
+direct Rust and the independent TS implementation. Eight varying inputs per main transform corpus
+case (narrow-width and streaming probes repeat one input) prevent a one-key cache from masquerading as a general improvement. Exact
 outputs are asserted before timing. Missing native code is a hard error.
 The environment includes native and source digests; previous baseline snapshots
 must contain matching compiled `lib/` and `native/` files.
@@ -75,15 +75,18 @@ Public-path comparison (ASCII inputs; streaming uses styled bilingual prose):
 
 A short-circuit to TypeScript occurs before reading unsupported host objects or
 calling native code. Once admitted native work fails, it is not retried through
-an unbounded fallback. Broader native use needs new boundary measurements, not
+an unbounded fallback. Required-rust mode forces admitted pure work, not host-only
+callbacks or public values outside the bounded native subset; those select TS
+before admission. Broader native use needs new boundary measurements, not
 an assumption that a faster isolated kernel wins end to end. Screen, terminal
 writes, composer, keyboard and Harness integration stay TypeScript.
 
 ## Reproduce and verify
 
 Build the addon in release mode and compile TS before measuring. The migration
-notes describe the currently separate native artifact; optional contributor
-build/prebuild packaging remains Phase 5, not evidence from these measurements.
+notes describe the currently separate native artifact; the Phase 5 optional contributor
+build script is documented in CONTRIBUTING. These measurements alone do not
+establish cross-platform packaging readiness.
 Do not run CPU benchmarks alongside a full test suite.
 
 ```sh

@@ -19,7 +19,7 @@ Existing-solutions preflight considered maintained napi-rs bindings and unicode-
 
 ## Current status and gaps
 
-Phase 1 is independently approved after three review rounds; exact execution provenance, full Unicode code-point admission and aggregate resource limits are verified. Phase 2 is independently approved: 82 synthetic and 4 observed isolated-startup fixtures, an exact differential harness and a reference-only CI hook are now present. This is not an exhaustive or live-model production-session corpus. No private session/profile is accessed. Phase 3 is independently approved. Phase 4 bindings, selection and configuration are undergoing integration checks and review; native packaging/prebuild CI remain Phase 5. The spec records bounded-integer normalized admission and prohibits unchecked fallback of rejected work; direct public TS semantics remain unchanged; resolved palette snapshots and the pure markdown transition ABI are specified now; exhaustive edge cases and benchmarks remain later gated work. Native packaging must reconcile optional transport with the renderer's no-runtime-dependency rule before integration; phase 1 grants no exception.
+Phase 1 is independently approved after three review rounds; exact execution provenance, full Unicode code-point admission and aggregate resource limits are verified. Phase 2 is independently approved: 82 synthetic and 4 observed isolated-startup fixtures, an exact differential harness and a reference-only CI hook are now present. This is not an exhaustive or live-model production-session corpus. No private session/profile is accessed. Phase 3 is independently approved. Phase 4 bindings, selection, configuration and performance correction are independently approved at `97f2001`; native packaging/prebuild CI are now Phase 5 work. The spec records bounded-integer normalized admission and prohibits unchecked fallback of rejected work; direct public TS semantics remain unchanged; resolved palette snapshots and the pure markdown transition ABI are specified now; exhaustive edge cases and benchmarks remain later gated work. Native packaging must reconcile optional transport with the renderer's no-runtime-dependency rule before integration; phase 1 grants no exception.
 
 ## Reproducible checks
 
@@ -155,19 +155,26 @@ Native output errors never trigger an unbounded TypeScript retry.
 Missing/corrupt artifacts and public inputs outside auto admission use original
 TypeScript semantics before native execution. Sparse arrays, callbacks, getters,
 unknown option fields and caller-owned objects are not traversed by an alternate
-native path. `rust` requires an addon and explicitly rejects unsupported or
-out-of-budget inputs; it is a correctness/debugging choice, not a promise that
-every operation is faster. `typescript` never invokes native operations.
-Native markdown additionally requires host Unicode 17.0 to preserve flanking
-properties. Arbitrary border callbacks remain a TS-only public feature.
+native path. `rust` requires an addon and uses it for every admitted pure
+operation, irrespective of the auto performance thresholds. Public host-only
+features, inputs outside the bounded native subset and Unicode-incompatible
+markdown select unchanged TS before normalization/admission, even in rust mode.
+Raw normalized/native rejection remains strict and is never retried. This is
+necessary for ordinary dshline callback frames and full-theme streaming to work
+with the same public API. Rust is not a promise that every operation is faster.
+`typescript` never invokes native operations. Native markdown requires host
+Unicode 17.0 to preserve flanking properties; other hosts use the TS formatter.
+Arbitrary border callbacks remain a TS-only host feature.
 
 Streaming markdown keeps explicit native fence state in TypeScript and lazily
 constructs a reference renderer from that fence on fallback. It no longer fully
 renders every committed line twice. A committed TS fallback owns the remainder
-of that document; forcing Rust afterward fails rather than guessing its state.
+of that document even if selection later changes to rust; no state is guessed.
 Partial fallback does not commit state. Palette snapshots are created only for
 native markdown work. They are not cached: existing caller-owned SGR arrays may
-mutate, and original TS behavior observes those mutations.
+mutate, and original TS behavior observes those mutations. Descriptor-safe checks
+preselect TS for proxy/accessor/custom-iterator arrays before cloning: an unused
+role must not execute behavior that the original formatter never reads.
 
 The dshline composition-time `renderer` field accepts `auto`, `rust` or
 `typescript`. The reviewer approved only the existing argument/option plumbing
@@ -189,7 +196,7 @@ suite reports 5560 passed, 26 skipped and only the three previously observed
 launcher-prerequisite failures on this host (its `/usr/bin` contains pnpm).
 Native-induced picker timeouts are gone without changing test timeouts.
 Cross-platform prebuild packaging remains the next gated phase. Phase 4
-independent approval is pending.
+was independently approved at `97f2001`.
 
 ## Optimization experiments and reproduction
 
@@ -218,3 +225,43 @@ coverage-instrumented or sanitizer fuzzing claim. Independent review additionall
 checks every Unicode code-point width, malformed UTF-16 and palette/backend
 transitions. [Performance results](renderer-performance.md) distinguish raw
 kernel/FFI improvements from public-path measurements and record limitations.
+
+## Phase 5 optional build and distribution
+
+`node tools/build-renderer-native.mjs` is an opt-in contributor build; absent
+Cargo produces a clear successful skip. `--required` fails without the toolchain.
+Neither path installs Rust or edits a contributor's shell/profile. CI alone
+installs and selects Rust 1.99.0 on the six hosted OS/architecture targets.
+Generated napi declarations are compared in scratch before changing artifacts.
+The verified TS oracle invokes the actual compiler JS entry through Node, not
+platform-specific package-manager shell shims.
+
+Each required target must run the pure Rust semantic tests and actual-addon
+parity, not an auto fallback. Per-platform provenance binds the binary digest,
+commit and actual source inputs; release assembly rejects missing, stale or
+modified artifacts before writing the aggregate manifest and packing the npm
+renderer. Build/pack jobs remain read-only and have no publishing identity.
+The existing separate OIDC publisher still consumes only validated tarballs.
+The packed-payload checker verifies archived bytes against the native manifest,
+with bounded 64 MiB extraction and a 2 MiB synthetic regression fixture.
+The renderer ships optional binaries directly, with no npm runtime dependency
+or install-time downloader/compiler. License texts cover the locked native
+dependency graph and Rust standard library, with a freshness check.
+
+Windows source checkout and TypeScript emission use LF for reproducible source
+and build identities. Explicit compiler configuration changes provenance, not
+semantics: all 86 golden outputs are unchanged after re-recording identities.
+The fuzz-only `r-efi` 6.0.0 MIT license alternative has an exact-version license
+exception because the deny-list action also matches its unused LGPL option;
+advisory checks and the general deny list are unchanged.
+
+Implementation and local checks are not all-platform evidence. Phase 5 still
+requires independent review and successful required hosted jobs before final
+readiness can be claimed.
+
+The final public-mode acceptance runs compiled package resolution in a separate
+Node process (no Vitest source aliases): five shipped themes at four depths,
+20 normal callback frames and 120 streaming lines match TypeScript in required
+Rust mode. Public out-of-subset values preselect the host; admitted native
+failures still propagate. The larger seeded soak matched 900000 direct-addon
+transformations. These checks do not substitute for all-platform CI.

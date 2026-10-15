@@ -24,7 +24,7 @@ export function rendererIdentity(root = defaultRoot) {
   if (!verified.has(key)) {
     const scratch = mkdtempSync(join(tmpdir(), 'renderer-fresh-build-'))
     try {
-      execFileSync(resolve(defaultRoot, 'node_modules/.bin/tsc'), ['-p', join(root, 'packages/renderer/tsconfig.json'), '--outDir', scratch, '--tsBuildInfoFile', join(scratch, 'fresh.tsbuildinfo')], { encoding: 'utf8', stdio: 'pipe' })
+      execFileSync(process.execPath, [resolve(defaultRoot, 'node_modules/typescript/bin/tsc'), '-p', join(root, 'packages/renderer/tsconfig.json'), '--outDir', scratch, '--tsBuildInfoFile', join(scratch, 'fresh.tsbuildinfo')], { encoding: 'utf8', stdio: 'pipe' })
       const fresh = filesAt(scratch, /(?:\.js|\.d\.ts)$/u)
       if (digest(fresh) !== identity.executedBuild) throw new Error('Renderer build is stale or modified; run pnpm build before recording reference artifacts')
       verified.add(key)

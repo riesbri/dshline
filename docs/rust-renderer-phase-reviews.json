@@ -221,6 +221,72 @@
         "Eight varying inputs applies to main transform benchmark corpus; narrow and streaming probes repeat one input.",
         "Only local ARM64 performance measured; thresholds are not cross-platform guarantees."
       ]
+    },
+    {
+      "phase": 5,
+      "round": 1,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "REQUEST_CHANGES",
+      "artifactTreeSha256": "1050eb5365f72ec4ae72fee6e0484fd2aa05a1e0aedf799713a54abd8036927f",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since97f2001 excluding review ledger; SHA256(path+NUL+fileSHA256+LF),121paths.",
+      "blockingFindings": [
+        {
+          "location": "packages/renderer/src/theme.ts nativePaletteSnapshot",
+          "finding": "Copying unused caller SGR arrays invokes accessors/custom iteration that original TS never reads.",
+          "required": "Descriptor-only bounded data preflight; preselect TS for host behavior before cloning."
+        },
+        {
+          "location": "packages/renderer/src/backend.ts plain/dense",
+          "finding": "Native eligibility triggers Proxy prototype/descriptor traps absent in original TS.",
+          "required": "Preselect host TS before inspecting Proxy objects or arrays."
+        }
+      ],
+      "verifiedChecks": [
+        "8pipeline/license tests",
+        "86fixture outputs/requests unchanged afterLF provenance refresh",
+        "CompiledforcedRust20frames/120lines passed except newly isolated host behavior",
+        "License38lockeddeps/exactr-efiMITalternative checked",
+        "Windows compiler JS-entry portability fix inspected",
+        "64MiB packedextraction +2MiB mutation regression inspected"
+      ],
+      "nonblockingNotes": [
+        "ActualsixplatformCI pending."
+      ]
+    },
+    {
+      "phase": 5,
+      "round": 2,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE",
+      "artifactTreeSha256": "77d848405b3a40796d26aeaa021bf36bfeca3fd3a2de755acf14a57d789d1dde",
+      "artifactIdentityMethod": "Sorted changed/untracked paths since97f2001 excluding review ledger; SHA256(path+NUL+fileSHA256+LF),122paths.",
+      "blockingFindings": [],
+      "verifiedChecks": [
+        "42focused native/parity/spec/pipeline/license tests passed",
+        "Independentcompiled5themes4depths:20frames120streamlines and getter/iterator/Proxy/coercion probes passed",
+        "Independent8pipeline/license checks passed",
+        "Nativebuild Rust1.99.0+generateddeclarations and11pure semantic tests passed",
+        "86exact outputs unchanged;LFsource/compilerprovenance refreshed",
+        "Fullsuite5572passed,26skipped,3knownhostlauncher prerequisites failed only",
+        "Isolatedpackedconsumerboot/ready/workspacetitle/CtrlD passed;no modelturn oruserprofile",
+        "900000directaddon comparisons bindunchangedfa0b5d86binary",
+        "Build/typecheck/security/12bilingualpairs/diff pass"
+      ],
+      "invariantsPassed": [
+        "6native platformjobs requirepureRust andactualaddon parity;no missing-native skips",
+        "Read-only source/binary proof assembly and noOIDC untilexistingtarballpublisher",
+        "Complete/fresh manifest plus archivedpayloadhash validation;64MiB bound",
+        "No runtime npm dependencies orinstall-time compiler/downloader",
+        "OptionalRustmissing skip vsrequired failure;no usershell/profilechanges",
+        "Publichostfeatures preselectTS beforeadmission evenrequiredRust;rawnormalizederrors neverretry",
+        "Descriptor-safe palettes andProxyguards preserveunusedhostbehavior",
+        "38lockeddependency notices +Rust1.99stdcatalog freshness checked"
+      ],
+      "nonblockingNotes": [
+        "Code review approval permitspushforreal6platformCI, notallplatformreadiness.",
+        "Phase6finalreadiness waitsrequiredhostedjobs.",
+        "Exactversionr-efiMITlicenseexception doesnotrelaxgeneraldeny/advisorypolicy."
+      ]
     }
   ],
   "scopeDecisions": [
@@ -236,6 +302,19 @@
         "No Cordis internal config reads or context/global-state workaround"
       ],
       "phaseGateApproved": false
+    },
+    {
+      "phase": 5,
+      "reviewer": "Sol6.1 independent reviewer /root/rust_boundary_review",
+      "status": "APPROVE_PUBLIC_HOST_PRESELECTION",
+      "decision": "Required rust means addon mandatory and every admitted pure operation native, not unsupported host callbacks/objects/out-of-bound public values. Select unchanged TS before normalized admission for those values and Unicode-incompatible markdown; never retry an admitted native failure. A committed TS streaming document remains TS. This restores ordinary required-Rust dshline startup and identical public semantics.",
+      "conditions": [
+        "Raw normalized protocol and addon bounds/rejection unchanged",
+        "Missing/unusable required addon remains failure",
+        "No Cordis lifecycle/capability/event code changes",
+        "No raw native errors masked by fallback"
+      ],
+      "phaseGateApproved": true
     }
   ]
 }

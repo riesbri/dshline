@@ -1,12 +1,13 @@
 /** Optional native presentation dispatch; the original modules remain the oracle. */
 import { createRequire } from 'node:module'
+import { types } from 'node:util'
 import * as width from './width.ts'
 import * as boxes from './box.ts'
 import * as text from './text.ts'
 import * as markdown from './markdown.ts'
 import { nativePaletteSnapshot } from './theme.ts'
 
-/** Renderer selection. Auto admits bounded native work; TypeScript remains permanent. */
+/** Renderer selection. Rust forces admitted pure work; host-only features stay TS. */
 export type RendererBackend = 'auto' | 'rust' | 'typescript'
 type FastOperation = 'displayWidth' | 'stripAnsi' | 'escapeControls' | 'sanitizePasted' | 'truncateToWidth' | 'tailToWidth' | 'fitToWidth' | 'chunkToWidth' | 'wrapToWidth'
 type FastResult = number | string | string[]
@@ -61,12 +62,12 @@ function encode(value: unknown): unknown {
   return value
 }
 function plain(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return false
+  if (!value || typeof value !== 'object' || types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype) return false
   // Arbitrary host getters/callbacks retain their original TS evaluation order.
   return Object.values(Object.getOwnPropertyDescriptors(value)).every(d => 'value' in d)
 }
 function dense(value: unknown, predicate: (v: unknown) => boolean, limit = 64): boolean {
-  if (!Array.isArray(value) || value.length > limit) return false
+  if (types.isProxy(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > limit || Object.getOwnPropertySymbols(value).length !== 0 || Object.getOwnPropertyNames(value).some(key => key !== 'length' && !/^(0|[1-9][0-9]*)$/u.test(key))) return false
   for (let i = 0; i < value.length; i++) {
     const descriptor = Object.getOwnPropertyDescriptor(value, i)
     if (!descriptor || !('value' in descriptor) || !predicate(descriptor.value)) return false
@@ -86,7 +87,8 @@ function shape(op: string, input: Record<string, unknown>): boolean {
   if (op === 'sgr') return boundedString(input.text) && dense(input.params, boundedParam, 16)
   if (op === 'box' || op === 'frame') return dense(input.content, op === 'box' ? boundedString : content) && options(input.options, op === 'frame')
   if (op === 'boxHeight' || op === 'frameHeight') return dense(input.content, op === 'boxHeight' ? boundedString : content) && boundedColumns(input.width)
-  return ['renderInline', 'renderMarkdown', 'markdownTransition'].includes(op) && boundedString(input.text)
+  if (op === 'markdownTransition') return boundedString(input.text) && typeof input.startsLine === 'boolean'
+  return ['renderInline', 'renderMarkdown'].includes(op) && boundedString(input.text)
 }
 // Bound the complete normalized presentation data. Match the pure transport's
 // work estimate: palette metadata is aggregate input, not output expansion for
@@ -135,10 +137,10 @@ function invokeFast<T extends FastResult>(native: Addon, op: FastOperation, sour
 }
 function unary<T extends number | string>(op: FastOperation, reference: (source: string) => T): (source: string) => T {
   return source => {
-    if (selection === 'typescript' || selection === 'auto' && (!boundedString(source) || source.length < AUTO_MIN_UNITS[op])) return reference(source)
+    if (selection === 'typescript' || !boundedString(source) || selection === 'auto' && source.length < AUTO_MIN_UNITS[op]) return reference(source)
     const native = load()
-    if (!native || typeof native[op] !== 'function' || !boundedString(source)) {
-      if (selection === 'rust') throw failure(native && typeof native[op] === 'function' ? 'INVALID_INPUT' : 'BACKEND_FAILURE')
+    if (!native || typeof native[op] !== 'function') {
+      if (selection === 'rust') throw failure('BACKEND_FAILURE')
       return reference(source)
     }
     return invokeFast<T>(native, op, source)
@@ -146,13 +148,14 @@ function unary<T extends number | string>(op: FastOperation, reference: (source:
 }
 function cut<T extends string | string[]>(op: FastOperation, reference: (source: string, columns: number) => T): (source: string, columns: number) => T {
   return (source, columns) => {
+    if (selection === 'typescript' || !boundedString(source) || !boundedColumns(columns)) return reference(source, columns)
     // Crossing FFI once per output row loses on narrow wraps even when the Rust
-    // scan is faster. Keep tiny-column array results inside the JS host.
-    const narrowRows = typeof columns === 'number' && (op === 'chunkToWidth' && columns < 64 || op === 'wrapToWidth' && columns < 32)
-    if (selection === 'typescript' || selection === 'auto' && (narrowRows || !boundedString(source) || !boundedColumns(columns) || source.length < AUTO_MIN_UNITS[op])) return reference(source, columns)
+    // scan is faster. Rust forces admitted work; auto retains the cheap TS host.
+    const narrowRows = op === 'chunkToWidth' && columns < 64 || op === 'wrapToWidth' && columns < 32
+    if (selection === 'auto' && (narrowRows || source.length < AUTO_MIN_UNITS[op])) return reference(source, columns)
     const native = load()
-    if (!native || typeof native[op] !== 'function' || !boundedString(source) || !boundedColumns(columns)) {
-      if (selection === 'rust') throw failure(native && typeof native[op] === 'function' ? 'INVALID_INPUT' : 'BACKEND_FAILURE')
+    if (!native || typeof native[op] !== 'function') {
+      if (selection === 'rust') throw failure('BACKEND_FAILURE')
       return reference(source, columns)
     }
     return invokeFast<T>(native, op, source, columns)
@@ -179,15 +182,21 @@ function dispatch<T>(op: string, input: Record<string, unknown>, fallback: () =>
   if (selection !== 'rust') return fallback()
   const native = load()
   if (!native) throw failure('BACKEND_FAILURE')
-  if (!shape(op, input)) throw failure('INVALID_INPUT')
+  // Public host features are selected before normalized admission, not retried
+  // after a native rejection. This keeps forced Rust usable by callback frames.
+  if (!shape(op, input)) return fallback()
   const compatible = !['renderInline', 'renderMarkdown', 'markdownTransition'].includes(op) || process.versions.unicode === '17.0'
-  if (!compatible) throw failure('BACKEND_FAILURE')
-  if (['renderInline', 'renderMarkdown', 'markdownTransition'].includes(op)) input.palette = nativePaletteSnapshot()
+  if (!compatible) return fallback()
+  if (['renderInline', 'renderMarkdown', 'markdownTransition'].includes(op)) {
+    const palette = nativePaletteSnapshot()
+    if (!palette) return fallback()
+    input.palette = palette
+  }
   const request = { op, ...input }
-  if (!eligible(request)) throw failure('INVALID_INPUT')
+  if (!eligible(request)) return fallback()
   const wire = encode(request) as Record<string, unknown>
   if (input.palette) {
-    const palette = input.palette as ReturnType<typeof nativePaletteSnapshot>
+    const palette = input.palette as NonNullable<ReturnType<typeof nativePaletteSnapshot>>
     wire.palette = { id: units(palette.id), depth: palette.depth, roles: Object.entries(palette.roles).map(([key, params]) => [units(key), params]) }
   }
   try {
@@ -202,10 +211,9 @@ function dispatch<T>(op: string, input: Record<string, unknown>, fallback: () =>
 
 /** Backend-dispatched codePointWidth; preserves the reference signature. */
 export const codePointWidth: typeof width.codePointWidth = code => {
-  if (selection !== 'rust') return width.codePointWidth(code)
+  if (selection !== 'rust' || typeof code !== 'number' || !Number.isInteger(code) || code < 0 || code > 0x10ffff) return width.codePointWidth(code)
   const native = load()
   if (!native?.codePointWidth) throw failure('BACKEND_FAILURE')
-  if (typeof code !== 'number' || !Number.isInteger(code) || code < 0 || code > 0x10ffff) throw failure('INVALID_INPUT')
   let value: number
   try { value = native.codePointWidth(code) } catch (error) { throw nativeFailure(error) }
   if (!Number.isInteger(value) || value < 0 || value > 2) throw failure('BACKEND_FAILURE')
@@ -246,7 +254,7 @@ export const boxHeight: typeof boxes.boxHeight = (...args) => selection !== 'rus
 export const frame: typeof boxes.frame = (...args) => selection !== 'rust' ? boxes.frame(...args) : dispatch('frame', { content: args[0], options: args[1] }, () => boxes.frame(...args))
 
 /** Backend-dispatched frameHeight; preserves the reference signature. */
-export const frameHeight: typeof boxes.frameHeight = (...args) => selection !== 'rust' ? boxes.frameHeight(...args) : dispatch('frameHeight', { content: args[0], width: args[1].width }, () => boxes.frameHeight(...args))
+export const frameHeight: typeof boxes.frameHeight = (...args) => selection !== 'rust' || !plain(args[1]) ? boxes.frameHeight(...args) : dispatch('frameHeight', { content: args[0], width: args[1].width }, () => boxes.frameHeight(...args))
 
 /** Backend-dispatched escapeControls; preserves the reference signature. */
 export const escapeControls: typeof text.escapeControls = unary('escapeControls', text.escapeControls)
@@ -280,7 +288,6 @@ export function createMarkdownRenderer(): markdown.MarkdownRenderer {
   return {
     line(source) {
       if (referenceOnly) {
-        if (selection === 'rust') throw failure('INVALID_INPUT')
         return referenceForState().line(source)
       }
       let usedReference = false
@@ -295,7 +302,6 @@ export function createMarkdownRenderer(): markdown.MarkdownRenderer {
     },
     partial(source, startsLine = true) {
       if (referenceOnly) {
-        if (selection === 'rust') throw failure('INVALID_INPUT')
         return referenceForState().partial(source, startsLine)
       }
       const result = dispatch('markdownTransition', { text: source, state, mode: 'partial', startsLine }, () => ({ state, rows: [referenceForState().partial(source, startsLine)] }))
