@@ -106,9 +106,10 @@ try {
   const rows = []
   for (const op of ['displayWidth', 'tailToWidth', 'fitToWidth', 'wrapToWidth', 'chunkToWidth']) for (const [kind, seed] of Object.entries(seeds)) for (const length of [24, 96, 512, 2048]) rows.push({ op, kind, length, columns: 40, seed })
   for (const op of ['wrapToWidth', 'chunkToWidth']) for (const columns of [1, 8, 32, 120, 256]) rows.push({ op, kind: 'narrow', length: 512, columns, seed: seeds.ascii })
+  for (const op of ['displayWidth', 'fitToWidth']) for (const length of [64, 512, 2048]) rows.push({ op, kind: 'lateCjk', length, columns: 40, seed: seeds.ascii })
   for (const op of ['frame', 'screen']) for (const kind of ['ascii', 'cjk', 'ansi']) for (const length of [24, 192, 512, 2048]) rows.push({ op, kind, length, columns: 80, seed: seeds[kind] })
   for (const row of rows) {
-    const text = row.seed.repeat(Math.ceil(row.length / row.seed.length)).slice(0, row.length)
+    const text = row.kind === 'lateCjk' ? 'a'.repeat(row.length - 2) + '中x' : row.seed.repeat(Math.ceil(row.length / row.seed.length)).slice(0, row.length)
     row.corpus = Array.from({ length: 8 }, (_, i) => text.slice(0, -1) + String(i))
     row.timings = {}
     delete row.seed

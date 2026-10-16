@@ -28,6 +28,15 @@ oracle, and every Unicode code point is compared exhaustively. ANSI scanning,
 control precedence, lone surrogates and out-of-domain library behavior remain
 unchanged. Build and CI reject stale generated data.
 
+The first production-path run exposed a compiler-shape regression: a small
+lookup was automatically inlined into the display scanner, and plain ASCII
+width/fit slowed by 10–25% on Linux ARM64. Keeping `code_point_width` out of line
+restored baseline ASCII and late-CJK behavior in focused probes while retaining
+the large Unicode gain. A split-helper variant improved some token transforms
+but regressed fit, so it was not retained. Final repeated measurements must
+evaluate this control on each measured platform; original results stay labeled
+initial rather than being silently overwritten.
+
 ## Correctness and admission
 
 The existing auto thresholds, 2048-unit input ceiling and ±256-column budget
@@ -37,7 +46,8 @@ never calls the addon, including inside Screen/frame. Forced Rust still permits
 host callbacks, but their admitted scalar leaf work now reaches the same native
 selector rather than a separate host implementation.
 
-Verified reference snapshots explicitly select TS before loading host modules.
+Verified reference snapshots explicitly select TS before loading host modules,
+including the existing benchmark, soak and native-boundary test references.
 This avoids silently comparing native host paths against themselves. Declaration
 snapshots include transitive re-exported modules. All 86 golden inputs and outputs
 remain unchanged; only their source/build identities are refreshed.

@@ -8,12 +8,13 @@ import { describe, expect, it } from 'vitest'
 import * as api from '../packages/renderer/lib/index.js'
 import * as referenceWidth from '../packages/renderer/lib/width.js'
 import * as referenceText from '../packages/renderer/lib/text.js'
-import * as referenceBox from '../packages/renderer/lib/box.js'
-import { frame as referenceFrame } from '../packages/renderer/lib/box.js'
 import { createMarkdownRenderer as referenceMarkdown } from '../packages/renderer/lib/markdown.js'
 import { Config } from '../packages/dshline/lib/index.js'
 import { fixtures, inputOf } from './renderer-parity.mjs'
 import { runNapiHost } from './renderer-napi-host.mjs'
+import { loadVerifiedRenderer } from './renderer-identity.mjs'
+const { renderer: referenceBox } = await loadVerifiedRenderer(undefined, { referenceOnly: true })
+const referenceFrame = referenceBox.frame
 const root = fileURLToPath(new URL('../', import.meta.url))
 const addonName = `${process.platform}-${process.arch}.node`
 const addonPath = join(root, 'packages/renderer/native', addonName)

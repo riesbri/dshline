@@ -38,6 +38,9 @@ fn ranges(r: &[(u32, u32)], c: u32) -> bool {
     })
     .is_ok()
 }
+// Keep the compact lookup out of the ASCII scanner's hot loop. Automatic
+// inlining grew that loop and regressed plain ASCII despite faster Unicode.
+#[inline(never)]
 pub fn code_point_width(c: u32) -> i32 {
     if c < 32 || (127..160).contains(&c) {
         0
