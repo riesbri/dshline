@@ -88,6 +88,7 @@ async function open(backend) {
   sessions.push({ child, terminal, watchdog, exited })
   const readyInfo = await readyPromise
   ok(readyInfo.tty && readyInfo.unicode === readyInfo.compiledUnicode, 'worker must use a compatible real PTY')
+  deepStrictEqual(readyInfo.outputProcessing, 'disabled')
   return {
     ready: readyInfo,
     turn(kind, id) {
@@ -109,7 +110,10 @@ try {
     for (const name of names) sample.timings[name] = await variants[name].turn(kind, `${pass}/${kind}`)
     const { typescript: ts, admittedRust: native } = sample.timings
     for (const key of ['inputUnits', 'inputBytes', 'inputSha256', 'deltas', 'renderedBytes', 'renderedSha256', 'outputBytes', 'outputSha256', 'snapshotSha256', 'cursor']) {
-      try { deepStrictEqual(native[key], ts[key], `${kind}/${key}`) }
+      try {
+        if (key === 'outputBytes' || key === 'outputSha256') for (const value of [ts, native]) deepStrictEqual(value[key], value[key === 'outputBytes' ? 'renderedBytes' : 'renderedSha256'], 'PTY must preserve producing-write identity')
+        deepStrictEqual(native[key], ts[key], `${kind}/${key}`)
+      }
       catch (error) {
         const expected = Buffer.from(ts.transcript), actual = Buffer.from(native.transcript)
         let first = 0

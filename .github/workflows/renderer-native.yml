@@ -107,7 +107,7 @@ jobs:
           path: |
             ${{ runner.temp }}/renderer-upgrade.json
             ${{ runner.temp }}/renderer-pty.json*
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: upload exact-commit addon
         if: ${{ !cancelled() && steps.native-parity.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

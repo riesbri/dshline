@@ -24,8 +24,8 @@ function isolated(script) {
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 }
 describe('cycle-free native host leaves', () => {
-  it.runIf(available)('uses actual Rust only when runtime, TS policy and compiled lookup Unicode versions all match', () => {
-    for (const runtime of ['17.0', '16.0', undefined]) for (const compiled of ['actual', '16.0', 'missing']) {
+  for (const runtime of ['17.0', '16.0', undefined]) for (const compiled of ['actual', '16.0', 'missing']) {
+    it.runIf(available)(`uses actual Rust only when runtime, TS policy and compiled lookup Unicode versions all match (${runtime}/${compiled})`, () => {
       const result = isolated(`
         import Module, {createRequire} from 'node:module'
         import {deepStrictEqual} from 'node:assert'
@@ -45,8 +45,8 @@ describe('cycle-free native host leaves', () => {
       if (runtime === '17.0' && compiled === 'actual') {
         for (const op of ['displayWidth', 'tailToWidth', 'fitToWidth', 'wrapToWidth', 'chunkToWidth', 'codePointWidth', 'execute']) expect(result[op], op).toBeGreaterThan(0)
       } else expect(result, `${runtime}/${compiled}`).toEqual({})
-    }
-  })
+    })
+  }
   it('defaults to TS even with an available addon, and gates every recorded ASCII regression in auto', () => {
     const seeds = { ascii: 'The quick brown fox jumps over the lazy dog. ', ansi: '\x1b[32mHello styled world\x1b[0m ', narrow: 'The quick brown fox jumps over the lazy dog. ' }
     const cases = []

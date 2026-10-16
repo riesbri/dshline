@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import * as renderer from '../packages/renderer/lib/index.js'
 import { StreamBuffer } from '../packages/dshline/lib/stream.js'
 
@@ -15,9 +16,13 @@ for (const [op, method] of Object.entries(addon)) if (typeof method === 'functio
 }
 renderer.setRendererBackend(backend)
 process.stdin.setRawMode(true)
+// Screen already emits explicit CRLF. Darwin's output post-processing can add
+// chunk-dependent extra CR bytes; isolate the testbed without normalizing away
+// differences in either renderer's output. This changes only this private PTY.
+execFileSync('stty', ['-opost'], { stdio: ['inherit', 'pipe', 'pipe'] })
 const input = createInterface({ input: process.stdin })
 const marker = value => process.stdout.write('\x1b]777;DSHBENCH:' + Buffer.from(JSON.stringify(value)).toString('base64') + '\x07')
-marker({ type: 'ready', backend, tty: true, columns: process.stdout.columns, rows: process.stdout.rows, unicode: process.versions.unicode, compiledUnicode: addon.unicodeVersion() })
+marker({ type: 'ready', backend, tty: true, outputProcessing: 'disabled', columns: process.stdout.columns, rows: process.stdout.rows, unicode: process.versions.unicode, compiledUnicode: addon.unicodeVersion() })
 for await (const line of input) {
   const request = JSON.parse(line)
   if (request.command === 'quit') break
