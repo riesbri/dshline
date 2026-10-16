@@ -29,6 +29,7 @@ let addonUnicodeMatches = false
 // the optional addon's *compiled* release is checked separately when loaded.
 const runtimeUnicodeMatches = process.versions.unicode === WIDTH_UNICODE_VERSION
 const require = createRequire(import.meta.url)
+const NON_ASCII = /[^\x00-\x7f]/u
 
 /** Name a conservative TS guard for families with observed Mac regressions.
  * @param op - Requested leaf.
@@ -40,12 +41,17 @@ export function regressionGuard(op: FastOperation, source: string, columns = 0):
   // Do not replace the existing thresholds. These additional exclusions keep
   // the measured losing families on TS, including ANSI-encoded ASCII text.
   if (op === 'displayWidth') {
-    if (source.length <= 512 && /^[\x00-\x7f]*$/u.test(source)) return 'ascii-short-width'
-    if (/^[\x00-\x7f]*[^\x00-\x7f][\x00-\x7f]*$/u.test(source)) return 'ascii-dominant-width'
+    // A greedy whole-string dominance expression backtracks over long ASCII
+    // and costs more than the leaf itself. A first-non-ASCII search avoids that.
+    const first = source.search(NON_ASCII)
+    if (first < 0) return source.length <= 512 ? 'ascii-short-width' : undefined
+    const head = source.charCodeAt(first), next = source.charCodeAt(first + 1)
+    const units = head >= 0xd800 && head <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? 2 : 1
+    if (!NON_ASCII.test(source.slice(first + units))) return 'ascii-dominant-width'
   }
-  if (op === 'tailToWidth' && source.length >= 512 && /^[\x00-\x7f]*$/u.test(source)) return 'ascii-tail'
-  if (op === 'chunkToWidth' && /^[\x00-\x7f]*$/u.test(source)) return 'ascii-chunk'
-  if (op === 'wrapToWidth' && (source.length <= 512 || columns >= 256 || source.includes('\x1b')) && /^[\x00-\x7f]*$/u.test(source)) return 'ascii-wrap'
+  if (op === 'tailToWidth' && source.length >= 512 && !NON_ASCII.test(source)) return 'ascii-tail'
+  if (op === 'chunkToWidth' && !NON_ASCII.test(source)) return 'ascii-chunk'
+  if (op === 'wrapToWidth' && (source.length <= 512 || columns >= 256 || source.includes('\x1b')) && !NON_ASCII.test(source)) return 'ascii-wrap'
   return undefined
 }
 
