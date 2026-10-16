@@ -1,0 +1,25 @@
+{
+  "artifacts": {
+    "builds.json": "ea0913e8a66dac328897b28eb0e98736b870ccf8cad639ba71ffc9f79ac6dd4b",
+    "checks.json": "686cb6eea42b76330860b0afbdfa0ee34b5b3bf6deecb5da02f5e08b7e6ef34e",
+    "bench.json": "7cf4544bc4bdb0f655f1f5128827c9784444d27ec0f5da3b9af005e1ce2d29a1",
+    "host.json": "b799b7f9d97c2854880843eb67ebee68acb95e02134bcd0c6234df8b6867bb2b",
+    "mutations.json": "c557b77f836f54486fd3fad598eb4fb0076665d12bba4444fa52bcdb1ef2cc9d",
+    "phase1-bench.json": "acad4740c811073d99c4ac0af97adda82ff254cb0a5ae6bcfa913dc3b66a885c",
+    "phase1-host.json": "dfe13c52df3ae12c648283dcad4ac2e653cdc9446163adbef96f9b2188041fd7",
+    "phase1-checks.json": "2cf0c31ad6ff2564ad5b411e8d720a7157ed18680a3df2fb054e219de263cc81",
+    "summary.json": "f2c063b2c1e017670ce04e8dcf07f1a3ffc9eb382413e5def906174ee23b4997",
+    "rust-tests.json": "416a55028055cff99bba26e8e77ca0a44d29ad294ac960442172968a52161aef"
+  },
+  "tools": {
+    "prepare.mjs": "afc6437afc54d2e490a412b8ecbdfc4ee1a7d977d833d6dc3a1a137f0148bdd0",
+    "check.mjs": "814d44fd3184541c15f4bc69dad40d5db5bd862ca88a46445ef7097b5a479f0e",
+    "bench.mjs": "21168fb82cee96af04d38a70128859b26158b8aa99579d8671956a4d5bb92831",
+    "host.mjs": "fb4f4351abb29fc3eebeea008eaccd8c3ee6fbe0c46640111b7a79f9d4da1884",
+    "mutations.mjs": "580b7ea05892ebd9e1235af0a60c2ce1c3081cad5d965341a99147428c8b0c96",
+    "collect.mjs": "b8ffdec9aa0614e0dad4408d76575f2bdbb63dd443be4c27f8b47d034a203660",
+    "tail.rs": "528f837ed85d4cf3ca0e6651ded05aec7c1794ea3c44b785b1cd20e256d75f4e",
+    "wrap.rs": "ed196b5f99489998856aeb8d4593a2906e7a11e6a01d4b60ffad2854309a8314"
+  },
+  "note": "Final tool hashes describe the reproducible study source. phase1 artifacts precede the extra ASCII corpus and reduced-candidate follow-up; their build/tool evolution is documented, not represented as final-tool runs."
+}

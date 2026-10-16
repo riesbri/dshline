@@ -1,0 +1,507 @@
+{
+  "procedure": "Median of three pass medians, not pooled per-call latency; baseline is the already optimized Rust addon, not historical original JSON transport.",
+  "totals": {
+    "builds": 6,
+    "exhaustiveWidthComparisons": 6684672,
+    "exactTransformComparisons": 1675848,
+    "goldenReplays": 516,
+    "directWorkloads": 135,
+    "hostWorkloads": 18
+  },
+  "direct": [
+    {
+      "op": "displayWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 3153,
+        "lookup": 3206,
+        "candidate": 3946,
+        "typescript": 29121
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "lookup": 3434,
+        "candidate": 4051,
+        "typescript": 34167,
+        "baseline": 3593
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "candidate": 6778,
+        "typescript": 186716,
+        "baseline": 49082,
+        "lookup": 6779
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "typescript": 98799,
+        "baseline": 25620,
+        "lookup": 5270,
+        "candidate": 5282
+      }
+    },
+    {
+      "op": "displayWidth",
+      "kind": "hostile",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 14247,
+        "lookup": 6502,
+        "candidate": 7383,
+        "typescript": 84947
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "lookup": 15089,
+        "candidate": 15860,
+        "typescript": 69557,
+        "baseline": 16744
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "candidate": 13995,
+        "typescript": 72181,
+        "baseline": 14317,
+        "lookup": 13778
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "typescript": 232219,
+        "baseline": 61445,
+        "lookup": 17603,
+        "candidate": 17801
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 36247,
+        "lookup": 13616,
+        "candidate": 13904,
+        "typescript": 134595
+      }
+    },
+    {
+      "op": "tailToWidth",
+      "kind": "hostile",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "lookup": 17642,
+        "candidate": 18644,
+        "typescript": 120110,
+        "baseline": 26969
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "length": 192,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 8314,
+        "lookup": 8561,
+        "candidate": 4531,
+        "typescript": 19104
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "candidate": 46494,
+        "typescript": 205396,
+        "baseline": 89649,
+        "lookup": 90390
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "typescript": 177367,
+        "baseline": 64745,
+        "lookup": 68119,
+        "candidate": 69887
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 168027,
+        "lookup": 120693,
+        "candidate": 118860,
+        "typescript": 381093
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "lookup": 66257,
+        "candidate": 61840,
+        "typescript": 218286,
+        "baseline": 87779
+      }
+    },
+    {
+      "op": "wrapToWidth",
+      "kind": "hostile",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "candidate": 102995,
+        "typescript": 269887,
+        "baseline": 106964,
+        "lookup": 102757
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "typescript": 30412,
+        "baseline": 4373,
+        "lookup": 4501,
+        "candidate": 5241
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 5034,
+        "lookup": 4947,
+        "candidate": 5578,
+        "typescript": 37510
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "lookup": 7752,
+        "candidate": 7721,
+        "typescript": 190796,
+        "baseline": 51022
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "candidate": 6677,
+        "typescript": 105382,
+        "baseline": 28067,
+        "lookup": 6670
+      }
+    },
+    {
+      "op": "fitToWidth",
+      "kind": "hostile",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "typescript": 89738,
+        "baseline": 16210,
+        "lookup": 8198,
+        "candidate": 9162
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 57757,
+        "lookup": 58845,
+        "candidate": 57349,
+        "typescript": 67843
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "lookup": 46713,
+        "candidate": 45797,
+        "typescript": 75900,
+        "baseline": 45641
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "cjk",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "candidate": 82195,
+        "typescript": 258519,
+        "baseline": 125569,
+        "lookup": 83719
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "typescript": 137343,
+        "baseline": 63695,
+        "lookup": 43488,
+        "candidate": 43094
+      }
+    },
+    {
+      "op": "chunkToWidth",
+      "kind": "hostile",
+      "length": 2048,
+      "budget": 40,
+      "medianNs": {
+        "baseline": 61148,
+        "lookup": 57942,
+        "candidate": 55487,
+        "typescript": 144203
+      }
+    }
+  ],
+  "host": [
+    {
+      "workload": "callbackFrame",
+      "kind": "ascii",
+      "length": 192,
+      "medianNs": {
+        "original-auto": 24419,
+        "leaf-baseline": 11045,
+        "leaf-candidate": 7553
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "ascii",
+      "length": 192,
+      "medianNs": {
+        "leaf-baseline": 27460,
+        "leaf-candidate": 21134,
+        "original-auto": 48888
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "ascii",
+      "length": 512,
+      "medianNs": {
+        "leaf-candidate": 16787,
+        "original-auto": 55914,
+        "leaf-baseline": 24320
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "ascii",
+      "length": 512,
+      "medianNs": {
+        "original-auto": 105451,
+        "leaf-baseline": 44903,
+        "leaf-candidate": 31014
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "ascii",
+      "length": 2048,
+      "medianNs": {
+        "leaf-baseline": 88569,
+        "leaf-candidate": 63264,
+        "original-auto": 259656
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "ascii",
+      "length": 2048,
+      "medianNs": {
+        "leaf-candidate": 94971,
+        "original-auto": 470358,
+        "leaf-baseline": 156816
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "cjk",
+      "length": 192,
+      "medianNs": {
+        "original-auto": 57069,
+        "leaf-baseline": 33658,
+        "leaf-candidate": 28877
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "cjk",
+      "length": 192,
+      "medianNs": {
+        "leaf-baseline": 36481,
+        "leaf-candidate": 27029,
+        "original-auto": 81391
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "cjk",
+      "length": 512,
+      "medianNs": {
+        "leaf-candidate": 72630,
+        "original-auto": 144027,
+        "leaf-baseline": 84985
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "cjk",
+      "length": 512,
+      "medianNs": {
+        "original-auto": 204993,
+        "leaf-baseline": 84382,
+        "leaf-candidate": 59216
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "cjk",
+      "length": 2048,
+      "medianNs": {
+        "leaf-baseline": 336890,
+        "leaf-candidate": 285184,
+        "original-auto": 576912
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "cjk",
+      "length": 2048,
+      "medianNs": {
+        "leaf-candidate": 201200,
+        "original-auto": 758372,
+        "leaf-baseline": 301690
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "ansi",
+      "length": 192,
+      "medianNs": {
+        "original-auto": 24892,
+        "leaf-baseline": 8662,
+        "leaf-candidate": 8782
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "ansi",
+      "length": 192,
+      "medianNs": {
+        "leaf-baseline": 21569,
+        "leaf-candidate": 21972,
+        "original-auto": 45288
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "ansi",
+      "length": 512,
+      "medianNs": {
+        "leaf-candidate": 19489,
+        "original-auto": 59514,
+        "leaf-baseline": 19222
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "ansi",
+      "length": 512,
+      "medianNs": {
+        "original-auto": 104994,
+        "leaf-baseline": 37325,
+        "leaf-candidate": 37917
+      }
+    },
+    {
+      "workload": "callbackFrame",
+      "kind": "ansi",
+      "length": 2048,
+      "medianNs": {
+        "leaf-baseline": 69398,
+        "leaf-candidate": 75680,
+        "original-auto": 245110
+      }
+    },
+    {
+      "workload": "screen",
+      "kind": "ansi",
+      "length": 2048,
+      "medianNs": {
+        "leaf-candidate": 127327,
+        "original-auto": 390048,
+        "leaf-baseline": 125587
+      }
+    }
+  ]
+}
