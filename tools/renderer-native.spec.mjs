@@ -41,8 +41,8 @@ describe('renderer Phase 4 selection and native boundary', () => {
       for (const columns of [-256, -1, 0, 1, 8, 40, 120, 256]) expect(native.fitToWidth(source, columns)).toBe(referenceBox.fitToWidth(source, columns))
     }
   })
-  it('accepts explicit composition-time backend choices and defaults to auto', () => {
-    expect(Config({}).renderer).toBe('auto')
+  it('accepts explicit composition-time backend choices and defaults to TypeScript', () => {
+    expect(Config({}).renderer).toBe('typescript')
     for (const renderer of ['auto', 'rust', 'typescript']) expect(Config({ renderer }).renderer).toBe(renderer)
     expect(() => Config({ renderer: 'unknown' })).toThrow()
   })
@@ -53,7 +53,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
       let code; try { m.setRendererBackend('rust') } catch(e) { code = e.code }
       const restore = m.setRendererBackend('typescript'); restore(); restore()
       process.stdout.write(JSON.stringify({width,code,selection:m.rendererBackend()}))
-    `)).toEqual({ width: 4, code: 'BACKEND_FAILURE', selection: 'auto' })
+    `)).toEqual({ width: 4, code: 'BACKEND_FAILURE', selection: 'typescript' })
   })
   it('treats a corrupt optional artifact as unavailable without changing TS output', () => {
     expect(isolated(`const m=await import('./lib/index.js');process.stdout.write(JSON.stringify(m.displayWidth('😀')))`, 'not an addon')).toBe(2)
@@ -61,9 +61,9 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('does not retry native resource errors through TypeScript', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node'] = m => { m.exports={execute:()=>{throw Error('unexpected JSON')},displayWidth:()=>{throw Error('RESOURCE_LIMIT')}} }
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node'] = m => { m.exports={unicodeVersion:()=> '17.0',execute:()=>{throw Error('unexpected JSON')},displayWidth:()=>{throw Error('RESOURCE_LIMIT')}} }
       const m=await import('./lib/index.js')
-      let code;try{m.displayWidth('A'.repeat(96))}catch(e){code=e.code}
+      m.setRendererBackend('auto');let code;try{m.displayWidth('中'.repeat(96))}catch(e){code=e.code}
       m.setRendererBackend('typescript')
       process.stdout.write(JSON.stringify({code,width:m.displayWidth('A')}))
     `, 'fixture')).toEqual({ code: 'RESOURCE_LIMIT', width: 1 })
@@ -71,7 +71,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('preselects TS for an optional addon missing a direct method', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node']=m=>{m.exports={execute:()=>{throw Error('not called')}}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=>{throw Error('not called')}}}
       const m=await import('./lib/index.js');const width=m.displayWidth('x'.repeat(96))
       m.setRendererBackend('rust');let code;try{m.displayWidth('x'.repeat(96))}catch(e){code=e.code}
       process.stdout.write(JSON.stringify({width,code}))
@@ -80,7 +80,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('normalizes malformed native response envelopes to a typed failure', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node']=m=>{m.exports={execute:()=> 'null'}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=> 'null'}}
       const m=await import('./lib/index.js');m.setRendererBackend('rust')
       let code;try{m.sgr('x',[31])}catch(e){code=e.code}
       process.stdout.write(JSON.stringify(code))
@@ -90,7 +90,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
     expect(isolated(`
       import Module from 'node:module'
       let calls=0
-      Module._extensions['.node'] = m => { m.exports={execute:()=>{calls++;throw Error('must not execute')}} }
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node'] = m => { m.exports={unicodeVersion:()=> '17.0',execute:()=>{calls++;throw Error('must not execute')}} }
       Object.defineProperty(process.versions,'unicode',{value:'16.0'})
       const m=await import('./lib/index.js')
       const prose=m.renderInline('**x**')
@@ -185,9 +185,9 @@ describe('renderer Phase 4 selection and native boundary', () => {
     expect(isolated(`
       import Module from 'node:module'
       const calls=[]
-      Module._extensions['.node']=m=>{m.exports={execute:()=>{throw Error('JSON must stay out of auto')},displayWidth:s=>{calls.push('width');return s.length},wrapToWidth:s=>{calls.push('wrap');return [s]}}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=>{throw Error('JSON must stay out of auto')},displayWidth:s=>{calls.push('width');return s.length},wrapToWidth:s=>{calls.push('wrap');return [s]}}}
       const m=await import('./lib/index.js')
-      m.codePointWidth(65);m.displayWidth('x');m.displayWidth('x'.repeat(96));m.wrapToWidth('x'.repeat(96),120)
+      m.setRendererBackend('auto');m.codePointWidth(65);m.displayWidth('x');m.displayWidth('中'.repeat(96));m.wrapToWidth('中'.repeat(96),120)
       m.renderInline('**x**');m.escapeControls('x'.repeat(200));m.truncateToWidth('x'.repeat(200),10)
       process.stdout.write(JSON.stringify(calls))
     `, 'fixture')).toEqual(['width', 'wrap'])
@@ -220,7 +220,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('still propagates admitted JSON errors in required-Rust mode without a TS retry', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node']=m=>{m.exports={execute:()=>JSON.stringify({ok:false,error:{code:'RESOURCE_LIMIT'}})}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=>JSON.stringify({ok:false,error:{code:'RESOURCE_LIMIT'}})}}
       const m=await import('./lib/index.js');m.setRendererBackend('rust')
       let code;try{m.sgr('x',[31])}catch(e){code=e.code}
       process.stdout.write(JSON.stringify(code))

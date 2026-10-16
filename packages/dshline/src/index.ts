@@ -161,7 +161,7 @@ export const Config = z.object({
   // is — and the only thing this schema actually decides is which fields are
   // `.volatile()`, which is a question about when a value may change, not what
   // it may contain.
-  renderer: z.union<import('@dshline/renderer').RendererBackend>(['auto', 'rust', 'typescript']).default('auto'),
+  renderer: z.union<import('@dshline/renderer').RendererBackend>(['auto', 'rust', 'typescript']).default('typescript'),
   pricing: z.any(),
   peakHoursUtc: z.any(),
   theme: z.string().default(FALLBACK_THEME.id).volatile(),
@@ -231,7 +231,7 @@ async function run(
   settings: DshlineSettings,
   renderer?: import('@dshline/renderer').RendererBackend,
 ): Promise<void> {
-  const w = await createWindow(ctx, { pricing, peakHours, version: VERSION, settings, renderer: renderer ?? 'auto' })
+  const w = await createWindow(ctx, { pricing, peakHours, version: VERSION, settings, renderer: renderer ?? 'typescript' })
   // Before the first target, and before any session exists: a window whose
   // Harness registers no provider route cannot send a turn, so the useful
   // thing to open is the flow that fixes that rather than a composer that

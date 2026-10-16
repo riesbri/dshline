@@ -68,8 +68,8 @@
   "reference": {
     "identity": {
       "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
-      "source": "a7cf6fcc21941419088fcc80f788af57f46d00988d7e22b86cfd8675b608a46c",
-      "executedBuild": "920b789098081971e75919f0543eb2608fd4a3cafe19e58514d5c58cf4cfe02d",
+      "source": "868334ee8166dee77c3b03a15e963d9fad83178d8e86bc31405f4f74eafce086",
+      "executedBuild": "dea9da464bbc31105d7a90cee3569a952e839a152ff488ad7c54a17f8ee8b3d2",
       "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
     },
     "package": "@dshline/renderer",

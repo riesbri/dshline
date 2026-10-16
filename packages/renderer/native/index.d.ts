@@ -1,4 +1,6 @@
 // Generated from napi-rs type metadata; do not edit.
+/** Report the Unicode release compiled into the width lookup, not the build host. */
+export function unicodeVersion(): string;
 /** Execute one bounded UTF-16-code-unit JSON request and return a result envelope. */
 export function execute(request: string): string;
 /** Measure bounded lossless UTF-16 directly, without JSON or code-unit arrays in JavaScript. */

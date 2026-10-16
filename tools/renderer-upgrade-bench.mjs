@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as api from '../packages/renderer/lib/index.js'
 import { rendererIdentity, loadVerifiedRenderer } from './renderer-identity.mjs'
+import { regressionGuard } from '../packages/renderer/lib/native-primitives.js'
 import { rendererNativeInputsDigest } from './renderer-native-inputs.mjs'
 import { soakCases } from './renderer-soak-corpus.mjs'
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -16,7 +17,7 @@ const options = {}
 for (let i = 2; i < process.argv.length; i++) {
   const key = process.argv[i]
   if (key === '--tune-macos' && !options[key]) options[key] = true
-  else if (['--baseline-root', '--output'].includes(key) && process.argv[i + 1] && !options[key]) options[key] = resolve(process.argv[++i])
+  else if (['--baseline-root', '--previous-root', '--output'].includes(key) && process.argv[i + 1] && !options[key]) options[key] = resolve(process.argv[++i])
   else throw Error('usage: --baseline-root checkout [--output metrics.json] [--tune-macos]')
 }
 if (!options['--baseline-root']) throw Error('A separately built reviewed baseline checkout is required')
@@ -25,6 +26,10 @@ const git = (directory, ...args) => execFileSync('git', args, { cwd: directory, 
 if (git(baselineRoot, 'rev-parse', 'HEAD') !== '5e48b70ca6dc4de5462cda7d559581be7ec8c04d') throw Error('Unexpected renderer baseline')
 const baseline = await import(pathToFileURL(join(baselineRoot, 'packages/renderer/lib/index.js')).href)
 const baselineInputs = await import(pathToFileURL(join(baselineRoot, 'tools/renderer-native-inputs.mjs')).href)
+const previousRoot = options['--previous-root']
+const previous = previousRoot ? await import(pathToFileURL(join(previousRoot, 'packages/renderer/lib/index.js')).href) : undefined
+if (previousRoot && git(previousRoot, 'rev-parse', 'HEAD') !== 'af3459e2b17b537ac2d3e1942b5a6232f39e2c8f') throw Error('Unexpected pre-guard source')
+const previousIdentity = previousRoot ? rendererIdentity(previousRoot) : undefined
 const require = createRequire(import.meta.url)
 const hash = file => createHash('sha256').update(readFileSync(file)).digest('hex')
 const platform = `${process.platform}-${process.arch}`
@@ -35,6 +40,13 @@ const identity = rendererIdentity(), baselineIdentity = rendererIdentity(baselin
 const { renderer: reference } = await loadVerifiedRenderer(undefined, { referenceOnly: true })
 const proofAt = directory => JSON.parse(readFileSync(join(directory, `packages/renderer/native/${platform}.provenance.json`)))
 const currentProof = proofAt(root), baselineProof = proofAt(baselineRoot)
+const previousProof = previousRoot ? proofAt(previousRoot) : undefined
+const previousAddon = previousRoot ? require(binaryAt(previousRoot)) : undefined
+if (previousRoot) {
+  const previousInputs = await import(pathToFileURL(join(previousRoot, 'tools/renderer-native-inputs.mjs')).href)
+  deepStrictEqual(previousProof.inputDigest, await previousInputs.rendererNativeInputsDigest())
+  deepStrictEqual(previousProof.binarySha256, hash(binaryAt(previousRoot)))
+}
 deepStrictEqual(currentProof.inputDigest, inputs, 'Current addon is stale')
 deepStrictEqual(baselineProof.inputDigest, baseInputs, 'Baseline addon is stale')
 deepStrictEqual(currentProof.binarySha256, hash(binaryAt(root)))
@@ -119,6 +131,8 @@ try {
     const text = row.kind === 'lateCjk' ? 'a'.repeat(row.length - 2) + '中x' : row.seed.repeat(Math.ceil(row.length / row.seed.length)).slice(0, row.length)
     row.corpus = Array.from({ length: 8 }, (_, i) => text.slice(0, -1) + String(i))
     row.timings = {}
+    row.nativeCalls = {}
+    row.regressionGuard = regressionGuard(row.op, row.corpus[0], row.columns) ?? null
     delete row.seed
   }
   for (let pass = 0; pass < 3; pass++) {
@@ -126,7 +140,7 @@ try {
       const row = rows[index], isHost = ['frame', 'screen'].includes(row.op)
       const evaluate = (target, i) => isHost ? host(target, row.corpus[i % 8], row.op) : target[row.op](row.corpus[i % 8], row.columns)
       const expected = row.corpus.map((_, i) => evaluate(reference, i))
-      const variants = { baselineAuto: { target: baseline, mode: 'auto' }, auto: { target: api, mode: 'auto' }, typescript: { target: api, mode: 'typescript' }, ...(!isHost ? { baselineDirect: { target: baselineAddon }, direct: { target: currentAddon } } : {}), ...(tunedAddon ? { macosThinLto: { target: api, mode: 'auto', tuned: true } } : {}) }
+      const variants = { baselineAuto: { target: baseline, mode: 'auto' }, auto: { target: api, mode: 'auto' }, typescript: { target: api, mode: 'typescript' }, ...(previous ? { previousAuto: { target: previous, mode: 'auto' } } : {}), ...(!isHost ? { baselineDirect: { target: baselineAddon }, direct: { target: currentAddon } } : {}), ...(tunedAddon ? { macosThinLto: { target: api, mode: 'auto', tuned: true } } : {}) }
       const names = Object.keys(variants), offset = (pass + index) % names.length
       for (const name of [...names.slice(offset), ...names.slice(0, offset)]) {
         const variant = variants[name]
@@ -134,19 +148,26 @@ try {
         if (variant.tuned) Object.assign(currentAddon, tunedAddon)
         try {
           for (let i = 0; i < 8; i++) deepStrictEqual(evaluate(variant.target, i), expected[i], `${name}/${row.op}/${row.kind}/${row.length}`)
+          if (pass === 0 && variant.mode) {
+            const addon = variant.target === baseline ? baselineAddon : variant.target === previous ? previousAddon : currentAddon
+            const saved = {}, calls = {}
+            for (const [op, method] of Object.entries(addon)) if (typeof method === 'function') { saved[op] = method; addon[op] = (...args) => { calls[op] = (calls[op] ?? 0) + 1; return method(...args) } }
+            try { evaluate(variant.target, 0); row.nativeCalls[name] = calls } finally { Object.assign(addon, saved) }
+          }
           ;(row.timings[name] ??= []).push(measure(i => evaluate(variant.target, i)))
         } finally { Object.assign(currentAddon, originals); restore() }
       }
     }
     console.error(`Renderer upgrade benchmark: pass ${pass + 1}/3, ${rows.length} workloads`)
   }
+  if (previousRoot) { deepStrictEqual(rendererIdentity(previousRoot), previousIdentity); deepStrictEqual(hash(binaryAt(previousRoot)), previousProof.binarySha256) }
   deepStrictEqual(rendererIdentity(), identity)
   deepStrictEqual(rendererIdentity(baselineRoot), baselineIdentity)
   deepStrictEqual(await rendererNativeInputsDigest(), inputs)
   deepStrictEqual(await baselineInputs.rendererNativeInputsDigest(), baseInputs)
   deepStrictEqual(hash(binaryAt(root)), currentProof.binarySha256)
   deepStrictEqual(hash(binaryAt(baselineRoot)), baselineProof.binarySha256)
-  const output = { environment: { node: process.version, unicode: process.versions.unicode, platform, cpu: cpus()[0]?.model, rustc: execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).trim() }, commit: git(root, 'rev-parse', 'HEAD'), baselineCommit: git(baselineRoot, 'rev-parse', 'HEAD'), identity, baselineIdentity, currentProof, baselineProof, toolSha256: hash(fileURLToPath(import.meta.url)), releaseCodePointComparisons: { current: 1114112, baseline: 1114112 }, tuning, reachability, procedure: 'Actual guarded public/native paths; eight varying inputs; 500 warmups; calibrated >=5ms batches; five batch means per pass, three rotated passes. Exact outputs before timing. Synthetic in-memory hosts, not PTY/session/end-to-end or per-call tail claims. No concurrent builds/tests.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
+  const output = { environment: { node: process.version, unicode: process.versions.unicode, platform, cpu: cpus()[0]?.model, rustc: execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).trim() }, commit: git(root, 'rev-parse', 'HEAD'), baselineCommit: git(baselineRoot, 'rev-parse', 'HEAD'), identity, baselineIdentity, previousIdentity, previousProof, currentProof, baselineProof, toolSha256: hash(fileURLToPath(import.meta.url)), releaseCodePointComparisons: { current: 1114112, baseline: 1114112 }, tuning, reachability, procedure: 'Actual guarded public/native paths; eight varying inputs; 500 warmups; calibrated >=5ms batches; five batch means per pass, three rotated passes. Exact outputs before timing. Synthetic in-memory hosts, not PTY/session/end-to-end or per-call tail claims. No concurrent builds/tests.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
   const bytes = JSON.stringify(output, null, 2) + '\n'
   if (options['--output']) writeFileSync(options['--output'], bytes)
   else process.stdout.write(bytes)

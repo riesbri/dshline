@@ -13,6 +13,8 @@
 //! including malformed escapes and non-scalar UTF-16 values.
 mod tables;
 mod lookup;
+/// Unicode release of the generated lookup used by every native width scanner.
+pub const UNICODE_VERSION: &str = lookup::UNICODE_VERSION;
 pub type Text = Vec<u16>;
 pub fn text(s: &str) -> Text {
     s.encode_utf16().collect()

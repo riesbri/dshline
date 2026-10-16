@@ -12,5 +12,6 @@ describe('derived Rust Unicode lookup', () => {
     const source = readFileSync(new URL('../packages/renderer/src/width-tables.ts', import.meta.url), 'utf8')
     expect(() => generateLookup(source.replace('[0x1100, 0x115f]', '[0x110000, 0x110001]'))).toThrow('Invalid policy table')
     expect(() => generateLookup(source.replace('[0x231a, 0x231b]', '[0x1100, 0x115f]'))).toThrow('Invalid policy table')
+    expect(() => generateLookup(source.replace("WIDTH_UNICODE_VERSION = '17.0'", "WIDTH_UNICODE_VERSION = '16.0'"))).toThrow('inconsistent Unicode policy version')
   })
 })

@@ -14,6 +14,9 @@
  */
 
 /** Inclusive code-point ranges a terminal advances two cells for (East_Asian_Width W or F). */
+/** Unicode major.minor shared by native admission and these generated tables. */
+export const WIDTH_UNICODE_VERSION = '17.0'
+
 export const WIDE_RANGES: readonly (readonly [number, number])[] = [
   [0x1100, 0x115f],
   [0x231a, 0x231b],

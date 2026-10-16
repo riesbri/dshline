@@ -5,7 +5,7 @@ import * as boxes from './box.ts'
 import * as text from './text.ts'
 import * as markdown from './markdown.ts'
 import { nativePaletteSnapshot } from './theme.ts'
-import { selection, load, failure, boundedString, boundedColumns, MAX_TEXT_UNITS, MAX_COLUMNS, unary, cut } from './native-primitives.ts'
+import { selection, load, failure, boundedString, boundedColumns, MAX_TEXT_UNITS, MAX_COLUMNS, unary, cut, unicodeCompatible } from './native-primitives.ts'
 export { setRendererBackend, rendererBackend, codePointWidth, displayWidth, stripAnsi, truncateToWidth, tailToWidth, chunkToWidth, wrapToWidth } from './native-primitives.ts'
 export type { RendererBackend } from './native-primitives.ts'
 
@@ -92,14 +92,12 @@ function decode(value: unknown, op: string): unknown {
   return ['chunkToWidth', 'wrapToWidth', 'hangingIndent', 'box', 'frame', 'renderMarkdown'].includes(op) ? (value as unknown[]).map(string) : string(value)
 }
 function dispatch<T>(op: string, input: Record<string, unknown>, fallback: () => T): T {
-  if (selection !== 'rust') return fallback()
+  if (selection !== 'rust' || !unicodeCompatible()) return fallback()
   const native = load()
   if (!native) throw failure('BACKEND_FAILURE')
   // Public host features are selected before normalized admission, not retried
   // after a native rejection. This keeps forced Rust usable by callback frames.
   if (!shape(op, input)) return fallback()
-  const compatible = !['renderInline', 'renderMarkdown', 'markdownTransition'].includes(op) || process.versions.unicode === '17.0'
-  if (!compatible) return fallback()
   if (['renderInline', 'renderMarkdown', 'markdownTransition'].includes(op)) {
     const palette = nativePaletteSnapshot()
     if (!palette) return fallback()
