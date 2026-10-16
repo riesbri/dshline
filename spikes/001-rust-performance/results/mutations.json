@@ -1,0 +1,20 @@
+{
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "dfbfee38e42d9b7c463e57bb84dcbd46c29660bcbd696dcf2fdbb79b6efa9d9a",
+    "executedBuild": "f20b732ca8d1d4de0fe7f783ea0feecc9d3df1017c90c72652ef1cdd9ac18080",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "mutations": {
+    "wrong-cjk-width": {
+      "rejected": true,
+      "sourceSha256": "a044ea4da228b6321152d76e347195474110279e19d7f96be5c1171268ca919f",
+      "addonSha256": "1b1cb1fbd9e234c0c29ec1a88d02799a06e7b8f5ce351998ce05f5168f34f1a8"
+    },
+    "missing-ascii-guard": {
+      "rejected": true,
+      "sourceSha256": "0529d8e51bae6c3e3a16379ace6d0b0ba72ad27258cc7201e45b9bcfdfece2d6",
+      "addonSha256": "e5e2b0d594077ecf14dedb635f6ee55790a29d951d96c724f6cf5dfb8acf1c85"
+    }
+  }
+}

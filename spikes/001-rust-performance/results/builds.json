@@ -1,0 +1,343 @@
+{
+  "baselineCommit": "5e48b70ca6dc4de5462cda7d559581be7ec8c04d",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1",
+  "sourceSha256": "c9d296985011ffe4af53a6412b6061a5b8910fec1f6b8d06f15bd113d9a239a1",
+  "tableBytes": 36352,
+  "uniquePages": 108,
+  "variants": {
+    "baseline": {
+      "sourceSha256": "c9d296985011ffe4af53a6412b6061a5b8910fec1f6b8d06f15bd113d9a239a1",
+      "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+      "inputs": [
+        [
+          "dshline-renderer/Cargo.lock",
+          "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+        ],
+        [
+          "dshline-renderer/Cargo.toml",
+          "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+        ],
+        [
+          "dshline-renderer/src/lib.rs",
+          "c9d296985011ffe4af53a6412b6061a5b8910fec1f6b8d06f15bd113d9a239a1"
+        ],
+        [
+          "dshline-renderer/src/main.rs",
+          "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+        ],
+        [
+          "dshline-renderer/src/protocol.rs",
+          "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+        ],
+        [
+          "dshline-renderer/src/tables.rs",
+          "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+        ],
+        [
+          "dshline-renderer/tests/semantics.rs",
+          "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+        ],
+        [
+          "dshline-renderer-node/Cargo.lock",
+          "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+        ],
+        [
+          "dshline-renderer-node/Cargo.toml",
+          "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+        ],
+        [
+          "dshline-renderer-node/build.rs",
+          "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+        ],
+        [
+          "dshline-renderer-node/src/lib.rs",
+          "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+        ]
+      ],
+      "addonSha256": "0fd92ea4b37c8a7a471477f726aa1b2b2bb8294983bf3b26171ef981781b1805",
+      "bytes": 853480,
+      "buildSeconds": 3.293819627
+    },
+    "lookup": {
+      "sourceSha256": "f971efb00a26a7b3f3c50482f6a030d6b3d57d9127f30923df296b2748478e9f",
+      "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+      "inputs": [
+        [
+          "dshline-renderer/Cargo.lock",
+          "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+        ],
+        [
+          "dshline-renderer/Cargo.toml",
+          "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+        ],
+        [
+          "dshline-renderer/src/lib.rs",
+          "f971efb00a26a7b3f3c50482f6a030d6b3d57d9127f30923df296b2748478e9f"
+        ],
+        [
+          "dshline-renderer/src/lookup.rs",
+          "f2bde6c8e529cc994a823cafad6141732617797076b3b69223d2317995e489a5"
+        ],
+        [
+          "dshline-renderer/src/main.rs",
+          "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+        ],
+        [
+          "dshline-renderer/src/protocol.rs",
+          "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+        ],
+        [
+          "dshline-renderer/src/tables.rs",
+          "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+        ],
+        [
+          "dshline-renderer/tests/semantics.rs",
+          "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+        ],
+        [
+          "dshline-renderer-node/Cargo.lock",
+          "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+        ],
+        [
+          "dshline-renderer-node/Cargo.toml",
+          "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+        ],
+        [
+          "dshline-renderer-node/build.rs",
+          "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+        ],
+        [
+          "dshline-renderer-node/src/lib.rs",
+          "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+        ]
+      ],
+      "addonSha256": "0416df47e79b213e425d38fab5bc2fcf9110c77af99cd0c6b3f4002bf6e1ffc9",
+      "bytes": 919232,
+      "buildSeconds": 3.220723901
+    },
+    "spans": {
+      "sourceSha256": "a3cb39780fd6c5ba0d817eb227bf66e6d1cb16f92198fabf8ba7af08fc42196e",
+      "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+      "inputs": [
+        [
+          "dshline-renderer/Cargo.lock",
+          "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+        ],
+        [
+          "dshline-renderer/Cargo.toml",
+          "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+        ],
+        [
+          "dshline-renderer/src/lib.rs",
+          "a3cb39780fd6c5ba0d817eb227bf66e6d1cb16f92198fabf8ba7af08fc42196e"
+        ],
+        [
+          "dshline-renderer/src/main.rs",
+          "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+        ],
+        [
+          "dshline-renderer/src/protocol.rs",
+          "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+        ],
+        [
+          "dshline-renderer/src/tables.rs",
+          "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+        ],
+        [
+          "dshline-renderer/tests/semantics.rs",
+          "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+        ],
+        [
+          "dshline-renderer-node/Cargo.lock",
+          "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+        ],
+        [
+          "dshline-renderer-node/Cargo.toml",
+          "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+        ],
+        [
+          "dshline-renderer-node/build.rs",
+          "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+        ],
+        [
+          "dshline-renderer-node/src/lib.rs",
+          "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+        ]
+      ],
+      "addonSha256": "c714987916cca9aec29927e3b4892532c4e98e8d3dbd39b847a753f8fd17c81d",
+      "bytes": 853176,
+      "buildSeconds": 3.262316569999999
+    },
+    "combined": {
+      "sourceSha256": "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f",
+      "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+      "inputs": [
+        [
+          "dshline-renderer/Cargo.lock",
+          "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+        ],
+        [
+          "dshline-renderer/Cargo.toml",
+          "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+        ],
+        [
+          "dshline-renderer/src/lib.rs",
+          "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f"
+        ],
+        [
+          "dshline-renderer/src/lookup.rs",
+          "f2bde6c8e529cc994a823cafad6141732617797076b3b69223d2317995e489a5"
+        ],
+        [
+          "dshline-renderer/src/main.rs",
+          "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+        ],
+        [
+          "dshline-renderer/src/protocol.rs",
+          "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+        ],
+        [
+          "dshline-renderer/src/tables.rs",
+          "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+        ],
+        [
+          "dshline-renderer/tests/semantics.rs",
+          "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+        ],
+        [
+          "dshline-renderer-node/Cargo.lock",
+          "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+        ],
+        [
+          "dshline-renderer-node/Cargo.toml",
+          "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+        ],
+        [
+          "dshline-renderer-node/build.rs",
+          "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+        ],
+        [
+          "dshline-renderer-node/src/lib.rs",
+          "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+        ]
+      ],
+      "addonSha256": "d022b36ea0b58c0efcc02d3032005ceaa7381e2f9f0bb543afb4645369a15938",
+      "bytes": 918824,
+      "buildSeconds": 3.1720435629999995
+    },
+    "thin-lto": {
+      "sourceSha256": "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f",
+      "manifestSha256": "d6b3c9fb903b6f52e9643b3c10566abcbe099f3a8da7c6e4fadcf4f24b9d6684",
+      "inputs": [
+        [
+          "dshline-renderer/Cargo.lock",
+          "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+        ],
+        [
+          "dshline-renderer/Cargo.toml",
+          "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+        ],
+        [
+          "dshline-renderer/src/lib.rs",
+          "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f"
+        ],
+        [
+          "dshline-renderer/src/lookup.rs",
+          "f2bde6c8e529cc994a823cafad6141732617797076b3b69223d2317995e489a5"
+        ],
+        [
+          "dshline-renderer/src/main.rs",
+          "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+        ],
+        [
+          "dshline-renderer/src/protocol.rs",
+          "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+        ],
+        [
+          "dshline-renderer/src/tables.rs",
+          "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+        ],
+        [
+          "dshline-renderer/tests/semantics.rs",
+          "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+        ],
+        [
+          "dshline-renderer-node/Cargo.lock",
+          "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+        ],
+        [
+          "dshline-renderer-node/Cargo.toml",
+          "d6b3c9fb903b6f52e9643b3c10566abcbe099f3a8da7c6e4fadcf4f24b9d6684"
+        ],
+        [
+          "dshline-renderer-node/build.rs",
+          "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+        ],
+        [
+          "dshline-renderer-node/src/lib.rs",
+          "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+        ]
+      ],
+      "addonSha256": "daecffc5ebfe42b0c1b575f14b55f3387092bb7946d0350dbee22866c1d6ddd5",
+      "bytes": 799288,
+      "buildSeconds": 6.921257778999999
+    },
+    "candidate": {
+      "sourceSha256": "86045c0f81be97352889919aaa254ab2fddfaf144e4f9bfaf4ffd5051a74977a",
+      "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+      "inputs": [
+        [
+          "dshline-renderer/Cargo.lock",
+          "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+        ],
+        [
+          "dshline-renderer/Cargo.toml",
+          "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+        ],
+        [
+          "dshline-renderer/src/lib.rs",
+          "86045c0f81be97352889919aaa254ab2fddfaf144e4f9bfaf4ffd5051a74977a"
+        ],
+        [
+          "dshline-renderer/src/lookup.rs",
+          "f2bde6c8e529cc994a823cafad6141732617797076b3b69223d2317995e489a5"
+        ],
+        [
+          "dshline-renderer/src/main.rs",
+          "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+        ],
+        [
+          "dshline-renderer/src/protocol.rs",
+          "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+        ],
+        [
+          "dshline-renderer/src/tables.rs",
+          "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+        ],
+        [
+          "dshline-renderer/tests/semantics.rs",
+          "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+        ],
+        [
+          "dshline-renderer-node/Cargo.lock",
+          "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+        ],
+        [
+          "dshline-renderer-node/Cargo.toml",
+          "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+        ],
+        [
+          "dshline-renderer-node/build.rs",
+          "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+        ],
+        [
+          "dshline-renderer-node/src/lib.rs",
+          "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+        ]
+      ],
+      "addonSha256": "704a9d2fd1340c7192b8b30f0aa95aa8f503328b3d2365eae535172a8fa4054a",
+      "bytes": 919320,
+      "buildSeconds": 3.882910991
+    }
+  }
+}

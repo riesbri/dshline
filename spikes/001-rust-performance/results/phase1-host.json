@@ -1,0 +1,2347 @@
+{
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "dfbfee38e42d9b7c463e57bb84dcbd46c29660bcbd696dcf2fdbb79b6efa9d9a",
+    "executedBuild": "f20b732ca8d1d4de0fe7f783ea0feecc9d3df1017c90c72652ef1cdd9ac18080",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "builds": {
+    "baselineCommit": "5e48b70ca6dc4de5462cda7d559581be7ec8c04d",
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1",
+    "sourceSha256": "c9d296985011ffe4af53a6412b6061a5b8910fec1f6b8d06f15bd113d9a239a1",
+    "tableBytes": 36352,
+    "uniquePages": 108,
+    "variants": {
+      "baseline": {
+        "sourceSha256": "c9d296985011ffe4af53a6412b6061a5b8910fec1f6b8d06f15bd113d9a239a1",
+        "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+        "inputs": [
+          [
+            "dshline-renderer/Cargo.lock",
+            "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+          ],
+          [
+            "dshline-renderer/Cargo.toml",
+            "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+          ],
+          [
+            "dshline-renderer/src/lib.rs",
+            "c9d296985011ffe4af53a6412b6061a5b8910fec1f6b8d06f15bd113d9a239a1"
+          ],
+          [
+            "dshline-renderer/src/main.rs",
+            "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+          ],
+          [
+            "dshline-renderer/src/protocol.rs",
+            "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+          ],
+          [
+            "dshline-renderer/src/tables.rs",
+            "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+          ],
+          [
+            "dshline-renderer/tests/semantics.rs",
+            "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+          ],
+          [
+            "dshline-renderer-node/Cargo.lock",
+            "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+          ],
+          [
+            "dshline-renderer-node/Cargo.toml",
+            "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+          ],
+          [
+            "dshline-renderer-node/build.rs",
+            "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+          ],
+          [
+            "dshline-renderer-node/src/lib.rs",
+            "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+          ]
+        ],
+        "addonSha256": "0fd92ea4b37c8a7a471477f726aa1b2b2bb8294983bf3b26171ef981781b1805",
+        "bytes": 853480,
+        "buildSeconds": 3.293819627
+      },
+      "lookup": {
+        "sourceSha256": "f971efb00a26a7b3f3c50482f6a030d6b3d57d9127f30923df296b2748478e9f",
+        "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+        "inputs": [
+          [
+            "dshline-renderer/Cargo.lock",
+            "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+          ],
+          [
+            "dshline-renderer/Cargo.toml",
+            "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+          ],
+          [
+            "dshline-renderer/src/lib.rs",
+            "f971efb00a26a7b3f3c50482f6a030d6b3d57d9127f30923df296b2748478e9f"
+          ],
+          [
+            "dshline-renderer/src/lookup.rs",
+            "f2bde6c8e529cc994a823cafad6141732617797076b3b69223d2317995e489a5"
+          ],
+          [
+            "dshline-renderer/src/main.rs",
+            "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+          ],
+          [
+            "dshline-renderer/src/protocol.rs",
+            "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+          ],
+          [
+            "dshline-renderer/src/tables.rs",
+            "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+          ],
+          [
+            "dshline-renderer/tests/semantics.rs",
+            "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+          ],
+          [
+            "dshline-renderer-node/Cargo.lock",
+            "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+          ],
+          [
+            "dshline-renderer-node/Cargo.toml",
+            "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+          ],
+          [
+            "dshline-renderer-node/build.rs",
+            "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+          ],
+          [
+            "dshline-renderer-node/src/lib.rs",
+            "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+          ]
+        ],
+        "addonSha256": "0416df47e79b213e425d38fab5bc2fcf9110c77af99cd0c6b3f4002bf6e1ffc9",
+        "bytes": 919232,
+        "buildSeconds": 3.220723901
+      },
+      "spans": {
+        "sourceSha256": "a3cb39780fd6c5ba0d817eb227bf66e6d1cb16f92198fabf8ba7af08fc42196e",
+        "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+        "inputs": [
+          [
+            "dshline-renderer/Cargo.lock",
+            "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+          ],
+          [
+            "dshline-renderer/Cargo.toml",
+            "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+          ],
+          [
+            "dshline-renderer/src/lib.rs",
+            "a3cb39780fd6c5ba0d817eb227bf66e6d1cb16f92198fabf8ba7af08fc42196e"
+          ],
+          [
+            "dshline-renderer/src/main.rs",
+            "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+          ],
+          [
+            "dshline-renderer/src/protocol.rs",
+            "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+          ],
+          [
+            "dshline-renderer/src/tables.rs",
+            "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+          ],
+          [
+            "dshline-renderer/tests/semantics.rs",
+            "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+          ],
+          [
+            "dshline-renderer-node/Cargo.lock",
+            "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+          ],
+          [
+            "dshline-renderer-node/Cargo.toml",
+            "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+          ],
+          [
+            "dshline-renderer-node/build.rs",
+            "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+          ],
+          [
+            "dshline-renderer-node/src/lib.rs",
+            "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+          ]
+        ],
+        "addonSha256": "c714987916cca9aec29927e3b4892532c4e98e8d3dbd39b847a753f8fd17c81d",
+        "bytes": 853176,
+        "buildSeconds": 3.262316569999999
+      },
+      "combined": {
+        "sourceSha256": "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f",
+        "manifestSha256": "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4",
+        "inputs": [
+          [
+            "dshline-renderer/Cargo.lock",
+            "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+          ],
+          [
+            "dshline-renderer/Cargo.toml",
+            "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+          ],
+          [
+            "dshline-renderer/src/lib.rs",
+            "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f"
+          ],
+          [
+            "dshline-renderer/src/lookup.rs",
+            "f2bde6c8e529cc994a823cafad6141732617797076b3b69223d2317995e489a5"
+          ],
+          [
+            "dshline-renderer/src/main.rs",
+            "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+          ],
+          [
+            "dshline-renderer/src/protocol.rs",
+            "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+          ],
+          [
+            "dshline-renderer/src/tables.rs",
+            "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+          ],
+          [
+            "dshline-renderer/tests/semantics.rs",
+            "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+          ],
+          [
+            "dshline-renderer-node/Cargo.lock",
+            "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+          ],
+          [
+            "dshline-renderer-node/Cargo.toml",
+            "9df87e8450af6793ee848146deec3b1d53eead7d93bc83e74d4a9ade732771f4"
+          ],
+          [
+            "dshline-renderer-node/build.rs",
+            "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+          ],
+          [
+            "dshline-renderer-node/src/lib.rs",
+            "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+          ]
+        ],
+        "addonSha256": "d022b36ea0b58c0efcc02d3032005ceaa7381e2f9f0bb543afb4645369a15938",
+        "bytes": 918824,
+        "buildSeconds": 3.1720435629999995
+      },
+      "thin-lto": {
+        "sourceSha256": "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f",
+        "manifestSha256": "d6b3c9fb903b6f52e9643b3c10566abcbe099f3a8da7c6e4fadcf4f24b9d6684",
+        "inputs": [
+          [
+            "dshline-renderer/Cargo.lock",
+            "003bb48a8dd9b73a0dca9cd68c750415e1d2188b88e20aa399a6f69383dff8bd"
+          ],
+          [
+            "dshline-renderer/Cargo.toml",
+            "aba2a347c8534b18c3c343c3057b641b321c2c6eb8ef1a51b06d1b8bbea9d8ee"
+          ],
+          [
+            "dshline-renderer/src/lib.rs",
+            "1fd3026d2813acaeb7580d05fd5bfdd7065d545375658b2f3cf3ac90c34b815f"
+          ],
+          [
+            "dshline-renderer/src/lookup.rs",
+            "f2bde6c8e529cc994a823cafad6141732617797076b3b69223d2317995e489a5"
+          ],
+          [
+            "dshline-renderer/src/main.rs",
+            "ba47de8143747c021cf978c180dcdb650a607f388c8b30e36d7643d0d843b533"
+          ],
+          [
+            "dshline-renderer/src/protocol.rs",
+            "2b799f598f4aff0e9eb9917017e8e3b63c6a2a263c3feccd3c87354117f90591"
+          ],
+          [
+            "dshline-renderer/src/tables.rs",
+            "e6c442f2a5f7f73ffd20e1c31cac6018d46fa41504ca97b4abb3c9b2b710dc0d"
+          ],
+          [
+            "dshline-renderer/tests/semantics.rs",
+            "98e7f4c2e7321b96a9a8e14761f49315cb3643136c6d11360a3a3dc302c11aec"
+          ],
+          [
+            "dshline-renderer-node/Cargo.lock",
+            "2ef06dde1f025a0d4a8db033e301dfb721ba10924685ab2b746777e5bccb83a6"
+          ],
+          [
+            "dshline-renderer-node/Cargo.toml",
+            "d6b3c9fb903b6f52e9643b3c10566abcbe099f3a8da7c6e4fadcf4f24b9d6684"
+          ],
+          [
+            "dshline-renderer-node/build.rs",
+            "eeeacdd0b2fb3d3257823451cebc364a1a10b320a9f9b141a5c7324b135fb3ae"
+          ],
+          [
+            "dshline-renderer-node/src/lib.rs",
+            "f291e2bd343c18cb80f1dcd7e012350f655aa0c334268094b4081e379b63a233"
+          ]
+        ],
+        "addonSha256": "daecffc5ebfe42b0c1b575f14b55f3387092bb7946d0350dbee22866c1d6ddd5",
+        "bytes": 799288,
+        "buildSeconds": 6.921257778999999
+      }
+    }
+  },
+  "trace": {
+    "original-auto": {
+      "publicWrap": {
+        "wrapToWidth": 1
+      },
+      "callbackFrame": {},
+      "screen": {}
+    },
+    "leaf-baseline": {
+      "publicWrap": {
+        "wrapToWidth": 1
+      },
+      "callbackFrame": {
+        "wrapToWidth": 1,
+        "displayWidth": 7
+      },
+      "screen": {
+        "wrapToWidth": 2
+      }
+    },
+    "leaf-combined": {
+      "publicWrap": {
+        "wrapToWidth": 1
+      },
+      "callbackFrame": {
+        "wrapToWidth": 1,
+        "displayWidth": 7
+      },
+      "screen": {
+        "wrapToWidth": 2
+      }
+    }
+  },
+  "rows": [
+    {
+      "kind": "ascii",
+      "length": 192,
+      "workload": "callbackFrame",
+      "timings": {
+        "original-auto": [
+          {
+            "medianNs": 31063,
+            "samplesNs": [
+              25293,
+              30366,
+              31063,
+              32838,
+              38961
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 24442,
+            "samplesNs": [
+              23633,
+              24400,
+              24442,
+              24474,
+              25975
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 25032,
+            "samplesNs": [
+              24265,
+              24875,
+              25032,
+              25627,
+              28351
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 11358,
+            "samplesNs": [
+              10969,
+              11299,
+              11358,
+              11581,
+              11943
+            ],
+            "callsPerBatch": 512
+          },
+          {
+            "medianNs": 11014,
+            "samplesNs": [
+              10130,
+              10798,
+              11014,
+              11184,
+              11382
+            ],
+            "callsPerBatch": 512
+          },
+          {
+            "medianNs": 10210,
+            "samplesNs": [
+              9918,
+              9936,
+              10210,
+              10339,
+              10791
+            ],
+            "callsPerBatch": 512
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 8382,
+            "samplesNs": [
+              8128,
+              8145,
+              8382,
+              8556,
+              8929
+            ],
+            "callsPerBatch": 1024
+          },
+          {
+            "medianNs": 7602,
+            "samplesNs": [
+              7337,
+              7364,
+              7602,
+              7609,
+              7988
+            ],
+            "callsPerBatch": 1024
+          },
+          {
+            "medianNs": 7575,
+            "samplesNs": [
+              7333,
+              7491,
+              7575,
+              7664,
+              9153
+            ],
+            "callsPerBatch": 1024
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ascii",
+      "length": 192,
+      "workload": "screen",
+      "timings": {
+        "leaf-baseline": [
+          {
+            "medianNs": 28163,
+            "samplesNs": [
+              26974,
+              27339,
+              28163,
+              28640,
+              29226
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 31595,
+            "samplesNs": [
+              27263,
+              27424,
+              31595,
+              33766,
+              39078
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 25039,
+            "samplesNs": [
+              23291,
+              25005,
+              25039,
+              30740,
+              31464
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 23223,
+            "samplesNs": [
+              20591,
+              23009,
+              23223,
+              23460,
+              27431
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 24001,
+            "samplesNs": [
+              22203,
+              23298,
+              24001,
+              28111,
+              32272
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 21732,
+            "samplesNs": [
+              19438,
+              21623,
+              21732,
+              26748,
+              31264
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 49109,
+            "samplesNs": [
+              47637,
+              48333,
+              49109,
+              49166,
+              53315
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 56384,
+            "samplesNs": [
+              54736,
+              55213,
+              56384,
+              57141,
+              57359
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 72822,
+            "samplesNs": [
+              61344,
+              61513,
+              72822,
+              78251,
+              78390
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ascii",
+      "length": 512,
+      "workload": "callbackFrame",
+      "timings": {
+        "leaf-combined": [
+          {
+            "medianNs": 16961,
+            "samplesNs": [
+              16396,
+              16432,
+              16961,
+              17410,
+              18711
+            ],
+            "callsPerBatch": 512
+          },
+          {
+            "medianNs": 16925,
+            "samplesNs": [
+              16515,
+              16898,
+              16925,
+              18296,
+              22353
+            ],
+            "callsPerBatch": 512
+          },
+          {
+            "medianNs": 16374,
+            "samplesNs": [
+              16337,
+              16352,
+              16374,
+              16510,
+              17291
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 58862,
+            "samplesNs": [
+              56010,
+              56962,
+              58862,
+              58958,
+              60072
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 57331,
+            "samplesNs": [
+              56014,
+              56230,
+              57331,
+              57391,
+              65797
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 57665,
+            "samplesNs": [
+              56146,
+              57165,
+              57665,
+              60548,
+              68881
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 23988,
+            "samplesNs": [
+              23265,
+              23636,
+              23988,
+              24754,
+              26501
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 23881,
+            "samplesNs": [
+              23848,
+              23879,
+              23881,
+              24375,
+              24746
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 24343,
+            "samplesNs": [
+              23676,
+              24327,
+              24343,
+              24862,
+              24913
+            ],
+            "callsPerBatch": 256
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ascii",
+      "length": 512,
+      "workload": "screen",
+      "timings": {
+        "original-auto": [
+          {
+            "medianNs": 110133,
+            "samplesNs": [
+              109435,
+              109820,
+              110133,
+              110616,
+              111353
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 110833,
+            "samplesNs": [
+              108611,
+              108991,
+              110833,
+              112135,
+              117059
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 112064,
+            "samplesNs": [
+              109401,
+              111480,
+              112064,
+              112691,
+              116075
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 44203,
+            "samplesNs": [
+              43825,
+              43845,
+              44203,
+              45396,
+              46666
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 46317,
+            "samplesNs": [
+              45423,
+              46107,
+              46317,
+              47510,
+              47588
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 46187,
+            "samplesNs": [
+              45745,
+              46084,
+              46187,
+              47569,
+              47705
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 31743,
+            "samplesNs": [
+              31333,
+              31536,
+              31743,
+              32228,
+              32575
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 32000,
+            "samplesNs": [
+              30784,
+              31935,
+              32000,
+              32094,
+              33345
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 32422,
+            "samplesNs": [
+              30745,
+              32247,
+              32422,
+              34442,
+              35768
+            ],
+            "callsPerBatch": 256
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ascii",
+      "length": 2048,
+      "workload": "callbackFrame",
+      "timings": {
+        "leaf-baseline": [
+          {
+            "medianNs": 90620,
+            "samplesNs": [
+              89991,
+              90026,
+              90620,
+              91214,
+              91920
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 89908,
+            "samplesNs": [
+              86755,
+              87352,
+              89908,
+              89987,
+              90016
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 95068,
+            "samplesNs": [
+              94557,
+              94746,
+              95068,
+              96421,
+              97102
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 64249,
+            "samplesNs": [
+              62469,
+              62530,
+              64249,
+              64394,
+              65335
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 62842,
+            "samplesNs": [
+              62402,
+              62402,
+              62842,
+              63776,
+              64799
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 62895,
+            "samplesNs": [
+              62022,
+              62617,
+              62895,
+              63350,
+              65543
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 237262,
+            "samplesNs": [
+              232886,
+              234347,
+              237262,
+              239542,
+              239703
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 263905,
+            "samplesNs": [
+              234777,
+              262621,
+              263905,
+              265563,
+              295368
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 262280,
+            "samplesNs": [
+              259941,
+              260768,
+              262280,
+              263943,
+              271220
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ascii",
+      "length": 2048,
+      "workload": "screen",
+      "timings": {
+        "leaf-combined": [
+          {
+            "medianNs": 101414,
+            "samplesNs": [
+              98103,
+              98561,
+              101414,
+              103900,
+              107007
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 98560,
+            "samplesNs": [
+              97296,
+              98172,
+              98560,
+              99340,
+              100499
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 99541,
+            "samplesNs": [
+              97167,
+              97773,
+              99541,
+              99923,
+              101287
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 487843,
+            "samplesNs": [
+              474874,
+              484709,
+              487843,
+              487899,
+              490105
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 501737,
+            "samplesNs": [
+              494584,
+              499971,
+              501737,
+              513968,
+              530804
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 490774,
+            "samplesNs": [
+              484522,
+              485018,
+              490774,
+              508576,
+              511476
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 160917,
+            "samplesNs": [
+              157602,
+              159009,
+              160917,
+              161660,
+              165063
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 167649,
+            "samplesNs": [
+              156371,
+              163669,
+              167649,
+              175449,
+              189218
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 158611,
+            "samplesNs": [
+              155651,
+              157579,
+              158611,
+              158759,
+              159184
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cjk",
+      "length": 192,
+      "workload": "callbackFrame",
+      "timings": {
+        "original-auto": [
+          {
+            "medianNs": 60160,
+            "samplesNs": [
+              56299,
+              59044,
+              60160,
+              60529,
+              70579
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 57885,
+            "samplesNs": [
+              55308,
+              56535,
+              57885,
+              59957,
+              60881
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 55723,
+            "samplesNs": [
+              54362,
+              55491,
+              55723,
+              58409,
+              66817
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 33948,
+            "samplesNs": [
+              33583,
+              33638,
+              33948,
+              34402,
+              37409
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 33002,
+            "samplesNs": [
+              32921,
+              32989,
+              33002,
+              33074,
+              34061
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 33938,
+            "samplesNs": [
+              33675,
+              33854,
+              33938,
+              33969,
+              34846
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 28130,
+            "samplesNs": [
+              27981,
+              28030,
+              28130,
+              28191,
+              28568
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 28992,
+            "samplesNs": [
+              28844,
+              28852,
+              28992,
+              29000,
+              30223
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 28986,
+            "samplesNs": [
+              28849,
+              28893,
+              28986,
+              29072,
+              29130
+            ],
+            "callsPerBatch": 256
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cjk",
+      "length": 192,
+      "workload": "screen",
+      "timings": {
+        "leaf-baseline": [
+          {
+            "medianNs": 37358,
+            "samplesNs": [
+              36587,
+              36791,
+              37358,
+              43849,
+              76128
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 38716,
+            "samplesNs": [
+              37686,
+              38025,
+              38716,
+              39651,
+              40578
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 36411,
+            "samplesNs": [
+              36329,
+              36360,
+              36411,
+              36592,
+              37458
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 27733,
+            "samplesNs": [
+              27322,
+              27504,
+              27733,
+              28101,
+              29603
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 28128,
+            "samplesNs": [
+              26638,
+              27817,
+              28128,
+              28758,
+              47287
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 27155,
+            "samplesNs": [
+              26888,
+              27029,
+              27155,
+              28020,
+              28422
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 83775,
+            "samplesNs": [
+              79164,
+              83519,
+              83775,
+              85091,
+              89754
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 84427,
+            "samplesNs": [
+              81207,
+              82269,
+              84427,
+              92286,
+              113428
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 83184,
+            "samplesNs": [
+              77490,
+              77915,
+              83184,
+              84233,
+              94203
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cjk",
+      "length": 512,
+      "workload": "callbackFrame",
+      "timings": {
+        "leaf-combined": [
+          {
+            "medianNs": 73373,
+            "samplesNs": [
+              73298,
+              73360,
+              73373,
+              73460,
+              74137
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 74126,
+            "samplesNs": [
+              72839,
+              73233,
+              74126,
+              75458,
+              75656
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 73773,
+            "samplesNs": [
+              73594,
+              73671,
+              73773,
+              73823,
+              75873
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 149537,
+            "samplesNs": [
+              144492,
+              144886,
+              149537,
+              152350,
+              153019
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 145684,
+            "samplesNs": [
+              139758,
+              143326,
+              145684,
+              145880,
+              152836
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 144874,
+            "samplesNs": [
+              143708,
+              144097,
+              144874,
+              145899,
+              145930
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 86620,
+            "samplesNs": [
+              86439,
+              86539,
+              86620,
+              86892,
+              88745
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 85931,
+            "samplesNs": [
+              85615,
+              85749,
+              85931,
+              86003,
+              86473
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 86611,
+            "samplesNs": [
+              86288,
+              86485,
+              86611,
+              87287,
+              88548
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cjk",
+      "length": 512,
+      "workload": "screen",
+      "timings": {
+        "original-auto": [
+          {
+            "medianNs": 200803,
+            "samplesNs": [
+              197926,
+              200304,
+              200803,
+              205495,
+              206286
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 204576,
+            "samplesNs": [
+              201069,
+              201269,
+              204576,
+              205106,
+              206327
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 201484,
+            "samplesNs": [
+              197377,
+              199968,
+              201484,
+              203259,
+              207734
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 83319,
+            "samplesNs": [
+              82108,
+              82424,
+              83319,
+              85367,
+              87352
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 83123,
+            "samplesNs": [
+              81876,
+              82417,
+              83123,
+              84281,
+              84636
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 84157,
+            "samplesNs": [
+              83177,
+              83944,
+              84157,
+              85673,
+              86059
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 57071,
+            "samplesNs": [
+              55786,
+              55883,
+              57071,
+              59559,
+              59975
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 57092,
+            "samplesNs": [
+              56067,
+              56157,
+              57092,
+              57102,
+              57198
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 56571,
+            "samplesNs": [
+              55736,
+              56038,
+              56571,
+              56618,
+              58670
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cjk",
+      "length": 2048,
+      "workload": "callbackFrame",
+      "timings": {
+        "leaf-baseline": [
+          {
+            "medianNs": 349977,
+            "samplesNs": [
+              336551,
+              346387,
+              349977,
+              353023,
+              441671
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 336847,
+            "samplesNs": [
+              336548,
+              336637,
+              336847,
+              337156,
+              337768
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 334798,
+            "samplesNs": [
+              334080,
+              334384,
+              334798,
+              335175,
+              335560
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 284555,
+            "samplesNs": [
+              283665,
+              283813,
+              284555,
+              284758,
+              288928
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 284217,
+            "samplesNs": [
+              281949,
+              282689,
+              284217,
+              284668,
+              285417
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 282807,
+            "samplesNs": [
+              282251,
+              282428,
+              282807,
+              282950,
+              283166
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 578308,
+            "samplesNs": [
+              563629,
+              569190,
+              578308,
+              593152,
+              607044
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 568780,
+            "samplesNs": [
+              560930,
+              565782,
+              568780,
+              582631,
+              606674
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 564468,
+            "samplesNs": [
+              563094,
+              564206,
+              564468,
+              564590,
+              570792
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "cjk",
+      "length": 2048,
+      "workload": "screen",
+      "timings": {
+        "leaf-combined": [
+          {
+            "medianNs": 200609,
+            "samplesNs": [
+              195012,
+              198931,
+              200609,
+              201016,
+              201190
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 199802,
+            "samplesNs": [
+              198301,
+              198381,
+              199802,
+              200455,
+              201943
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 197585,
+            "samplesNs": [
+              197277,
+              197429,
+              197585,
+              199484,
+              199581
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 754552,
+            "samplesNs": [
+              745750,
+              753733,
+              754552,
+              754744,
+              758073
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 753008,
+            "samplesNs": [
+              749788,
+              751940,
+              753008,
+              754251,
+              771956
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 754822,
+            "samplesNs": [
+              752861,
+              753774,
+              754822,
+              758010,
+              759968
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 299403,
+            "samplesNs": [
+              298127,
+              299226,
+              299403,
+              301547,
+              303570
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 302992,
+            "samplesNs": [
+              300971,
+              302920,
+              302992,
+              304369,
+              309606
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 301267,
+            "samplesNs": [
+              300172,
+              300584,
+              301267,
+              301802,
+              303828
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ansi",
+      "length": 192,
+      "workload": "callbackFrame",
+      "timings": {
+        "original-auto": [
+          {
+            "medianNs": 31271,
+            "samplesNs": [
+              26031,
+              26400,
+              31271,
+              38133,
+              42651
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 23564,
+            "samplesNs": [
+              23461,
+              23499,
+              23564,
+              24730,
+              25078
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 24773,
+            "samplesNs": [
+              23880,
+              23952,
+              24773,
+              25604,
+              25854
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 8750,
+            "samplesNs": [
+              8608,
+              8698,
+              8750,
+              8789,
+              8934
+            ],
+            "callsPerBatch": 1024
+          },
+          {
+            "medianNs": 8777,
+            "samplesNs": [
+              8701,
+              8706,
+              8777,
+              8814,
+              8817
+            ],
+            "callsPerBatch": 1024
+          },
+          {
+            "medianNs": 8687,
+            "samplesNs": [
+              8535,
+              8623,
+              8687,
+              8738,
+              8941
+            ],
+            "callsPerBatch": 1024
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 8702,
+            "samplesNs": [
+              8685,
+              8699,
+              8702,
+              8745,
+              9223
+            ],
+            "callsPerBatch": 1024
+          },
+          {
+            "medianNs": 8705,
+            "samplesNs": [
+              8654,
+              8698,
+              8705,
+              8707,
+              8733
+            ],
+            "callsPerBatch": 1024
+          },
+          {
+            "medianNs": 8504,
+            "samplesNs": [
+              8500,
+              8504,
+              8504,
+              8561,
+              8573
+            ],
+            "callsPerBatch": 1024
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ansi",
+      "length": 192,
+      "workload": "screen",
+      "timings": {
+        "leaf-baseline": [
+          {
+            "medianNs": 21586,
+            "samplesNs": [
+              21505,
+              21540,
+              21586,
+              21672,
+              21713
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 22099,
+            "samplesNs": [
+              21975,
+              22069,
+              22099,
+              22137,
+              22228
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 21609,
+            "samplesNs": [
+              21442,
+              21463,
+              21609,
+              21630,
+              21673
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 21482,
+            "samplesNs": [
+              21287,
+              21298,
+              21482,
+              21515,
+              21576
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 21453,
+            "samplesNs": [
+              21190,
+              21301,
+              21453,
+              21753,
+              22054
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 21267,
+            "samplesNs": [
+              21143,
+              21178,
+              21267,
+              21354,
+              21839
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 44347,
+            "samplesNs": [
+              43611,
+              44026,
+              44347,
+              45656,
+              47098
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 46229,
+            "samplesNs": [
+              43856,
+              45849,
+              46229,
+              47008,
+              47184
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 45442,
+            "samplesNs": [
+              43280,
+              43957,
+              45442,
+              45570,
+              50808
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ansi",
+      "length": 512,
+      "workload": "callbackFrame",
+      "timings": {
+        "leaf-combined": [
+          {
+            "medianNs": 18688,
+            "samplesNs": [
+              18594,
+              18670,
+              18688,
+              18758,
+              19029
+            ],
+            "callsPerBatch": 512
+          },
+          {
+            "medianNs": 19753,
+            "samplesNs": [
+              18936,
+              19631,
+              19753,
+              20371,
+              20419
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 18752,
+            "samplesNs": [
+              18686,
+              18728,
+              18752,
+              18752,
+              18826
+            ],
+            "callsPerBatch": 512
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 59598,
+            "samplesNs": [
+              57785,
+              59184,
+              59598,
+              60741,
+              62842
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 59620,
+            "samplesNs": [
+              57669,
+              57999,
+              59620,
+              61075,
+              61768
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 58420,
+            "samplesNs": [
+              55183,
+              56166,
+              58420,
+              58774,
+              58916
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 18873,
+            "samplesNs": [
+              18823,
+              18844,
+              18873,
+              19065,
+              19075
+            ],
+            "callsPerBatch": 512
+          },
+          {
+            "medianNs": 18703,
+            "samplesNs": [
+              18586,
+              18650,
+              18703,
+              18822,
+              18909
+            ],
+            "callsPerBatch": 512
+          },
+          {
+            "medianNs": 18822,
+            "samplesNs": [
+              18734,
+              18819,
+              18822,
+              18834,
+              18851
+            ],
+            "callsPerBatch": 512
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ansi",
+      "length": 512,
+      "workload": "screen",
+      "timings": {
+        "original-auto": [
+          {
+            "medianNs": 101608,
+            "samplesNs": [
+              101215,
+              101488,
+              101608,
+              101914,
+              102905
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 102910,
+            "samplesNs": [
+              99064,
+              101830,
+              102910,
+              103470,
+              105289
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 100775,
+            "samplesNs": [
+              97682,
+              98190,
+              100775,
+              105286,
+              106050
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 37708,
+            "samplesNs": [
+              37645,
+              37701,
+              37708,
+              37800,
+              37805
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 37574,
+            "samplesNs": [
+              37384,
+              37465,
+              37574,
+              37581,
+              38975
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 36347,
+            "samplesNs": [
+              36071,
+              36163,
+              36347,
+              36385,
+              36664
+            ],
+            "callsPerBatch": 256
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 38154,
+            "samplesNs": [
+              38092,
+              38129,
+              38154,
+              38282,
+              38478
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 37840,
+            "samplesNs": [
+              37579,
+              37606,
+              37840,
+              37871,
+              37879
+            ],
+            "callsPerBatch": 256
+          },
+          {
+            "medianNs": 36552,
+            "samplesNs": [
+              36409,
+              36458,
+              36552,
+              37287,
+              37703
+            ],
+            "callsPerBatch": 256
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ansi",
+      "length": 2048,
+      "workload": "callbackFrame",
+      "timings": {
+        "leaf-baseline": [
+          {
+            "medianNs": 74936,
+            "samplesNs": [
+              70988,
+              73200,
+              74936,
+              82100,
+              104827
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 72963,
+            "samplesNs": [
+              72668,
+              72765,
+              72963,
+              73077,
+              73201
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 74082,
+            "samplesNs": [
+              73793,
+              74076,
+              74082,
+              74816,
+              75012
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-combined": [
+          {
+            "medianNs": 72999,
+            "samplesNs": [
+              72677,
+              72879,
+              72999,
+              73132,
+              90037
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 74026,
+            "samplesNs": [
+              73690,
+              73923,
+              74026,
+              74164,
+              88076
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 74030,
+            "samplesNs": [
+              73661,
+              73811,
+              74030,
+              74103,
+              74232
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 246818,
+            "samplesNs": [
+              237908,
+              246197,
+              246818,
+              248550,
+              252244
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 222715,
+            "samplesNs": [
+              214805,
+              220374,
+              222715,
+              226414,
+              226782
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 230110,
+            "samplesNs": [
+              220661,
+              224850,
+              230110,
+              234214,
+              241152
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ansi",
+      "length": 2048,
+      "workload": "screen",
+      "timings": {
+        "leaf-combined": [
+          {
+            "medianNs": 131317,
+            "samplesNs": [
+              130324,
+              130756,
+              131317,
+              131634,
+              132364
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 134364,
+            "samplesNs": [
+              134027,
+              134151,
+              134364,
+              134585,
+              136163
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 133026,
+            "samplesNs": [
+              132803,
+              132855,
+              133026,
+              133245,
+              133904
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "original-auto": [
+          {
+            "medianNs": 379022,
+            "samplesNs": [
+              377162,
+              377460,
+              379022,
+              381341,
+              387150
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 379320,
+            "samplesNs": [
+              377979,
+              378482,
+              379320,
+              379453,
+              380134
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 383292,
+            "samplesNs": [
+              378493,
+              380828,
+              383292,
+              389113,
+              395662
+            ],
+            "callsPerBatch": 128
+          }
+        ],
+        "leaf-baseline": [
+          {
+            "medianNs": 126048,
+            "samplesNs": [
+              125714,
+              125948,
+              126048,
+              126057,
+              127429
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 131043,
+            "samplesNs": [
+              130479,
+              130943,
+              131043,
+              131397,
+              131784
+            ],
+            "callsPerBatch": 128
+          },
+          {
+            "medianNs": 132622,
+            "samplesNs": [
+              131998,
+              132147,
+              132622,
+              132955,
+              135998
+            ],
+            "callsPerBatch": 128
+          }
+        ]
+      }
+    }
+  ],
+  "checksum": 2586092,
+  "procedure": "Scratch module snapshots only. Original TS Screen/frame own state, callbacks and writes. Native leaf injection uses existing length/column thresholds. Eight varying inputs; three rotated passes; median of five >=5ms batch averages. Synthetic CPU workloads, not a real PTY/session or full model turn."
+}
