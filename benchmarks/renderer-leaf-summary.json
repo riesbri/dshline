@@ -1,0 +1,741 @@
+{
+  "schema": 1,
+  "runtimeCommit": "accff9c9cf2ea3cb155b852ca536a531ef0f38a4",
+  "baselineCommit": "5e48b70ca6dc4de5462cda7d559581be7ec8c04d",
+  "nativeInputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4",
+  "tsIdentity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "a7cf6fcc21941419088fcc80f788af57f46d00988d7e22b86cfd8675b608a46c",
+    "executedBuild": "920b789098081971e75919f0543eb2608fd4a3cafe19e58514d5c58cf4cfe02d",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "statistic": "Median of the three per-pass medians of five calibrated batch means; nanoseconds, not per-call percentiles. Observed regressions are not significance claims.",
+  "sourceCi": "https://github.com/riesbri/dshline/actions/runs/38888234341",
+  "packageValidation": {
+    "run": "https://github.com/riesbri/dshline/actions/runs/38888221013",
+    "measuredHead": "accff9c9cf2ea3cb155b852ca536a531ef0f38a4",
+    "actualCheckout": "118ec4b9175db1cbd4607ce8b0ac19ccfbb89e9c",
+    "treeEqualsMeasuredHead": true,
+    "archiveSha256": "8387b266bbf82226e4e76feb80b9f74b70024f678b31417f20f1779cf2e233eb",
+    "manifest": {
+      "schema": 1,
+      "commit": "118ec4b9175db1cbd4607ce8b0ac19ccfbb89e9c",
+      "files": {
+        "darwin-arm64": {
+          "binarySha256": "23ab0992d40f4caca6d6b63bdcd03639fa01f2c906a3547c088c6bc5203f4869",
+          "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4"
+        },
+        "darwin-x64": {
+          "binarySha256": "49e49b06da85504526915af88acdd5072ea47a0a75402e2f7eb7c36c1246e292",
+          "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4"
+        },
+        "linux-arm64": {
+          "binarySha256": "df0328614eacaafff2e44ee41400b81e431b1a30789f717682f4efab21902e4a",
+          "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4"
+        },
+        "linux-x64": {
+          "binarySha256": "3e2a2239b081d0c65749d2d80485e17cc02d39f75424e3d7df44d75bb68e5fa2",
+          "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4"
+        },
+        "win32-arm64": {
+          "binarySha256": "8df87cf600f9d82caa6c8e8255b90ef5f666711a3c11cb0e4780be4bc76894dc",
+          "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4"
+        },
+        "win32-x64": {
+          "binarySha256": "e0422023110fbe0a42a584841801f020d5771199236363b3f693174241e8b997",
+          "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4"
+        }
+      }
+    }
+  },
+  "soak": {
+    "comparisons": 2701224,
+    "iterations": 300136,
+    "budgetCases": {
+      "0": 37517,
+      "1": 37517,
+      "8": 37517,
+      "40": 37517,
+      "120": 37517,
+      "256": 37517,
+      "-256": 37517,
+      "-1": 37517
+    },
+    "rawSha256": "e02902f9cd7d9d607b8ccc5fc838f6a12038d993c82ff8614e920c86cd0220af"
+  },
+  "platforms": {
+    "linux-arm64": {
+      "environment": {
+        "node": "v24.18.0",
+        "unicode": "17.0",
+        "platform": "linux-arm64",
+        "cpu": "Cortex-A76",
+        "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1"
+      },
+      "rawSha256": "53e2617c509b8f76926efaafcc8cdce5847f650f8e685c1a5583dcaa09145ffc",
+      "selected": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 3305,
+          "autoNs": 3310,
+          "speedup": 0.9984894259818731
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 49395,
+          "autoNs": 8378,
+          "speedup": 5.895798519933158
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 4699,
+          "autoNs": 1937,
+          "speedup": 2.425916365513681
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 51033,
+          "autoNs": 1598,
+          "speedup": 31.935544430538172
+        },
+        {
+          "op": "frame",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 270731,
+          "autoNs": 95730,
+          "speedup": 2.8280685260628853
+        },
+        {
+          "op": "screen",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 691030,
+          "autoNs": 224093,
+          "speedup": 3.0836750813278417
+        },
+        {
+          "op": "screen",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 1221499,
+          "autoNs": 289873,
+          "speedup": 4.2139109196096225
+        },
+        {
+          "op": "screen",
+          "kind": "ansi",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 598848,
+          "autoNs": 198161,
+          "speedup": 3.022027543260278
+        }
+      ],
+      "observedOverTenPercentSlower": [
+        {
+          "op": "frame",
+          "kind": "ascii",
+          "length": 24,
+          "columns": 80,
+          "baselineAutoNs": 4926,
+          "autoNs": 5523,
+          "speedup": 0.8919065725149375
+        }
+      ],
+      "thinLtoOverTenPercentSlowerCases": null
+    },
+    "darwin-arm64": {
+      "environment": {
+        "node": "v24.20.0",
+        "unicode": "17.0",
+        "platform": "darwin-arm64",
+        "cpu": "Apple M1 (Virtual)",
+        "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1"
+      },
+      "rawSha256": "d45f924454fd53715586f3f678019050d5fe112be29ee3437c045bdba2ecf0f8",
+      "selected": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 2464,
+          "autoNs": 2384,
+          "speedup": 1.0335570469798658
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 25559,
+          "autoNs": 6300,
+          "speedup": 4.056984126984127
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 2587,
+          "autoNs": 902,
+          "speedup": 2.868070953436807
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 34617,
+          "autoNs": 878,
+          "speedup": 39.42710706150341
+        },
+        {
+          "op": "frame",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 108564,
+          "autoNs": 60353,
+          "speedup": 1.7988169602173878
+        },
+        {
+          "op": "screen",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 356873,
+          "autoNs": 123763,
+          "speedup": 2.8835193070626923
+        },
+        {
+          "op": "screen",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 572837,
+          "autoNs": 156261,
+          "speedup": 3.6658987207300604
+        },
+        {
+          "op": "screen",
+          "kind": "ansi",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 282911,
+          "autoNs": 136161,
+          "speedup": 2.077768230256828
+        }
+      ],
+      "observedOverTenPercentSlower": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "length": 96,
+          "columns": 40,
+          "baselineAutoNs": 273,
+          "autoNs": 334,
+          "speedup": 0.8173652694610778
+        },
+        {
+          "op": "displayWidth",
+          "kind": "emoji",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 641,
+          "autoNs": 803,
+          "speedup": 0.7982565379825654
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "length": 96,
+          "columns": 40,
+          "baselineAutoNs": 267,
+          "autoNs": 343,
+          "speedup": 0.7784256559766763
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "length": 512,
+          "columns": 40,
+          "baselineAutoNs": 665,
+          "autoNs": 864,
+          "speedup": 0.7696759259259259
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 8026,
+          "autoNs": 9098,
+          "speedup": 0.8821719059133876
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "cjk",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 2221,
+          "autoNs": 3383,
+          "speedup": 0.6565178835353237
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "emoji",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 1362,
+          "autoNs": 1846,
+          "speedup": 0.7378114842903575
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ansi",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 7124,
+          "autoNs": 8174,
+          "speedup": 0.8715439197455346
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "length": 96,
+          "columns": 40,
+          "baselineAutoNs": 2477,
+          "autoNs": 2996,
+          "speedup": 0.8267690253671562
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "length": 512,
+          "columns": 40,
+          "baselineAutoNs": 11502,
+          "autoNs": 13536,
+          "speedup": 0.8497340425531915
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "cjk",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 2296,
+          "autoNs": 4181,
+          "speedup": 0.5491509208323367
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ascii",
+          "length": 512,
+          "columns": 40,
+          "baselineAutoNs": 10326,
+          "autoNs": 14469,
+          "speedup": 0.7136636947957703
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 36289,
+          "autoNs": 47754,
+          "speedup": 0.7599153997570884
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "cjk",
+          "length": 512,
+          "columns": 40,
+          "baselineAutoNs": 30308,
+          "autoNs": 40711,
+          "speedup": 0.744467097344698
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 1025,
+          "autoNs": 1255,
+          "speedup": 0.8167330677290837
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "length": 96,
+          "columns": 40,
+          "baselineAutoNs": 3010,
+          "autoNs": 5320,
+          "speedup": 0.5657894736842105
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "length": 512,
+          "columns": 40,
+          "baselineAutoNs": 15449,
+          "autoNs": 19417,
+          "speedup": 0.7956429932533347
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ansi",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 604,
+          "autoNs": 707,
+          "speedup": 0.8543140028288543
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ansi",
+          "length": 96,
+          "columns": 40,
+          "baselineAutoNs": 1815,
+          "autoNs": 2356,
+          "speedup": 0.7703735144312394
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ansi",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 48228,
+          "autoNs": 59834,
+          "speedup": 0.8060300163786476
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "length": 512,
+          "columns": 32,
+          "baselineAutoNs": 13424,
+          "autoNs": 15298,
+          "speedup": 0.8775003268401098
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "length": 512,
+          "columns": 256,
+          "baselineAutoNs": 6469,
+          "autoNs": 7425,
+          "speedup": 0.8712457912457913
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "length": 512,
+          "columns": 8,
+          "baselineAutoNs": 10467,
+          "autoNs": 11645,
+          "speedup": 0.8988407041648776
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "length": 512,
+          "columns": 120,
+          "baselineAutoNs": 4421,
+          "autoNs": 6762,
+          "speedup": 0.6538006506950607
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "length": 512,
+          "columns": 256,
+          "baselineAutoNs": 4215,
+          "autoNs": 5263,
+          "speedup": 0.8008740262207866
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "length": 64,
+          "columns": 40,
+          "baselineAutoNs": 270,
+          "autoNs": 373,
+          "speedup": 0.7238605898123325
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 1731,
+          "autoNs": 2057,
+          "speedup": 0.8415167719980554
+        },
+        {
+          "op": "frame",
+          "kind": "cjk",
+          "length": 24,
+          "columns": 80,
+          "baselineAutoNs": 3453,
+          "autoNs": 4432,
+          "speedup": 0.7791064981949458
+        },
+        {
+          "op": "frame",
+          "kind": "ansi",
+          "length": 24,
+          "columns": 80,
+          "baselineAutoNs": 2507,
+          "autoNs": 3314,
+          "speedup": 0.7564876282438141
+        },
+        {
+          "op": "screen",
+          "kind": "cjk",
+          "length": 24,
+          "columns": 80,
+          "baselineAutoNs": 9924,
+          "autoNs": 15009,
+          "speedup": 0.6612032780331801
+        }
+      ],
+      "thinLtoOverTenPercentSlowerCases": 39
+    },
+    "darwin-x64": {
+      "environment": {
+        "node": "v24.19.0",
+        "unicode": "17.0",
+        "platform": "darwin-x64",
+        "cpu": "Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz",
+        "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1"
+      },
+      "rawSha256": "1fd66132c8233435cd454fe8a7355a8129d3a3dd11266dfa1eb690a72f3a6da5",
+      "selected": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 2118,
+          "autoNs": 2024,
+          "speedup": 1.0464426877470356
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 26561,
+          "autoNs": 10312,
+          "speedup": 2.5757370054305664
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 4268,
+          "autoNs": 2284,
+          "speedup": 1.8686514886164622
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 28851,
+          "autoNs": 1899,
+          "speedup": 15.192733017377567
+        },
+        {
+          "op": "frame",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 219860,
+          "autoNs": 139246,
+          "speedup": 1.578932249400342
+        },
+        {
+          "op": "screen",
+          "kind": "ascii",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 517216,
+          "autoNs": 252477,
+          "speedup": 2.0485668001441715
+        },
+        {
+          "op": "screen",
+          "kind": "cjk",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 862538,
+          "autoNs": 378254,
+          "speedup": 2.280314286167496
+        },
+        {
+          "op": "screen",
+          "kind": "ansi",
+          "length": 2048,
+          "columns": 80,
+          "baselineAutoNs": 426486,
+          "autoNs": 246211,
+          "speedup": 1.7321971804671603
+        }
+      ],
+      "observedOverTenPercentSlower": [
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 572,
+          "autoNs": 666,
+          "speedup": 0.8588588588588588
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "length": 512,
+          "columns": 40,
+          "baselineAutoNs": 5626,
+          "autoNs": 7072,
+          "speedup": 0.7955316742081447
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 4994,
+          "autoNs": 6066,
+          "speedup": 0.823277283217936
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 2689,
+          "autoNs": 3253,
+          "speedup": 0.8266215800799263
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "length": 96,
+          "columns": 40,
+          "baselineAutoNs": 5831,
+          "autoNs": 6611,
+          "speedup": 0.8820148237785509
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "emoji",
+          "length": 24,
+          "columns": 40,
+          "baselineAutoNs": 3351,
+          "autoNs": 3723,
+          "speedup": 0.9000805801772764
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "length": 2048,
+          "columns": 40,
+          "baselineAutoNs": 92592,
+          "autoNs": 104546,
+          "speedup": 0.8856579878713676
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ansi",
+          "length": 96,
+          "columns": 40,
+          "baselineAutoNs": 3827,
+          "autoNs": 4728,
+          "speedup": 0.8094331641285956
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "length": 512,
+          "columns": 32,
+          "baselineAutoNs": 30380,
+          "autoNs": 35456,
+          "speedup": 0.8568366425992779
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "length": 512,
+          "columns": 256,
+          "baselineAutoNs": 12193,
+          "autoNs": 15788,
+          "speedup": 0.7722954142386623
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "length": 512,
+          "columns": 40,
+          "baselineAutoNs": 1085,
+          "autoNs": 1277,
+          "speedup": 0.8496476115896633
+        }
+      ],
+      "thinLtoOverTenPercentSlowerCases": 31
+    }
+  },
+  "checks": {
+    "core": {
+      "22.19": {
+        "passed": 5583,
+        "skipped": 28,
+        "actualAddonPassed": 16,
+        "actualAddonSkipped": 2
+      },
+      "24": {
+        "passed": 5585,
+        "skipped": 26,
+        "actualAddonPassed": 18
+      },
+      "26": {
+        "passed": 5585,
+        "skipped": 26,
+        "actualAddonPassed": 18
+      }
+    },
+    "localFullSuite": {
+      "passed": 5582,
+      "skipped": 26,
+      "baselineReproducedLauncherPrerequisiteFailures": 3
+    },
+    "focusedActualAddonToolingPassed": 25,
+    "rustExhaustiveWidthUnitTests": 1,
+    "rustSemanticTestsPassed": 12,
+    "unchangedGoldenCases": 86,
+    "sourceSecurityRun": "https://github.com/riesbri/dshline/actions/runs/38888220985",
+    "parallelPrConsumer": {
+      "run": "https://github.com/riesbri/dshline/actions/runs/38888221013",
+      "outcome": "10-minute plugin-add command timeout after pnpm output said done; same runtime commit passed in the full manual source CI. No timeout change made."
+    }
+  }
+}
