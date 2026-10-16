@@ -58,8 +58,8 @@ jobs:
         run: node -e "const actual=process.platform+'-'+process.arch;if(actual!==process.env.EXPECTED_NATIVE_PLATFORM)throw new Error('Expected '+process.env.EXPECTED_NATIVE_PLATFORM+', got '+actual)"
       - name: validate shipped native license notices
         run: node tools/check-renderer-native-licenses.mjs
-      - name: cargo tests
-        run: cargo test --locked --manifest-path crates/dshline-renderer/Cargo.toml && cargo test --locked --manifest-path crates/dshline-renderer-node/Cargo.toml
+      - name: derived Unicode lookup freshness and cargo tests
+        run: node tools/generate-renderer-lookup.mjs --check && cargo test --locked --manifest-path crates/dshline-renderer/Cargo.toml && cargo test --locked --manifest-path crates/dshline-renderer-node/Cargo.toml
       - name: build required native addon and generated declarations
         shell: bash
         run: node tools/build-renderer-native.mjs --required
@@ -67,7 +67,29 @@ jobs:
         shell: bash
         env:
           DSHLINE_REQUIRE_NATIVE: '1'
-        run: pnpm exec vitest run tools/renderer-native.spec.mjs
+        run: pnpm exec vitest run tools/renderer-native.spec.mjs tools/renderer-leaf.spec.mjs tools/renderer-lookup.spec.mjs
+      - name: checkout reviewed performance baseline (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 5e48b70ca6dc4de5462cda7d559581be7ec8c04d
+          path: .renderer-baseline
+          persist-credentials: false
+      - name: build same-toolchain baseline (macOS)
+        if: runner.os == 'macOS'
+        working-directory: .renderer-baseline
+        run: pnpm install --frozen-lockfile --ignore-scripts && pnpm build && node tools/build-renderer-native.mjs --required
+      - name: measure actual macOS public/host paths and portable ThinLTO experiment
+        if: runner.os == 'macOS'
+        shell: bash
+        run: node tools/renderer-upgrade-bench.mjs --baseline-root .renderer-baseline --tune-macos --output "$RUNNER_TEMP/renderer-upgrade.json"
+      - name: upload macOS performance evidence
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: renderer-upgrade-${{ matrix.platform }}
+          path: ${{ runner.temp }}/renderer-upgrade.json
+          if-no-files-found: error
       - name: upload exact-commit addon
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

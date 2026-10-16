@@ -7,7 +7,7 @@
  * @module @dshline/renderer/box
  */
 
-import { displayWidth, truncateToWidth, wrapToWidth } from './width.ts'
+import { displayWidth, truncateToWidth, wrapToWidth } from './native-primitives.ts'
 
 /** Rounded single-line box characters. */
 const GLYPH = {

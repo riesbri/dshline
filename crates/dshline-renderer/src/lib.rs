@@ -12,6 +12,7 @@
 //! Narrow CSI/OSC recognition and full-reset replay deliberately mirror TS,
 //! including malformed escapes and non-scalar UTF-16 values.
 mod tables;
+mod lookup;
 pub type Text = Vec<u16>;
 pub fn text(s: &str) -> Text {
     s.encode_utf16().collect()
@@ -42,12 +43,27 @@ pub fn code_point_width(c: u32) -> i32 {
         0
     } else if c < 127 {
         1
-    } else if ranges(tables::ZERO_WIDTH_RANGES, c) {
-        0
-    } else if ranges(tables::WIDE_RANGES, c) {
-        2
+    } else if c <= 0x10ffff {
+        lookup::PAGES[lookup::INDEX[(c >> 8) as usize] as usize][(c & 255) as usize] as i32
     } else {
         1
+    }
+}
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+    #[test]
+    fn every_codepoint_matches_original_range_policy() {
+        for c in 0..=0x10ffff {
+            let expected = if c < 32 || (127..160).contains(&c) { 0 }
+                else if c < 127 { 1 }
+                else if ranges(tables::ZERO_WIDTH_RANGES, c) { 0 }
+                else if ranges(tables::WIDE_RANGES, c) { 2 }
+                else { 1 };
+            assert_eq!(code_point_width(c), expected, "code point {c:x}");
+        }
+        assert_eq!(code_point_width(0x110000), 1);
+        assert_eq!(code_point_width(u32::MAX), 1);
     }
 }
 fn point(s: &[u16], i: usize) -> (u32, usize) {

@@ -17,6 +17,19 @@ export async function extractApi() {
     exports.push(...names.split(',').map(name => ({ name: name.trim(), kind: typeOnly ? 'type' : 'value', module })))
     modules[module] ??= await readFile(new URL(`packages/renderer/lib/${module}.d.ts`, root), 'utf8')
   }
+  // Re-exported primitive signatures remain part of the snapshot, even though
+  // their implementation is now below the host/composite dispatch layer.
+  for (const module of Object.keys(modules)) {
+    const pending = [module]
+    while (pending.length) {
+      const current = pending.pop()
+      for (const match of modules[current].matchAll(/from ['"]\.\/([^'"]+)\.js['"]/gu)) {
+        if (modules[match[1]] !== undefined) continue
+        modules[match[1]] = await readFile(new URL(`packages/renderer/lib/${match[1]}.d.ts`, root), 'utf8')
+        pending.push(match[1])
+      }
+    }
+  }
   return { version: 1, identity, admission: { ...ADMISSION, fileBytes: 1_048_576, estimate: '(stringValueUnits + min(maxAbsNumericValue, 256) + arrayEntries + 1)^2 * 1024; codePointWidth.code contributes zero to maxAbsNumericValue; sum per-case estimates for capture', failures: ['INVALID_INPUT', 'RESOURCE_LIMIT', 'BACKEND_FAILURE'], fallbackEligible: false }, entryPoint: '@dshline/renderer', exports, declarations: modules,
     declarationScope: 'Verbatim module declarations include internal module exports; only the exports list is public package API.',
     presentationSchema: z.toJSONSchema(PresentationSchema),

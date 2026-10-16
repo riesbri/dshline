@@ -63,14 +63,14 @@ function decode(op, value) {
 async function nativeScreen(native) {
   const identity = rendererIdentity()
   const source = await readFile(join(root, 'packages/renderer/lib/screen.js'), 'utf8')
-  if (!source.includes("import { wrapToWidth } from './width.js';") || [...source.matchAll(/^import /gmu)].length !== 1) throw new BackendError()
+  if (!source.includes("import { wrapToWidth } from './native-primitives.js';") || [...source.matchAll(/^import /gmu)].length !== 1) throw new BackendError()
   const snapshot = await mkdtemp(join(tmpdir(), 'renderer-rust-screen-'))
   const bridge = '__dshlineParityWrap_' + randomUUID()
   globalThis[bridge] = (text, columns) => native({ op: 'wrapToWidth', text, columns })
   try {
     await writeFile(join(snapshot, 'package.json'), '{"type":"module"}')
     await writeFile(join(snapshot, 'screen.js'), source)
-    await writeFile(join(snapshot, 'width.js'), `export const wrapToWidth = globalThis[${JSON.stringify(bridge)}];\n`)
+    await writeFile(join(snapshot, 'native-primitives.js'), `export const wrapToWidth = globalThis[${JSON.stringify(bridge)}];\n`)
     if (JSON.stringify(rendererIdentity()) !== JSON.stringify(identity)) throw new BackendError()
     return (await import(pathToFileURL(join(snapshot, 'screen.js')).href)).Screen
   } finally {
