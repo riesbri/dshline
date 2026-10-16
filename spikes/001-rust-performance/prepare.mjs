@@ -1,23 +1,24 @@
+import { studyDirectory } from './study-path.mjs'
 /** Build research-only variants in scratch; never replace the package's addon. */
-import { cpSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { codePointWidth } from '../../packages/renderer/lib/width.js'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const here = fileURLToPath(new URL('./', import.meta.url))
-const scratch = resolve(process.argv[2] ?? '/tmp/dshline-performance-study')
+const scratch = studyDirectory(process.argv[2], { create: true })
 const selected = process.argv.slice(3)
 const variants = ['baseline', 'lookup', 'spans', 'combined', 'thin-lto', 'candidate']
 if (selected.some(name => !variants.includes(name))) throw Error('Unknown variant')
 const hash = value => createHash('sha256').update(value).digest('hex')
 const source = readFileSync(join(root, 'crates/dshline-renderer/src/lib.rs'), 'utf8')
 function treeFiles(path, base = path) {
-  return readdirSync(path).sort().flatMap(name => {
-    const file = join(path, name)
-    return statSync(file).isDirectory() ? treeFiles(file, base) : [[file.slice(base.length + 1), hash(readFileSync(file))]]
+  return readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap(entry => {
+    const file = join(path, entry.name)
+    return entry.isDirectory() ? treeFiles(file, base) : [[file.slice(base.length + 1), hash(readFileSync(file))]]
   })
 }
 const pages = [], indexes = [], pageIds = new Map()
@@ -35,13 +36,8 @@ function replaceFunction(input, name, nextName, replacement) {
   if (start < 0 || end < 0) throw Error(`Source drift at ${name}`)
   return input.slice(0, start) + replacement + '\n' + input.slice(end)
 }
-mkdirSync(scratch, { recursive: true })
+console.log(`Private study directory: ${scratch}`)
 const evidence = { baselineCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), rustc: execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).trim(), sourceSha256: hash(source), tableBytes: indexes.length * 2 + pages.length * 256, uniquePages: pages.length, variants: {} }
-if (selected.length && existsSync(join(scratch, 'builds.json'))) {
-  const previous = JSON.parse(readFileSync(join(scratch, 'builds.json')))
-  if (previous.sourceSha256 !== evidence.sourceSha256 || previous.rustc !== evidence.rustc) throw Error('Cannot mix different baseline/compiler studies')
-  evidence.variants = previous.variants
-}
 for (const variant of selected.length ? selected : variants) {
   const directory = join(scratch, variant)
   for (const crate of ['dshline-renderer', 'dshline-renderer-node']) {

@@ -24,12 +24,14 @@ Cargo dependencies must already be cached; builds are locked and offline.
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm build
-node spikes/001-rust-performance/prepare.mjs /tmp/dshline-performance-study
-node spikes/001-rust-performance/check.mjs /tmp/dshline-performance-study 30000
-node spikes/001-rust-performance/bench.mjs /tmp/dshline-performance-study 3 baseline lookup candidate
-node spikes/001-rust-performance/host.mjs /tmp/dshline-performance-study
-node spikes/001-rust-performance/mutations.mjs /tmp/dshline-performance-study
-node spikes/001-rust-performance/collect.mjs /tmp/dshline-performance-study
+study_parent=$(mktemp -d)
+study_dir="$study_parent/study"
+node spikes/001-rust-performance/prepare.mjs "$study_dir"
+node spikes/001-rust-performance/check.mjs "$study_dir" 30000
+node spikes/001-rust-performance/bench.mjs "$study_dir" 3 baseline lookup candidate
+node spikes/001-rust-performance/host.mjs "$study_dir"
+node spikes/001-rust-performance/mutations.mjs "$study_dir"
+node spikes/001-rust-performance/collect.mjs "$study_dir"
 ```
 
 The committed initial-phase artifacts are historical observations. On a fresh
@@ -38,7 +40,14 @@ checkout; it verifies their retained identities and does not regenerate them.
 To repeat the five-way timing comparison, pass `baseline lookup spans combined
 thin-lto` after the pass count. Extra pure-crate semantic checks used in this
 study can be repeated for each variant with `cargo test --release --offline
---locked --manifest-path /tmp/dshline-performance-study/<variant>/crates/dshline-renderer/Cargo.toml`.
+--locked --manifest-path "$study_dir/<variant>/crates/dshline-renderer/Cargo.toml"`.
+
+Preparation refuses an existing requested directory and creates it with mode
+0700. With no directory argument it uses a fresh `mkdtemp` path and prints it.
+Other entry points require that explicit private path, verify ownership and
+permissions on POSIX, and reject a symlink leaf. This replaces the original
+predictable shared temporary default. The committed measurements retain hashes
+from `b07d423`; the later scratch-path repair does not relabel them as reruns.
 
 Run CPU measurements sequentially, without builds/tests alongside them. The
 six builds share a Cargo target cache but each addon is copied to its own path.

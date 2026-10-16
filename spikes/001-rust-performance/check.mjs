@@ -1,15 +1,16 @@
+import { studyDirectory } from './study-path.mjs'
 /** Exhaustive widths and bounded differential stress against unchanged TS. */
 import { deepStrictEqual, throws } from 'node:assert'
 import { createRequire } from 'node:module'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { loadVerifiedRenderer, rendererIdentity } from '../../tools/renderer-identity.mjs'
 import { soakCases } from '../../tools/renderer-soak-corpus.mjs'
 import { fixtures, inputOf, validateCorpus } from '../../tools/renderer-parity.mjs'
 import { capture } from '../../tools/renderer-capture.mjs'
 import { runRustHost } from '../../tools/renderer-rust-host.mjs'
-const scratch = resolve(process.argv[2] ?? '/tmp/dshline-performance-study')
+const scratch = studyDirectory(process.argv[2])
 const count = Number(process.argv[3] ?? 30000)
 if (!Number.isInteger(count) || count < 1 || count > 1000000) throw Error('Invalid count')
 const variants = process.argv.slice(4)

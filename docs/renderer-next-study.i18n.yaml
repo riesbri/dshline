@@ -2,5 +2,5 @@
 # as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-docs --write docs/renderer-next-study.md
-renderer-next-study.md: 6f9c4bf065390189c6a6d2cd4fb94a158bd77f6a
-renderer-next-study.zh.md: 8fb4c58dc08711807c348fbe7eb6aa2b3cd18f29
+renderer-next-study.md: 425c0630ac4a878df6f97a3d9f8c71f11b4caa82
+renderer-next-study.zh.md: d357498f8f71557ca611a475b1e718703ab4f534

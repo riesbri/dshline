@@ -1,11 +1,12 @@
+import { studyDirectory } from './study-path.mjs'
 /** Freeze research evidence and verify its identities before committing it. */
 import { copyFileSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { deepStrictEqual } from 'node:assert'
 const here = fileURLToPath(new URL('./', import.meta.url))
-const scratch = resolve(process.argv[2] ?? '/tmp/dshline-performance-study')
+const scratch = studyDirectory(process.argv[2])
 const output = join(here, 'results')
 mkdirSync(output, { recursive: true })
 const hash = file => createHash('sha256').update(readFileSync(file)).digest('hex')
@@ -35,5 +36,5 @@ if (existsSync(join(scratch, 'rust-tests.json'))) {
   copyFileSync(join(scratch, 'rust-tests.json'), join(output, 'rust-tests.json'))
   names.push('rust-tests')
 }
-writeFileSync(join(output, 'manifest.json'), JSON.stringify({ artifacts: Object.fromEntries(names.map(name => [`${name}.json`, hash(join(output, `${name}.json`))])), tools: Object.fromEntries(['prepare.mjs', 'check.mjs', 'bench.mjs', 'host.mjs', 'mutations.mjs', 'collect.mjs', 'tail.rs', 'wrap.rs'].map(name => [name, hash(join(here, name))])), note: 'Final tool hashes describe the reproducible study source. phase1 artifacts precede the extra ASCII corpus and reduced-candidate follow-up; their build/tool evolution is documented, not represented as final-tool runs.' }, null, 2) + '\n')
+writeFileSync(join(output, 'manifest.json'), JSON.stringify({ artifacts: Object.fromEntries(names.map(name => [`${name}.json`, hash(join(output, `${name}.json`))])), tools: Object.fromEntries(['prepare.mjs', 'check.mjs', 'bench.mjs', 'host.mjs', 'mutations.mjs', 'collect.mjs', 'study-path.mjs', 'tail.rs', 'wrap.rs'].map(name => [name, hash(join(here, name))])), note: 'Tool hashes describe this measurement run. phase1 artifacts precede the extra ASCII corpus and reduced-candidate follow-up; their build/tool evolution is documented, not represented as final-tool runs.' }, null, 2) + '\n')
 console.log(JSON.stringify(summary.totals))

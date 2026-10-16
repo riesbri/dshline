@@ -1,12 +1,13 @@
+import { studyDirectory } from './study-path.mjs'
 /** Compare actual addon calls, alternating variant order; no public auto claim. */
 import { deepStrictEqual } from 'node:assert'
 import { createRequire } from 'node:module'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { cpus } from 'node:os'
 import { rendererIdentity, loadVerifiedRenderer } from '../../tools/renderer-identity.mjs'
-const scratch = resolve(process.argv[2] ?? '/tmp/dshline-performance-study')
+const scratch = studyDirectory(process.argv[2])
 const passes = Number(process.argv[3] ?? 3)
 if (!Number.isInteger(passes) || passes < 1 || passes > 10) throw Error('Invalid passes')
 const builds = JSON.parse(readFileSync(join(scratch, 'builds.json')))

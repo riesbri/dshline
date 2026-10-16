@@ -158,3 +158,12 @@ defines that setting in terms of the build host CPU.
 No merge, release, live model turn, profile mutation, terminal-state migration,
 sanitizer/coverage-instrumented fuzzing or leak certification is part of this
 study. It is self-reviewed; no independent reviewer or subagent was used.
+
+Re-review found CodeQL alerts in the research tooling's predictable shared
+temporary paths and directory-entry stat/read pattern. Preparation now creates
+only fresh private directories; subsequent tools require an explicit private
+directory and check ownership/permissions without following a symlink leaf.
+Directory enumeration uses its returned entry metadata rather than a separate
+path stat. Regression checks reject reused, shared and symlink paths. Retained
+measurement tool hashes refer to `b07d423`, before this path-only repair; the
+original timings are not presented as new runs or production evidence.

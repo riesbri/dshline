@@ -21,5 +21,6 @@
     "tail.rs": "528f837ed85d4cf3ca0e6651ded05aec7c1794ea3c44b785b1cd20e256d75f4e",
     "wrap.rs": "ed196b5f99489998856aeb8d4593a2906e7a11e6a01d4b60ffad2854309a8314"
   },
-  "note": "Final tool hashes describe the reproducible study source. phase1 artifacts precede the extra ASCII corpus and reduced-candidate follow-up; their build/tool evolution is documented, not represented as final-tool runs."
+  "note": "Retained measurement artifact/tool hashes refer to b07d423. Later private-scratch hardening does not relabel historical timings as reruns. phase1 precedes the extra ASCII corpus and reduced-candidate follow-up.",
+  "measurementToolSourceCommit": "b07d423910075503b6ee166f8b7ff11ac5ffcbd6"
 }

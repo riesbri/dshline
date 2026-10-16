@@ -1,12 +1,13 @@
+import { studyDirectory } from './study-path.mjs'
 /** Demonstrate that exact checks reject two plausible broken optimizations. */
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import { createHash } from 'node:crypto'
 import { deepStrictEqual, throws } from 'node:assert'
 import { loadVerifiedRenderer } from '../../tools/renderer-identity.mjs'
-const scratch = resolve(process.argv[2] ?? '/tmp/dshline-performance-study')
+const scratch = studyDirectory(process.argv[2])
 const { renderer: reference, identity } = await loadVerifiedRenderer(undefined, { referenceOnly: true })
 const require = createRequire(import.meta.url)
 const mutations = {

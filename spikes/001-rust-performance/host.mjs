@@ -1,13 +1,14 @@
+import { studyDirectory } from './study-path.mjs'
 /** Synthetic TS-owned frame/Screen workloads with isolated native leaf injection. */
 import { cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { deepStrictEqual } from 'node:assert'
 import { createHash } from 'node:crypto'
 import { rendererIdentity } from '../../tools/renderer-identity.mjs'
 const root = fileURLToPath(new URL('../../', import.meta.url))
-const scratch = resolve(process.argv[2] ?? '/tmp/dshline-performance-study')
+const scratch = studyDirectory(process.argv[2])
 const builds = JSON.parse(readFileSync(join(scratch, 'builds.json')))
 const identity = rendererIdentity()
 const require = createRequire(import.meta.url)
