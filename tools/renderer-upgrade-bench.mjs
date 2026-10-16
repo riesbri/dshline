@@ -40,6 +40,13 @@ deepStrictEqual(baselineProof.inputDigest, baseInputs, 'Baseline addon is stale'
 deepStrictEqual(currentProof.binarySha256, hash(binaryAt(root)))
 deepStrictEqual(baselineProof.binarySha256, hash(binaryAt(baselineRoot)))
 const originals = Object.fromEntries(Object.entries(currentAddon).filter(([, value]) => typeof value === 'function'))
+// Check the release-addon domain, not only Rust's debug test build or selected
+// benchmark text. Keep this bound independent of the generated lookup indexes.
+for (let code = 0; code <= 0x10ffff; code++) {
+  const expected = reference.codePointWidth(code)
+  deepStrictEqual(currentAddon.codePointWidth(code), expected, `Current release width ${code}`)
+  deepStrictEqual(baselineAddon.codePointWidth(code), expected, `Baseline release width ${code}`)
+}
 let tuningDirectory, tunedAddon, tuning
 try {
   if (options['--tune-macos']) {
@@ -139,7 +146,7 @@ try {
   deepStrictEqual(await baselineInputs.rendererNativeInputsDigest(), baseInputs)
   deepStrictEqual(hash(binaryAt(root)), currentProof.binarySha256)
   deepStrictEqual(hash(binaryAt(baselineRoot)), baselineProof.binarySha256)
-  const output = { environment: { node: process.version, unicode: process.versions.unicode, platform, cpu: cpus()[0]?.model, rustc: execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).trim() }, commit: git(root, 'rev-parse', 'HEAD'), baselineCommit: git(baselineRoot, 'rev-parse', 'HEAD'), identity, baselineIdentity, currentProof, baselineProof, toolSha256: hash(fileURLToPath(import.meta.url)), tuning, reachability, procedure: 'Actual guarded public/native paths; eight varying inputs; 500 warmups; calibrated >=5ms batches; five batch means per pass, three rotated passes. Exact outputs before timing. Synthetic in-memory hosts, not PTY/session/end-to-end or per-call tail claims. No concurrent builds/tests.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
+  const output = { environment: { node: process.version, unicode: process.versions.unicode, platform, cpu: cpus()[0]?.model, rustc: execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).trim() }, commit: git(root, 'rev-parse', 'HEAD'), baselineCommit: git(baselineRoot, 'rev-parse', 'HEAD'), identity, baselineIdentity, currentProof, baselineProof, toolSha256: hash(fileURLToPath(import.meta.url)), releaseCodePointComparisons: { current: 1114112, baseline: 1114112 }, tuning, reachability, procedure: 'Actual guarded public/native paths; eight varying inputs; 500 warmups; calibrated >=5ms batches; five batch means per pass, three rotated passes. Exact outputs before timing. Synthetic in-memory hosts, not PTY/session/end-to-end or per-call tail claims. No concurrent builds/tests.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
   const bytes = JSON.stringify(output, null, 2) + '\n'
   if (options['--output']) writeFileSync(options['--output'], bytes)
   else process.stdout.write(bytes)
