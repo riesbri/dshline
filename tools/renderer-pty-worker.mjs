@@ -27,7 +27,8 @@ for await (const line of input) {
   // much longer than a viewport. No model/network delay is injected.
   const source = Array.from({ length: request.lines }, (_, i) => seed.repeat(Math.ceil(2048 / seed.length)).slice(0, 2044) + String(i).padStart(3, '0') + '\n').join('')
   const stream = new StreamBuffer()
-  const screen = new renderer.Screen({ columns: () => process.stdout.columns, write: value => process.stdout.write(value) })
+  const writes = []
+  const screen = new renderer.Screen({ columns: () => process.stdout.columns, write: value => { writes.push(value); process.stdout.write(value) } })
   calls = {}
   const composer = renderer.frame(['ready for the next prompt'], { width: 80, border: s => s })
   screen.commit(['> benchmark ' + request.kind])
@@ -44,7 +45,8 @@ for await (const line of input) {
   const renderMs = performance.now() - start
   // The marker travels through the same slave/master queues after every write.
   // The controller measures completion only after its emulator drains those bytes.
-  marker({ type: 'done', id: request.id, kind: request.kind, inputUnits: source.length, inputBytes: Buffer.byteLength(source), inputSha256: createHash('sha256').update(source).digest('hex'), deltas, renderMs, calls })
+  const rendered = writes.join('')
+  marker({ type: 'done', id: request.id, kind: request.kind, inputUnits: source.length, inputBytes: Buffer.byteLength(source), inputSha256: createHash('sha256').update(source).digest('hex'), deltas, renderMs, calls, renderedBytes: Buffer.byteLength(rendered), renderedSha256: createHash('sha256').update(rendered).digest('hex') })
 }
 input.close()
 process.stdin.setRawMode(false)

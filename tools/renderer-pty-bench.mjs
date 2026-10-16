@@ -46,6 +46,7 @@ async function open(backend) {
     if (active) {
       active.bytes += Buffer.byteLength(text)
       active.hash.update(text)
+      active.chunks.push(text)
       active.firstByteMs ??= performance.now() - active.start
     }
     queue = queue.then(() => new Promise(resolve => terminal.write(text, resolve)))
@@ -60,6 +61,7 @@ async function open(backend) {
       const snapshot = { cursor: [state.cursorX, state.cursorY], lines: Array.from({ length: state.length }, (_, i) => state.getLine(i).translateToString(true)) }
       const snapshotSha256 = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
       const result = { ...value, firstByteMs: active.firstByteMs, ptyDrainedMs: receivedMs - active.start, visibleMs, outputBytes: active.bytes, outputSha256: active.hash.digest('hex'), snapshotSha256, cursor: snapshot.cursor, throughputUnitsPerSecond: value.inputUnits / (visibleMs / 1000) }
+      Object.defineProperty(result, 'transcript', { value: active.chunks.join('') })
       const resolve = pending.resolve
       active = undefined; pending = undefined
       resolve(result)
@@ -92,7 +94,7 @@ async function open(backend) {
       ok(!pending, 'Only one whole turn may run at a time')
       return new Promise((resolve, reject) => {
         pending = { resolve, reject }
-        active = { id, start: performance.now(), hash: createHash('sha256'), bytes: 0 }
+        active = { id, start: performance.now(), hash: createHash('sha256'), bytes: 0, chunks: [] }
         child.stdin.write(JSON.stringify({ command: 'turn', kind, id, lines: options.smoke ? 2 : 32 }) + '\n')
       })
     },
@@ -106,7 +108,21 @@ try {
     const sample = { kind, pass, timings: {} }, names = pass % 2 === 0 ? ['admittedRust', 'typescript'] : ['typescript', 'admittedRust']
     for (const name of names) sample.timings[name] = await variants[name].turn(kind, `${pass}/${kind}`)
     const { typescript: ts, admittedRust: native } = sample.timings
-    for (const key of ['inputUnits', 'inputBytes', 'inputSha256', 'deltas', 'outputBytes', 'outputSha256', 'snapshotSha256', 'cursor']) deepStrictEqual(native[key], ts[key], `${kind}/${key}`)
+    for (const key of ['inputUnits', 'inputBytes', 'inputSha256', 'deltas', 'renderedBytes', 'renderedSha256', 'outputBytes', 'outputSha256', 'snapshotSha256', 'cursor']) {
+      try { deepStrictEqual(native[key], ts[key], `${kind}/${key}`) }
+      catch (error) {
+        const expected = Buffer.from(ts.transcript), actual = Buffer.from(native.transcript)
+        let first = 0
+        while (first < Math.min(expected.length, actual.length) && expected[first] === actual[first]) first++
+        const context = { key, firstByteDifference: first, typescript: ts, admittedRust: native, expectedContextHex: expected.subarray(Math.max(0, first - 80), first + 160).toString('hex'), actualContextHex: actual.subarray(Math.max(0, first - 80), first + 160).toString('hex') }
+        const prefix = options.output ?? 'renderer-pty.json'
+        writeFileSync(prefix + '.failure.json', JSON.stringify(context, null, 2) + '\n')
+        writeFileSync(prefix + '.typescript.ansi', expected)
+        writeFileSync(prefix + '.admittedRust.ansi', actual)
+        console.error(JSON.stringify(context))
+        throw error
+      }
+    }
     deepStrictEqual(ts.calls, {}, 'TS must never call native')
     ok(Object.values(native.calls).some(count => count > 0), 'admitted Rust turn must reach native')
     ok(!native.calls.execute, 'whole-turn experiment must not use native composite/markdown ownership')
@@ -127,5 +143,5 @@ try {
   else process.stdout.write(output)
 } finally {
   for (const session of sessions) { clearTimeout(session.watchdog); session.child.stdin.end('{"command":"quit"}\n') }
-  for (const session of sessions) { await session.exited; session.terminal.dispose() }
+  for (const session of sessions) { deepStrictEqual(await session.exited, 0, 'PTY session must exit cleanly'); session.terminal.dispose() }
 }
