@@ -35,6 +35,12 @@ function isolated(script, nativeBytes) {
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 }
 describe('renderer Phase 4 selection and native boundary', () => {
+  it.runIf(available)('fits long measured prefixes and zero-budget zero-width sources against independent TS', () => {
+    const native = createRequire(import.meta.url)(addonPath)
+    for (const source of ['', '\x1b[31m', '\0\t', 'a'.repeat(2048), '中'.repeat(2048), '\x1b[31mhello中\x1b[0m '.repeat(80), '\ud800'.repeat(512)]) {
+      for (const columns of [-256, -1, 0, 1, 8, 40, 120, 256]) expect(native.fitToWidth(source, columns)).toBe(referenceBox.fitToWidth(source, columns))
+    }
+  })
   it('accepts explicit composition-time backend choices and defaults to auto', () => {
     expect(Config({}).renderer).toBe('auto')
     for (const renderer of ['auto', 'rust', 'typescript']) expect(Config({ renderer }).renderer).toBe(renderer)

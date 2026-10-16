@@ -191,8 +191,11 @@ pub fn strip_ansi(s: &[u16]) -> Text {
     out
 }
 pub fn truncate(s: &[u16], n: i32) -> Text {
+    truncate_measured(s, n).0
+}
+fn truncate_measured(s: &[u16], n: i32) -> (Text, i32) {
     if n <= 0 {
-        return vec![];
+        return (vec![], 0);
     }
     let mut out = vec![];
     let mut used = 0;
@@ -206,12 +209,12 @@ pub fn truncate(s: &[u16], n: i32) -> Text {
             if open {
                 append(&mut out, &reset())
             }
-            return out;
+            return (out, used);
         }
         used += t.w;
         append(&mut out, t.v)
     }
-    out
+    (out, used)
 }
 pub fn tail(s: &[u16], n: i32) -> Text {
     if n <= 0 {
@@ -398,12 +401,22 @@ pub fn wrap(s: &[u16], n: i32) -> Vec<Text> {
     out
 }
 pub fn fit(s: &[u16], n: i32) -> Text {
-    let mut out = if display_width(s) > n {
-        truncate(s, n)
+    if n <= 0 {
+        // At zero columns the original fit preserves an entirely zero-width
+        // source; truncate(0) does not. Negative budgets always produce empty.
+        return if n == 0 && display_width(s) == 0 { s.to_vec() } else { vec![] };
+    }
+    // Short/already-fitted rows benefit from a cheap scan plus one clone. Long
+    // inputs commonly need only a prefix; do not scan their entire suffix just
+    // to discard it, or remeasure a prefix whose exact width we already know.
+    const PREFIX_SCAN_RATIO: usize = 4;
+    let (mut out, used) = if s.len() > (n as usize).saturating_mul(PREFIX_SCAN_RATIO) {
+        truncate_measured(s, n)
     } else {
-        s.to_vec()
+        let used = display_width(s);
+        if used > n { truncate_measured(s, n) } else { (s.to_vec(), used) }
     };
-    let pad = (n - display_width(&out)).max(0) as usize;
+    let pad = (n - used).max(0) as usize;
     out.extend(std::iter::repeat_n(32, pad));
     out
 }

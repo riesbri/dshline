@@ -37,6 +37,24 @@ but regressed fit, so it was not retained. Final repeated measurements must
 evaluate this control on each measured platform; original results stay labeled
 initial rather than being silently overwritten.
 
+## Bounded fit follow-up
+
+The first Intel rerun restored ASCII width but exposed a long-row `fit` regression.
+The retained follow-up reuses the existing truncator's exact measured prefix
+width for padding. For inputs longer than four times the column budget it avoids
+scanning a suffix that will be discarded; short/already-fitted rows retain one
+width scan and clone. Zero columns preserve an entirely zero-width source, while
+negative budgets remain empty. This changes no API, admission or host ownership.
+
+A separate oracle check reproduced representation-dependent TS widths for sliced
+strings ending in a lone high surrogate on local Node 24.18. The scanner now
+derives the code point from the same bounded UTF-16 units used for its token span,
+rather than reading it separately with `codePointAt`. This preserves the intended
+code-point-sum policy and lossless malformed units; it is not a new Unicode policy.
+A real-process sliced-versus-flat regression test rejects the old scanner, and a
+wrong-padding mutation fails the new Rust semantic test. No upstream engine cause
+or general Node vulnerability is established here.
+
 ## Correctness and admission
 
 The existing auto thresholds, 2048-unit input ceiling and ±256-column budget

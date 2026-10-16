@@ -24,6 +24,20 @@ function isolated(script) {
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 }
 describe('cycle-free native host leaves', () => {
+  it('gives sliced malformed UTF-16 the same width as identical flat code units in a real Node process', () => {
+    expect(isolated(`
+      const width=await import('./lib/width.js')
+      const {soakCases}=await import(${JSON.stringify(new URL('./renderer-soak-corpus.mjs', import.meta.url).href)})
+      const mismatches=[]
+      let checked=0
+      for(const {text,seed} of soakCases(0)){
+        const flat=String.fromCharCode(...Array.from({length:text.length},(_,i)=>text.charCodeAt(i)))
+        if(width.displayWidth(text)!==width.displayWidth(flat))mismatches.push(seed)
+        checked++
+      }
+      process.stdout.write(JSON.stringify({checked,mismatches}))
+    `)).toEqual({ checked: 136, mismatches: [] })
+  })
   it('keeps the runtime import graph acyclic and the reference width policy isolated', () => {
     const directory = join(root, 'packages/renderer/lib')
     const graph = new Map(readdirSync(directory).filter(name => name.endsWith('.js')).map(name => [name, [...readFileSync(join(directory, name), 'utf8').matchAll(/(?:from\s*|import\s*)['"]\.\/([^'"]+)['"]/gu)].map(match => match[1])]))
