@@ -68,7 +68,10 @@ describe('cycle-free native host leaves', () => {
       const m=await import('./lib/index.js'), initial=m.rendererBackend()
       m.displayWidth('中'.repeat(512))
       m.setRendererBackend('auto')
-      for(const row of ${JSON.stringify(cases.map(({ op, text, columns }) => ({ op, text, columns })))})m[row.op](row.text,row.columns)
+      for(const row of ${JSON.stringify(cases.map(({ op, text, columns }) => ({ op, text, columns })))}){
+        if(row.op==='frame')m.frame([row.text],{width:row.columns,border:s=>'\u001b[32m'+s+'\u001b[0m'})
+        else m[row.op](row.text,row.columns)
+      }
       process.stdout.write(JSON.stringify({initial,calls}))
     `)).toEqual({ initial: 'typescript', calls: 0 })
   })

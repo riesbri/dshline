@@ -2,6 +2,8 @@
 
 [English](renderer-leaf-performance.md) | 中文
 
+> **后续修订：** 下文数据保留为新增回归守卫之前的历史记录。[后续报告](renderer-leaf-followup.zh.md)说明 TS 默认路径、运行时与已编译 Unicode 版本耦合、同轮回归复现和真实 PTY 流式整轮计时。
+
 ## 范围
 
 本次实现针对已审查的渲染器基线 `5e48b70`，落实

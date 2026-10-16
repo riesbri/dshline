@@ -2,6 +2,8 @@
 
 English | [中文](renderer-leaf-performance.zh.md)
 
+> **Follow-up:** The measurements below are historical, before the additional regression guards. [The follow-up report](renderer-leaf-followup.md) records TS-by-default selection, runtime/compiled Unicode coupling, same-run regression reproduction and real PTY streamed-turn timing.
+
 ## Scope
 
 This implements the lookup-only and cycle-free native-leaf proposal from

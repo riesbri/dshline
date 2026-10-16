@@ -1,0 +1,2039 @@
+{
+  "baselineCommit": "5e48b70ca6dc4de5462cda7d559581be7ec8c04d",
+  "preGuardCommit": "af3459e2b17b537ac2d3e1942b5a6232f39e2c8f",
+  "procedure": "Medians of three pass medians, each from five calibrated batch means; microseconds tables. Routing gates are not claims of faster execution. PTY is the final OPOST-disabled, exact producing/received-byte protocol; five paired whole-turn medians, not model response latency.",
+  "platforms": {
+    "linux-arm64": {
+      "environment": {
+        "node": "v24.18.0",
+        "unicode": "17.0",
+        "platform": "linux-arm64",
+        "cpu": "Cortex-A76",
+        "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1"
+      },
+      "measuredCommit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "identity": {
+        "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+        "source": "2aab8234934fdec67ea56eb27f977665da59dd085696528ed9aadce92e010063",
+        "executedBuild": "5beb095d5381348004b5e2fde0d80baee3b80064add5b46aee33b1ad76836adb",
+        "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+      },
+      "proof": {
+        "schema": 1,
+        "platform": "linux-arm64",
+        "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+        "inputDigest": "1cfa533fb49e35b65ca5e57557dae80a0f1bb7683e758945aa35db7361af3aaf",
+        "cleanInputs": true,
+        "binarySha256": "7189ef32cc4169a897db554eade05867a372babcdab5270427989edaeaf2fa1f"
+      },
+      "baselineProof": {
+        "schema": 1,
+        "platform": "linux-arm64",
+        "commit": "5e48b70ca6dc4de5462cda7d559581be7ec8c04d",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+        "cleanInputs": true,
+        "binarySha256": "cbddcc871746168b8400673b34e00342ea6cdcfe037c52623a1d4e0b205745a7"
+      },
+      "preGuardProof": {
+        "schema": 1,
+        "platform": "linux-arm64",
+        "commit": "af3459e2b17b537ac2d3e1942b5a6232f39e2c8f",
+        "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4",
+        "cleanInputs": true,
+        "binarySha256": "418753da3e12a72f9e80071d3c7786189ddc0e4328473eed5cce6dd804f5d63f"
+      },
+      "publicToolSha256": "8130d46382d26201b118e5962cc2af28d45c934f01451587c5d7d40a0f233889",
+      "originalFlagged": 0,
+      "originalAsciiFamilyFlagged": 0,
+      "sameRunOriginalRegressionsReproduced": 0,
+      "sameRunOriginalAsciiRegressionsReproduced": 0,
+      "selectedLongWorkloads": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "reviewedNs": 3339,
+          "preGuardNs": 3383,
+          "guardedNs": 3399,
+          "speedupReviewed": 0.9823477493380406,
+          "ratioToPreGuard": 1.004729530002956,
+          "calls": {
+            "displayWidth": 1
+          }
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "reviewedNs": 49294,
+          "preGuardNs": 8444,
+          "guardedNs": 8691,
+          "speedupReviewed": 5.671844436773674,
+          "ratioToPreGuard": 1.0292515395547135,
+          "calls": {
+            "displayWidth": 1
+          }
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "ascii",
+          "reviewedNs": 4687,
+          "preGuardNs": 1999,
+          "guardedNs": 1995,
+          "speedupReviewed": 2.34937343358396,
+          "ratioToPreGuard": 0.9979989994997499,
+          "calls": {
+            "fitToWidth": 1
+          }
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "reviewedNs": 51045,
+          "preGuardNs": 1609,
+          "guardedNs": 1621,
+          "speedupReviewed": 31.4898210980876,
+          "ratioToPreGuard": 1.007458048477315,
+          "calls": {
+            "fitToWidth": 1
+          }
+        },
+        {
+          "op": "screen",
+          "kind": "ascii",
+          "reviewedNs": 718585,
+          "preGuardNs": 231195,
+          "guardedNs": 230332,
+          "speedupReviewed": 3.119779275133286,
+          "ratioToPreGuard": 0.996267220311858,
+          "calls": {
+            "wrapToWidth": 3
+          }
+        },
+        {
+          "op": "screen",
+          "kind": "cjk",
+          "reviewedNs": 1209096,
+          "preGuardNs": 303274,
+          "guardedNs": 291026,
+          "speedupReviewed": 4.1545978709805995,
+          "ratioToPreGuard": 0.9596140783581844,
+          "calls": {
+            "wrapToWidth": 3
+          }
+        }
+      ],
+      "currentAllPublicOver10PercentRegressions": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "units": 96,
+          "columns": 40,
+          "ratio": 3.781591263650546,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 9.349553933495539,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1098857818038599,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "displayWidth",
+          "kind": "emoji",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1248382923673999,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "units": 96,
+          "columns": 40,
+          "ratio": 3.873873873873874,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 9.182222222222222,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 3.476667818873142,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 4.872456308355279,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "cjk",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.113162878787879,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 4.165689426896161,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ansi",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 5.237666297117516,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "emoji",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1423529411764706,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "units": 96,
+          "columns": 40,
+          "ratio": 2.2146679881070366,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 2.2349840595111585,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 96,
+          "columns": 40,
+          "ratio": 2.247476963580518,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 2.700060582695379,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 2.72603558055163,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1268065268065268,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 96,
+          "columns": 40,
+          "ratio": 1.1209853021230267,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 512,
+          "columns": 40,
+          "ratio": 1.1190704360325827,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 1.1135107581692332,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 1,
+          "ratio": 1.1120754430251505,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 32,
+          "ratio": 2.186337683523654,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 120,
+          "ratio": 3.7572815533980584,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 256,
+          "ratio": 4.806907111262334,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 120,
+          "ratio": 1.9293805956513794,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 256,
+          "ratio": 2.2580716253443525,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 64,
+          "columns": 40,
+          "ratio": 3.6823161189358373,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 512,
+          "columns": 40,
+          "ratio": 12.296738265712012,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 17.892226148409893,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        }
+      ],
+      "ptyCommit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "ptyToolSha256": "1478ecfe62982654b64bebee262642dcd0095c26817dcdf31972d728435b8853",
+      "pty": [
+        {
+          "kind": "ascii",
+          "typescript": {
+            "visibleMs": 537.3366430000005,
+            "ptyDrainedMs": 129.0352299999995,
+            "firstByteMs": 2.1502059999993435,
+            "renderMs": 125.13091400000121,
+            "throughputUnitsPerSecond": 121964.50931413575
+          },
+          "admittedRust": {
+            "visibleMs": 550.0542480000004,
+            "ptyDrainedMs": 118.81653800000095,
+            "firstByteMs": 1.489144000000124,
+            "renderMs": 113.84539799999948,
+            "throughputUnitsPerSecond": 119144.61207833442
+          }
+        },
+        {
+          "kind": "cjk",
+          "typescript": {
+            "visibleMs": 540.7413239999987,
+            "ptyDrainedMs": 185.2397920000003,
+            "firstByteMs": 3.486403999999311,
+            "renderMs": 180.1864830000004,
+            "throughputUnitsPerSecond": 121196.581602482
+          },
+          "admittedRust": {
+            "visibleMs": 524.015625,
+            "ptyDrainedMs": 126.39855599999919,
+            "firstByteMs": 4.01248299999952,
+            "renderMs": 121.38374900000053,
+            "throughputUnitsPerSecond": 125064.9730148791
+          }
+        }
+      ],
+      "ptyMeasuredTurnsPerVariant": 10
+    },
+    "darwin-arm64": {
+      "environment": {
+        "node": "v24.20.0",
+        "unicode": "17.0",
+        "platform": "darwin-arm64",
+        "cpu": "Apple M1 (Virtual)",
+        "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1"
+      },
+      "measuredCommit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "identity": {
+        "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+        "source": "2aab8234934fdec67ea56eb27f977665da59dd085696528ed9aadce92e010063",
+        "executedBuild": "5beb095d5381348004b5e2fde0d80baee3b80064add5b46aee33b1ad76836adb",
+        "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+      },
+      "proof": {
+        "schema": 1,
+        "platform": "darwin-arm64",
+        "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+        "inputDigest": "1cfa533fb49e35b65ca5e57557dae80a0f1bb7683e758945aa35db7361af3aaf",
+        "cleanInputs": true,
+        "binarySha256": "8e2153dc8a20f80c4e16d42ba72fca58eb58b98cb8455d848731631522dc939f"
+      },
+      "baselineProof": {
+        "schema": 1,
+        "platform": "darwin-arm64",
+        "commit": "5e48b70ca6dc4de5462cda7d559581be7ec8c04d",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+        "cleanInputs": true,
+        "binarySha256": "40111f933174c49d9dd2b0058215bce39e36147738e006d94bbc0646003f0fef"
+      },
+      "preGuardProof": {
+        "schema": 1,
+        "platform": "darwin-arm64",
+        "commit": "af3459e2b17b537ac2d3e1942b5a6232f39e2c8f",
+        "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4",
+        "cleanInputs": true,
+        "binarySha256": "42093cc3aae81e8c90c032c9888804feb167f965c0da1c3d21a8e3b897e721fa"
+      },
+      "publicToolSha256": "8130d46382d26201b118e5962cc2af28d45c934f01451587c5d7d40a0f233889",
+      "originalFlagged": 30,
+      "originalAsciiFamilyFlagged": 20,
+      "sameRunOriginalRegressionsReproduced": 5,
+      "sameRunOriginalAsciiRegressionsReproduced": 5,
+      "selectedLongWorkloads": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "reviewedNs": 1702,
+          "preGuardNs": 1798,
+          "guardedNs": 1781,
+          "speedupReviewed": 0.9556428972487366,
+          "ratioToPreGuard": 0.9905450500556173,
+          "calls": {
+            "displayWidth": 1
+          }
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "reviewedNs": 23944,
+          "preGuardNs": 4659,
+          "guardedNs": 4950,
+          "speedupReviewed": 4.837171717171717,
+          "ratioToPreGuard": 1.0624597553122987,
+          "calls": {
+            "displayWidth": 1
+          }
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "ascii",
+          "reviewedNs": 2213,
+          "preGuardNs": 760,
+          "guardedNs": 792,
+          "speedupReviewed": 2.794191919191919,
+          "ratioToPreGuard": 1.0421052631578946,
+          "calls": {
+            "fitToWidth": 1
+          }
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "reviewedNs": 22963,
+          "preGuardNs": 604,
+          "guardedNs": 610,
+          "speedupReviewed": 37.644262295081965,
+          "ratioToPreGuard": 1.009933774834437,
+          "calls": {
+            "fitToWidth": 1
+          }
+        },
+        {
+          "op": "screen",
+          "kind": "ascii",
+          "reviewedNs": 287618,
+          "preGuardNs": 104444,
+          "guardedNs": 114216,
+          "speedupReviewed": 2.518193598094838,
+          "ratioToPreGuard": 1.0935621002642564,
+          "calls": {
+            "wrapToWidth": 3
+          }
+        },
+        {
+          "op": "screen",
+          "kind": "cjk",
+          "reviewedNs": 586103,
+          "preGuardNs": 148025,
+          "guardedNs": 138933,
+          "speedupReviewed": 4.2186017720771884,
+          "ratioToPreGuard": 0.9385779429150481,
+          "calls": {
+            "wrapToWidth": 3
+          }
+        }
+      ],
+      "currentAllPublicOver10PercentRegressions": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "units": 96,
+          "columns": 40,
+          "ratio": 3.919230769230769,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 8.36,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1215351812366738,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "displayWidth",
+          "kind": "emoji",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1381118881118881,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "units": 96,
+          "columns": 40,
+          "ratio": 3.893992932862191,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 8.790220820189274,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 2.601793424111591,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 3.749466817212395,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "emoji",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1392827356130109,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 2.9474123539232053,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ansi",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 3.7216994582264045,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "ascii",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1727272727272726,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "emoji",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.2352941176470589,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "units": 96,
+          "columns": 40,
+          "ratio": 1.967911877394636,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 1.865129411764706,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 96,
+          "columns": 40,
+          "ratio": 1.8976057055527253,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 2.2453756134390335,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 2.0789980732177264,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 96,
+          "columns": 40,
+          "ratio": 1.1260653409090908,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 512,
+          "columns": 40,
+          "ratio": 1.137120470127326,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 1.166669686045037,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 32,
+          "ratio": 1.7826272270053705,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 120,
+          "ratio": 2.6298958486137596,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 256,
+          "ratio": 3.4155563557796182,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 120,
+          "ratio": 1.8884784114523205,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 256,
+          "ratio": 2.0623781676413255,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 64,
+          "columns": 40,
+          "ratio": 4.093632958801498,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 512,
+          "columns": 40,
+          "ratio": 10.44,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 15.144408251900108,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "frame",
+          "kind": "cjk",
+          "units": 24,
+          "columns": 80,
+          "ratio": 1.104635402548116,
+          "nativeCalls": {},
+          "guard": null
+        }
+      ],
+      "ptyCommit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "ptyToolSha256": "1478ecfe62982654b64bebee262642dcd0095c26817dcdf31972d728435b8853",
+      "pty": [
+        {
+          "kind": "ascii",
+          "typescript": {
+            "visibleMs": 762.2052089999997,
+            "ptyDrainedMs": 91.76458300000013,
+            "firstByteMs": 2.2878749999981665,
+            "renderMs": 84.81504199999836,
+            "throughputUnitsPerSecond": 85982.0940950825
+          },
+          "admittedRust": {
+            "visibleMs": 798.0027499999997,
+            "ptyDrainedMs": 74.03074999999808,
+            "firstByteMs": 1.7681249999986903,
+            "renderMs": 69.81191699999908,
+            "throughputUnitsPerSecond": 82125.03027088569
+          }
+        },
+        {
+          "kind": "cjk",
+          "typescript": {
+            "visibleMs": 1489.8534999999974,
+            "ptyDrainedMs": 103.14833399999952,
+            "firstByteMs": 2.4705419999991136,
+            "renderMs": 97.89545799999905,
+            "throughputUnitsPerSecond": 43988.2176334788
+          },
+          "admittedRust": {
+            "visibleMs": 1374.7401250000003,
+            "ptyDrainedMs": 90.95387500000015,
+            "firstByteMs": 1.503499999998894,
+            "renderMs": 87.605458,
+            "throughputUnitsPerSecond": 47671.555378511985
+          }
+        }
+      ],
+      "ptyMeasuredTurnsPerVariant": 10
+    },
+    "darwin-x64": {
+      "environment": {
+        "node": "v24.19.0",
+        "unicode": "17.0",
+        "platform": "darwin-x64",
+        "cpu": "Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz",
+        "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1"
+      },
+      "measuredCommit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "identity": {
+        "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+        "source": "2aab8234934fdec67ea56eb27f977665da59dd085696528ed9aadce92e010063",
+        "executedBuild": "5beb095d5381348004b5e2fde0d80baee3b80064add5b46aee33b1ad76836adb",
+        "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+      },
+      "proof": {
+        "schema": 1,
+        "platform": "darwin-x64",
+        "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+        "inputDigest": "1cfa533fb49e35b65ca5e57557dae80a0f1bb7683e758945aa35db7361af3aaf",
+        "cleanInputs": true,
+        "binarySha256": "bd8aaf0e7e8287643f7a4eb57be35a70d6be88f0353bea9a7bb547aad9830ce3"
+      },
+      "baselineProof": {
+        "schema": 1,
+        "platform": "darwin-x64",
+        "commit": "5e48b70ca6dc4de5462cda7d559581be7ec8c04d",
+        "inputDigest": "4560f6e65cdb3adfc30fb95bbc4727c7c02eddf818891c01276d5cfbfb902c16",
+        "cleanInputs": true,
+        "binarySha256": "2ec9a85bf52b080f467c8d68c271704a1a59632b6962df0a2cd4bbfe8d6dfde8"
+      },
+      "preGuardProof": {
+        "schema": 1,
+        "platform": "darwin-x64",
+        "commit": "af3459e2b17b537ac2d3e1942b5a6232f39e2c8f",
+        "inputDigest": "16b6a3c17a0d75e2895729845826e95536de4e9357629f8cc6df783a1d8e34f4",
+        "cleanInputs": true,
+        "binarySha256": "defed5015ee8d970c02f08260a0d9ecd1f5337166e6b4e716755a5e974a058d4"
+      },
+      "publicToolSha256": "8130d46382d26201b118e5962cc2af28d45c934f01451587c5d7d40a0f233889",
+      "originalFlagged": 11,
+      "originalAsciiFamilyFlagged": 9,
+      "sameRunOriginalRegressionsReproduced": 4,
+      "sameRunOriginalAsciiRegressionsReproduced": 4,
+      "selectedLongWorkloads": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "reviewedNs": 2466,
+          "preGuardNs": 2945,
+          "guardedNs": 2320,
+          "speedupReviewed": 1.0629310344827587,
+          "ratioToPreGuard": 0.7877758913412564,
+          "calls": {
+            "displayWidth": 1
+          }
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "reviewedNs": 40208,
+          "preGuardNs": 14816,
+          "guardedNs": 14260,
+          "speedupReviewed": 2.8196353436185135,
+          "ratioToPreGuard": 0.9624730021598272,
+          "calls": {
+            "displayWidth": 1
+          }
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "ascii",
+          "reviewedNs": 5111,
+          "preGuardNs": 3192,
+          "guardedNs": 3645,
+          "speedupReviewed": 1.4021947873799725,
+          "ratioToPreGuard": 1.1419172932330828,
+          "calls": {
+            "fitToWidth": 1
+          }
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "reviewedNs": 35674,
+          "preGuardNs": 2322,
+          "guardedNs": 2277,
+          "speedupReviewed": 15.667105841018884,
+          "ratioToPreGuard": 0.9806201550387597,
+          "calls": {
+            "fitToWidth": 1
+          }
+        },
+        {
+          "op": "screen",
+          "kind": "ascii",
+          "reviewedNs": 636917,
+          "preGuardNs": 321620,
+          "guardedNs": 327116,
+          "speedupReviewed": 1.9470677068685114,
+          "ratioToPreGuard": 1.017088489521796,
+          "calls": {
+            "wrapToWidth": 3
+          }
+        },
+        {
+          "op": "screen",
+          "kind": "cjk",
+          "reviewedNs": 1342771,
+          "preGuardNs": 552172,
+          "guardedNs": 615840,
+          "speedupReviewed": 2.180389386853728,
+          "ratioToPreGuard": 1.1153046514491862,
+          "calls": {
+            "wrapToWidth": 3
+          }
+        }
+      ],
+      "currentAllPublicOver10PercentRegressions": [
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "units": 96,
+          "columns": 40,
+          "ratio": 2.3780332056194124,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 8.114668652271035,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "cjk",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.448988764044944,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "units": 96,
+          "columns": 40,
+          "ratio": 2.7313432835820897,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 7.528333333333333,
+          "nativeCalls": {},
+          "guard": "ascii-short-width"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.139000364830354,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 2.1126195618636223,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ascii",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 2.1064505409297345,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 1.8133394558604063,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "tailToWidth",
+          "kind": "ansi",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 2.1552185933989976,
+          "nativeCalls": {},
+          "guard": "ascii-tail"
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "cjk",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1466727025803531,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "units": 96,
+          "columns": 40,
+          "ratio": 1.6719530102790015,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ascii",
+          "units": 512,
+          "columns": 40,
+          "ratio": 1.3260492127162784,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 96,
+          "columns": 40,
+          "ratio": 1.1648539655383112,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 512,
+          "columns": 40,
+          "ratio": 1.9427806463951043,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "ansi",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 1.8270710806345294,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ascii",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 1.1078132209999851,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "cjk",
+          "units": 96,
+          "columns": 40,
+          "ratio": 1.1859025242101922,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.1096804959465905,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "emoji",
+          "units": 512,
+          "columns": 40,
+          "ratio": 1.5813908439336217,
+          "nativeCalls": {},
+          "guard": null
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "ansi",
+          "units": 24,
+          "columns": 40,
+          "ratio": 1.2063020214030915,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 32,
+          "ratio": 1.193679224738676,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 120,
+          "ratio": 2.0794476853989172,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "wrapToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 256,
+          "ratio": 3.0540611468311245,
+          "nativeCalls": {},
+          "guard": "ascii-wrap"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 120,
+          "ratio": 1.1911871572966903,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "chunkToWidth",
+          "kind": "narrow",
+          "units": 512,
+          "columns": 256,
+          "ratio": 1.486594147387774,
+          "nativeCalls": {},
+          "guard": "ascii-chunk"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 64,
+          "columns": 40,
+          "ratio": 2.4347826086956523,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 512,
+          "columns": 40,
+          "ratio": 11.570255474452555,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "displayWidth",
+          "kind": "lateCjk",
+          "units": 2048,
+          "columns": 40,
+          "ratio": 18.944084278768234,
+          "nativeCalls": {},
+          "guard": "ascii-dominant-width"
+        },
+        {
+          "op": "fitToWidth",
+          "kind": "lateCjk",
+          "units": 64,
+          "columns": 40,
+          "ratio": 1.1154700222057734,
+          "nativeCalls": {
+            "fitToWidth": 1
+          },
+          "guard": null
+        }
+      ],
+      "ptyCommit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "ptyToolSha256": "1478ecfe62982654b64bebee262642dcd0095c26817dcdf31972d728435b8853",
+      "pty": [
+        {
+          "kind": "ascii",
+          "typescript": {
+            "visibleMs": 735.5802100000001,
+            "ptyDrainedMs": 123.92408199999772,
+            "firstByteMs": 1.318065999999817,
+            "renderMs": 119.32585900000049,
+            "throughputUnitsPerSecond": 89094.29469289283
+          },
+          "admittedRust": {
+            "visibleMs": 717.9089190000004,
+            "ptyDrainedMs": 111.75980600000003,
+            "firstByteMs": 0.9473609999986365,
+            "renderMs": 107.21361100000104,
+            "throughputUnitsPerSecond": 91287.34615985453
+          }
+        },
+        {
+          "kind": "cjk",
+          "typescript": {
+            "visibleMs": 1367.1923260000003,
+            "ptyDrainedMs": 241.50591399999757,
+            "firstByteMs": 2.434132000002137,
+            "renderMs": 234.75842600000033,
+            "throughputUnitsPerSecond": 47934.73365355913
+          },
+          "admittedRust": {
+            "visibleMs": 1342.250985999999,
+            "ptyDrainedMs": 228.88408999999956,
+            "firstByteMs": 1.0118769999971846,
+            "renderMs": 221.58626300000105,
+            "throughputUnitsPerSecond": 48825.44373858262
+          }
+        }
+      ],
+      "ptyMeasuredTurnsPerVariant": 10
+    }
+  },
+  "historicalFlaggedCases": [
+    {
+      "platform": "darwin-arm64",
+      "op": "displayWidth",
+      "kind": "ascii",
+      "units": 96,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 273,
+      "historicalPreGuardNs": 334,
+      "sameRunReviewedNs": 260,
+      "sameRunPreGuardNs": 266,
+      "sameRunGuardedNs": 1019,
+      "sameRunTsNs": 918,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-short-width",
+      "namedGuard": "ascii-short-width",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "displayWidth",
+      "kind": "emoji",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 641,
+      "historicalPreGuardNs": 803,
+      "sameRunReviewedNs": 572,
+      "sameRunPreGuardNs": 490,
+      "sameRunGuardedNs": 651,
+      "sameRunTsNs": 664,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "displayWidth",
+      "kind": "ansi",
+      "units": 96,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 267,
+      "historicalPreGuardNs": 343,
+      "sameRunReviewedNs": 283,
+      "sameRunPreGuardNs": 273,
+      "sameRunGuardedNs": 1102,
+      "sameRunTsNs": 985,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-short-width",
+      "namedGuard": "ascii-short-width",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "displayWidth",
+      "kind": "ansi",
+      "units": 512,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 665,
+      "historicalPreGuardNs": 864,
+      "sameRunReviewedNs": 634,
+      "sameRunPreGuardNs": 692,
+      "sameRunGuardedNs": 5573,
+      "sameRunTsNs": 5106,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-short-width",
+      "namedGuard": "ascii-short-width",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "units": 2048,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 8026,
+      "historicalPreGuardNs": 9098,
+      "sameRunReviewedNs": 7971,
+      "sameRunPreGuardNs": 9403,
+      "sameRunGuardedNs": 29887,
+      "sameRunTsNs": 26881,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-tail",
+      "namedGuard": "ascii-tail",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "tailToWidth",
+      "kind": "cjk",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 2221,
+      "historicalPreGuardNs": 3383,
+      "sameRunReviewedNs": 1842,
+      "sameRunPreGuardNs": 1840,
+      "sameRunGuardedNs": 1941,
+      "sameRunTsNs": 1900,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "tailToWidth",
+      "kind": "emoji",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 1362,
+      "historicalPreGuardNs": 1846,
+      "sameRunReviewedNs": 1199,
+      "sameRunPreGuardNs": 1262,
+      "sameRunGuardedNs": 1366,
+      "sameRunTsNs": 1190,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "tailToWidth",
+      "kind": "ansi",
+      "units": 2048,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 7124,
+      "historicalPreGuardNs": 8174,
+      "sameRunReviewedNs": 7014,
+      "sameRunPreGuardNs": 7553,
+      "sameRunGuardedNs": 26104,
+      "sameRunTsNs": 25378,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-tail",
+      "namedGuard": "ascii-tail",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "units": 96,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 2477,
+      "historicalPreGuardNs": 2996,
+      "sameRunReviewedNs": 2088,
+      "sameRunPreGuardNs": 2444,
+      "sameRunGuardedNs": 4109,
+      "sameRunTsNs": 3821,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "units": 512,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 11502,
+      "historicalPreGuardNs": 13536,
+      "sameRunReviewedNs": 10625,
+      "sameRunPreGuardNs": 10839,
+      "sameRunGuardedNs": 19817,
+      "sameRunTsNs": 20236,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "wrapToWidth",
+      "kind": "cjk",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 2296,
+      "historicalPreGuardNs": 4181,
+      "sameRunReviewedNs": 4631,
+      "sameRunPreGuardNs": 2028,
+      "sameRunGuardedNs": 2416,
+      "sameRunTsNs": 2477,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "units": 512,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 10326,
+      "historicalPreGuardNs": 14469,
+      "sameRunReviewedNs": 8261,
+      "sameRunPreGuardNs": 6470,
+      "sameRunGuardedNs": 8293,
+      "sameRunTsNs": 8296,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing narrow-row threshold",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "ascii",
+      "units": 2048,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 36289,
+      "historicalPreGuardNs": 47754,
+      "sameRunReviewedNs": 32535,
+      "sameRunPreGuardNs": 25930,
+      "sameRunGuardedNs": 31379,
+      "sameRunTsNs": 33792,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing narrow-row threshold",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "cjk",
+      "units": 512,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 30308,
+      "historicalPreGuardNs": 40711,
+      "sameRunReviewedNs": 26015,
+      "sameRunPreGuardNs": 24429,
+      "sameRunGuardedNs": 27462,
+      "sameRunTsNs": 25688,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing narrow-row threshold",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 1025,
+      "historicalPreGuardNs": 1255,
+      "sameRunReviewedNs": 818,
+      "sameRunPreGuardNs": 773,
+      "sameRunGuardedNs": 839,
+      "sameRunTsNs": 841,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "units": 96,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 3010,
+      "historicalPreGuardNs": 5320,
+      "sameRunReviewedNs": 2816,
+      "sameRunPreGuardNs": 2534,
+      "sameRunGuardedNs": 3171,
+      "sameRunTsNs": 3138,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "emoji",
+      "units": 512,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 15449,
+      "historicalPreGuardNs": 19417,
+      "sameRunReviewedNs": 14294,
+      "sameRunPreGuardNs": 12984,
+      "sameRunGuardedNs": 16254,
+      "sameRunTsNs": 16518,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing narrow-row threshold",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 604,
+      "historicalPreGuardNs": 707,
+      "sameRunReviewedNs": 547,
+      "sameRunPreGuardNs": 550,
+      "sameRunGuardedNs": 511,
+      "sameRunTsNs": 538,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "units": 96,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 1815,
+      "historicalPreGuardNs": 2356,
+      "sameRunReviewedNs": 1640,
+      "sameRunPreGuardNs": 1519,
+      "sameRunGuardedNs": 1721,
+      "sameRunTsNs": 1717,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "units": 2048,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 48228,
+      "historicalPreGuardNs": 59834,
+      "sameRunReviewedNs": 33731,
+      "sameRunPreGuardNs": 28027,
+      "sameRunGuardedNs": 33641,
+      "sameRunTsNs": 34113,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing narrow-row threshold",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "wrapToWidth",
+      "kind": "narrow",
+      "units": 512,
+      "columns": 32,
+      "asciiFamily": true,
+      "historicalReviewedNs": 13424,
+      "historicalPreGuardNs": 15298,
+      "sameRunReviewedNs": 11731,
+      "sameRunPreGuardNs": 13788,
+      "sameRunGuardedNs": 20912,
+      "sameRunTsNs": 22775,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "wrapToWidth",
+      "kind": "narrow",
+      "units": 512,
+      "columns": 256,
+      "asciiFamily": true,
+      "historicalReviewedNs": 6469,
+      "historicalPreGuardNs": 7425,
+      "sameRunReviewedNs": 5554,
+      "sameRunPreGuardNs": 5853,
+      "sameRunGuardedNs": 18970,
+      "sameRunTsNs": 17386,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "narrow",
+      "units": 512,
+      "columns": 8,
+      "asciiFamily": true,
+      "historicalReviewedNs": 10467,
+      "historicalPreGuardNs": 11645,
+      "sameRunReviewedNs": 9818,
+      "sameRunPreGuardNs": 7586,
+      "sameRunGuardedNs": 9710,
+      "sameRunTsNs": 9526,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing narrow-row threshold",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "narrow",
+      "units": 512,
+      "columns": 120,
+      "asciiFamily": true,
+      "historicalReviewedNs": 4421,
+      "historicalPreGuardNs": 6762,
+      "sameRunReviewedNs": 4331,
+      "sameRunPreGuardNs": 4904,
+      "sameRunGuardedNs": 8179,
+      "sameRunTsNs": 7823,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-chunk",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "chunkToWidth",
+      "kind": "narrow",
+      "units": 512,
+      "columns": 256,
+      "asciiFamily": true,
+      "historicalReviewedNs": 4215,
+      "historicalPreGuardNs": 5263,
+      "sameRunReviewedNs": 4104,
+      "sameRunPreGuardNs": 4810,
+      "sameRunGuardedNs": 8464,
+      "sameRunTsNs": 8381,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-chunk",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "displayWidth",
+      "kind": "lateCjk",
+      "units": 64,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 270,
+      "historicalPreGuardNs": 373,
+      "sameRunReviewedNs": 267,
+      "sameRunPreGuardNs": 267,
+      "sameRunGuardedNs": 1093,
+      "sameRunTsNs": 752,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-dominant-width",
+      "namedGuard": "ascii-dominant-width",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "displayWidth",
+      "kind": "lateCjk",
+      "units": 2048,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 1731,
+      "historicalPreGuardNs": 2057,
+      "sameRunReviewedNs": 1842,
+      "sameRunPreGuardNs": 1915,
+      "sameRunGuardedNs": 27896,
+      "sameRunTsNs": 19164,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-dominant-width",
+      "namedGuard": "ascii-dominant-width",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "frame",
+      "kind": "cjk",
+      "units": 24,
+      "columns": 80,
+      "asciiFamily": false,
+      "historicalReviewedNs": 3453,
+      "historicalPreGuardNs": 4432,
+      "sameRunReviewedNs": 3689,
+      "sameRunPreGuardNs": 3062,
+      "sameRunGuardedNs": 4075,
+      "sameRunTsNs": 3675,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing TS host thresholds",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "frame",
+      "kind": "ansi",
+      "units": 24,
+      "columns": 80,
+      "asciiFamily": true,
+      "historicalReviewedNs": 2507,
+      "historicalPreGuardNs": 3314,
+      "sameRunReviewedNs": 2047,
+      "sameRunPreGuardNs": 1852,
+      "sameRunGuardedNs": 1980,
+      "sameRunTsNs": 2080,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing TS host thresholds",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-arm64",
+      "op": "screen",
+      "kind": "cjk",
+      "units": 24,
+      "columns": 80,
+      "asciiFamily": false,
+      "historicalReviewedNs": 9924,
+      "historicalPreGuardNs": 15009,
+      "sameRunReviewedNs": 8989,
+      "sameRunPreGuardNs": 8180,
+      "sameRunGuardedNs": 8845,
+      "sameRunTsNs": 8786,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing TS host thresholds",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "displayWidth",
+      "kind": "ansi",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 572,
+      "historicalPreGuardNs": 666,
+      "sameRunReviewedNs": 637,
+      "sameRunPreGuardNs": 472,
+      "sameRunGuardedNs": 686,
+      "sameRunTsNs": 557,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": "ascii-short-width",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "tailToWidth",
+      "kind": "ascii",
+      "units": 512,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 5626,
+      "historicalPreGuardNs": 7072,
+      "sameRunReviewedNs": 6482,
+      "sameRunPreGuardNs": 7977,
+      "sameRunGuardedNs": 13694,
+      "sameRunTsNs": 13797,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-tail",
+      "namedGuard": "ascii-tail",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "fitToWidth",
+      "kind": "cjk",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 4994,
+      "historicalPreGuardNs": 6066,
+      "sameRunReviewedNs": 6627,
+      "sameRunPreGuardNs": 6658,
+      "sameRunGuardedNs": 7599,
+      "sameRunTsNs": 6566,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 2689,
+      "historicalPreGuardNs": 3253,
+      "sameRunReviewedNs": 2712,
+      "sameRunPreGuardNs": 2457,
+      "sameRunGuardedNs": 2822,
+      "sameRunTsNs": 2695,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "wrapToWidth",
+      "kind": "ascii",
+      "units": 96,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 5831,
+      "historicalPreGuardNs": 6611,
+      "sameRunReviewedNs": 6810,
+      "sameRunPreGuardNs": 8027,
+      "sameRunGuardedNs": 11386,
+      "sameRunTsNs": 7473,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "wrapToWidth",
+      "kind": "emoji",
+      "units": 24,
+      "columns": 40,
+      "asciiFamily": false,
+      "historicalReviewedNs": 3351,
+      "historicalPreGuardNs": 3723,
+      "sameRunReviewedNs": 3268,
+      "sameRunPreGuardNs": 3083,
+      "sameRunGuardedNs": 2897,
+      "sameRunTsNs": 3539,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": null,
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "wrapToWidth",
+      "kind": "ansi",
+      "units": 2048,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 92592,
+      "historicalPreGuardNs": 104546,
+      "sameRunReviewedNs": 116811,
+      "sameRunPreGuardNs": 152991,
+      "sameRunGuardedNs": 213422,
+      "sameRunTsNs": 165454,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "chunkToWidth",
+      "kind": "ansi",
+      "units": 96,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 3827,
+      "historicalPreGuardNs": 4728,
+      "sameRunReviewedNs": 7512,
+      "sameRunPreGuardNs": 3572,
+      "sameRunGuardedNs": 6647,
+      "sameRunTsNs": 5334,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "existing minimum length",
+      "namedGuard": "ascii-chunk",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "wrapToWidth",
+      "kind": "narrow",
+      "units": 512,
+      "columns": 32,
+      "asciiFamily": true,
+      "historicalReviewedNs": 30380,
+      "historicalPreGuardNs": 35456,
+      "sameRunReviewedNs": 36736,
+      "sameRunPreGuardNs": 43268,
+      "sameRunGuardedNs": 43851,
+      "sameRunTsNs": 52529,
+      "sameRunBeforeRegressionReproduced": true,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "wrapToWidth",
+      "kind": "narrow",
+      "units": 512,
+      "columns": 256,
+      "asciiFamily": true,
+      "historicalReviewedNs": 12193,
+      "historicalPreGuardNs": 15788,
+      "sameRunReviewedNs": 15242,
+      "sameRunPreGuardNs": 14215,
+      "sameRunGuardedNs": 46550,
+      "sameRunTsNs": 34518,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-wrap",
+      "namedGuard": "ascii-wrap",
+      "autoNativeTransformations": {}
+    },
+    {
+      "platform": "darwin-x64",
+      "op": "displayWidth",
+      "kind": "lateCjk",
+      "units": 512,
+      "columns": 40,
+      "asciiFamily": true,
+      "historicalReviewedNs": 1085,
+      "historicalPreGuardNs": 1277,
+      "sameRunReviewedNs": 1096,
+      "sameRunPreGuardNs": 1078,
+      "sameRunGuardedNs": 12681,
+      "sameRunTsNs": 11017,
+      "sameRunBeforeRegressionReproduced": false,
+      "route": "ascii-dominant-width",
+      "namedGuard": "ascii-dominant-width",
+      "autoNativeTransformations": {}
+    }
+  ]
+}
