@@ -41,6 +41,9 @@ export function regressionGuard(op: FastOperation, source: string, columns = 0):
   // Do not replace the existing thresholds. These additional exclusions keep
   // the measured losing families on TS, including ANSI-encoded ASCII text.
   if (op === 'displayWidth') {
+    // The long sparse-Unicode regression is a late suffix. Do not add a full
+    // JS scan to ordinary long ASCII just to decide whether Rust may scan it.
+    if (source.length > 512 && source.charCodeAt(source.length - 1) < 128 && source.charCodeAt(source.length - 2) < 128) return undefined
     // A greedy whole-string dominance expression backtracks over long ASCII
     // and costs more than the leaf itself. A first-non-ASCII search avoids that.
     const first = source.search(NON_ASCII)
