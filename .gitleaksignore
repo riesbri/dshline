@@ -1,0 +1,9 @@
+# Verified SHA-256s of compiled JS in the live benchmark's provenance map.
+# These are file digests, not credentials. Exact historical fingerprints only:
+# do not suppress the generic-api-key rule or ignore the metadata file.
+# packages/dshline/lib/projections/status-keys.js (stock and candidate)
+eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/metadata.json:generic-api-key:110
+eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/metadata.json:generic-api-key:275
+# packages/renderer/lib/keys.js (stock and candidate)
+eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/metadata.json:generic-api-key:197
+eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/metadata.json:generic-api-key:362

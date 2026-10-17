@@ -287,5 +287,10 @@ or remove the tail regressions. **PR #303 remains draft; no merge or release.**
 - The observer refuses a pipe-only launch before accessing the provider. Every
   raw final record contains the real controlling-terminal geometry and exit code.
 
+The history-wide secret scan matched four provenance digests beside filenames
+ending in `keys.js`. Each value was independently recomputed from its compiled
+file. The repository's `.gitleaksignore` contains only their exact historical
+commit/file/rule/line fingerprints; no file or secret-detection rule is disabled.
+
 Generated credential copies were deleted after collection. The original installed
 profile, credentials, working sessions and production sources were not changed.
