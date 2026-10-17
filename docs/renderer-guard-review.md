@@ -2,6 +2,9 @@
 
 English | [中文](renderer-guard-review.zh.md)
 
+Follow-up: [bounded guard fix and three-platform evidence](renderer-guard-fix.md).
+The historical findings below describe the reviewed tree, not the later fix.
+
 Review target: draft [PR #302](https://github.com/riesbri/dshline/pull/302),
 `6928a8ba32452bfa09144fba656dfa4c432cef2d`, stacked on #300. This is an
 adversarial self-review, not independent review or approval to land. **No

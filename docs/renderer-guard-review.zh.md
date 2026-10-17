@@ -2,6 +2,9 @@
 
 [English](renderer-guard-review.md) | 中文
 
+后续：[有界守卫修复与三平台证据](renderer-guard-fix.zh.md)。
+以下历史发现描述被审查的版本，并非后续修复版本。
+
 审查对象：草稿 [PR #302](https://github.com/riesbri/dshline/pull/302)，
 `6928a8ba32452bfa09144fba656dfa4c432cef2d`，叠在 #300 上。这是对抗性自审，
 不是独立审查或合并批准。**没有应用任何生产修复。** 默认值、阈值、回退、

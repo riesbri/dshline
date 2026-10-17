@@ -1,0 +1,44 @@
+{
+  "run": "https://github.com/riesbri/dshline/actions/runs/39008218827",
+  "source": "79948dfced573fc70b2ac8fbea5fda642bcdadbb",
+  "before": "25a2501bcabada5832860546d225063a5af0b7d3",
+  "files": [
+    {
+      "file": "renderer-guard-fix-darwin-arm64.json",
+      "artifactId": 12091807807,
+      "sha256": "6359426d610118f48bb37eb417b3feab7d139392d61c7b232debd2380f280b51",
+      "bytes": 688881
+    },
+    {
+      "file": "renderer-pty-guard-fix-darwin-arm64.json",
+      "artifactId": 12091807807,
+      "sha256": "3a6c78cf2d09b3cf849f9beae8b72c525a4f953a174f0a68036b73c45db9a2f7",
+      "bytes": 23834
+    },
+    {
+      "file": "renderer-guard-fix-public-darwin-arm64.json",
+      "artifactId": 12091807807,
+      "sha256": "89d1ce2576983c0e874f60357d9891167af7465408146a84965ed61f15d2b5d6",
+      "bytes": 532544
+    },
+    {
+      "file": "renderer-guard-fix-darwin-x64.json",
+      "artifactId": 12092410514,
+      "sha256": "6ed78fda9270b24aed8ef2747f99ef33bea9ea82465118d18c22d450b6e6e407",
+      "bytes": 689800
+    },
+    {
+      "file": "renderer-pty-guard-fix-darwin-x64.json",
+      "artifactId": 12092410514,
+      "sha256": "08cccd7993097fec2422c7a2eea344bb392a8776092f9fd19ccb57e48811b82b",
+      "bytes": 23826
+    },
+    {
+      "file": "renderer-guard-fix-public-darwin-x64.json",
+      "artifactId": 12092410514,
+      "sha256": "b7221b8e5d3da409b9db1df4725600b63e31b1e654278d668475d6cc1ebd223c",
+      "bytes": 536154
+    }
+  ],
+  "acceptance": "12/12 observed medians guarded<=TS. Intel chunk43.104 vs43.155us is an effective tie, not statistically significant. Before and current have separate real old/new native builds and clean source-input proofs. Both earlier11/12 matrices remain committed."
+}

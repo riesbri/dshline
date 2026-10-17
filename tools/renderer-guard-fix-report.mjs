@@ -20,7 +20,7 @@ const toolSha256 = retained ? createHash('sha256').update(execFileSync('git', ['
 const median = samples => samples.map(value => value.medianNs).sort((a, b) => a - b)[Math.floor(samples.length / 2)] / 1000
 const defects = ['width-two-cjk-far-apart', 'width-short-two-cjk-far-apart', 'tail-late-cjk', 'chunk-late-cjk']
 const controls = ['width-long-ascii', 'width-dense-cjk', 'width-short-dense-cjk', 'tail-dense-cjk', 'chunk-dense-cjk', 'wrap-long-ascii-admitted', 'wrap-dense-cjk', 'fit-ascii-no-guard']
-const rows = [], sources = [], equivalence = [], ptyChecks = [], slowerControls = []
+const rows = [], sources = [], equivalence = [], ptyChecks = [], slowerControls = [], lookupChecks = []
 const ptyToolSha256 = createHash('sha256').update(readFileSync(new URL('./renderer-pty-bench.mjs', import.meta.url))).update(readFileSync(new URL('./renderer-pty-worker.mjs', import.meta.url))).digest('hex')
 for (const platform of ['linux-arm64', 'darwin-arm64', 'darwin-x64']) {
   const path = new URL(`../benchmarks/renderer-guard-fix-${platform}${suffix}.json`, import.meta.url)
@@ -80,6 +80,22 @@ for (const platform of ['linux-arm64', 'darwin-arm64', 'darwin-x64']) {
     ok(native.calls.wrapToWidth > 0 && native.calls.displayWidth > 0 && !native.calls.execute)
   }
   ptyChecks.push({ platform, sha256: sha(ptyPath), turns: 20, producingReceivedAndEmulatorParity: true })
+  if (!retained && platform !== 'linux-arm64') {
+    const publicPath = new URL(`../benchmarks/renderer-guard-fix-public-${platform}.json`, import.meta.url)
+    const evidence = JSON.parse(readFileSync(publicPath))
+    deepStrictEqual(evidence.identity, identity)
+    deepStrictEqual(evidence.currentProof.inputDigest, inputDigest)
+    deepStrictEqual(evidence.currentProof.binarySha256, data.proof.binarySha256)
+    deepStrictEqual(evidence.baselineCommit, '5e48b70ca6dc4de5462cda7d559581be7ec8c04d')
+    deepStrictEqual(evidence.releaseCodePointComparisons, { current: 1114112, baseline: 1114112 })
+    for (const op of ['displayWidth', 'fitToWidth']) {
+      const control = evidence.rows.find(row => row.op === op && row.kind === 'cjk' && row.length === 2048)
+      ok(control.nativeCalls.auto[op] > 0)
+      const reviewedUs = median(control.timings.baselineAuto), fixedUs = median(control.timings.auto)
+      ok(fixedUs < reviewedUs, 'reviewed-baseline CJK lookup/fitting win must remain')
+      lookupChecks.push({ platform, op, reviewedUs, fixedUs, speedup: reviewedUs / fixedUs, sourceSha256: sha(publicPath) })
+    }
+  }
   for (const id of [...defects, ...controls]) {
     const row = data.rows.find(value => value.id === id)
     ok(row, id)
@@ -93,7 +109,7 @@ for (const platform of ['linux-arm64', 'darwin-arm64', 'darwin-x64']) {
   }
 }
 const acceptance = rows.filter(row => row.isDefect).every(row => row.guardedAtMostTS)
-const result = { identity, inputDigest, initial, guardOnly, reportToolSha256: sha(fileURLToPath(import.meta.url)), auditToolSha256: toolSha256, procedure: 'Medians recomputed from pass medians of five calibrated batch means; initial=5 whole-variant rotated passes, repeat/final=11 passes with order rotated after every batch, >=10ms calibration. No trimming/filtering and no switch to ratio-of-paired medians for acceptance. Before is freshly compiled 25a2501; retained phases reused same Rust, final phase builds its actual original addon with a clean proof because current chunk allocation changed. Current/no-guard share current native bytes. Source identities, phase-specific native proofs, equivalence and individual mutation results checked. No-guard and legacy graphs are benchmark-only. All four defect inputs must remain native-admitted and fixed guarded must not lose to explicit TS on any measured platform. Fresh PTY records require exact producing/received bytes and emulator parity with actual native reachability. Retain every non-defect control whose guarded median is >10% slower than before, without reclassifying it as a pass.', sources, equivalence, ptyChecks, allTwelveDefectCellsPass: acceptance, slowerControls, rows }
+const result = { identity, inputDigest, initial, guardOnly, reportToolSha256: sha(fileURLToPath(import.meta.url)), auditToolSha256: toolSha256, procedure: 'Medians recomputed from pass medians of five calibrated batch means; initial=5 whole-variant rotated passes, repeat/final=11 passes with order rotated after every batch, >=10ms calibration. No trimming/filtering and no switch to ratio-of-paired medians for acceptance. Before is freshly compiled 25a2501; retained phases reused same Rust, final phase builds its actual original addon with a clean proof because current chunk allocation changed. Current/no-guard share current native bytes. Source identities, phase-specific native proofs, equivalence and individual mutation results checked. No-guard and legacy graphs are benchmark-only. All four defect inputs must remain native-admitted and fixed guarded must not lose to explicit TS on any measured platform. Fresh PTY records require exact producing/received bytes and emulator parity with actual native reachability. Retain every non-defect control whose guarded median is >10% slower than before, without reclassifying it as a pass. Separately verify same-run reviewed5e48 CJK lookup/fitting wins from both Mac public archives.', sources, equivalence, ptyChecks, lookupChecks, allTwelveDefectCellsPass: acceptance, slowerControls, rows }
 writeFileSync(new URL(`../benchmarks/renderer-guard-fix-summary${suffix}.json`, import.meta.url), JSON.stringify(result, null, 2) + '\n')
 for (const row of rows.filter(row => row.isDefect)) {
   const t = row.timingsUs
