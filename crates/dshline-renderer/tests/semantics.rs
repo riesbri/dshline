@@ -55,6 +55,16 @@ fn wrap_replays_styles_not_combining_marks() {
     assert_eq!(tail(&text("a\u{301}b"), 1), text("b"));
 }
 #[test]
+fn chunk_row_capacity_preserves_style_replay_zero_width_and_empty_rows() {
+    assert_eq!(
+        chunk(&text("\x1b[31ma\u{301}b\x1b[0m\n中"), 1),
+        vec![text("\x1b[31ma\u{301}\x1b[0m"), text("\x1b[31mb\x1b[0m"), text(""), text("中")]
+    );
+    assert_eq!(chunk(&[0xd800, 97, 0xdc00], 1), vec![vec![0xd800], text("a"), vec![0xdc00]]);
+    assert_eq!(chunk(&text("x"), i32::MAX), vec![text("x")]);
+    assert_eq!(chunk(&text("\n"), 80), vec![text(""), text("")]);
+}
+#[test]
 fn tab_columns_count_codepoints_not_cells() {
     assert_eq!(escape(&text("中\tX")), text("中       X"));
     assert_eq!(escape(&[0xd800, 9]), [vec![0xd800], vec![32; 7]].concat());

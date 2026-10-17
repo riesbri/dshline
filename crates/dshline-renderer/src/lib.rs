@@ -281,7 +281,11 @@ pub fn chunk(s: &[u16], n: i32) -> Vec<Text> {
     let budget = n.max(1);
     let mut out = vec![];
     for p in s.split(|c| *c == 10) {
-        let mut row = vec![];
+        // Plain rows previously grew through several allocations per break.
+        // This is only a capacity hint: zero-width text/style replay may still
+        // grow it, and huge direct-library budgets cannot reserve past input.
+        let capacity = p.len().min(budget as usize);
+        let mut row = Vec::with_capacity(capacity);
         let mut used = 0;
         let mut open = vec![];
         for t in tokens(p) {
@@ -301,7 +305,8 @@ pub fn chunk(s: &[u16], n: i32) -> Vec<Text> {
                     append(&mut row, &reset())
                 }
                 out.push(row);
-                row = open.clone();
+                row = Vec::with_capacity(capacity.saturating_add(open.len()));
+                append(&mut row, &open);
                 used = 0
             }
             append(&mut row, t.v);

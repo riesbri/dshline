@@ -49,20 +49,28 @@ try {
 const scratch = mkdtempSync(join(tmpdir(), 'renderer-guard-audit-'))
 const require = createRequire(import.meta.url)
 const rows = []
+let legacyRoot
+let legacyWorktree = false
 try {
   // Recompile the actual reviewed tree, not a hand-maintained approximation.
-  // Reuse identical current Rust bytes to isolate JS guard cost; Rust sources
-  // must remain unchanged. CI fetches this immutable object before running.
+  // Build its own exact old addon as well: the final candidate also removes
+  // repeated row reallocations. Do not relabel today's Rust as the old kernel.
   const legacyCommit = '25a2501bcabada5832860546d225063a5af0b7d3'
-  deepStrictEqual(execFileSync('git', ['diff', legacyCommit, '--', 'crates/dshline-renderer', 'crates/dshline-renderer-node'], { cwd: root, encoding: 'utf8' }), '', 'guard experiment must not change Rust')
-  const legacyRoot = join(scratch, 'reviewed')
-  mkdirSync(legacyRoot)
-  const archive = execFileSync('git', ['archive', legacyCommit, 'package.json', 'tsconfig.base.json', 'packages/renderer/package.json', 'packages/renderer/tsconfig.json', 'packages/renderer/src'], { cwd: root, maxBuffer: 8 * 1024 * 1024 })
-  execFileSync('tar', ['-x', '-C', legacyRoot], { input: archive })
+  const rustSourceUnchanged = execFileSync('git', ['diff', legacyCommit, '--', 'crates/dshline-renderer', 'crates/dshline-renderer-node'], { cwd: root, encoding: 'utf8' }) === ''
+  legacyRoot = join(scratch, 'reviewed')
+  execFileSync('git', ['worktree', 'add', '--detach', legacyRoot, legacyCommit], { cwd: root, stdio: 'pipe' })
+  legacyWorktree = true
   symlinkSync(join(root, 'node_modules'), join(legacyRoot, 'node_modules'), 'dir')
   execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '-p', join(legacyRoot, 'packages/renderer/tsconfig.json')], { stdio: 'pipe' })
   const legacyIdentity = rendererIdentity(legacyRoot)
   deepStrictEqual(legacyIdentity, JSON.parse(readFileSync(join(root, 'benchmarks/renderer-guard-audit-linux-arm64.json'))).identity, 'before graph must match reviewed source/build/compiler')
+  execFileSync(process.execPath, [join(legacyRoot, 'tools/build-renderer-native.mjs'), '--required'], { cwd: legacyRoot, stdio: 'pipe', maxBuffer: 4 * 1024 * 1024 })
+  const legacyBinary = join(legacyRoot, `packages/renderer/native/${platform}.node`)
+  const legacyNativeProof = JSON.parse(readFileSync(join(legacyRoot, `packages/renderer/native/${platform}.provenance.json`)))
+  deepStrictEqual(legacyNativeProof.commit, legacyCommit)
+  ok(legacyNativeProof.cleanInputs)
+  deepStrictEqual(legacyNativeProof.binarySha256, sha(readFileSync(legacyBinary)))
+  deepStrictEqual(legacyNativeProof.inputDigest, JSON.parse(readFileSync(join(root, 'benchmarks/renderer-guard-audit-linux-arm64.json'))).proof.inputDigest)
   const graphs = {}
   for (const name of ['guarded', 'withoutGuards', 'typescript', 'legacyGuarded']) {
     const directory = name === 'legacyGuarded' ? join(legacyRoot, 'packages/renderer') : join(scratch, name)
@@ -70,9 +78,11 @@ try {
       mkdirSync(directory)
       cpSync(join(root, 'packages/renderer/lib'), join(directory, 'lib'), { recursive: true })
     }
-    mkdirSync(join(directory, 'native'))
-    cpSync(binary, join(directory, 'native', `${platform}.node`))
-    writeFileSync(join(directory, 'package.json'), '{"type":"module"}')
+    if (name !== 'legacyGuarded') {
+      mkdirSync(join(directory, 'native'))
+      cpSync(binary, join(directory, 'native', `${platform}.node`))
+      writeFileSync(join(directory, 'package.json'), '{"type":"module"}')
+    }
     if (name === 'withoutGuards') {
       const pattern = /export function regressionGuard\([\s\S]*?\n\}/u
       ok(pattern.test(compiled), 'locate the whole guard function exactly once')
@@ -204,6 +214,10 @@ try {
   deepStrictEqual(readFileSync(compiledFile, 'utf8'), compiled)
   deepStrictEqual(rendererIdentity(), identity)
   deepStrictEqual(proof.inputDigest, await rendererNativeInputsDigest())
-  const result = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), platform, node: process.version, unicode: process.versions.unicode, cpu: cpus()[0]?.model, identity, legacyCommit, legacyIdentity, proof, toolSha256: sha(readFileSync(fileURLToPath(import.meta.url))), compiledSha256: sha(compiled), mutations, equivalence, protocol, procedure: 'Existing historical regression test, unmodified then each named return individually removed from temporary compiled emission (always restored). Four private graphs: fixed guarded auto, auto without regressionGuard, explicit TS, and freshly compiled immutable reviewed 25a2501. All use identical current actual addon bytes; Rust sources unchanged. Fixed-vs-reviewed decision/call counts and exact TS outputs checked. No-guard counterfactual removes only regressionGuard body, not thresholds or Unicode/bounds admission. 26 inputs x8 flattened varying texts; 500 warmups. Default is five rotated passes, five batch means/pass, >=5ms calibration. Interleaved repeat is eleven passes with five batches/variant/pass, rotating order every batch; calibration uses median of three batches to target >=10ms (4194304-call cap), no trimming/filtering. Same reported median-of-pass-medians metric. Guard-only timings include call/loop overhead; no subtraction/tail claim. No tests/builds during timing. Platform is actual executing hardware.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
+  deepStrictEqual(sha(readFileSync(legacyBinary)), legacyNativeProof.binarySha256)
+  const result = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), platform, node: process.version, unicode: process.versions.unicode, cpu: cpus()[0]?.model, identity, legacyCommit, legacyIdentity, legacyNativeProof, rustSourceUnchanged, proof, toolSha256: sha(readFileSync(fileURLToPath(import.meta.url))), compiledSha256: sha(compiled), mutations, equivalence, protocol, procedure: 'Existing historical regression test, unmodified then each named return individually removed from temporary compiled emission (always restored). Four private graphs: fixed guarded auto, current auto without regressionGuard, explicit TS, and freshly compiled immutable reviewed 25a2501 with its own actual old addon and clean proof. Current/native-only graphs share current addon bytes; before is not relabeled to the new kernel. Same pinned toolchain and unchanged compiler policy. Fixed-vs-reviewed decision/call counts and exact TS outputs checked. No-guard counterfactual removes only regressionGuard body, not thresholds or Unicode/bounds admission. 26 inputs x8 flattened varying texts; 500 warmups. Default is five rotated passes, five batch means/pass, >=5ms calibration. Interleaved repeat is eleven passes with five batches/variant/pass, rotating order every batch; calibration uses median of three batches to target >=10ms (4194304-call cap), no trimming/filtering. Same reported median-of-pass-medians metric. Guard-only timings include call/loop overhead; no subtraction/tail claim. No tests/builds during timing. Platform is actual executing hardware.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
   writeFileSync(output, JSON.stringify(result, null, 2) + '\n')
-} finally { rmSync(scratch, { recursive: true, force: true }) }
+} finally {
+  if (legacyWorktree) execFileSync('git', ['worktree', 'remove', '--force', legacyRoot], { cwd: root, stdio: 'pipe' })
+  rmSync(scratch, { recursive: true, force: true })
+}
