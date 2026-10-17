@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import * as widths from '../src/width.ts'
 import type { ScreenTarget } from '../src/index.ts'
 import { Screen } from '../src/index.ts'
 import { createEmulator } from '../../../tests/emulator.ts'
@@ -266,4 +267,147 @@ describe('Screen cursor placement against a real terminal', () => {
     expect(await emulator.scrollback()).toEqual(['new'])
     emulator.dispose()
   })
+})
+
+// Damage is confined to a stable, current live region; geometry changes retain
+// the existing full erase path. These assertions protect both bandwidth and cells.
+describe('Screen row damage', () => {
+  it('writes only changed rows, not unchanged composer chrome', () => {
+    const target = fakeTarget(40)
+    const screen = new Screen(target)
+    screen.setLive(['stream before', 'unchanged composer', 'unchanged status'], { row: 1, column: 2 })
+    target.writes.length = 0
+    screen.setLive(['stream after', 'unchanged composer', 'unchanged status'], { row: 1, column: 2 })
+    expect(target.all()).toContain('stream after')
+    expect(target.all()).not.toContain('unchanged composer')
+    expect(target.all()).not.toContain('unchanged status')
+    expect(target.all()).not.toContain('\u001b[0J')
+  })
+
+  it('moves the cursor without rewriting any unchanged row', () => {
+    const target = fakeTarget()
+    const screen = new Screen(target)
+    screen.setLive(['first', 'second'], { row: 1, column: 2 })
+    target.writes.length = 0
+    screen.setLive(['first', 'second'], { row: 0, column: 3 })
+    expect(target.all()).not.toContain('first')
+    expect(target.all()).not.toContain('second')
+    expect(target.all()).not.toContain('\u001b[0K')
+  })
+
+  it('replaces wide and styled rows without disturbing scrollback or neighboring cells', async () => {
+    const emulator = createEmulator(12, 8)
+    const screen = new Screen(emulator.target)
+    screen.commit(['history'])
+    screen.setLive(['\u001b[31m标准模式\u001b[0m', 'neighbor', 'bottom'], { row: 1, column: 3 })
+    screen.setLive(['\u001b[32me\u0301\u001b[0m', 'neighbor', 'new bottom'], { row: 0, column: 1 })
+    expect(await emulator.screen()).toEqual(['history', 'é', 'neighbor', 'new bottom'])
+    expect(await emulator.cell(0, 1)).toMatchObject({ fg: 2 })
+    expect(await emulator.cell(0, 2)).toMatchObject({ chars: 'n', fg: undefined })
+    expect(await emulator.cursor()).toEqual({ row: 1, column: 1 })
+    screen.commit(['next'])
+    screen.close()
+    expect(await emulator.scrollback()).toEqual(['history', 'next'])
+    emulator.dispose()
+  })
+
+  it('cancels right-margin wrap before moving from a hidden cursor', async () => {
+    const emulator = createEmulator(8, 6)
+    const screen = new Screen(emulator.target)
+    screen.commit(['history'])
+    screen.setLive(['12345678', 'abcdefgh'])
+    screen.setLive(['short', 'abcdefgh'])
+    expect(await emulator.screen()).toEqual(['history', 'short', 'abcdefgh'])
+    screen.setLive(['short', 'xy'], { row: 0, column: 2 })
+    expect(await emulator.screen()).toEqual(['history', 'short', 'xy'])
+    expect(await emulator.cursor()).toEqual({ row: 1, column: 2 })
+    emulator.dispose()
+  })
+
+  it('does a full redraw after invalidation even with the same height', () => {
+    const target = fakeTarget()
+    const screen = new Screen(target)
+    screen.setLive(['old', 'chrome'], { row: 0, column: 0 })
+    screen.markStale()
+    target.writes.length = 0
+    screen.setLive(['new', 'chrome'], { row: 0, column: 0 })
+    expect(target.all()).toContain('\u001b[0J')
+    expect(target.all()).toContain('chrome')
+  })
+})
+
+
+describe('Screen live wrap reuse', () => {
+  it('wraps only new styled strings, and forgets old-width results on resize', () => {
+    const wrap = vi.spyOn(widths, 'wrapToWidth')
+    try {
+      const target = fakeTarget(20)
+      const screen = new Screen(target)
+      screen.setLive(['stream', 'stable chrome'], { row: 1, column: 0 })
+      wrap.mockClear()
+      screen.setLive(['stream grows', 'stable chrome'], { row: 1, column: 0 })
+      expect(wrap.mock.calls.map(call => call[0])).toEqual(['stream grows'])
+      wrap.mockClear()
+      target.resize(10)
+      screen.setLive(['stream grows', 'stable chrome'], { row: 1, column: 0 })
+      expect(wrap.mock.calls.map(call => call[0])).toEqual(['stream grows', 'stable chrome'])
+    } finally {
+      wrap.mockRestore()
+    }
+  })
+
+  it('reuses rows after reordering but does not retain past-frame transcript rows', () => {
+    const wrap = vi.spyOn(widths, 'wrapToWidth')
+    try {
+      const target = fakeTarget(20)
+      const screen = new Screen(target)
+      screen.setLive(['first', 'second'])
+      wrap.mockClear()
+      screen.setLive(['second', 'first'])
+      expect(wrap).not.toHaveBeenCalled()
+      screen.setLive(['third'])
+      wrap.mockClear()
+      screen.setLive(['first'])
+      expect(wrap).toHaveBeenCalledWith('first', 20)
+      screen.close()
+      wrap.mockClear()
+      screen.setLive(['first'])
+      expect(wrap).toHaveBeenCalledWith('first', 20)
+    } finally {
+      wrap.mockRestore()
+    }
+  })
+})
+
+it('matches full redraw cells and cursor through mixed live frames and commits', async () => {
+  const damaged = createEmulator(13, 10)
+  const full = createEmulator(13, 10)
+  const fast = new Screen(damaged.target)
+  const reference = new Screen(full.target)
+  const choices = ['unchanged', '标准模式', '\u001b[31mcolored\u001b[0m', 'e\u0301', '1234567890123', '', 'short']
+  try {
+    for (let frame = 0; frame < 48; frame += 1) {
+      if (frame % 9 === 0) {
+        fast.commit([`commit ${String(frame)}`])
+        reference.commit([`commit ${String(frame)}`])
+      }
+      const count = 1 + Math.floor(frame / 6) % 4
+      const lines = Array.from({ length: count }, (_, row) => choices[(frame + row * 3) % choices.length] ?? '')
+      const cursor = frame % 3 === 0 ? undefined : { row: frame % count, column: frame % 8 }
+      fast.setLive(lines, cursor)
+      // An independent drawing path: force the original full erase/repaint.
+      reference.markStale()
+      reference.setLive(lines, cursor)
+      expect(await damaged.scrollback()).toEqual(await full.scrollback())
+      expect(await damaged.cursor()).toEqual(await full.cursor())
+      for (let row = 0; row < 10; row += 1) {
+        for (let column = 0; column < 13; column += 1) {
+          expect(await damaged.cell(column, row)).toEqual(await full.cell(column, row))
+        }
+      }
+    }
+  } finally {
+    damaged.dispose()
+    full.dispose()
+  }
 })
