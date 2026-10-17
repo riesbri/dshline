@@ -1841,6 +1841,7 @@ async function runSessionEpoch(
     const selected = selection.current
     return {
       busy: agent.status === 'running',
+      sendingAttachments: attachmentAdmission !== undefined,
       tick,
       elapsedMs: turnStartedAt === undefined ? undefined : Date.now() - turnStartedAt,
       activityWord: primaryActivity(phase, cards.semanticActivity()),
@@ -2149,11 +2150,13 @@ async function runSessionEpoch(
   }
   scope.own(stopTicker)
   // The heartbeat runs exactly while the status line shows animated work, and
-  // that is TWO facts rather than one. A typed `/compact` needs an idle agent,
+  // that is more than agent status alone. A typed `/compact` needs an idle agent,
   // so `agent/status` never says `running` for it; driving the beat from that
   // event alone left `compacting` drawn over a frame that never advanced.
+  // Attachment admission likewise waits before an inbox delivery can start a
+  // turn; its local ownership must animate without claiming agent activity.
   syncHeartbeat = (): void => {
-    if (agentRunning || compactionActive()) {
+    if (agentRunning || compactionActive() || attachmentAdmission !== undefined) {
       // Unref so a running heartbeat never keeps the process alive on its own.
       ticker ??= setInterval(() => {
         tick += 1
@@ -2243,6 +2246,8 @@ async function runSessionEpoch(
       }
       const admission = new AbortController()
       attachmentAdmission = admission
+      syncHeartbeat()
+      draw()
       // The immutable snapshot, taken before any await. A draft staged after
       // this line is not part of this message and must survive its success.
       const batch = drafts.items
@@ -2273,7 +2278,13 @@ async function runSessionEpoch(
         }
         return
       } finally {
-        if (attachmentAdmission === admission) attachmentAdmission = undefined
+        if (attachmentAdmission === admission) {
+          attachmentAdmission = undefined
+          if (!scope.closed && attachmentMayAct()) {
+            syncHeartbeat()
+            draw()
+          }
+        }
       }
       // Durable publication may finish after this attachment begins teardown.
       // Never let that stale completion enqueue into the Agent the window has
@@ -2578,6 +2589,8 @@ async function runSessionEpoch(
         }
         admission = new AbortController()
         attachmentAdmission = admission
+        syncHeartbeat()
+        draw()
         // The mutable ledger remains visible for listing, but this command owns
         // precisely the paths present when its admission began. Recording that
         // ownership here, before the read and execute awaits, is what lets the
@@ -2644,7 +2657,13 @@ async function runSessionEpoch(
       draw()
       return
     } finally {
-      if (admission !== undefined && attachmentAdmission === admission) attachmentAdmission = undefined
+      if (admission !== undefined && attachmentAdmission === admission) {
+        attachmentAdmission = undefined
+        if (!scope.closed && attachmentMayAct()) {
+          syncHeartbeat()
+          draw()
+        }
+      }
       if (isCompactionCommand) {
         compactCommandsInFlight -= 1
         syncHeartbeat()
