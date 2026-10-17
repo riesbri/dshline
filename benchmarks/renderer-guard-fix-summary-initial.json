@@ -1,0 +1,1188 @@
+{
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "fe3548248fe784d0231c9ae3bd157a8624c77d1583060db6cf6ca015717f0208",
+    "executedBuild": "4316335cc273984787509abcd3d630ddf2ec907687e20e4f20cb305b992885ab",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "inputDigest": "7ef83b187873b3b9bfb731c57089c25ff6af3dc6ea8a33371432876c92556260",
+  "initial": true,
+  "reportToolSha256": "391f51d6d34a92f5b8f9ac3f4a024518ce221b403ac578a7e0cda3ce00360761",
+  "auditToolSha256": "b013ab1534f1f4e20ff9d2ce89fb7040cb2632f890d6013b32c56d39fd839da2",
+  "procedure": "Medians recomputed from pass medians of five calibrated batch means; initial=5 whole-variant rotated passes, repeat=11 passes with order rotated after every batch, >=10ms calibration. No trimming/filtering and no switch to ratio-of-paired medians for acceptance. Before is freshly compiled 25a2501 using exactly the same actual native bytes as fixed/no-guard/TS; source identities, native proofs, equivalence and individual mutation results checked. No-guard and legacy graphs are benchmark-only. All four defect inputs must remain native-admitted and fixed guarded must not lose to explicit TS on any measured platform. Fresh PTY records require exact producing/received bytes and emulator parity with actual native reachability. Retain every non-defect control whose guarded median is >10% slower than before, without reclassifying it as a pass.",
+  "sources": [
+    {
+      "platform": "linux-arm64",
+      "commit": "4ba66c1e273a1dd3d44a23d039ac7194377caf1c",
+      "node": "v24.18.0",
+      "cpu": "Cortex-A76",
+      "sha256": "569792250c13d901737e7a6d9c5e20a0547985d6a1b133cc04171f671a69ee62",
+      "binarySha256": "7189ef32cc4169a897db554eade05867a372babcdab5270427989edaeaf2fa1f"
+    },
+    {
+      "platform": "darwin-arm64",
+      "commit": "4ba66c1e273a1dd3d44a23d039ac7194377caf1c",
+      "node": "v24.20.0",
+      "cpu": "Apple M1 (Virtual)",
+      "sha256": "064273865a2d6602720fe32a579ef34419ae2fe8d1d2d355023d376bb9f05da6",
+      "binarySha256": "8e2153dc8a20f80c4e16d42ba72fca58eb58b98cb8455d848731631522dc939f"
+    },
+    {
+      "platform": "darwin-x64",
+      "commit": "4ba66c1e273a1dd3d44a23d039ac7194377caf1c",
+      "node": "v24.19.0",
+      "cpu": "Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz",
+      "sha256": "7970af75c45306c1640eb7d2cd74163027e123d4d15b26cd5f7b10ac0191d999",
+      "binarySha256": "bd8aaf0e7e8287643f7a4eb57be35a70d6be88f0353bea9a7bb547aad9830ce3"
+    }
+  ],
+  "equivalence": [
+    {
+      "platform": "linux-arm64",
+      "codePointComparisons": 16711680,
+      "boundaries": {
+        "comparisons": 85302,
+        "texts": 677,
+        "byLength": {
+          "0": 1,
+          "1": 10,
+          "2": 24,
+          "3": 39,
+          "63": 67,
+          "64": 67,
+          "65": 67,
+          "511": 67,
+          "512": 67,
+          "513": 67,
+          "2047": 67,
+          "2048": 67,
+          "2049": 67
+        },
+        "byColumn": {
+          "0": 6093,
+          "1": 6093,
+          "31": 6093,
+          "32": 6093,
+          "33": 6093,
+          "63": 6093,
+          "64": 6093,
+          "65": 6093,
+          "255": 6093,
+          "256": 6093,
+          "257": 6093,
+          "-257": 6093,
+          "-256": 6093,
+          "-1": 6093
+        },
+        "guards": {
+          "ascii-short-width": 2184,
+          "admitted": 71860,
+          "ascii-chunk": 3584,
+          "ascii-wrap": 2816,
+          "ascii-dominant-width": 3108,
+          "ascii-tail": 1750
+        }
+      },
+      "totalComparisons": 16796982
+    },
+    {
+      "platform": "darwin-arm64",
+      "codePointComparisons": 16711680,
+      "boundaries": {
+        "comparisons": 85302,
+        "texts": 677,
+        "byLength": {
+          "0": 1,
+          "1": 10,
+          "2": 24,
+          "3": 39,
+          "63": 67,
+          "64": 67,
+          "65": 67,
+          "511": 67,
+          "512": 67,
+          "513": 67,
+          "2047": 67,
+          "2048": 67,
+          "2049": 67
+        },
+        "byColumn": {
+          "0": 6093,
+          "1": 6093,
+          "31": 6093,
+          "32": 6093,
+          "33": 6093,
+          "63": 6093,
+          "64": 6093,
+          "65": 6093,
+          "255": 6093,
+          "256": 6093,
+          "257": 6093,
+          "-257": 6093,
+          "-256": 6093,
+          "-1": 6093
+        },
+        "guards": {
+          "ascii-short-width": 2184,
+          "admitted": 71860,
+          "ascii-chunk": 3584,
+          "ascii-wrap": 2816,
+          "ascii-dominant-width": 3108,
+          "ascii-tail": 1750
+        }
+      },
+      "totalComparisons": 16796982
+    },
+    {
+      "platform": "darwin-x64",
+      "codePointComparisons": 16711680,
+      "boundaries": {
+        "comparisons": 85302,
+        "texts": 677,
+        "byLength": {
+          "0": 1,
+          "1": 10,
+          "2": 24,
+          "3": 39,
+          "63": 67,
+          "64": 67,
+          "65": 67,
+          "511": 67,
+          "512": 67,
+          "513": 67,
+          "2047": 67,
+          "2048": 67,
+          "2049": 67
+        },
+        "byColumn": {
+          "0": 6093,
+          "1": 6093,
+          "31": 6093,
+          "32": 6093,
+          "33": 6093,
+          "63": 6093,
+          "64": 6093,
+          "65": 6093,
+          "255": 6093,
+          "256": 6093,
+          "257": 6093,
+          "-257": 6093,
+          "-256": 6093,
+          "-1": 6093
+        },
+        "guards": {
+          "ascii-short-width": 2184,
+          "admitted": 71860,
+          "ascii-chunk": 3584,
+          "ascii-wrap": 2816,
+          "ascii-dominant-width": 3108,
+          "ascii-tail": 1750
+        }
+      },
+      "totalComparisons": 16796982
+    }
+  ],
+  "ptyChecks": [
+    {
+      "platform": "linux-arm64",
+      "sha256": "9c763eb6dbc513316b2b89e8737aa2041d06e30888fb0f034ce1c3d696d8486a",
+      "turns": 20,
+      "producingReceivedAndEmulatorParity": true
+    },
+    {
+      "platform": "darwin-arm64",
+      "sha256": "881d3097e5c7aeb3a870edfc9d82ac5c82dc8ba2b6e7e6bdf9a120afdeaf3dc3",
+      "turns": 20,
+      "producingReceivedAndEmulatorParity": true
+    },
+    {
+      "platform": "darwin-x64",
+      "sha256": "4f2b517e0fff0ee69d258aaf3f4dd98ab0742c8366783ff6835dd48cb00fdc2d",
+      "turns": 20,
+      "producingReceivedAndEmulatorParity": true
+    }
+  ],
+  "allTwelveDefectCellsPass": false,
+  "slowerControls": [
+    {
+      "platform": "darwin-arm64",
+      "id": "chunk-gated",
+      "beforeUs": 5.483317382813269,
+      "fixedUs": 6.212564453123903,
+      "ratioOfMedians": 1.1329937735496332,
+      "pairedRatios": [
+        1.1329937735496332,
+        1.071941080944085,
+        0.946373515083422,
+        1.0587428286355802,
+        1.0419529341615028
+      ],
+      "medianPairedRatio": 1.0587428286355802
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "wrap-long-ascii-admitted",
+      "beforeUs": 27.46142578124022,
+      "fixedUs": 30.71695703124533,
+      "ratioOfMedians": 1.1185492434347333,
+      "pairedRatios": [
+        1.1538905188367807,
+        0.9444117992219443,
+        1.046432532551231,
+        0.9697943546927716,
+        1.1328982811473651
+      ],
+      "medianPairedRatio": 1.046432532551231
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "wrap-late-esc-ascii",
+      "beforeUs": 57.76497656250968,
+      "fixedUs": 65.07584374999453,
+      "ratioOfMedians": 1.126562280858428,
+      "pairedRatios": [
+        1.0149257804936063,
+        1.0121544397778752,
+        0.9330512022943747,
+        1.0816211488450052,
+        1.1422482300148629
+      ],
+      "medianPairedRatio": 1.0149257804936063
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "short-width-64",
+      "beforeUs": 0.7514256591800716,
+      "fixedUs": 1.0346844482427286,
+      "ratioOfMedians": 1.3769618266319767,
+      "pairedRatios": [
+        1.0907147064419696,
+        1.271097469507777,
+        1.061941020866608,
+        4.430082406964014,
+        1.6490024733534405
+      ],
+      "medianPairedRatio": 1.271097469507777
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "short-width-512",
+      "beforeUs": 6.082874999997046,
+      "fixedUs": 6.97671093750074,
+      "ratioOfMedians": 1.1469430059805812,
+      "pairedRatios": [
+        0.9591733025752278,
+        1.0140837077196483,
+        1.3155321509319982,
+        2.198139411988028,
+        0.8157353744403633
+      ],
+      "medianPairedRatio": 1.0140837077196483
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "width-middle-single-cjk",
+      "beforeUs": 3.658280273437953,
+      "fixedUs": 5.397301757810169,
+      "ratioOfMedians": 1.475365842524124,
+      "pairedRatios": [
+        0.9091684277986757,
+        0.7929769640573183,
+        0.9428124713864703,
+        5.957157298207735,
+        0.8394623971031581
+      ],
+      "medianPairedRatio": 0.9091684277986757
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "width-dense-cjk",
+      "beforeUs": 13.534236328119675,
+      "fixedUs": 16.028285156266975,
+      "ratioOfMedians": 1.184277026622144,
+      "pairedRatios": [
+        3.3459618972677867,
+        1.040150704631527,
+        1.0607767828710661,
+        0.4872749499091168,
+        1.0088452191321733
+      ],
+      "medianPairedRatio": 1.040150704631527
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "chunk-dense-cjk",
+      "beforeUs": 79.99039062499946,
+      "fixedUs": 93.83212499994899,
+      "ratioOfMedians": 1.1730424650610913,
+      "pairedRatios": [
+        1.1280318827359463,
+        0.5961421184777131,
+        1.1699610451305242,
+        1.3295481754675758,
+        1.4795838512952104
+      ],
+      "medianPairedRatio": 1.1699610451305242
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "wrap-late-cjk",
+      "beforeUs": 107.38817187501581,
+      "fixedUs": 126.48285937495983,
+      "ratioOfMedians": 1.1778099688871457,
+      "pairedRatios": [
+        1.847142212843969,
+        1.0701131976968306,
+        1.344753797187488,
+        1.0636350791694873,
+        1.1318288847175304
+      ],
+      "medianPairedRatio": 1.1318288847175304
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "wrap-dense-cjk",
+      "beforeUs": 117.2938125000087,
+      "fixedUs": 145.68038281242934,
+      "ratioOfMedians": 1.2420125129142556,
+      "pairedRatios": [
+        0.7420292976877034,
+        0.8313485557181213,
+        1.0100665451109716,
+        1.1513011109384028,
+        1.6023264944395812
+      ],
+      "medianPairedRatio": 1.0100665451109716
+    }
+  ],
+  "rows": [
+    {
+      "platform": "linux-arm64",
+      "id": "width-two-cjk-far-apart",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuarded": 21.609328125009597,
+        "guardOnly": 0.17212841796876432,
+        "noGuardProbe": 0.017074825286872434,
+        "guarded": 3.592023925779841,
+        "withoutGuards": 3.3731010742208407,
+        "typescript": 15.003083984382213,
+        "legacyGuardOnly": 18.10514062498214
+      },
+      "beforeOverFixed": 6.015919874564347,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "width-short-two-cjk-far-apart",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guarded": 1.4388134765610516,
+        "withoutGuards": 1.2349001464855291,
+        "typescript": 3.9733295898436434,
+        "legacyGuardOnly": 4.628807128906232,
+        "legacyGuarded": 5.964239257814087,
+        "guardOnly": 0.148693847656256,
+        "noGuardProbe": 0.0171855583190883
+      },
+      "beforeOverFixed": 4.1452483973595955,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "tail-late-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuardOnly": 18.03262304687792,
+        "legacyGuarded": 35.937421874990605,
+        "guardOnly": 0.039325599670403395,
+        "noGuardProbe": 0.01710569763183067,
+        "guarded": 17.79376171874958,
+        "withoutGuards": 17.748476562502443,
+        "typescript": 65.29117187494649
+      },
+      "beforeOverFixed": 2.0196641071754238,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "chunk-late-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guarded": 48.50646093757405,
+        "withoutGuards": 48.84239843750038,
+        "typescript": 56.79356249999045,
+        "legacyGuardOnly": 18.202726562492444,
+        "legacyGuarded": 66.71189843746106,
+        "guardOnly": 0.02785909271241227,
+        "noGuardProbe": 0.01716895866393786
+      },
+      "beforeOverFixed": 1.3753198470471122,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "width-long-ascii",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "typescript": 14.103156250001803,
+        "legacyGuardOnly": 0.02748970413207763,
+        "legacyGuarded": 3.3544824218765257,
+        "guardOnly": 0.07062035369875817,
+        "noGuardProbe": 0.017142536163333725,
+        "guarded": 3.4210883789072,
+        "withoutGuards": 3.339011230467648
+      },
+      "beforeOverFixed": 0.9805307698446685,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "width-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guardOnly": 0.17143951416009884,
+        "noGuardProbe": 0.01709658432007266,
+        "guarded": 8.645847656254091,
+        "withoutGuards": 8.445596679685252,
+        "typescript": 171.0450468750082,
+        "legacyGuardOnly": 0.13565226745604345,
+        "legacyGuarded": 8.641164062503037
+      },
+      "beforeOverFixed": 0.9994582840298295,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "width-short-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "noGuardProbe": 0.017116258621219238,
+        "guarded": 2.6921689453089925,
+        "withoutGuards": 2.4922885742206797,
+        "typescript": 42.88228906250424,
+        "legacyGuardOnly": 0.13137525939943548,
+        "legacyGuarded": 2.716818359374429,
+        "guardOnly": 0.1475771179200169
+      },
+      "beforeOverFixed": 1.0091559685020464,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "tail-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuarded": 19.418195312510985,
+        "guardOnly": 0.03648250198365344,
+        "noGuardProbe": 0.017077863693232272,
+        "guarded": 19.341767578112012,
+        "withoutGuards": 19.522326171866666,
+        "typescript": 226.60104687503235,
+        "legacyGuardOnly": 0.056509254455550106
+      },
+      "beforeOverFixed": 1.0039514348463923,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "chunk-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "withoutGuards": 60.7266015625214,
+        "typescript": 225.88560937498414,
+        "legacyGuardOnly": 0.05609994506838856,
+        "legacyGuarded": 61.8209453124905,
+        "guardOnly": 0.025426288604746272,
+        "noGuardProbe": 0.017151403427118073,
+        "guarded": 60.703601562465785
+      },
+      "beforeOverFixed": 1.0184065479026798,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "wrap-long-ascii-admitted",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuardOnly": 0.12842689514158678,
+        "legacyGuarded": 62.35249218747186,
+        "guardOnly": 0.13278614807132882,
+        "noGuardProbe": 0.017116222381582946,
+        "guarded": 62.514382812480555,
+        "withoutGuards": 61.89226562497651,
+        "typescript": 179.30235156245544
+      },
+      "beforeOverFixed": 0.9974103459439997,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "wrap-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "noGuardProbe": 0.017114068984983022,
+        "guarded": 86.43514062498524,
+        "withoutGuards": 85.76789843749566,
+        "typescript": 362.5442421875959,
+        "legacyGuardOnly": 0.21659118652328502,
+        "legacyGuarded": 86.66677343751418,
+        "guardOnly": 0.2233085021974279
+      },
+      "beforeOverFixed": 1.002679845382955,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "linux-arm64",
+      "id": "fit-ascii-no-guard",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "typescript": 15.58616992187467,
+        "legacyGuardOnly": 0.022787204742413802,
+        "legacyGuarded": 2.585044433594419,
+        "guardOnly": 0.0208150634765647,
+        "noGuardProbe": 0.01708326721190645,
+        "guarded": 2.586500488281018,
+        "withoutGuards": 2.5812651367189687
+      },
+      "beforeOverFixed": 0.9994370560944427,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "width-two-cjk-far-apart",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuarded": 10.216146484374633,
+        "guardOnly": 0.0775286407470599,
+        "noGuardProbe": 0.006387074470520088,
+        "guarded": 1.6690979003906037,
+        "withoutGuards": 1.6528420410155675,
+        "typescript": 5.71415136718656,
+        "legacyGuardOnly": 8.452392578126577
+      },
+      "beforeOverFixed": 6.120759292779556,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "width-short-two-cjk-far-apart",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guarded": 0.6031774291992419,
+        "withoutGuards": 0.5354461669921928,
+        "typescript": 1.4479267578124677,
+        "legacyGuardOnly": 2.1896770019527168,
+        "legacyGuarded": 2.53053808593684,
+        "guardOnly": 0.0663140640258797,
+        "noGuardProbe": 0.0065947771072383254
+      },
+      "beforeOverFixed": 4.195346117802016,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "tail-late-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuardOnly": 8.37915039062409,
+        "legacyGuarded": 16.97249218750585,
+        "guardOnly": 0.015969514846801702,
+        "noGuardProbe": 0.0062226848602277285,
+        "guarded": 8.70931054687496,
+        "withoutGuards": 7.653442382810737,
+        "typescript": 22.59147265624506
+      },
+      "beforeOverFixed": 1.9487756345530534,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "chunk-late-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guarded": 20.072593750001033,
+        "withoutGuards": 21.68489843751331,
+        "typescript": 22.836425781264328,
+        "legacyGuardOnly": 8.487875000000146,
+        "legacyGuarded": 27.270019531272283,
+        "guardOnly": 0.010147729873663526,
+        "noGuardProbe": 0.006243507385247926
+      },
+      "beforeOverFixed": 1.3585697927688531,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "width-long-ascii",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "typescript": 5.684773437499402,
+        "legacyGuardOnly": 0.01032757759094477,
+        "legacyGuarded": 1.6575825195310756,
+        "guardOnly": 0.03911940765380373,
+        "noGuardProbe": 0.00659195613861123,
+        "guarded": 1.7210998535155397,
+        "withoutGuards": 1.6320495605466336
+      },
+      "beforeOverFixed": 0.9630949163962086,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "width-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guardOnly": 0.08199565124514252,
+        "noGuardProbe": 0.00625364017486571,
+        "guarded": 4.514526367184857,
+        "withoutGuards": 4.4317626953125355,
+        "typescript": 60.97265624998727,
+        "legacyGuardOnly": 0.04958534240723233,
+        "legacyGuarded": 4.304300781249993
+      },
+      "beforeOverFixed": 0.953433523511359,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "width-short-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "noGuardProbe": 0.006323258399963672,
+        "guarded": 1.2447609863279752,
+        "withoutGuards": 1.2187296142576187,
+        "typescript": 14.052816406262991,
+        "legacyGuardOnly": 0.050611808776857004,
+        "legacyGuarded": 1.27333569335919,
+        "guardOnly": 0.06497255706786054
+      },
+      "beforeOverFixed": 1.0229559789751361,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "tail-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuarded": 8.178059570312257,
+        "guardOnly": 0.014686981201168792,
+        "noGuardProbe": 0.006660619735717951,
+        "guarded": 8.986001953124045,
+        "withoutGuards": 8.945556640625798,
+        "typescript": 79.06282812501786,
+        "legacyGuardOnly": 0.021983303070065296
+      },
+      "beforeOverFixed": 0.9100887817489399,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "chunk-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "withoutGuards": 25.579261718746693,
+        "typescript": 88.59570312500864,
+        "legacyGuardOnly": 0.021331626892107103,
+        "legacyGuarded": 25.54850390625063,
+        "guardOnly": 0.01014105606078966,
+        "noGuardProbe": 0.006586074829104116,
+        "guarded": 25.807128906251364
+      },
+      "beforeOverFixed": 0.9899785442642522,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "wrap-long-ascii-admitted",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuardOnly": 0.06804466247556375,
+        "legacyGuarded": 27.46142578124022,
+        "guardOnly": 0.07382264709476784,
+        "noGuardProbe": 0.0061185760498044806,
+        "guarded": 30.71695703124533,
+        "withoutGuards": 26.989582031234246,
+        "typescript": 61.50325000001544
+      },
+      "beforeOverFixed": 0.8940151771318501,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "wrap-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "noGuardProbe": 0.006728252410888313,
+        "guarded": 37.20637890625511,
+        "withoutGuards": 35.43441015625604,
+        "typescript": 138.58007812500261,
+        "legacyGuardOnly": 0.11952655029295878,
+        "legacyGuarded": 37.38053515625239,
+        "guardOnly": 0.12780380249022283
+      },
+      "beforeOverFixed": 1.00468081697593,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-arm64",
+      "id": "fit-ascii-no-guard",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "typescript": 6.223347656252543,
+        "legacyGuardOnly": 0.008453567504881911,
+        "legacyGuarded": 0.9074960937498487,
+        "guardOnly": 0.007835785865783346,
+        "noGuardProbe": 0.006230990409850784,
+        "guarded": 0.9958852539062591,
+        "withoutGuards": 0.9249572753908808
+      },
+      "beforeOverFixed": 0.9112456381799883,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "width-two-cjk-far-apart",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuarded": 25.03122656250412,
+        "guardOnly": 0.1967904052735392,
+        "noGuardProbe": 0.02210918998718503,
+        "guarded": 7.185598632812429,
+        "withoutGuards": 5.01457324218535,
+        "typescript": 21.986472656237765,
+        "legacyGuardOnly": 27.185105468788606
+      },
+      "beforeOverFixed": 3.4835269601896686,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "width-short-two-cjk-far-apart",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guarded": 1.1963198242188608,
+        "withoutGuards": 1.369022460937508,
+        "typescript": 5.021587890624346,
+        "legacyGuardOnly": 4.661885742187622,
+        "legacyGuarded": 6.88580175781084,
+        "guardOnly": 0.13119313049314574,
+        "noGuardProbe": 0.01624368286133604
+      },
+      "beforeOverFixed": 5.755820156459362,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "tail-late-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuardOnly": 18.94629296874939,
+        "legacyGuarded": 46.40560937502869,
+        "guardOnly": 0.02846209716797499,
+        "noGuardProbe": 0.011134746551511032,
+        "guarded": 32.095749999996315,
+        "withoutGuards": 32.21045312500337,
+        "typescript": 64.06633593746847
+      },
+      "beforeOverFixed": 1.4458490415408276,
+      "guardedAtMostTS": true,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "chunk-late-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guarded": 72.68693750000921,
+        "withoutGuards": 68.80589843751748,
+        "typescript": 62.01237499999479,
+        "legacyGuardOnly": 16.813265625003737,
+        "legacyGuarded": 86.81880468748204,
+        "guardOnly": 0.023593025207546692,
+        "noGuardProbe": 0.01463691139219625
+      },
+      "beforeOverFixed": 1.1944210015378767,
+      "guardedAtMostTS": false,
+      "isDefect": true
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "width-long-ascii",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "typescript": 22.495054687482256,
+        "legacyGuardOnly": 0.029378326416029665,
+        "legacyGuarded": 3.729981445303565,
+        "guardOnly": 0.08163205718991762,
+        "noGuardProbe": 0.01600112533569481,
+        "guarded": 2.5612341308596243,
+        "withoutGuards": 3.416676757812098
+      },
+      "beforeOverFixed": 1.456321934946133,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "width-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "guardOnly": 0.20669415283203207,
+        "noGuardProbe": 0.014583736419687687,
+        "guarded": 16.028285156266975,
+        "withoutGuards": 11.658412109369465,
+        "typescript": 162.72046093752124,
+        "legacyGuardOnly": 0.2246043701168432,
+        "legacyGuarded": 13.534236328119675
+      },
+      "beforeOverFixed": 0.8443970266418589,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "width-short-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "noGuardProbe": 0.018067092895507345,
+        "guarded": 3.8518706054677665,
+        "withoutGuards": 3.2841899414055575,
+        "typescript": 41.88555468749655,
+        "legacyGuardOnly": 0.17634777832054027,
+        "legacyGuarded": 4.576968261718051,
+        "guardOnly": 0.1408024749756098
+      },
+      "beforeOverFixed": 1.1882455903947036,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "tail-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuarded": 34.87136328126894,
+        "guardOnly": 0.04021661376954477,
+        "noGuardProbe": 0.01582637023922473,
+        "guarded": 23.928480468754284,
+        "withoutGuards": 22.998835937499965,
+        "typescript": 207.58584375005285,
+        "legacyGuardOnly": 0.05201824188233451
+      },
+      "beforeOverFixed": 1.4573162439965142,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "chunk-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "withoutGuards": 78.39013281250118,
+        "typescript": 213.03626562502131,
+        "legacyGuardOnly": 0.04850719451904296,
+        "legacyGuarded": 79.99039062499946,
+        "guardOnly": 0.019872776031493178,
+        "noGuardProbe": 0.01966775131226339,
+        "guarded": 93.83212499994899
+      },
+      "beforeOverFixed": 0.852484057299597,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "wrap-long-ascii-admitted",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "legacyGuardOnly": 0.07521372985841436,
+        "legacyGuarded": 127.84209375001866,
+        "guardOnly": 0.09051704406748406,
+        "noGuardProbe": 0.017734729766849533,
+        "guarded": 97.21662499998727,
+        "withoutGuards": 99.13537500005987,
+        "typescript": 136.73825000000764
+      },
+      "beforeOverFixed": 1.315022957750646,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "wrap-dense-cjk",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "noGuardProbe": 0.013783912658688058,
+        "guarded": 145.68038281242934,
+        "withoutGuards": 143.7548124999921,
+        "typescript": 383.06099999999793,
+        "legacyGuardOnly": 0.13198019409221828,
+        "legacyGuarded": 117.2938125000087,
+        "guardOnly": 0.11820851135269095
+      },
+      "beforeOverFixed": 0.8051448673843083,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    },
+    {
+      "platform": "darwin-x64",
+      "id": "fit-ascii-no-guard",
+      "guard": null,
+      "calls": {
+        "guarded": 8,
+        "withoutGuards": 8,
+        "typescript": 0,
+        "legacyGuarded": 8
+      },
+      "timingsUs": {
+        "typescript": 26.48348046875526,
+        "legacyGuardOnly": 0.020902313232401545,
+        "legacyGuarded": 5.02331884765539,
+        "guardOnly": 0.02268297195434643,
+        "noGuardProbe": 0.0165997886657776,
+        "guarded": 3.2054853515646187,
+        "withoutGuards": 3.0484038085916154
+      },
+      "beforeOverFixed": 1.5671008589084567,
+      "guardedAtMostTS": true,
+      "isDefect": false
+    }
+  ]
+}

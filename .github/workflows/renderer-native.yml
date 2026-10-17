@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           git fetch --no-tags --depth=1 origin 25a2501bcabada5832860546d225063a5af0b7d3
-          node tools/renderer-guard-audit.mjs "$RUNNER_TEMP/renderer-guard-audit.json"
+          node tools/renderer-guard-audit.mjs "$RUNNER_TEMP/renderer-guard-audit.json" --interleaved
       - name: build same-toolchain baseline (macOS)
         if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch'
         working-directory: .renderer-baseline

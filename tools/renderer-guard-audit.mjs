@@ -13,7 +13,8 @@ import { legacyGuard, compareCodePoints, compareBoundaries } from './renderer-gu
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const output = process.argv[2]
-ok(output && process.argv.length === 3, 'usage: node tools/renderer-guard-audit.mjs output.json')
+const interleaved = process.argv[3] === '--interleaved'
+ok(output && (process.argv.length === 3 || process.argv.length === 4 && interleaved), 'usage: node tools/renderer-guard-audit.mjs output.json [--interleaved]')
 const identity = rendererIdentity(), platform = `${process.platform}-${process.arch}`
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 const binary = join(root, `packages/renderer/native/${platform}.node`)
@@ -157,10 +158,9 @@ try {
     }
     deepStrictEqual(row.calls.guarded, row.calls.legacyGuarded, 'guard fix must not widen native admission')
   }
-  // Phase is sequential: no tests/builds overlap these calibrated batches.
-  for (let pass = 0; pass < 5; pass++) for (let index = 0; index < rows.length; index++) {
-    const row = rows[index], { op, corpus, columns } = row, g = graphs.guarded, n = graphs.withoutGuards
-    const variants = {
+  const variantsFor = ({ op, corpus, columns }) => {
+    const g = graphs.guarded, n = graphs.withoutGuards
+    return {
       guardOnly: i => g.primitives.regressionGuard(op, corpus[i % 8], columns),
       noGuardProbe: i => n.primitives.regressionGuard(op, corpus[i % 8], columns),
       guarded: i => g.api[op](corpus[i % 8], columns),
@@ -169,6 +169,34 @@ try {
       legacyGuardOnly: i => graphs.legacyGuarded.primitives.regressionGuard(op, corpus[i % 8], columns),
       legacyGuarded: i => graphs.legacyGuarded.api[op](corpus[i % 8], columns),
     }
+  }
+  // Interleave *each batch*, not just whole passes. A predeclared longer repeat
+  // checks the noisy Intel result without deleting its losing first-run data.
+  const protocol = { interleaved, passes: interleaved ? 11 : 5, batchesPerPass: 5, targetBatchNs: interleaved ? 1e7 : 5e6 }
+  if (interleaved) for (let index = 0; index < rows.length; index++) {
+    const row = rows[index], variants = variantsFor(row), names = Object.keys(variants), counts = {}
+    for (const name of names) {
+      batch(variants[name], 500)
+      let count = 128
+      while (count < 4194304) {
+        const means = Array.from({ length: 3 }, () => batch(variants[name], count)).sort((a, b) => a - b)
+        if (means[1] * count >= protocol.targetBatchNs) break
+        count *= 2
+      }
+      counts[name] = count
+    }
+    for (let pass = 0; pass < protocol.passes; pass++) {
+      const means = Object.fromEntries(names.map(name => [name, []]))
+      for (let block = 0; block < protocol.batchesPerPass; block++) {
+        const offset = (pass + index + block) % names.length
+        for (const name of [...names.slice(offset), ...names.slice(0, offset)]) means[name].push(batch(variants[name], counts[name]))
+      }
+      for (const name of names) (row.timings[name] ??= []).push({ count: counts[name], means: means[name], medianNs: [...means[name]].sort((a, b) => a - b)[2] })
+    }
+    console.error(`Interleaved guard timing: workload ${index + 1}/${rows.length}, ${protocol.passes} passes`)
+  }
+  else for (let pass = 0; pass < 5; pass++) for (let index = 0; index < rows.length; index++) {
+    const row = rows[index], variants = variantsFor(row)
     const order = Object.keys(variants), offset = (pass + index) % order.length
     for (const name of [...order.slice(offset), ...order.slice(0, offset)]) (row.timings[name] ??= []).push(measure(variants[name]))
     if (index === rows.length - 1) console.error(`Guard overhead: pass ${pass + 1}/5`)
@@ -176,6 +204,6 @@ try {
   deepStrictEqual(readFileSync(compiledFile, 'utf8'), compiled)
   deepStrictEqual(rendererIdentity(), identity)
   deepStrictEqual(proof.inputDigest, await rendererNativeInputsDigest())
-  const result = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), platform, node: process.version, unicode: process.versions.unicode, cpu: cpus()[0]?.model, identity, legacyCommit, legacyIdentity, proof, toolSha256: sha(readFileSync(fileURLToPath(import.meta.url))), compiledSha256: sha(compiled), mutations, equivalence, procedure: 'Existing historical regression test, unmodified then each named return individually removed from temporary compiled emission (always restored). Four private graphs: fixed guarded auto, auto without regressionGuard, explicit TS, and freshly compiled immutable reviewed 25a2501. All use identical current actual addon bytes; Rust sources unchanged. Fixed-vs-reviewed decision/call counts and exact TS outputs checked. No-guard counterfactual removes only regressionGuard body, not thresholds or Unicode/bounds admission. 26 inputs x8 flattened varying texts, 500 warmups, >=5ms calibrated batches, five batch means x5 rotated passes. Guard-only timings include call/loop overhead; no subtraction/tail claim. No tests/builds during timing. Platform is actual executing hardware.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
+  const result = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), platform, node: process.version, unicode: process.versions.unicode, cpu: cpus()[0]?.model, identity, legacyCommit, legacyIdentity, proof, toolSha256: sha(readFileSync(fileURLToPath(import.meta.url))), compiledSha256: sha(compiled), mutations, equivalence, protocol, procedure: 'Existing historical regression test, unmodified then each named return individually removed from temporary compiled emission (always restored). Four private graphs: fixed guarded auto, auto without regressionGuard, explicit TS, and freshly compiled immutable reviewed 25a2501. All use identical current actual addon bytes; Rust sources unchanged. Fixed-vs-reviewed decision/call counts and exact TS outputs checked. No-guard counterfactual removes only regressionGuard body, not thresholds or Unicode/bounds admission. 26 inputs x8 flattened varying texts; 500 warmups. Default is five rotated passes, five batch means/pass, >=5ms calibration. Interleaved repeat is eleven passes with five batches/variant/pass, rotating order every batch; calibration uses median of three batches to target >=10ms (4194304-call cap), no trimming/filtering. Same reported median-of-pass-medians metric. Guard-only timings include call/loop overhead; no subtraction/tail claim. No tests/builds during timing. Platform is actual executing hardware.', checksum, rows: rows.map(({ corpus, ...row }) => row) }
   writeFileSync(output, JSON.stringify(result, null, 2) + '\n')
 } finally { rmSync(scratch, { recursive: true, force: true }) }
