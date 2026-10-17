@@ -16,6 +16,14 @@ Admission limits: 2048 UTF-16 units per string; 64 entries per collection, call 
 
 The pure markdown ABI success envelope is exactly `{ok:true,value:{state,rows}}`; failure is `{ok:false,error:{code,fallbackEligible:false}}`, with code only `INVALID_INPUT`, `RESOURCE_LIMIT` or `BACKEND_FAILURE`. Validate inputs, outputs and aggregate budgets; output overrun returns RESOURCE_LIMIT without partial values. The capture CLI uses the same outer shape but value is the complete capture and reference-tool failure code is `REFERENCE_FAILURE`; errors contain no raw content. Low-level `capture` may throw; `captureResult` is the stable result interface. Neither auto nor forced rust may send admission failures or native resource errors to unchecked TS; auto may choose TS for an already-admitted request when the backend is unavailable. Forced rust backend unavailability returns BACKEND_FAILURE. Direct existing TS API calls are not constrained by the new schema. Phase 1 specifies this selection policy without implementing a selector.
 
+Current public selector exception: in opt-in auto, an admitted direct leaf's
+normalized `BACKEND_FAILURE` (including caught panic or malformed response)
+gets exactly one call to the existing TS oracle under a scoped TS-only selection.
+`RESOURCE_LIMIT` and `INVALID_INPUT` still surface without retry. Forced rust
+still throws all admitted native errors. Raw normalized ABI errors and their
+`fallbackEligible:false` envelope are unchanged. Classification and recovery live
+in `native-primitives.ts`; see [the recovery policy and tests](renderer-auto-recovery.md).
+
 ## Unicode and UTF-16
 
 Use `packages/renderer/src/width-tables.ts` as the authoritative wide/zero-width ranges, not a library's grapheme widths. C0/C1 controls have zero width; printable ASCII one; zero-width ranges zero; W/F ranges two; everything else one. Supplementary-plane characters are not uniformly one column: emoji may be two, supplementary letters one. Width is a sum of code points, not extended grapheme clusters. ZWJ families, modifiers and regional indicators retain the existing individual widths. No Unicode normalization is allowed.

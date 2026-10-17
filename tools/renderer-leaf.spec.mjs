@@ -18,7 +18,8 @@ if (process.env.DSHLINE_REQUIRE_NATIVE === '1' && !available) throw Error('Requi
 function isolated(script) {
   const scratch = mkdtempSync(join(tmpdir(), 'renderer-leaf-test-'))
   try {
-    cpSync(join(root, 'packages/renderer/lib'), join(scratch, 'lib'), { recursive: true })
+    // A fault audit supplies a disposable compiled graph; the verified root stays intact.
+    cpSync(process.env.DSHLINE_TEST_RENDERER_LIB ?? join(root, 'packages/renderer/lib'), join(scratch, 'lib'), { recursive: true })
     mkdirSync(join(scratch, 'native'))
     writeFileSync(join(scratch, 'native', addonName), 'test addon')
     writeFileSync(join(scratch, 'package.json'), '{"type":"module"}')
@@ -105,6 +106,7 @@ describe('cycle-free native host leaves', () => {
         if(row.op==='frame')m.frame([row.text],{width:row.columns,border:s=>'\u001b[32m'+s+'\u001b[0m'})
         else m[row.op](row.text,row.columns)
       }
+      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')
       process.stdout.write(JSON.stringify({initial,calls}))
     `)).toEqual({ initial: 'typescript', calls: 0 })
   })
@@ -133,7 +135,27 @@ describe('cycle-free native host leaves', () => {
     expect(graph.get('width.js')).toEqual(['width-tables.js'])
     expect(graph.get('native-primitives.js')).toEqual(['width.js', 'width-tables.js'])
   })
-  it('routes Screen and callback frames through the same mode-aware leaves without native error retry', () => {
+  it('recovers Screen and callback-frame leaf panics with exactly the TS writes and callback order', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      import {deepStrictEqual,equal,ok} from 'node:assert/strict'
+      const calls={}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true})
+      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},...Object.fromEntries(['displayWidth','wrapToWidth','fitToWidth'].map(op=>[op,()=>{calls[op]=(calls[op]??0)+1;throw Error('BACKEND_FAILURE')}]))}}
+      const m=await import('./lib/index.js'),source=('中\\ud800e\\u0301').repeat(100)
+      const render=()=>{
+        const writes=[],observations=[],screen=new m.Screen({columns:()=>80,write:chunk=>writes.push(chunk)})
+        screen.setLive([source]);screen.commit([source]);screen.close()
+        const frame=m.frame([source],{width:80,border:s=>{observations.push(s);return s}})
+        return {writes,observations,frame}
+      }
+      const expected=render();deepStrictEqual(calls,{})
+      m.setRendererBackend('auto');deepStrictEqual(render(),expected);equal(m.rendererBackend(),'auto')
+      ok(calls.wrapToWidth>0);ok(calls.displayWidth>0)
+      process.stdout.write(JSON.stringify({exact:true,nativeAttempted:true}))
+    `)).toEqual({ exact: true, nativeAttempted: true })
+  })
+  it('routes Screen and callback frames through the same mode-aware leaves without retrying terminal errors', () => {
     expect(isolated(`
       import Module from 'node:module'
       let calls=0

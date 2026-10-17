@@ -2,5 +2,5 @@
 # as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-docs --write docs/renderer-performance.md
-renderer-performance.md: ca220faa48890eebad08488723fc2e6bc4184b69
-renderer-performance.zh.md: 3a4c493c5ff70debcb95214f4f44bf0a24d5dbe4
+renderer-performance.md: 1fe4ea88dbccf48cddb5a7fbccee53aee119e102
+renderer-performance.zh.md: bc8569c82ab925ba4ee1c131f7a732346ac8c264

@@ -60,7 +60,9 @@ or general Node vulnerability is established here.
 
 The existing auto thresholds, 2048-unit input ceiling and ±256-column budget
 remain unchanged. Missing artifacts and unsupported host values select TS before
-execution; admitted native errors propagate without TS retry. Explicit TS mode
+execution. Auto recovers admitted backend/panic failures once under TS-only
+selection; caller resource/input errors and all forced-rust errors still propagate
+without retry ([policy](renderer-auto-recovery.md)). Explicit TS mode
 never calls the addon, including inside Screen/frame. Forced Rust still permits
 host callbacks, but their admitted scalar leaf work now reaches the same native
 selector rather than a separate host implementation.

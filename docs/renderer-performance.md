@@ -77,8 +77,10 @@ Public-path comparison (ASCII inputs; streaming uses styled bilingual prose):
 | Composite boxes/frames/SGR and Markdown | TypeScript; JSON Rust remains explicitly forceable within admission |
 
 A short-circuit to TypeScript occurs before reading unsupported host objects or
-calling native code. Once admitted native work fails, it is not retried through
-an unbounded fallback. Required-rust mode forces admitted pure work, not host-only
+calling native code. Caller resource/input errors are never retried. Auto now
+recovers an admitted backend/panic failure once through a scoped TS oracle;
+see [the recovery policy](renderer-auto-recovery.md). Required rust still throws
+admitted native failures. It forces admitted pure work, not host-only
 callbacks or public values outside the bounded native subset; those select TS
 before admission. Broader native use needs new boundary measurements, not
 an assumption that a faster isolated kernel wins end to end. Screen, terminal

@@ -84,7 +84,9 @@ export function setRendererBackend(backend: RendererBackend): () => void {
  * @returns current selection.
  */
 export function rendererBackend(): RendererBackend { return selection }
-/** Create a non-retryable native boundary error. @param code - Bounded error code. @returns Typed error. */
+/** Create a surfaced boundary error; auto may consume BACKEND_FAILURE internally.
+ * @param code - Bounded error code. @returns Typed error.
+ */
 export function failure(code: string): Error { return Object.assign(new Error(`renderer: ${code}`), { code, fallbackEligible: false }) }
 /** Load the optional process addon once. @returns The guarded addon or undefined. */
 export function load(): Addon | undefined {
@@ -111,10 +113,24 @@ export const boundedString = (v: unknown): v is string => typeof v === 'string' 
 /** Admit an integer budget without coercion. @param v - Caller input. @returns Whether the budget is bounded. */
 export const boundedColumns = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && Math.abs(v) <= MAX_COLUMNS
 
-/** Normalize a native throw without reference retry. @param error - Native failure. @returns Typed error. */
+/** Classify native throws: explicit caller codes are terminal; other failures are backend failures.
+ * @param error - Native failure. @returns Typed error without native payload contents.
+ */
 export function nativeFailure(error: unknown): Error {
-  const message = error instanceof Error ? error.message : ''
-  return failure(['RESOURCE_LIMIT', 'INVALID_INPUT'].includes(message) ? message : 'BACKEND_FAILURE')
+  // napi-rs uses code=GenericFailure and puts our bounded code in message.
+  // Also preserve typed caller errors rather than turning them into a retry.
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined
+  const message = error instanceof Error ? error.message : error
+  for (const value of [code, message]) if (value === 'RESOURCE_LIMIT' || value === 'INVALID_INPUT') return failure(value)
+  return failure('BACKEND_FAILURE')
+}
+function recover<T>(error: unknown, reference: () => T): T {
+  if (selection !== 'auto' || !(error instanceof Error) || !('code' in error) || error.code !== 'BACKEND_FAILURE') throw error
+  // Fit's oracle calls mode-aware width helpers. Pin the entire synchronous
+  // retry to TS so nested leaves cannot re-enter the failing native backend.
+  const previous = selection
+  selection = 'typescript'
+  try { return reference() } finally { selection = previous }
 }
 function invokeFast<T extends FastResult>(native: Addon, op: FastOperation, source: string, columns?: number): T {
   const method = native[op]
@@ -136,7 +152,8 @@ export function unary<T extends number | string>(op: FastOperation, reference: (
       return reference(source)
     }
     if (!addonUnicodeMatches) return reference(source)
-    return invokeFast<T>(native, op, source)
+    try { return invokeFast<T>(native, op, source) }
+    catch (error) { return recover(error, () => reference(source)) }
   }
 }
 /** Bind guarded text/budget dispatch. @param op - Direct operation. @param reference - TS oracle. @returns Mode-aware primitive. */
@@ -153,7 +170,8 @@ export function cut<T extends string | string[]>(op: FastOperation, reference: (
       return reference(source, columns)
     }
     if (!addonUnicodeMatches) return reference(source, columns)
-    return invokeFast<T>(native, op, source, columns)
+    try { return invokeFast<T>(native, op, source, columns) }
+    catch (error) { return recover(error, () => reference(source, columns)) }
   }
 }
 /** Backend-dispatched codePointWidth; preserves the reference signature. */

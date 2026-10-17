@@ -38,7 +38,7 @@ try {
     const transcript = result.stdout + result.stderr
     ok(!result.error && !result.signal, 'test must run, not fail to launch')
     if (guard) {
-      ok(result.status !== 0 && transcript.includes('must stay TS') && transcript.includes('BACKEND_FAILURE'), `${guard}: guard removal must reach the forbidden native transformation`)
+      ok(result.status !== 0 && transcript.includes('must stay TS:'), `${guard}: guard removal must reach the forbidden native transformation count assertion`)
     } else deepStrictEqual(result.status, 0, transcript)
     const witness = transcript.split('\n').filter(line => /must stay TS|BACKEND_FAILURE|Test Files|Tests\s|FAIL.*gates every/u.test(line)).map(line => line.slice(0, 240)).slice(-10)
     mutations.push({ guard, status: result.status, transcriptSha256: sha(transcript), witness })

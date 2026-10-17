@@ -25,7 +25,8 @@ if (process.env.DSHLINE_REQUIRE_NATIVE === '1' && !available) throw new Error('R
 function isolated(script, nativeBytes) {
   const scratch = mkdtempSync(join(tmpdir(), 'renderer-selection-test-'))
   try {
-    cpSync(join(root, 'packages/renderer/lib'), join(scratch, 'lib'), { recursive: true })
+    // A fault audit supplies a disposable compiled graph; the verified root stays intact.
+    cpSync(process.env.DSHLINE_TEST_RENDERER_LIB ?? join(root, 'packages/renderer/lib'), join(scratch, 'lib'), { recursive: true })
     writeFileSync(join(scratch, 'package.json'), '{"type":"module"}')
     if (nativeBytes) {
       mkdirSync(join(scratch, 'native'))
@@ -35,6 +36,72 @@ function isolated(script, nativeBytes) {
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 }
 describe('renderer Phase 4 selection and native boundary', () => {
+  it('recovers admitted panic/backend failures once in auto with exact TS outputs, but not forced rust', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      import {deepStrictEqual,equal,throws} from 'node:assert/strict'
+      const ops=['displayWidth','tailToWidth','fitToWidth','chunkToWidth','wrapToWidth']
+      let kind,calls={}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true})
+      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},...Object.fromEntries(ops.map(op=>[op,()=>{
+        calls[op]=(calls[op]??0)+1
+        if(kind==='malformed')return undefined
+        if(kind==='typed')throw Object.assign(Error('native failed'),{code:'BACKEND_FAILURE'})
+        throw Error(kind==='panic'?'simulated caught panic':'BACKEND_FAILURE')
+      }]))}}
+      const m=await import('./lib/index.js'),source=('\\x1b[31m中😀\\ud800e\\u0301\\x1b[0m').repeat(40)
+      const expected=Object.fromEntries(ops.map(op=>[op,m[op](source,80)]))
+      deepStrictEqual(calls,{})
+      m.setRendererBackend('auto')
+      for(kind of ['panic','backend','typed','malformed'])for(const op of ops){
+        calls={};deepStrictEqual(m[op](source,80),expected[op]);deepStrictEqual(calls,{[op]:1});equal(m.rendererBackend(),'auto')
+        const restore=m.setRendererBackend('rust');calls={}
+        throws(()=>m[op](source,80),e=>e.code==='BACKEND_FAILURE'&&e.fallbackEligible===false)
+        deepStrictEqual(calls,{[op]:1});restore()
+      }
+      process.stdout.write(JSON.stringify({auto:20,forced:20,exact:true}))
+    `, 'fixture')).toEqual({ auto: 20, forced: 20, exact: true })
+  })
+  it('runs a recovery oracle only once under TS and restores auto even when that oracle throws', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      import {deepStrictEqual,equal,throws} from 'node:assert/strict'
+      let nativeCalls=0,referenceCalls=0,referenceThrows=false
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true})
+      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},displayWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')},fitToWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')}}}
+      const m=await import('./lib/index.js'),p=await import('./lib/native-primitives.js'),source='中'.repeat(512),sentinel=Error('TS oracle failed')
+      const reference=()=>{referenceCalls++;equal(m.rendererBackend(),'typescript');if(referenceThrows)throw sentinel;return m.displayWidth(source)}
+      const unary=p.unary('displayWidth',reference),cut=p.cut('fitToWidth',reference)
+      m.setRendererBackend('auto')
+      for(const fn of [()=>unary(source),()=>cut(source,80)]){
+        nativeCalls=referenceCalls=0;referenceThrows=false;equal(fn(),1024);deepStrictEqual([nativeCalls,referenceCalls],[1,1]);equal(m.rendererBackend(),'auto')
+        nativeCalls=referenceCalls=0;referenceThrows=true;throws(fn,e=>e===sentinel);deepStrictEqual([nativeCalls,referenceCalls],[1,1]);equal(m.rendererBackend(),'auto')
+      }
+      process.stdout.write(JSON.stringify({singleAttempt:true,restored:true}))
+    `, 'fixture')).toEqual({ singleAttempt: true, restored: true })
+  })
+  it('never retries terminal native codes from messages or typed errors in auto or forced rust', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      import {deepStrictEqual,throws} from 'node:assert/strict'
+      const ops=['displayWidth','tailToWidth','fitToWidth','chunkToWidth','wrapToWidth']
+      let code,form,calls={}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true})
+      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},...Object.fromEntries(ops.map(op=>[op,()=>{
+        calls[op]=(calls[op]??0)+1
+        if(form==='string')throw code
+        throw form==='message'?Object.assign(Error(code),{code:'GenericFailure'}):Object.assign(Error('caller rejected'),{code})
+      }]))}}
+      const m=await import('./lib/index.js'),source='中'.repeat(512)
+      for(const mode of ['auto','rust']){
+        m.setRendererBackend(mode)
+        for(code of ['RESOURCE_LIMIT','INVALID_INPUT'])for(form of ['message','code','string'])for(const op of ops){
+          calls={};throws(()=>m[op](source,80),e=>e.code===code&&e.fallbackEligible===false);deepStrictEqual(calls,{[op]:1})
+        }
+      }
+      process.stdout.write(JSON.stringify({terminal:60}))
+    `, 'fixture')).toEqual({ terminal: 60 })
+  })
   it.runIf(available)('fits long measured prefixes and zero-budget zero-width sources against independent TS', () => {
     const native = createRequire(import.meta.url)(addonPath)
     for (const source of ['', '\x1b[31m', '\0\t', 'a'.repeat(2048), '中'.repeat(2048), '\x1b[31mhello中\x1b[0m '.repeat(80), '\ud800'.repeat(512)]) {

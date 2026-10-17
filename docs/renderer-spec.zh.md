@@ -16,6 +16,12 @@
 
 纯 markdown ABI 成功封装精确为 `{ok:true,value:{state,rows}}`，失败为 `{ok:false,error:{code,fallbackEligible:false}}`，code 仅为 `INVALID_INPUT`、`RESOURCE_LIMIT` 或 `BACKEND_FAILURE`。输入、输出和总预算都须验证；输出超限返回 RESOURCE_LIMIT，不输出部分值。捕获 CLI 使用同样的外层形状，但 value 是完整捕获，参考工具错误为 `REFERENCE_FAILURE`；错误不包含原始内容。低层 `capture` 可抛出，稳定接口为 `captureResult`。auto 和强制 rust 都不得将准入失败或原生资源错误转给未经约束的 TS；auto 仅可对已准入的请求因后端不可用而选择 TS。强制 rust 后端不可用返回 BACKEND_FAILURE。直接调用现有 TS API 不受新 schema 限制。第一阶段只规定此选择策略，不实现选择器。
 
+当前公共选择器的例外：显式选择 auto 时，已准入直接叶子的归一化
+`BACKEND_FAILURE`（含捕获的 panic 或无效响应）在 TS 专用作用域内执行一次原有 TS 参考。
+`RESOURCE_LIMIT`、`INVALID_INPUT` 仍直接传播而不重试。强制 rust 仍抛出全部准入后
+原生错误。原始归一化 ABI 错误及其 `fallbackEligible:false` 封装不变。
+分类与恢复位于 `native-primitives.ts`，详见[恢复策略与测试](renderer-auto-recovery.zh.md)。
+
 ## Unicode 与 UTF-16
 
 宽字符和零宽字符范围以 `packages/renderer/src/width-tables.ts` 为准，不采用库的字素宽度。C0/C1 控制字符宽度为零；可打印 ASCII 为一；零宽范围为零；W/F 范围为二；其他为一。辅助平面字符并非一律占一列：emoji 可占二列，辅助平面字母可占一列。宽度是码点之和，不是扩展字素簇宽度。ZWJ 家庭序列、修饰符和区域指示符保留现有的独立宽度。不得进行 Unicode 规范化。
