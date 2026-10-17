@@ -360,6 +360,31 @@ describe('image attachment submission', () => {
     expect(f.frame()).not.toContain('1 image')
   })
 
+  it('shows sending through a held image command and clears it after rejection', async () => {
+    let reject!: (error: Error) => void
+    const held = new Promise<never>((_resolve, refuse) => { reject = refuse })
+    const f = await fixture({
+      commands: [{ name: 'vision', description: 'inspect', input: { attachments: true } }],
+      execute: () => held,
+    })
+    submit(f.dispatch(), '/image one.png')
+    await flush()
+    submit(f.dispatch(), '/vision inspect')
+    await flush()
+    expect(f.commands.execute).toHaveBeenCalledOnce()
+    expect(f.frame()).toContain('sending')
+    expect(f.frame()).not.toContain('ready')
+    expect(f.agent.followup).not.toHaveBeenCalled()
+    reject(new Error('command refused'))
+    await flush()
+    expect(f.frame()).toContain('ready')
+    expect(f.frame()).not.toContain('sending')
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-u' })
+    submit(f.dispatch(), '/new')
+    await flush()
+    await f.attachment
+  })
+
   it('retains drafts when an accepting command reports an error', async () => {
     const f = await fixture({
       commands: [{ name: 'vision', description: 'inspect', input: { hint: 'ask', attachments: true } }],

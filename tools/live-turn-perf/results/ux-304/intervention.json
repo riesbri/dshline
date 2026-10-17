@@ -1,0 +1,16 @@
+{
+  "reason": "600000ms tool transport timeout, not outcome-based stopping",
+  "timestamp": "2026-10-17T16:36:39.476938+00:00",
+  "completedBeforeIntervention": 69,
+  "incompleteAttempt": "cjk-011-stock",
+  "policy": "retain missing attempt, skip without replacement, resume only remaining original IDs",
+  "plannedMeasuredAttempts": 180,
+  "expectedCompleted": {
+    "latin/stock": 30,
+    "latin/candidate": 30,
+    "cjk/stock": 29,
+    "cjk/candidate": 30,
+    "styled/stock": 30,
+    "styled/candidate": 30
+  }
+}

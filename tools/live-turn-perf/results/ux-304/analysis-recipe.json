@@ -1,0 +1,23 @@
+{
+  "replicates": 10000,
+  "seed": 303,
+  "summary": "ux-summary.json",
+  "confidenceMetrics": [
+    "wholeTurnMs",
+    "rendererMs",
+    "screenMs",
+    "providerAwaitNonRendererMs",
+    "timeToFirstContentPaintMs",
+    "firstContentPaintToDrainMs",
+    "frameP99Ms",
+    "bytes",
+    "sendToEchoReceiptMs",
+    "processToEchoMs",
+    "timeToFirstFeedbackMs",
+    "frameGapP95Ms"
+  ],
+  "deliveryMetrics": [
+    "chunkToScreenP95Ms",
+    "chunkToScreenP99Ms"
+  ]
+}

@@ -20,6 +20,7 @@ class ConfidenceTests(unittest.TestCase):
   rows=[{'run':f'cjk-{i:03d}-{arm}',**dict.fromkeys(keys,100+2**i)} for i in range(12) for arm in ['stock','candidate']]
   result=analyze({'workloads':{'cjk':{}},'perTurn':rows},200,303)
   for metric in result['workloads']['cjk'].values():
+   self.assertEqual(metric['varianceDeltaBootstrap95'],[0,0])
    for q in metric['quantiles'].values():self.assertEqual(q['bootstrap95Delta'],[0,0])
 
 if __name__=='__main__':unittest.main()
