@@ -1,0 +1,45 @@
+{
+  "finished": "2026-10-17T09:56:17Z",
+  "arms": {
+    "stock": {
+      "commit": "8b91e0efb088162fae3b919230378b66ed58d943",
+      "allCompiledModulesUnchanged": true,
+      "modules": 163,
+      "tree": "85395bc69eff5d72f1b894d7db5fdbe01062244c"
+    },
+    "candidate": {
+      "commit": "1cde0652b599ad1ec8ccfe91377396dab7ee857b",
+      "allCompiledModulesUnchanged": true,
+      "modules": 163,
+      "tree": "ba825b319636fa476edca99fc6f4f0cee903c5a6"
+    }
+  },
+  "compiledDifferences": [
+    "packages/renderer/lib/screen.js"
+  ],
+  "toolHashes": {
+    "tools/live-turn-perf/verify.py": "a7bf4272273676a3c8b34e92b851fe0cd3d66151e622b2e6c8163ad3f7223ec4",
+    "tools/live-turn-perf/summarize.py": "3bfbac93eabdd32781a1aa5b2029e14b763fb8590efcbc8810e404da27d68b81",
+    "tools/live-turn-perf/observer.mjs": "d56cff6ea9c48f8e7fbdbf46cb97b9c8fa9f5c603c333bee5a00b19e0e9d9976",
+    "tools/live-turn-perf/run.py": "34b47b18d31e1c1e4ed5d7337ab370ca015ac482cd76e32f8d20441e661c25b8"
+  },
+  "validation": {
+    "realRecords": 248,
+    "measuredTurns": 240,
+    "excludedWarmups": 8,
+    "allExitZero": true,
+    "allPtyHashesMatchProducingWrites": true,
+    "allRendererCountersPositive": true,
+    "pipeOnlyObserverRejected": true,
+    "corruptByteRejected": true,
+    "zeroRendererRejected": true,
+    "focusedTestsPassed": 46,
+    "security": "pass",
+    "docs": "pass",
+    "buildAndTypecheckBeforeCollection": "pass",
+    "perTurnAccountingIdentity": true,
+    "credentialWireFieldsAbsent": true,
+    "independentAttributionSweep": true,
+    "archiveOnlyRecomputation": "pass"
+  }
+}
