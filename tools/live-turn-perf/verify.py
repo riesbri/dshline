@@ -34,7 +34,10 @@ def main():
  if amendment.exists():
   plan=json.loads(amendment.read_text())
   expectedCounts=collections.Counter({tuple(k.split('/')):v for k,v in plan['savedCountsAtIntervention'].items()})
-  for arm in ['stock','candidate']:expectedCounts['cjk',arm]=expected
+  if 'finalStop' in plan:
+   expectedCounts=collections.Counter({tuple(k.split('/')):v for k,v in plan['finalStop']['expectedCounts'].items()})
+  else:
+   for arm in ['stock','candidate']:expectedCounts['cjk',arm]=expected
   if counts!=expectedCounts:raise ValueError(f'incomplete amended live sample set: {counts}; expected {expectedCounts}')
  else:
   if set(counts)!={(w,a) for w in workloads for a in ['stock','candidate']} or any(n!=expected for n in counts.values()): raise ValueError(f'incomplete live sample set: {counts}')

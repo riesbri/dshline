@@ -1,0 +1,34 @@
+{
+  "timestamp": "2026-10-17T11:33:08Z",
+  "reason": "Explicit quota-driven scope reduction, not outcome-based stopping",
+  "target": {
+    "cjk": 500,
+    "latin": "saved attempts only",
+    "styled": "excluded from final analysis; historical records preserved"
+  },
+  "savedCountsAtIntervention": {
+    "cjk/candidate": 69,
+    "styled/candidate": 69,
+    "latin/stock": 69,
+    "cjk/stock": 69,
+    "latin/candidate": 70,
+    "styled/stock": 69
+  },
+  "interruption": "SIGINT mixed runner during latin-069-stock; no completed record for this attempt; excluded unmatched latin-069-candidate from paired CI but retained in raw and arm statistics",
+  "resume": "CJK only; skip every saved attempt including failures; no replacement or extra warmups",
+  "finalStop": {
+    "reason": "Permanent user quota stop; no further provider calls authorized",
+    "expectedCounts": {
+      "latin/stock": 69,
+      "latin/candidate": 70,
+      "cjk/stock": 84,
+      "cjk/candidate": 84,
+      "styled/stock": 69,
+      "styled/candidate": 69
+    },
+    "plannedCjkPerArm": 500,
+    "status": "incomplete-by-design; frozen observed cells, not completed planned confirmatory run",
+    "styled": "abandoned planned workload; retained exploratory audit only",
+    "collection": "permanently halted; never resume"
+  }
+}
