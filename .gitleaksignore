@@ -7,3 +7,14 @@ eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/m
 # packages/renderer/lib/keys.js (stock and candidate)
 eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/metadata.json:generic-api-key:197
 eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/metadata.json:generic-api-key:362
+
+# Frozen quota-stop provenance: eight compiled JS digests, independently
+# rechecked against all 163 compiled modules per arm; exact fingerprints only.
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/metadata.json:generic-api-key:117
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/metadata.json:generic-api-key:204
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/metadata.json:generic-api-key:282
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/metadata.json:generic-api-key:369
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/resume-metadata.json:generic-api-key:115
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/resume-metadata.json:generic-api-key:202
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/resume-metadata.json:generic-api-key:280
+8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/resume-metadata.json:generic-api-key:367
