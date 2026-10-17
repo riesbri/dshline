@@ -76,3 +76,19 @@ Open a draft PR against the TS fast-path branch and record exact-head CI status
 without claiming pending checks have passed. Evidence is recorded in RESULTS.md.
 
 No performance samples or passing test results are claimed by this plan.
+
+## Continuation: quota-free streaming/input verification
+
+Use the existing assistant-stream attachment/emulator fixture with the production
+RedrawScheduler and key decoder. Interleave long synthetic stream bursts with
+unsubmitted composer edits, then exercise legacy and enhanced ctrl-c before any
+queued repaint runs. Assert actual cells/cursor, synchronous cancellation,
+no inbox delivery, exactly-once durable settlement and retained native scrollback.
+Use deliberate key-dispatch and cancellation deferral faults to prove detection.
+These are ordering/parity checks, not a latency benchmark or provider simulation.
+
+Inspect write amplification at the owning boundaries. Keep Screen, synchronous
+line commits and default check-phase scheduling unchanged absent a parity-safe
+production defect. A 16 ms evaluation path is optional, not evidence of a gain;
+do not add unused scheduling machinery solely because timing is deferred.
+No provider requests, real timing, profile installs, merge or release.

@@ -54,3 +54,77 @@ not landed without evidence. Physical display behavior is unverified.
 The draft PR targets `perf/renderer-ts-fast-path`; full exact-head CI is a separate
 remote gate and must not be inferred from these focused local checks. No merge
 or release was performed.
+
+
+## Continuation: streaming input ordering and byte-path inspection
+
+Baseline: `21f9531af347940e1b89e7ef355dff306a454112` on the same stack.
+This continuation changes tests and research evidence only; inspection and the
+quota-free checks did not establish a production input/scheduling defect.
+No new changeset is needed for this test-only increment.
+
+The existing assistant-stream fixture now optionally uses the production
+`RedrawScheduler`, routes decoded terminal bytes to the real attachment handler,
+and preserves the composed cursor when writing through unmodified Screen.
+Three new cases cover:
+
+- Four bursts of twenty completed streaming lines, interleaved with an UNSENT
+  composer marker, backspace and an insertion after moving Left. The marker is
+  visible after each check phase; the cursor is on the actual expected cell.
+  All eighty lines remain exactly once in native scrollback, including rows no
+  longer in the viewport. Neither Agent inbox verb is called.
+- Legacy ctrl-c (`03`) and enhanced ctrl-c (`CSI 99;5u`) during a pending stream
+  paint. Each calls `agent.cancel({ kind: 'user' })` synchronously, before any
+  queued composition. Harness-supplied interrupted settlement then commits
+  both completed and partial text once, leaving the unsubmitted draft intact.
+
+These tests use fake Agent publication and a real xterm emulator, not a Harness
+provider or a controlling PTY. They establish ordering and cell parity, not an
+upper latency bound, poll fairness under an arbitrarily large provider burst,
+physical echo timing, or provider cancellation-to-idle time. Native scrollback
+is terminal-owned; this does not implement or benchmark an application scroll
+handler. The first fixture run timed out because its exit callback does not
+resolve the session loop; cleanup now uses the existing local `/new` transition.
+The marker is never submitted; cleanup submits only that local command.
+
+### Focused checks actually run
+
+```sh
+pnpm exec vitest run packages/dshline/tests/assistant-stream.spec.ts packages/dshline/tests/redraw.spec.ts packages/dshline/tests/streaming-frames.spec.ts packages/dshline/tests/stream-chunking.spec.ts --maxWorkers=1
+```
+
+**42 passed in four files**: assistant-stream 14, redraw 9, streaming-frames 9,
+stream-chunking 10. Existing parity/golden expectations were not regenerated.
+`git diff --check` passed. No full local build/typecheck or suite was run.
+
+Deliberate production faults, tested separately and restored:
+
+- Ignore keys while the Agent is running: the marker/edit test fails at its
+  first visible-echo assertion.
+- Defer the running-turn cancel with `setImmediate`: both encoding cases fail
+  the synchronous cancel assertion before repaint.
+- Drop completed text rows from stream commits: the scrollback assertion fails
+  for `stream row 00` (zero occurrences instead of one).
+
+### Byte amplification analysis (source, not measurements)
+
+`StreamBuffer.push` returns only newly completed lines; the listener commits
+those rows synchronously. `live` renders only the bounded unfinished suffix,
+not the accumulated transcript. Window skips empty commits. The check-phase
+scheduler already collapses ordinary redraw bursts; Screen already skips
+identical frames and writes row damage for stable-height changes.
+
+The remaining obvious amplification is in `Screen.commit`: each nonempty commit
+erases/re-emits the cached bounded live region beneath newly completed rows.
+Coalescing those commits could reduce repeated chrome bytes, but changes the
+immediate-scrollback and interleaved event/settlement contract. A 16 ms cap on
+ordinary paints would not cap those synchronous commit writes. Changing Screen
+also belongs to the parallel owner. No parity-safe, clearly beneficial change
+was established here, so neither batching nor an unused evaluation-only timer
+was introduced. No emitted-byte counts or savings are claimed.
+
+Default scheduling, public API, synchronous commits, Screen, first-content and
+provider policy remain unchanged. Live input/interrupt/first-content latency,
+provider-await attribution, title contention, byte savings and pacing evaluation
+remain deferred. No provider calls, live timing, PTY turns, profile changes,
+merge or release occurred in this continuation.
