@@ -1,0 +1,13 @@
+{
+  "archiveOnly": true,
+  "allRecomputedFilesIdentical": {
+    "summary.json": true,
+    "ux-summary.json": true,
+    "verification.json": true,
+    "input-cell-verification.json": true,
+    "confidence.json": true,
+    "interrupt/ux-summary.json": true,
+    "frozenPart1ByteAudit": true,
+    "delivery-confidence.json": true
+  }
+}

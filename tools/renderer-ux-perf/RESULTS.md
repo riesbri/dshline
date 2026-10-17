@@ -128,3 +128,16 @@ provider policy remain unchanged. Live input/interrupt/first-content latency,
 provider-await attribution, title contention, byte savings and pacing evaluation
 remain deferred. No provider calls, live timing, PTY turns, profile changes,
 merge or release occurred in this continuation.
+
+## Bounded live follow-up (2026-10-17)
+
+The earlier deferred status above describes the restricted dispatch at that time.
+A later explicitly budgeted continuation completed the saved-capture byte audit
+and a private 16 ms pacing comparison, with real controlling PTY input/interrupt
+probes. See [the full report](../live-turn-perf/UX-304-REPORT.md) and its archived
+per-turn observations. There are 179 valid measured ordinary turns, six excluded
+warm-ups, six separate interrupt pilots and one retained, unreplaced transport
+interruption. All 42 focused tests still pass; goldens and production scheduling
+remain unchanged. The private prototype trades lower renderer work/traffic for
+about 16 ms more chunk-to-Screen output eligibility delay; no whole-turn or
+physical-smoothness win is established. It is not promoted to production.

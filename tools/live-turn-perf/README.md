@@ -294,3 +294,12 @@ commit/file/rule/line fingerprints; no file or secret-detection rule is disabled
 
 Generated credential copies were deleted after collection. The original installed
 profile, credentials, working sessions and production sources were not changed.
+
+## Bounded UX follow-up (#304)
+
+[UX-304-REPORT.md](UX-304-REPORT.md) records the quota-free frozen-capture byte
+audit followed by a separate, explicitly bounded real-provider pacing/input
+experiment. It does not resume or pool the permanently stopped Part 1 study.
+The report includes per-cell quantiles/SD/variance, paired intervals, delayed
+chunk-output tradeoffs, the retained transport interruption and archive-only
+reproduction commands. Production scheduling is unchanged.
