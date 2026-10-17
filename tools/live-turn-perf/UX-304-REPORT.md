@@ -347,3 +347,9 @@ quantile/variance intervals and the frozen Part 1 audit exactly. See
 `archive-recomputation.json` and `analysis-recipe.json` for the checked endpoints
 and exact metric lists. Documentation verification passed (nine existing
 bilingual pairs consistent); `git diff --check` passed.
+
+The first CI secret scan flagged 16 compiled-module SHA-256 values beside
+`status-keys.js` / `keys.js` paths in provenance snapshots. Every value was
+rehashed against its compiled module. The existing `.gitleaksignore` convention
+now covers only those exact historical commit/file/rule/line fingerprints; no
+file, rule or future finding is excluded. No credential was present.

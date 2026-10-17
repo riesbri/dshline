@@ -18,3 +18,22 @@ eedcc4676fec497410eacbf7c61d9416a5159bfb:tools/live-turn-perf/results/20261017/m
 8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/resume-metadata.json:generic-api-key:202
 8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/resume-metadata.json:generic-api-key:280
 8a6841c7c229e5e5b3696c7a46906854af88c6f8:tools/live-turn-perf/results/frozen-20261017/resume-metadata.json:generic-api-key:367
+
+# Bounded UX experiment: verified compiled status-keys.js / keys.js SHA-256s.
+# Four provenance snapshots, both arms; exact historical fingerprints only.
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/interrupt/metadata.json:generic-api-key:119
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/interrupt/metadata.json:generic-api-key:206
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/interrupt/metadata.json:generic-api-key:284
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/interrupt/metadata.json:generic-api-key:371
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/metadata.json:generic-api-key:119
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/metadata.json:generic-api-key:206
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/metadata.json:generic-api-key:284
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/metadata.json:generic-api-key:371
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/resume-metadata.json:generic-api-key:119
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/resume-metadata.json:generic-api-key:206
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/resume-metadata.json:generic-api-key:284
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/resume-metadata.json:generic-api-key:371
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/segment1-metadata.json:generic-api-key:119
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/segment1-metadata.json:generic-api-key:206
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/segment1-metadata.json:generic-api-key:284
+ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/segment1-metadata.json:generic-api-key:371
