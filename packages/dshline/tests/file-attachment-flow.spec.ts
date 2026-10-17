@@ -13,7 +13,7 @@ import { Context as RealContext } from '@deepseek-ai/cordis'
 import { isAttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
-import { stripAnsi, type Key } from '@dshline/renderer'
+import { SPINNER_INTERVAL_MS, stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
 import { pricingFrom } from '../src/usage.ts'
@@ -582,6 +582,36 @@ describe('in-flight staging', () => {
     submit(f.dispatch(), '/new')
     await flush()
     await f.attachment
+  })
+
+  it('ticks only while attachment admission owns pending work', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const f = await fixture({ onWindow: () => gate })
+    try {
+      submit(f.dispatch(), '/attach logs/server.log')
+      await flush()
+      submit(f.dispatch(), 'inspect')
+      await flush()
+      const draw = vi.mocked(f.window.draw)
+      draw.mockClear()
+      vi.advanceTimersByTime(SPINNER_INTERVAL_MS * 3)
+      expect(draw).toHaveBeenCalledTimes(3)
+      expect(f.frame()).toContain('sending')
+      release()
+      await flush()
+      expect(f.frame()).toContain('ready')
+      draw.mockClear()
+      vi.advanceTimersByTime(SPINNER_INTERVAL_MS * 3)
+      expect(draw).not.toHaveBeenCalled()
+    } finally {
+      release()
+      submit(f.dispatch(), '/new')
+      await flush()
+      await f.attachment
+      vi.useRealTimers()
+    }
   })
 
   it('sends exactly the snapshot it took, and never a later draft', async () => {

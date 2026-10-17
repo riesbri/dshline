@@ -379,7 +379,9 @@ describe('image attachment submission', () => {
     await flush()
     expect(f.frame()).toContain('ready')
     expect(f.frame()).not.toContain('sending')
-    f.requestExit()
+    f.dispatch()?.({ kind: 'key', name: 'ctrl-u' })
+    submit(f.dispatch(), '/new')
+    await flush()
     await f.attachment
   })
 
