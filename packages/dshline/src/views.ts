@@ -41,7 +41,9 @@ import { LABEL_UNSAFE_RANGES } from './width-stable-tables.ts'
 export interface StatusState {
   /** Whether the agent is running, which animates the activity word. */
   busy: boolean
-  /** Heartbeat tick, advanced by the runner's timer while busy or compacting. */
+  /** Local attachment admission is pending; not a model turn or inbox claim. */
+  sendingAttachments?: boolean
+  /** Heartbeat tick while the model, compaction, or attachment admission runs. */
   tick: number
   /** Milliseconds since the current turn started, or undefined when idle. */
   elapsedMs: number | undefined
@@ -971,6 +973,11 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
           ? ''
           : paint(` · turn ${formatElapsed(current.elapsedMs)}`, 'subdued')
         facts.push(`${bareStatus}${elapsed}`)
+      } else if (current.sendingAttachments === true) {
+        // Reads and publication can wait before Harness receives a prompt. Show
+        // that owned operation without pretending a model turn has started.
+        bareStatus = activityStatus('sending', current.tick)
+        facts.push(bareStatus)
       } else if (current.compacting === true) {
         // Compaction is a model-free maintenance call, so it must not enter the
         // busy branch: ctrl-c still quits an idle agent with no owned work. It
@@ -1236,7 +1243,7 @@ export function createStatusView(state: () => StatusState): TuiSlotView {
         // context reading, and only the bare word survives to be truncated.
         // The full status was already tried above and cannot fit, so the first
         // candidate below is the elapsed-less form, not the richest one.
-        if (current.busy || current.compacting === true) {
+        if (current.busy || current.sendingAttachments === true || current.compacting === true) {
           // `bareStatus` is one styled segment, not a list of characters:
           // spreading it would interleave separators between every ANSI byte
           // and make the middle rung absurdly wide, skipping straight to the
