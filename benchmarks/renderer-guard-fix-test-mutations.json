@@ -1,0 +1,50 @@
+{
+  "procedure": "Individual deliberate compiled-emission mistakes; source unchanged, emission restored in finally. Unicode mode and lost suffix probe fail the structural no-scan test; wrong surrogate accounting fails point-decision equivalence by exact guard mismatch.",
+  "compiledSha256": "9d1a047794298b76cb927d235740d90a23b3656da494995bb1baa0ff6228709b",
+  "mutations": [
+    {
+      "name": "unicode-regex",
+      "status": 1,
+      "transcriptSha256": "7407eb95a4f88411520807f5d325d255d479a6c3b8c642c4e3c88d98f7a297cd",
+      "witness": [
+        " Test Files  1 failed (1)",
+        "      Tests  1 failed | 33 skipped (34)",
+        "Error: Unicode guard probe",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > uses ASCII code-unit probes and never scans the suffix of the four defect inputs",
+        "Error: Command failed: /usr/bin/node --input-type=module -e ",
+        "Error: Unicode guard probe"
+      ]
+    },
+    {
+      "name": "surrogate-pair",
+      "status": 1,
+      "transcriptSha256": "c6be169acfee5c02806b83788139b26da77e185d72bbe62f72fc580799c93e80",
+      "witness": [
+        " Test Files  1 failed (1)",
+        "      Tests  2 failed | 32 skipped (34)",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 2 \u23af\u23af\u23af\u23af\u23af\u23af\u23af",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > keeps pre-fix guard decisions for every Unicode point/surrogate U+10000\u20131ffff",
+        "Error: {\"op\":\"displayWidth\",\"text\":\"\ud800\udc00\",\"columns\":80,\"expected\":\"ascii-dominant-width\"}",
+        "     37|     const expected = legacyGuard(op, text, columns), value = actual(op\u2026",
+        "     38|     if (value !== expected) throw Error(JSON.stringify({ op, text, col\u2026",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > keeps pre-fix guard decisions for every Unicode point/surrogate U+100000\u201310ffff",
+        "Error: {\"op\":\"displayWidth\",\"text\":\"\udbc0\udc00\",\"columns\":80,\"expected\":\"ascii-dominant-width\"}",
+        "     37|     const expected = legacyGuard(op, text, columns), value = actual(op\u2026",
+        "     38|     if (value !== expected) throw Error(JSON.stringify({ op, text, col\u2026"
+      ]
+    },
+    {
+      "name": "lost-suffix-probe",
+      "status": 1,
+      "transcriptSha256": "c1a0dcb2b7d21e4a1d23f1231425e52490ea14948967b3539ef2d485adda8506",
+      "witness": [
+        " Test Files  1 failed (1)",
+        "      Tests  1 failed | 33 skipped (34)",
+        "\u23af\u23af\u23af\u23af\u23af\u23af\u23af Failed Tests 1 \u23af\u23af\u23af\u23af\u23af\u23af\u23af",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > uses ASCII code-unit probes and never scans the suffix of the four defect inputs",
+        "AssertionError: expected { search: 2, slice: 2, test: 2 } to deeply equal { search: 2, slice: +0, test: +0 }"
+      ]
+    }
+  ]
+}

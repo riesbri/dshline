@@ -36,6 +36,7 @@ export async function rendererNativeInputsDigest() {
     join(root, 'tools/generate-renderer-lookup.mjs'),
     join(root, 'tools/renderer-lookup.spec.mjs'),
     join(root, 'tools/renderer-leaf.spec.mjs'),
+    join(root, 'tools/renderer-guard-equivalence.mjs'),
     join(root, 'tools/renderer-native-types.mjs'),
     join(root, 'tools/renderer-native-inputs.mjs'),
     join(root, 'tools/renderer-native-distribution.mjs'),

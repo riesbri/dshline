@@ -29,7 +29,13 @@ let addonUnicodeMatches = false
 // the optional addon's *compiled* release is checked separately when loaded.
 const runtimeUnicodeMatches = process.versions.unicode === WIDTH_UNICODE_VERSION
 const require = createRequire(import.meta.url)
-const NON_ASCII = /[^\x00-\x7f]/u
+// These probes need ASCII code-unit membership, not Unicode character matching.
+// Unicode regex mode makes sparse two-byte strings pay an expensive full scan.
+const NON_ASCII = /[^\x00-\x7f]/
+function asciiOnly(source: string): boolean {
+  // A non-ASCII edge already disproves ASCII; do not scan the intervening run.
+  return source.length === 0 || source.charCodeAt(0) < 128 && source.charCodeAt(source.length - 1) < 128 && !NON_ASCII.test(source)
+}
 
 /** Name a conservative TS guard for families with observed Mac regressions.
  * @param op - Requested leaf.
@@ -50,11 +56,15 @@ export function regressionGuard(op: FastOperation, source: string, columns = 0):
     if (first < 0) return source.length <= 512 ? 'ascii-short-width' : undefined
     const head = source.charCodeAt(first), next = source.charCodeAt(first + 1)
     const units = head >= 0xd800 && head <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? 2 : 1
-    if (!NON_ASCII.test(source.slice(first + units))) return 'ascii-dominant-width'
+    const after = first + units
+    // A second non-ASCII point at either suffix edge settles this immediately;
+    // do not scan a long ASCII gap merely to rediscover that same point.
+    if (after < source.length && source.charCodeAt(source.length - 1) >= 128 || after < source.length - 1 && source.charCodeAt(source.length - 2) >= 128) return undefined
+    if (!NON_ASCII.test(source.slice(after))) return 'ascii-dominant-width'
   }
-  if (op === 'tailToWidth' && source.length >= 512 && !NON_ASCII.test(source)) return 'ascii-tail'
-  if (op === 'chunkToWidth' && !NON_ASCII.test(source)) return 'ascii-chunk'
-  if (op === 'wrapToWidth' && (source.length <= 512 || columns >= 256 || source.includes('\x1b')) && !NON_ASCII.test(source)) return 'ascii-wrap'
+  if (op === 'tailToWidth' && source.length >= 512 && asciiOnly(source)) return 'ascii-tail'
+  if (op === 'chunkToWidth' && asciiOnly(source)) return 'ascii-chunk'
+  if (op === 'wrapToWidth' && (source.length <= 512 || columns >= 256 || source.includes('\x1b')) && asciiOnly(source)) return 'ascii-wrap'
   return undefined
 }
 

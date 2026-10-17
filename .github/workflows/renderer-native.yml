@@ -76,6 +76,12 @@ jobs:
           ref: 5e48b70ca6dc4de5462cda7d559581be7ec8c04d
           path: .renderer-baseline
           persist-credentials: false
+      - name: measure equivalent bounded ASCII guard probes (macOS)
+        if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          git fetch --no-tags --depth=1 origin 25a2501bcabada5832860546d225063a5af0b7d3
+          node tools/renderer-guard-audit.mjs "$RUNNER_TEMP/renderer-guard-audit.json"
       - name: build same-toolchain baseline (macOS)
         if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch'
         working-directory: .renderer-baseline
@@ -107,6 +113,7 @@ jobs:
           path: |
             ${{ runner.temp }}/renderer-upgrade.json
             ${{ runner.temp }}/renderer-pty.json*
+            ${{ runner.temp }}/renderer-guard-audit.json
           if-no-files-found: warn
       - name: upload exact-commit addon
         if: ${{ !cancelled() && steps.native-parity.outcome == 'success' }}

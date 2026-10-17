@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest'
 import { loadVerifiedRenderer } from './renderer-identity.mjs'
 import { createEmulator } from '../tests/emulator.ts'
 import * as api from '../packages/renderer/lib/index.js'
+import { regressionGuard } from '../packages/renderer/lib/native-primitives.js'
+import { compareCodePoints, compareBoundaries } from './renderer-guard-equivalence.mjs'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const addonName = `${process.platform}-${process.arch}.node`
 const addonFile = join(root, 'packages/renderer/native', addonName)
@@ -24,6 +26,37 @@ function isolated(script) {
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 }
 describe('cycle-free native host leaves', () => {
+  for (let start = 0; start <= 0x100000; start += 0x10000) {
+    it(`keeps pre-fix guard decisions for every Unicode point/surrogate U+${start.toString(16)}–${(start + 0xffff).toString(16)}`, () => {
+      expect(compareCodePoints(regressionGuard, start, start + 0xffff)).toBe(983040)
+    })
+  }
+  it('keeps pre-fix guard decisions across paired/lone UTF-16, ANSI and width boundaries', () => {
+    const result = compareBoundaries(regressionGuard)
+    expect(result.texts).toBe(677)
+    expect(result.comparisons).toBe(85302)
+    expect(Object.keys(result.byLength).map(Number)).toEqual([0, 1, 2, 3, 63, 64, 65, 511, 512, 513, 2047, 2048, 2049])
+    expect(Object.keys(result.byColumn).map(Number).sort((a, b) => a - b)).toEqual([-257, -256, -1, 0, 1, 31, 32, 33, 63, 64, 65, 255, 256, 257])
+    expect(Object.keys(result.guards).sort()).toEqual(['admitted', 'ascii-chunk', 'ascii-dominant-width', 'ascii-short-width', 'ascii-tail', 'ascii-wrap'])
+    expect(result.comparisons).toBe(result.texts * 14 * 9)
+    for (const count of Object.values(result.byColumn)) expect(count).toBe(result.texts * 9)
+  })
+  it('uses ASCII code-unit probes and never scans the suffix of the four defect inputs', () => {
+    expect(isolated(`
+      const m=await import('./lib/native-primitives.js')
+      const saved={search:String.prototype.search,slice:String.prototype.slice,test:RegExp.prototype.test},counts={search:0,slice:0,test:0}
+      try{
+        String.prototype.search=function(regex){if(regex.unicode)throw Error('Unicode guard probe');counts.search++;return saved.search.call(this,regex)}
+        String.prototype.slice=function(...args){counts.slice++;return saved.slice.apply(this,args)}
+        RegExp.prototype.test=function(text){if(this.unicode)throw Error('Unicode guard probe');counts.test++;return saved.test.call(this,text)}
+        const cases=[['displayWidth','a中'+'a'.repeat(2045)+'中',80],['displayWidth','a中'+'a'.repeat(509)+'中',80],['tailToWidth','a'.repeat(2047)+'中',80],['chunkToWidth','a'.repeat(2047)+'中',80]]
+        for(const args of cases)if(m.regressionGuard(...args)!==undefined)throw Error('changed admission')
+        const defectScans={...counts}
+        if(m.regressionGuard('displayWidth','a'.repeat(64))!=='ascii-short-width'||m.regressionGuard('chunkToWidth','a'.repeat(512),64)!=='ascii-chunk')throw Error('lost guard')
+        process.stdout.write(JSON.stringify(defectScans))
+      }finally{String.prototype.search=saved.search;String.prototype.slice=saved.slice;RegExp.prototype.test=saved.test}
+    `)).toEqual({ search: 2, slice: 0, test: 0 })
+  })
   for (const runtime of ['17.0', '16.0', undefined]) for (const compiled of ['actual', '16.0', 'missing']) {
     it.runIf(available)(`uses actual Rust only when runtime, TS policy and compiled lookup Unicode versions all match (${runtime}/${compiled})`, () => {
       const result = isolated(`
