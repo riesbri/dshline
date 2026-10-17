@@ -35,7 +35,28 @@ def metrics(d):
  # These form a disjoint accounting split, NOT a pure network timing split.
  nonRenderAwait=awaitMs-overlap
  content=r['assistant']['message']['content']
- return {'wholeTurnMs':whole,'firstContentPaintToDrainMs':final-firstReceipt,'timeToFirstContentPaintMs':firstReceipt-d['submitted'],'providerCallSpanMs':call['end']-call['start'],'providerAwaitMs':awaitMs,'providerAwaitNonRendererMs':nonRenderAwait,'providerAwaitRendererOverlapMs':overlap,'screenMs':sum(e-s for s,e in screen),'composeMs':sum(e-s for s,e in compose),'rendererMs':renderer,'residualMs':whole-renderer-nonRenderAwait,'screenMsPerCall':sum(e-s for s,e in screen)/len(screen),'frameP95Ms':quantile([x[1] for x in r['frames']],.95),'frameP99Ms':quantile([x[1] for x in r['frames']],.99),'renderCalls':len(screen),'frames':len(r['frames']),'chunks':len(r['chunks']),'outputCharacters':sum(len(x.get('text','')) for x in content if x['type']=='text'),'reasoningCharacters':sum(len(x.get('text','')) for x in content if x['type']=='reasoning'),'bytes':sum(x[1] for x in r['writes']),'cpuMs':sum(r['cpu'].values())/1000,'inputTokens':r['assistant'].get('usage',{}).get('inputTokens',0),'outputTokens':r['assistant'].get('usage',{}).get('outputTokens',0),'cacheReadTokens':r['assistant'].get('usage',{}).get('cacheReadTokens',0)}
+ extra={}
+ if r.get('redrawRequests'):
+  firstFeedback=next((x for x in r['screens'] if x[4]>x[3]),None)
+  if firstFeedback:
+   extra['timeToFirstFeedbackMs']=next(x[0] for x in d['receipts'] if x[2]>=firstFeedback[4])-d['submitted']
+  # Chunk-to-first subsequent complete Screen output. This is output eligibility,
+  # not proof that every delta is visible (an emulator check owns that claim).
+  eligible=[x for x in r['screens'] if x[4]>x[3]]
+  lags=[];j=0
+  for chunk in r['chunks']:
+   if chunk[1] not in ['text-delta','reasoning-delta'] or not chunk[2]:continue
+   while j<len(eligible) and eligible[j][1]<chunk[0]:j+=1
+   if j<len(eligible):lags.append(eligible[j][1]-chunk[0])
+  if lags:extra.update(chunkToScreenP95Ms=quantile(lags,.95),chunkToScreenP99Ms=quantile(lags,.99),chunkToScreenMaxMs=max(lags))
+ if r.get('screens') and len(r['screens'][0])>=7:
+  stable=[x[2] for x in r['screens'] if x[0]=='setLive' and x[5]==x[6]]
+  resized=[x[2] for x in r['screens'] if x[0]=='setLive' and x[5]!=x[6]]
+  extra.update(stableHeightCalls=len(stable),changedHeightCalls=len(resized),changedHeightScreenMs=sum(resized),stableHeightScreenMs=sum(stable))
+ if r.get('auxiliaryCalls'):
+  titles=[c for c in r['auxiliaryCalls'] if c['purpose']=='session-title']
+  extra.update(titleCalls=len(titles),titleCompleted=sum('end' in c for c in titles),titleObservedSpanMs=sum(min(c.get('end',final),final)-max(c['start'],d['submitted']) for c in titles))
+ return {**extra,'wholeTurnMs':whole,'firstContentPaintToDrainMs':final-firstReceipt,'timeToFirstContentPaintMs':firstReceipt-d['submitted'],'providerCallSpanMs':call['end']-call['start'],'providerAwaitMs':awaitMs,'providerAwaitNonRendererMs':nonRenderAwait,'providerAwaitRendererOverlapMs':overlap,'screenMs':sum(e-s for s,e in screen),'composeMs':sum(e-s for s,e in compose),'rendererMs':renderer,'residualMs':whole-renderer-nonRenderAwait,'screenMsPerCall':sum(e-s for s,e in screen)/len(screen),'frameP95Ms':quantile([x[1] for x in r['frames']],.95),'frameP99Ms':quantile([x[1] for x in r['frames']],.99),'renderCalls':len(screen),'frames':len(r['frames']),'chunks':len(r['chunks']),'outputCharacters':sum(len(x.get('text','')) for x in content if x['type']=='text'),'reasoningCharacters':sum(len(x.get('text','')) for x in content if x['type']=='reasoning'),'bytes':sum(x[1] for x in r['writes']),'cpuMs':sum(r['cpu'].values())/1000,'inputTokens':r['assistant'].get('usage',{}).get('inputTokens',0),'outputTokens':r['assistant'].get('usage',{}).get('outputTokens',0),'cacheReadTokens':r['assistant'].get('usage',{}).get('cacheReadTokens',0)}
 
 if (root/'raw.jsonl.gz').exists():
  with gzip.open(root/'raw.jsonl.gz','rt') as f: records=[json.loads(line) for line in f]

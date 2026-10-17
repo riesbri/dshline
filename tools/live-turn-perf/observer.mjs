@@ -39,10 +39,11 @@ const { RedrawScheduler } = await load(pathToFileURL(`${root}/packages/dshline/l
 for (const method of ['setLive', 'commit']) {
   const original = Screen.prototype[method]
   Screen.prototype[method] = function (...args) {
+    const height = this.height
     const start = now()
     const before = state.totalBytes
     try { return Reflect.apply(original, this, args) }
-    finally { if (isActive()) state.screens.push([method, start, now() - start, before, state.totalBytes]) }
+    finally { if (isActive()) state.screens.push([method, start, now() - start, before, state.totalBytes, height, this.height]) }
   }
 }
 const compose = TuiSlots.prototype.compose
@@ -53,6 +54,7 @@ TuiSlots.prototype.compose = function (...args) {
 }
 const request = RedrawScheduler.prototype.request
 RedrawScheduler.prototype.request = function (...args) {
+  if (isActive()) (state.redrawRequests ??= []).push(now())
   if (!this.__liveObserved) {
     this.__liveObserved = true
     const paint = this.paint
@@ -64,6 +66,32 @@ RedrawScheduler.prototype.request = function (...args) {
   }
   return Reflect.apply(request, this, args)
 }
+  // Auxiliary calls use stream(), whereas the Agent dispatches a prepared call.
+  // Observe rather than defer/disable them: title lifetime remains Harness-owned.
+  const auxiliaryStream = ctx.llm.stream
+  ctx.llm.stream = function (options) {
+    const upstream = Reflect.apply(auxiliaryStream, this, [options])
+    const iterator = upstream[Symbol.asyncIterator]()
+    state.auxiliaryCalls ??= []
+    const call = { start: now(), purpose: options.purpose ?? null, provider: options.provider, model: options.model, waits: [] }
+    state.auxiliaryCalls.push(call)
+    return {
+      [Symbol.asyncIterator]() { return this },
+      async next(...args) {
+        const start = now()
+        try {
+          const item = await iterator.next(...args)
+          call.waits.push([start, now(), item.done === true, item.value?.type ?? null])
+          if (item.done) call.end = now()
+          return item
+        } catch (error) { call.error = String(error); throw error }
+      },
+      return(...args) { return iterator.return?.(...args) ?? Promise.resolve({ done: true }) },
+      throw(...args) { return iterator.throw(...args) },
+    }
+  }
+  // This is delivery-to-scheduler evidence, not physical display paint.
+  process.stdin.on('data', () => { if (isActive()) (state.inputReceipts ??= []).push(now()) })
   const prepare = ctx.llm.prepareCall
   ctx.llm.prepareCall = async function (...args) {
     const prepared = await Reflect.apply(prepare, this, args)

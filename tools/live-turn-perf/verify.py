@@ -29,7 +29,8 @@ def main():
    verify_record(d,tar.extractfile(d['run']+'.pty').read())
  counts=collections.Counter((d['workload'],d['arm']) for d in records if not d['warmup'])
  expected=json.loads((root/'metadata.json').read_text())['samplesPerWorkloadPerArm']
- if len(counts)!=8 or any(n!=expected for n in counts.values()): raise ValueError(f'incomplete live sample set: {counts}')
+ workloads=json.loads((root/'metadata.json').read_text()).get('workloads',['latin','cjk','styled','long'])
+ if set(counts)!={(w,a) for w in workloads for a in ['stock','candidate']} or any(n!=expected for n in counts.values()): raise ValueError(f'incomplete live sample set: {counts}')
  if len({d['run'] for d in records})!=len(records): raise ValueError('duplicate run identities')
  # Independently recompute overlap using endpoint coverage, not the analysis
  # script's two-pointer interval intersection.

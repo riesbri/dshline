@@ -11,6 +11,8 @@ P.add_argument('--output', required=True)
 P.add_argument('--timeout', type=int, default=180)
 P.add_argument('--workloads', default='latin,cjk,styled,long')
 P.add_argument('--pilot', action='store_true')
+P.add_argument('--seed', type=int, default=303)
+P.add_argument('--continue-on-failure', action='store_true')
 args = P.parse_args()
 ROOT = pathlib.Path(__file__).resolve().parent
 out = pathlib.Path(args.output).resolve(); out.mkdir(parents=True, exist_ok=True)
@@ -22,7 +24,7 @@ prompts = {
  'long': 'Do not use tools. Output one single line, with no spaces or newlines, consisting of the string https://example.com/abcdefghijklmnopqrstuvwxyz0123456789/ repeated exactly 48 times. No introduction or conclusion.'}
 
 def git(root, *argv): return subprocess.check_output(['git','-C',root,*argv], text=True).strip()
-meta = {'schema':1,'started':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'host':os.uname()._asdict() if hasattr(os.uname(),'_asdict') else list(os.uname()),'cpu':subprocess.check_output(['lscpu'],text=True),'node':subprocess.check_output(['node','--version'],text=True).strip(),'launcher':subprocess.check_output(['dsh','--version'],text=True).strip(),'terminal':{'columns':90,'rows':24,'TERM':'xterm-256color','OPOST':False},'arms':{arm:{'root':root,'commit':git(root,'rev-parse','HEAD'),'tree':git(root,'rev-parse','HEAD^{tree}')} for arm,root in [('stock',args.stock),('candidate',args.candidate)]},'prompts':prompts,'samplesPerWorkloadPerArm':args.samples,'privatePath':str(private),'observerSha256':hashlib.sha256((ROOT/'observer.mjs').read_bytes()).hexdigest()}
+meta = {'schema':1,'started':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'host':os.uname()._asdict() if hasattr(os.uname(),'_asdict') else list(os.uname()),'cpu':subprocess.check_output(['lscpu'],text=True),'node':subprocess.check_output(['node','--version'],text=True).strip(),'launcher':subprocess.check_output(['dsh','--version'],text=True).strip(),'terminal':{'columns':90,'rows':24,'TERM':'xterm-256color','OPOST':False},'arms':{arm:{'root':root,'commit':git(root,'rev-parse','HEAD'),'tree':git(root,'rev-parse','HEAD^{tree}')} for arm,root in [('stock',args.stock),('candidate',args.candidate)]},'prompts':prompts,'samplesPerWorkloadPerArm':args.samples,'privatePath':str(private),'runnerSha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'scheduleSeed':args.seed,'workloads':args.workloads.split(','),'observerSha256':hashlib.sha256((ROOT/'observer.mjs').read_bytes()).hexdigest()}
 meta['builds']={arm:{str(path.relative_to(pathlib.Path(root))):hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(pathlib.Path(root).glob('packages/*/lib/**/*.js'))} for arm,root in [('stock',args.stock),('candidate',args.candidate)]}
 meta['adapterVersion']=json.loads((pathlib.Path(args.profile)/'node_modules/@deepseek-ai/dsh-llm-pi-ai/package.json').read_text())['version']
 meta['profilePackageSha256']=hashlib.sha256((pathlib.Path(args.profile)/'package.json').read_bytes()).hexdigest()
@@ -121,12 +123,30 @@ def run(arm, workload, n, warmup):
  if child.returncode!=0 and not failure: failure=record['failure']=f'nonzero launcher exit {child.returncode}'
  (out/f'{runid}.json').write_text(json.dumps(record,separators=(',',':'))+'\n')
  os.close(master); os.close(r)
+ if not failure:
+  # Only generated private homes, never the installed profile or credentials.
+  shutil.rmtree(home)
  if failure: raise RuntimeError(f'{runid}: {failure}; inspect private benchmark home {home}')
  print(json.dumps({'run':runid,'elapsedMs':result['flush']-submitted,'screenMs':sum(s[2] for s in result['screens']),'chunks':len(result['chunks'])}),flush=True)
 
 workloads=args.workloads.split(',')
-for workload in workloads:
- for arm in ['stock','candidate']: run(arm,workload,-1,True)
- if args.pilot: continue
- for n in range(args.samples):
-  for arm in (['stock','candidate'] if n%2==0 else ['candidate','stock']): run(arm,workload,n,False)
+# Fixed, seed-reproducible workload order within each round; adjacent arm pairs.
+# No interim testing or optional stopping. Preserve every failed attempt.
+rng=random.Random(args.seed)
+try:
+ for workload in workloads:
+  for arm in ['stock','candidate']: run(arm,workload,-1,True)
+ if not args.pilot:
+  for n in range(args.samples):
+   order=workloads.copy(); rng.shuffle(order)
+   for workload in order:
+    for arm in (['stock','candidate'] if n%2==0 else ['candidate','stock']):
+     try: run(arm,workload,n,False)
+     except Exception as error:
+      if not args.continue_on_failure: raise
+      print(json.dumps({'failure':str(error)}),flush=True)
+finally:
+ final={arm:{str(path.relative_to(pathlib.Path(root))):hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(pathlib.Path(root).glob('packages/*/lib/**/*.js'))} for arm,root in [('stock',args.stock),('candidate',args.candidate)]}
+ (out/'provenance-final.json').write_text(json.dumps({'finished':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'allCompiledModulesUnchanged':final==meta['builds']},indent=2)+'\n')
+ # Failed homes can be retained for diagnosis without retaining credential copies.
+ for copied in private.glob('*/.credentials.yaml'): copied.unlink()
