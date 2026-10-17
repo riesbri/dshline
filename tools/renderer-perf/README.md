@@ -157,7 +157,8 @@ delivered p95 additionally waits for xterm parsing, not a physical display.
 
 Paced wall-time differences are not a product speedup: the source timer dominates,
 and host contention affects tails (especially the stock CJK p99). There is no new
-frame-rate cap or added intentional input delay. There are real non-wins in this run: styled request p95 regresses from 0.667 to
+frame-rate cap or added intentional input delay. There are real non-wins in this
+run: styled request p95 regresses from 0.667 to
 1.445 ms (p99 1.217 to 4.879 ms), and CJK request p95 from 0.846 to 1.031 ms.
 These shared-host measurements do not establish whether the candidate or concurrent
 resource pressure caused those tails; they must not be presented as a latency win.
@@ -197,3 +198,14 @@ redraw throttling are not implemented or advertised as solved here.
   `/bin:/usr/bin` has no pnpm, but this machine has `/usr/bin/pnpm` via Corepack.
   Launcher production code and fixtures are unchanged. Subsequent resource-related
   terminations are not counted as passing checks.
+- Final serial suite with the three baseline-proven launcher cases filtered:
+  **235 files passed, 2 skipped; 5,537 tests passed, 30 skipped** (126.16 s).
+  The filter also skipped one newline-named `/goal` parameterization because
+  JavaScript `.` does not match a newline. Re-running the complete goal attachment
+  file without a filter passed **all 18 tests**, covering that case too. Thus all
+  non-baseline-failing cases were verified; this is not a claim that unfiltered
+  `pnpm test` is green on this machine. Existing skips include the real-Codex
+  opt-in and the old local tmux version.
+
+Draft PR: <https://github.com/riesbri/dshline/pull/303>. No merge, release, installed
+profile change or runtime switch was performed.

@@ -3141,5 +3141,36 @@
         "lastDeliveryMs": 586.7824830000009
       }
     ]
+  },
+  "verification": {
+    "build": "passed",
+    "typecheckAndCapabilities": "passed",
+    "securityAndWorkflowLint": "passed",
+    "bilingualDocs": "passed",
+    "focusedScreenAndOracle": {
+      "passed": 38
+    },
+    "serialSuite": {
+      "filesPassed": 235,
+      "filesSkipped": 2,
+      "testsPassed": 5537,
+      "testsSkipped": 30,
+      "seconds": 126.16
+    },
+    "unfilteredGoalAttachment": {
+      "passed": 18
+    },
+    "hostBaselineFailures": [
+      "launcher pnpm prerequisite before --setup",
+      "launcher pnpm prerequisite before first-run prompt",
+      "launcher pnpm prerequisite checkout Corepack advice"
+    ],
+    "mutationProof": {
+      "stockScreenFailsNewWorkBounds": 4,
+      "disabledWrapReuseFailures": 2,
+      "missingRowEraseFailures": 3
+    },
+    "liveHarnessPtyCapture": "not performed; production scheduler replay only",
+    "pr": "https://github.com/riesbri/dshline/pull/303"
   }
 }
