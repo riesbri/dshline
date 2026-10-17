@@ -61,7 +61,7 @@ request rejection, caller errors and forced-rust execution are never retried.
   in forced rust; counters prove one native attempt; a counted reference oracle
   proves one TS attempt and restoration even on an exact TS sentinel throw.
 - Both terminal codes, napi-style messages, typed errors and literal throws are
-  checked across all five operations in auto and forced rust (60 assertions).
+  checked across all five operations in auto and forced rust (60 cases).
 - A fourth test compares Screen writes, callback-frame output and callback order
   exactly against explicit TS while native leaves throw backend failures.
 - The historical guard test now has an explicit forbidden-native-call assertion
@@ -71,6 +71,15 @@ request rejection, caller errors and forced-rust execution are never retried.
   scope, terminal exclusion and forced-rust exclusion, then each of five guards.
   Each faulty build must fail its named behavioral assertion. Only disposable
   compiled copies are mutated; scratch is removed in `finally`.
+
+Clean-source implementation `d875f10` passes **58 focused tests**, native build,
+typecheck/security and bilingual checks. The [retained audit](../benchmarks/renderer-auto-recovery-audit.json)
+rejects all four policy faults and five individual guard removals; the unmodified
+five targeted tests pass. The [validation record](../benchmarks/renderer-auto-recovery-validation.json)
+binds source/build identities, clean addon provenance and log hashes. Full local
+suite: **5615 pass /26 skip**, plus the same three launcher-prerequisite failures
+already reproduced on the unmodified baseline; launcher production/tests are unchanged.
+Hosted exact-head CI is recorded on the draft PR, not inferred from older checks.
 
 Fault injection uses a mock addon at the real JS loader boundary, not an actual
 Rust panic or a new compiler/panic policy. Existing actual-addon parity and
