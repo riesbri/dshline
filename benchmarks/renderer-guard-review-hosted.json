@@ -1,0 +1,40 @@
+{
+  "run": "https://github.com/riesbri/dshline/actions/runs/38922097262",
+  "head": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+  "conclusion": "success",
+  "scratch": "/tmp/dshline-guard-review-hosted-03ldttf0",
+  "files": [
+    {
+      "platform": "darwin-arm64",
+      "artifactId": 12054597967,
+      "file": "renderer-pty-darwin-arm64.json",
+      "sha256": "56996dde4e0607f8a1800714de43454c7fe3513a83d99c55759049cba71e89cc",
+      "bytes": 23815,
+      "exactDownloadedMatch": true
+    },
+    {
+      "platform": "darwin-arm64",
+      "artifactId": 12054597967,
+      "file": "renderer-guard-darwin-arm64.json",
+      "sha256": "e1bf716ed29527196a7d4dc6f9dc647cecf72afb344644d1f5c2a6f03dd78e48",
+      "bytes": 532762,
+      "exactDownloadedMatch": true
+    },
+    {
+      "platform": "darwin-x64",
+      "artifactId": 12055467287,
+      "file": "renderer-pty-darwin-x64.json",
+      "sha256": "b1436e611ec6303a465864ec0362b8bf37a98c8a6c76bd5063195fb9d8a65001",
+      "bytes": 23844,
+      "exactDownloadedMatch": true
+    },
+    {
+      "platform": "darwin-x64",
+      "artifactId": 12055467287,
+      "file": "renderer-guard-darwin-x64.json",
+      "sha256": "7202341828a2cb2f8b50110476355cd540e038b367b1810f7c1bce561ce6c47c",
+      "bytes": 537658,
+      "exactDownloadedMatch": true
+    }
+  ]
+}

@@ -8,12 +8,13 @@ import { describe, expect, it } from 'vitest'
 import * as api from '../packages/renderer/lib/index.js'
 import * as referenceWidth from '../packages/renderer/lib/width.js'
 import * as referenceText from '../packages/renderer/lib/text.js'
-import * as referenceBox from '../packages/renderer/lib/box.js'
-import { frame as referenceFrame } from '../packages/renderer/lib/box.js'
 import { createMarkdownRenderer as referenceMarkdown } from '../packages/renderer/lib/markdown.js'
 import { Config } from '../packages/dshline/lib/index.js'
 import { fixtures, inputOf } from './renderer-parity.mjs'
 import { runNapiHost } from './renderer-napi-host.mjs'
+import { loadVerifiedRenderer } from './renderer-identity.mjs'
+const { renderer: referenceBox } = await loadVerifiedRenderer(undefined, { referenceOnly: true })
+const referenceFrame = referenceBox.frame
 const root = fileURLToPath(new URL('../', import.meta.url))
 const addonName = `${process.platform}-${process.arch}.node`
 const addonPath = join(root, 'packages/renderer/native', addonName)
@@ -24,7 +25,8 @@ if (process.env.DSHLINE_REQUIRE_NATIVE === '1' && !available) throw new Error('R
 function isolated(script, nativeBytes) {
   const scratch = mkdtempSync(join(tmpdir(), 'renderer-selection-test-'))
   try {
-    cpSync(join(root, 'packages/renderer/lib'), join(scratch, 'lib'), { recursive: true })
+    // A fault audit supplies a disposable compiled graph; the verified root stays intact.
+    cpSync(process.env.DSHLINE_TEST_RENDERER_LIB ?? join(root, 'packages/renderer/lib'), join(scratch, 'lib'), { recursive: true })
     writeFileSync(join(scratch, 'package.json'), '{"type":"module"}')
     if (nativeBytes) {
       mkdirSync(join(scratch, 'native'))
@@ -34,8 +36,80 @@ function isolated(script, nativeBytes) {
   } finally { rmSync(scratch, { recursive: true, force: true }) }
 }
 describe('renderer Phase 4 selection and native boundary', () => {
-  it('accepts explicit composition-time backend choices and defaults to auto', () => {
-    expect(Config({}).renderer).toBe('auto')
+  it('recovers admitted panic/backend failures once in auto with exact TS outputs, but not forced rust', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      import {deepStrictEqual,equal,throws} from 'node:assert/strict'
+      const ops=['displayWidth','tailToWidth','fitToWidth','chunkToWidth','wrapToWidth']
+      let kind,calls={}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true})
+      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},...Object.fromEntries(ops.map(op=>[op,()=>{
+        calls[op]=(calls[op]??0)+1
+        if(kind==='malformed')return undefined
+        if(kind==='typed')throw Object.assign(Error('native failed'),{code:'BACKEND_FAILURE'})
+        throw Error(kind==='panic'?'simulated caught panic':'BACKEND_FAILURE')
+      }]))}}
+      const m=await import('./lib/index.js'),source=('\\x1b[31m中😀\\ud800e\\u0301\\x1b[0m').repeat(40)
+      const expected=Object.fromEntries(ops.map(op=>[op,m[op](source,80)]))
+      deepStrictEqual(calls,{})
+      m.setRendererBackend('auto')
+      for(kind of ['panic','backend','typed','malformed'])for(const op of ops){
+        calls={};deepStrictEqual(m[op](source,80),expected[op]);deepStrictEqual(calls,{[op]:1});equal(m.rendererBackend(),'auto')
+        const restore=m.setRendererBackend('rust');calls={}
+        throws(()=>m[op](source,80),e=>e.code==='BACKEND_FAILURE'&&e.fallbackEligible===false)
+        deepStrictEqual(calls,{[op]:1});restore()
+      }
+      process.stdout.write(JSON.stringify({auto:20,forced:20,exact:true}))
+    `, 'fixture')).toEqual({ auto: 20, forced: 20, exact: true })
+  })
+  it('runs a recovery oracle only once under TS and restores auto even when that oracle throws', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      import {deepStrictEqual,equal,throws} from 'node:assert/strict'
+      let nativeCalls=0,referenceCalls=0,referenceThrows=false
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true})
+      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},displayWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')},fitToWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')}}}
+      const m=await import('./lib/index.js'),p=await import('./lib/native-primitives.js'),source='中'.repeat(512),sentinel=Error('TS oracle failed')
+      const reference=()=>{referenceCalls++;equal(m.rendererBackend(),'typescript');if(referenceThrows)throw sentinel;return m.displayWidth(source)}
+      const unary=p.unary('displayWidth',reference),cut=p.cut('fitToWidth',reference)
+      m.setRendererBackend('auto')
+      for(const fn of [()=>unary(source),()=>cut(source,80)]){
+        nativeCalls=referenceCalls=0;referenceThrows=false;equal(fn(),1024);deepStrictEqual([nativeCalls,referenceCalls],[1,1]);equal(m.rendererBackend(),'auto')
+        nativeCalls=referenceCalls=0;referenceThrows=true;throws(fn,e=>e===sentinel);deepStrictEqual([nativeCalls,referenceCalls],[1,1]);equal(m.rendererBackend(),'auto')
+      }
+      process.stdout.write(JSON.stringify({singleAttempt:true,restored:true}))
+    `, 'fixture')).toEqual({ singleAttempt: true, restored: true })
+  })
+  it('never retries terminal native codes from messages or typed errors in auto or forced rust', () => {
+    expect(isolated(`
+      import Module from 'node:module'
+      import {deepStrictEqual,throws} from 'node:assert/strict'
+      const ops=['displayWidth','tailToWidth','fitToWidth','chunkToWidth','wrapToWidth']
+      let code,form,calls={}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true})
+      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},...Object.fromEntries(ops.map(op=>[op,()=>{
+        calls[op]=(calls[op]??0)+1
+        if(form==='string')throw code
+        throw form==='message'?Object.assign(Error(code),{code:'GenericFailure'}):Object.assign(Error('caller rejected'),{code})
+      }]))}}
+      const m=await import('./lib/index.js'),source='中'.repeat(512)
+      for(const mode of ['auto','rust']){
+        m.setRendererBackend(mode)
+        for(code of ['RESOURCE_LIMIT','INVALID_INPUT'])for(form of ['message','code','string'])for(const op of ops){
+          calls={};throws(()=>m[op](source,80),e=>e.code===code&&e.fallbackEligible===false);deepStrictEqual(calls,{[op]:1})
+        }
+      }
+      process.stdout.write(JSON.stringify({terminal:60}))
+    `, 'fixture')).toEqual({ terminal: 60 })
+  })
+  it.runIf(available)('fits long measured prefixes and zero-budget zero-width sources against independent TS', () => {
+    const native = createRequire(import.meta.url)(addonPath)
+    for (const source of ['', '\x1b[31m', '\0\t', 'a'.repeat(2048), '中'.repeat(2048), '\x1b[31mhello中\x1b[0m '.repeat(80), '\ud800'.repeat(512)]) {
+      for (const columns of [-256, -1, 0, 1, 8, 40, 120, 256]) expect(native.fitToWidth(source, columns)).toBe(referenceBox.fitToWidth(source, columns))
+    }
+  })
+  it('accepts explicit composition-time backend choices and defaults to TypeScript', () => {
+    expect(Config({}).renderer).toBe('typescript')
     for (const renderer of ['auto', 'rust', 'typescript']) expect(Config({ renderer }).renderer).toBe(renderer)
     expect(() => Config({ renderer: 'unknown' })).toThrow()
   })
@@ -46,7 +120,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
       let code; try { m.setRendererBackend('rust') } catch(e) { code = e.code }
       const restore = m.setRendererBackend('typescript'); restore(); restore()
       process.stdout.write(JSON.stringify({width,code,selection:m.rendererBackend()}))
-    `)).toEqual({ width: 4, code: 'BACKEND_FAILURE', selection: 'auto' })
+    `)).toEqual({ width: 4, code: 'BACKEND_FAILURE', selection: 'typescript' })
   })
   it('treats a corrupt optional artifact as unavailable without changing TS output', () => {
     expect(isolated(`const m=await import('./lib/index.js');process.stdout.write(JSON.stringify(m.displayWidth('😀')))`, 'not an addon')).toBe(2)
@@ -54,9 +128,9 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('does not retry native resource errors through TypeScript', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node'] = m => { m.exports={execute:()=>{throw Error('unexpected JSON')},displayWidth:()=>{throw Error('RESOURCE_LIMIT')}} }
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node'] = m => { m.exports={unicodeVersion:()=> '17.0',execute:()=>{throw Error('unexpected JSON')},displayWidth:()=>{throw Error('RESOURCE_LIMIT')}} }
       const m=await import('./lib/index.js')
-      let code;try{m.displayWidth('A'.repeat(96))}catch(e){code=e.code}
+      m.setRendererBackend('auto');let code;try{m.displayWidth('中'.repeat(96))}catch(e){code=e.code}
       m.setRendererBackend('typescript')
       process.stdout.write(JSON.stringify({code,width:m.displayWidth('A')}))
     `, 'fixture')).toEqual({ code: 'RESOURCE_LIMIT', width: 1 })
@@ -64,7 +138,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('preselects TS for an optional addon missing a direct method', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node']=m=>{m.exports={execute:()=>{throw Error('not called')}}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=>{throw Error('not called')}}}
       const m=await import('./lib/index.js');const width=m.displayWidth('x'.repeat(96))
       m.setRendererBackend('rust');let code;try{m.displayWidth('x'.repeat(96))}catch(e){code=e.code}
       process.stdout.write(JSON.stringify({width,code}))
@@ -73,7 +147,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('normalizes malformed native response envelopes to a typed failure', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node']=m=>{m.exports={execute:()=> 'null'}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=> 'null'}}
       const m=await import('./lib/index.js');m.setRendererBackend('rust')
       let code;try{m.sgr('x',[31])}catch(e){code=e.code}
       process.stdout.write(JSON.stringify(code))
@@ -83,7 +157,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
     expect(isolated(`
       import Module from 'node:module'
       let calls=0
-      Module._extensions['.node'] = m => { m.exports={execute:()=>{calls++;throw Error('must not execute')}} }
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node'] = m => { m.exports={unicodeVersion:()=> '17.0',execute:()=>{calls++;throw Error('must not execute')}} }
       Object.defineProperty(process.versions,'unicode',{value:'16.0'})
       const m=await import('./lib/index.js')
       const prose=m.renderInline('**x**')
@@ -178,9 +252,9 @@ describe('renderer Phase 4 selection and native boundary', () => {
     expect(isolated(`
       import Module from 'node:module'
       const calls=[]
-      Module._extensions['.node']=m=>{m.exports={execute:()=>{throw Error('JSON must stay out of auto')},displayWidth:s=>{calls.push('width');return s.length},wrapToWidth:s=>{calls.push('wrap');return [s]}}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=>{throw Error('JSON must stay out of auto')},displayWidth:s=>{calls.push('width');return s.length},wrapToWidth:s=>{calls.push('wrap');return [s]}}}
       const m=await import('./lib/index.js')
-      m.codePointWidth(65);m.displayWidth('x');m.displayWidth('x'.repeat(96));m.wrapToWidth('x'.repeat(96),120)
+      m.setRendererBackend('auto');m.codePointWidth(65);m.displayWidth('x');m.displayWidth('中'.repeat(96));m.wrapToWidth('中'.repeat(96),120)
       m.renderInline('**x**');m.escapeControls('x'.repeat(200));m.truncateToWidth('x'.repeat(200),10)
       process.stdout.write(JSON.stringify(calls))
     `, 'fixture')).toEqual(['width', 'wrap'])
@@ -213,7 +287,7 @@ describe('renderer Phase 4 selection and native boundary', () => {
   it('still propagates admitted JSON errors in required-Rust mode without a TS retry', () => {
     expect(isolated(`
       import Module from 'node:module'
-      Module._extensions['.node']=m=>{m.exports={execute:()=>JSON.stringify({ok:false,error:{code:'RESOURCE_LIMIT'}})}}
+      Object.defineProperty(process.versions,'unicode',{value:'17.0',configurable:true});Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute:()=>JSON.stringify({ok:false,error:{code:'RESOURCE_LIMIT'}})}}
       const m=await import('./lib/index.js');m.setRendererBackend('rust')
       let code;try{m.sgr('x',[31])}catch(e){code=e.code}
       process.stdout.write(JSON.stringify(code))

@@ -2,6 +2,12 @@
 use napi::{JsString, bindgen_prelude::Utf16String};
 use napi_derive::napi;
 
+/// Report the Unicode release compiled into the width lookup, not the build host.
+#[napi]
+pub fn unicode_version() -> String {
+    dshline_renderer::UNICODE_VERSION.to_owned()
+}
+
 /// Execute one bounded UTF-16-code-unit JSON request and return a result envelope.
 #[napi]
 pub fn execute(request: JsString<'_>) -> String {

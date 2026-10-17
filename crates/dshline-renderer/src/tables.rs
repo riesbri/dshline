@@ -1,5 +1,6 @@
 // Exact project Unicode 17 data; generated from width-tables.ts.
 // Unicode data copyright Unicode, Inc.; https://www.unicode.org/license.txt
+#[cfg(test)]
 pub const WIDE_RANGES: &[(u32, u32)] = &[
     (0x1100, 0x115f),
     (0x231a, 0x231b),
@@ -125,6 +126,7 @@ pub const WIDE_RANGES: &[(u32, u32)] = &[
     (0x20000, 0x2fffd),
     (0x30000, 0x3fffd),
 ];
+#[cfg(test)]
 pub const ZERO_WIDTH_RANGES: &[(u32, u32)] = &[
     (0x300, 0x36f),
     (0x483, 0x489),

@@ -1,6 +1,26 @@
 use dshline_renderer::*;
 use serde_json::json;
 #[test]
+fn fit_reuses_measured_prefix_without_changing_original_padding() {
+    let atoms = [text("a"), text(" "), text("中"), text("e\u{301}"), text("\x1b[31m"), text("\x1b[0m"), text("\x1b]unterminated"), vec![0xd800], vec![0xdc00], vec![0, 9, 27]];
+    for length in [0, 1, 23, 64, 192, 512, 2048] {
+        for offset in 0..atoms.len() {
+            let mut source = Vec::new();
+            let mut i = offset;
+            while source.len() < length { source.extend_from_slice(&atoms[i % atoms.len()]); i += 1; }
+            source.truncate(length);
+            for budget in [-256, -1, 0, 1, 8, 40, 120, 256] {
+                let mut original = if display_width(&source) > budget { truncate(&source, budget) } else { source.clone() };
+                let pad = (budget - display_width(&original)).max(0) as usize;
+                original.extend(std::iter::repeat_n(32, pad));
+                assert_eq!(fit(&source, budget), original, "length {length}, offset {offset}, budget {budget}");
+            }
+        }
+    }
+    assert_eq!(fit(&text("\x1b[31m"), 0), text("\x1b[31m"));
+    assert!(fit(&text("\x1b[31m"), -1).is_empty());
+}
+#[test]
 fn unicode17_codepoint_sum_and_lone_units() {
     assert_eq!(display_width(&text("中e\u{301}👨\u{200d}👩")), 7);
     assert_eq!(code_point_width(0x1faea), 2);
@@ -33,6 +53,16 @@ fn wrap_replays_styles_not_combining_marks() {
     assert_eq!(chunk(&text("中"), 1), vec![text(""), text("中")]);
     assert_eq!(wrap(&text("a b c"), 3), vec![text("a"), text("b c")]);
     assert_eq!(tail(&text("a\u{301}b"), 1), text("b"));
+}
+#[test]
+fn chunk_row_capacity_preserves_style_replay_zero_width_and_empty_rows() {
+    assert_eq!(
+        chunk(&text("\x1b[31ma\u{301}b\x1b[0m\n中"), 1),
+        vec![text("\x1b[31ma\u{301}\x1b[0m"), text("\x1b[31mb\x1b[0m"), text(""), text("中")]
+    );
+    assert_eq!(chunk(&[0xd800, 97, 0xdc00], 1), vec![vec![0xd800], text("a"), vec![0xdc00]]);
+    assert_eq!(chunk(&text("x"), i32::MAX), vec![text("x")]);
+    assert_eq!(chunk(&text("\n"), 80), vec![text(""), text("")]);
 }
 #[test]
 fn tab_columns_count_codepoints_not_cells() {

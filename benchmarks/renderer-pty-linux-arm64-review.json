@@ -1,0 +1,652 @@
+{
+  "commit": "6928a8ba32452bfa09144fba656dfa4c432cef2d",
+  "node": "v24.18.0",
+  "unicode": "17.0",
+  "platform": "linux-arm64",
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "2aab8234934fdec67ea56eb27f977665da59dd085696528ed9aadce92e010063",
+    "executedBuild": "5beb095d5381348004b5e2fde0d80baee3b80064add5b46aee33b1ad76836adb",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "proof": {
+    "schema": 1,
+    "platform": "linux-arm64",
+    "commit": "6928a8ba32452bfa09144fba656dfa4c432cef2d",
+    "inputDigest": "021e3438e748847c0e07d4c5c02dd0958b5016e147b783a5ccb305c8c5c5594b",
+    "cleanInputs": true,
+    "binarySha256": "7189ef32cc4169a897db554eade05867a372babcdab5270427989edaeaf2fa1f"
+  },
+  "toolSha256": "1478ecfe62982654b64bebee262642dcd0095c26817dcdf31972d728435b8853",
+  "procedure": "Two persistent real 80x24 PTY sessions; production dshline StreamBuffer + renderer Screen/frame; 128-unit deltas, assembled-message reconciliation and scrollback; one warmup then five alternating paired whole turns. Completion includes PTY transport and xterm emulator drain. No provider/network/model delay; not model response time or physical display paint. Rust is opt-in auto admitted leaves only, not forced composites. Raw bytes, full emulator scrollback/cursor, input and call counts checked each pair.",
+  "ready": {
+    "typescript": {
+      "type": "ready",
+      "backend": "typescript",
+      "tty": true,
+      "outputProcessing": "disabled",
+      "columns": 80,
+      "rows": 24,
+      "unicode": "17.0",
+      "compiledUnicode": "17.0"
+    },
+    "admittedRust": {
+      "type": "ready",
+      "backend": "auto",
+      "tty": true,
+      "outputProcessing": "disabled",
+      "columns": 80,
+      "rows": 24,
+      "unicode": "17.0",
+      "compiledUnicode": "17.0"
+    }
+  },
+  "summary": [
+    {
+      "kind": "ascii",
+      "typescript": {
+        "visibleMs": 560.5593159999999,
+        "ptyDrainedMs": 128.97342299999946,
+        "firstByteMs": 1.2962680000000546,
+        "renderMs": 119.45834399999967,
+        "throughputUnitsPerSecond": 116911.80242556172
+      },
+      "admittedRust": {
+        "visibleMs": 541.0756030000002,
+        "ptyDrainedMs": 122.4084899999998,
+        "firstByteMs": 1.079544000000169,
+        "renderMs": 118.08020400000032,
+        "throughputUnitsPerSecond": 121121.70579607517
+      }
+    },
+    {
+      "kind": "cjk",
+      "typescript": {
+        "visibleMs": 571.3707459999987,
+        "ptyDrainedMs": 166.82342099999914,
+        "firstByteMs": 1.5785470000000714,
+        "renderMs": 161.59137100000044,
+        "throughputUnitsPerSecond": 114699.60696937772
+      },
+      "admittedRust": {
+        "visibleMs": 503.2954890000001,
+        "ptyDrainedMs": 131.3983800000001,
+        "firstByteMs": 1.271508000000722,
+        "renderMs": 126.13416600000164,
+        "throughputUnitsPerSecond": 130213.7639465312
+      }
+    }
+  ],
+  "rows": [
+    {
+      "kind": "ascii",
+      "pass": 0,
+      "timings": {
+        "admittedRust": {
+          "type": "done",
+          "id": "0/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 118.08020400000032,
+          "calls": {
+            "wrapToWidth": 1958,
+            "displayWidth": 32
+          },
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 0.8437089999997625,
+          "ptyDrainedMs": 122.4084899999998,
+          "visibleMs": 521.1343419999998,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "49aed6ea6eeb362d7644a66ea030eac54d6ae1f5f5349e09960dd803a1b022d9",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 125756.4407451774
+        },
+        "typescript": {
+          "type": "done",
+          "id": "0/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 140.63719700000001,
+          "calls": {},
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 0.8313760000000912,
+          "ptyDrainedMs": 144.58355500000016,
+          "visibleMs": 454.5646099999999,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "49aed6ea6eeb362d7644a66ea030eac54d6ae1f5f5349e09960dd803a1b022d9",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 144173.12425619763
+        }
+      }
+    },
+    {
+      "kind": "cjk",
+      "pass": 0,
+      "timings": {
+        "admittedRust": {
+          "type": "done",
+          "id": "0/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 124.93332099999998,
+          "calls": {
+            "displayWidth": 512,
+            "wrapToWidth": 2019
+          },
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 1.0472650000001522,
+          "ptyDrainedMs": 131.3983800000001,
+          "visibleMs": 546.7620230000002,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "8ee9f48f00a9cdfb8cdae64e3c2580c39bf004878eec6da8adf40a20dc05c49b",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 119862.0190195616
+        },
+        "typescript": {
+          "type": "done",
+          "id": "0/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 160.9950469999999,
+          "calls": {},
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 1.5785470000000714,
+          "ptyDrainedMs": 166.61173099999996,
+          "visibleMs": 588.0502829999996,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "8ee9f48f00a9cdfb8cdae64e3c2580c39bf004878eec6da8adf40a20dc05c49b",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 111446.25195257332
+        }
+      }
+    },
+    {
+      "kind": "ascii",
+      "pass": 1,
+      "timings": {
+        "typescript": {
+          "type": "done",
+          "id": "1/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 163.9201210000001,
+          "calls": {},
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 3.669116000000031,
+          "ptyDrainedMs": 169.14078400000017,
+          "visibleMs": 560.5593159999999,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "9b04df2512b5756e011a6b0043e13b65684792101e3b35ed19c511582a83b7c7",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 116911.80242556172
+        },
+        "admittedRust": {
+          "type": "done",
+          "id": "1/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 216.36354399999982,
+          "calls": {
+            "wrapToWidth": 1958,
+            "displayWidth": 32
+          },
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 11.309847999999874,
+          "ptyDrainedMs": 230.34828000000016,
+          "visibleMs": 541.0756030000002,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "9b04df2512b5756e011a6b0043e13b65684792101e3b35ed19c511582a83b7c7",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 121121.70579607517
+        }
+      }
+    },
+    {
+      "kind": "cjk",
+      "pass": 1,
+      "timings": {
+        "typescript": {
+          "type": "done",
+          "id": "1/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 179.56629500000054,
+          "calls": {},
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 2.1981439999999566,
+          "ptyDrainedMs": 185.75703799999974,
+          "visibleMs": 561.4420839999993,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "49862d757d40c9a203acda8e22fb09c66e94e525b720f8d3d8960e8e5c279373",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 116727.9793724905
+        },
+        "admittedRust": {
+          "type": "done",
+          "id": "1/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 172.32982400000037,
+          "calls": {
+            "displayWidth": 512,
+            "wrapToWidth": 2019
+          },
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 1.271508000000722,
+          "ptyDrainedMs": 178.04021199999988,
+          "visibleMs": 459.0249050000002,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "49862d757d40c9a203acda8e22fb09c66e94e525b720f8d3d8960e8e5c279373",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 142772.20971267336
+        }
+      }
+    },
+    {
+      "kind": "ascii",
+      "pass": 2,
+      "timings": {
+        "admittedRust": {
+          "type": "done",
+          "id": "2/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 114.64540599999964,
+          "calls": {
+            "wrapToWidth": 1958,
+            "displayWidth": 32
+          },
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 0.9913770000002842,
+          "ptyDrainedMs": 118.82465400000001,
+          "visibleMs": 528.4483420000006,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "882f4695ab2ffa54e51889910ac7afc252d223c92fac4f5545f08e2fe93be959",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 124015.90617536638
+        },
+        "typescript": {
+          "type": "done",
+          "id": "2/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 119.45834399999967,
+          "calls": {},
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 1.2962680000000546,
+          "ptyDrainedMs": 128.97342299999946,
+          "visibleMs": 544.7700580000001,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "882f4695ab2ffa54e51889910ac7afc252d223c92fac4f5545f08e2fe93be959",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 120300.29741465708
+        }
+      }
+    },
+    {
+      "kind": "cjk",
+      "pass": 2,
+      "timings": {
+        "admittedRust": {
+          "type": "done",
+          "id": "2/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 124.87467500000002,
+          "calls": {
+            "displayWidth": 512,
+            "wrapToWidth": 2019
+          },
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 0.9734689999986585,
+          "ptyDrainedMs": 130.09165199999916,
+          "visibleMs": 569.6665670000002,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "11bb78c1a2469a6c54f70e4071803473ec522db43d5889aa120922dc8806ca14",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 115042.73516546386
+        },
+        "typescript": {
+          "type": "done",
+          "id": "2/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 161.6936850000002,
+          "calls": {},
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 0.9480249999996886,
+          "ptyDrainedMs": 166.82342099999914,
+          "visibleMs": 571.3707459999987,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "11bb78c1a2469a6c54f70e4071803473ec522db43d5889aa120922dc8806ca14",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 114699.60696937772
+        }
+      }
+    },
+    {
+      "kind": "ascii",
+      "pass": 3,
+      "timings": {
+        "typescript": {
+          "type": "done",
+          "id": "3/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 106.88571000000047,
+          "calls": {},
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 1.105913999999757,
+          "ptyDrainedMs": 111.12729200000103,
+          "visibleMs": 596.6385550000014,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "3471ed909ecee1c3d0b5520f0964ef881d296c5a4bd08dddeb6bcf71cbfa5fc8",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 109842.04666424858
+        },
+        "admittedRust": {
+          "type": "done",
+          "id": "3/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 121.36274599999888,
+          "calls": {
+            "wrapToWidth": 1958,
+            "displayWidth": 32
+          },
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 3.5950969999994413,
+          "ptyDrainedMs": 127.37719099999958,
+          "visibleMs": 547.5830060000008,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "3471ed909ecee1c3d0b5520f0964ef881d296c5a4bd08dddeb6bcf71cbfa5fc8",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 119682.31168956311
+        }
+      }
+    },
+    {
+      "kind": "cjk",
+      "pass": 3,
+      "timings": {
+        "typescript": {
+          "type": "done",
+          "id": "3/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 161.59137100000044,
+          "calls": {},
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 1.1510809999999765,
+          "ptyDrainedMs": 167.31386999999995,
+          "visibleMs": 628.7688719999987,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "f5ea0860b762ff2b1f7e911bd1e9a1ae026687d9021101950a1109b0dbcd1e2b",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 104229.07831226119
+        },
+        "admittedRust": {
+          "type": "done",
+          "id": "3/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 126.13416600000164,
+          "calls": {
+            "displayWidth": 512,
+            "wrapToWidth": 2019
+          },
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 8.83350000000064,
+          "ptyDrainedMs": 131.21704900000077,
+          "visibleMs": 503.2954890000001,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "f5ea0860b762ff2b1f7e911bd1e9a1ae026687d9021101950a1109b0dbcd1e2b",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 130213.7639465312
+        }
+      }
+    },
+    {
+      "kind": "ascii",
+      "pass": 4,
+      "timings": {
+        "admittedRust": {
+          "type": "done",
+          "id": "4/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 96.22073699999964,
+          "calls": {
+            "wrapToWidth": 1958,
+            "displayWidth": 32
+          },
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 1.079544000000169,
+          "ptyDrainedMs": 100.10516800000005,
+          "visibleMs": 564.1469480000014,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "1a67848dce5090a8ce6143e770652bb3fa2cff195ef6b8f49f8d0bfbad16904d",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 116168.31435911595
+        },
+        "typescript": {
+          "type": "done",
+          "id": "4/ascii",
+          "kind": "ascii",
+          "inputUnits": 65536,
+          "inputBytes": 65536,
+          "inputSha256": "5b7aa339adf06588c9a97d708179ce98c9c088e4a804389ce76dfee21dcd03fc",
+          "deltas": 512,
+          "renderMs": 114.37974000000031,
+          "calls": {},
+          "renderedBytes": 542205,
+          "renderedSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "firstByteMs": 1.6726030000008905,
+          "ptyDrainedMs": 117.96265200000016,
+          "visibleMs": 568.8344800000013,
+          "outputBytes": 542205,
+          "outputSha256": "541b48eea21c0c6fb5788a3baece71a42c11976736fd2645f4d30d427556beda",
+          "snapshotSha256": "1a67848dce5090a8ce6143e770652bb3fa2cff195ef6b8f49f8d0bfbad16904d",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 115211.01885384979
+        }
+      }
+    },
+    {
+      "kind": "cjk",
+      "pass": 4,
+      "timings": {
+        "admittedRust": {
+          "type": "done",
+          "id": "4/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 135.18585300000086,
+          "calls": {
+            "displayWidth": 512,
+            "wrapToWidth": 2019
+          },
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 12.228744000000006,
+          "ptyDrainedMs": 140.5297759999994,
+          "visibleMs": 463.0766280000007,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "6734da26b4e688fadc181682739e69a129ab9d007128e72a00aff4999df547bc",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 141523.01376782052
+        },
+        "typescript": {
+          "type": "done",
+          "id": "4/cjk",
+          "kind": "cjk",
+          "inputUnits": 65536,
+          "inputBytes": 196352,
+          "inputSha256": "27a8b3db88270787f56dc04a7623408b83090c9bf0b66daea09b55a9df739ce9",
+          "deltas": 512,
+          "renderMs": 157.27345699999933,
+          "calls": {},
+          "renderedBytes": 798459,
+          "renderedSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "firstByteMs": 5.069531999999526,
+          "ptyDrainedMs": 162.09513499999957,
+          "visibleMs": 560.166631,
+          "outputBytes": 798459,
+          "outputSha256": "ac9c17dd66d42084508912f75af8279691687f6961d4e978720bfd42890230f7",
+          "snapshotSha256": "6734da26b4e688fadc181682739e69a129ab9d007128e72a00aff4999df547bc",
+          "cursor": [
+            0,
+            17
+          ],
+          "throughputUnitsPerSecond": 116993.75930873682
+        }
+      }
+    }
+  ]
+}

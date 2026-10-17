@@ -43,6 +43,9 @@ export async function loadVerifiedRenderer(root = defaultRoot, { referenceOnly =
     writeFileSync(join(snapshot, 'package.json'), '{"type":"module"}')
     for (const [name, bytes] of build) writeFileSync(join(snapshot, name), bytes)
     if (digest(filesAt(snapshot, /(?:\.js|\.d\.ts)$/u)) !== identity.executedBuild) throw new Error('Renderer snapshot digest mismatch')
+    // Host modules now reach native leaves. The independent oracle graph must
+    // explicitly select TS before loading them, not rely on a missing addon.
+    if (referenceOnly && build.some(([name]) => name === 'native-primitives.js')) (await import(pathToFileURL(join(snapshot, 'native-primitives.js')).href)).setRendererBackend('typescript')
     const renderer = referenceOnly
       ? Object.assign({}, ...await Promise.all(['width', 'text', 'box', 'markdown', 'screen', 'theme'].map(name => import(pathToFileURL(join(snapshot, `${name}.js`)).href))))
       : await import(pathToFileURL(join(snapshot, 'index.js')).href)

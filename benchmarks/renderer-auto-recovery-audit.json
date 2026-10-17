@@ -1,0 +1,185 @@
+{
+  "commit": "d875f10cf814f16d4290077eb65e35556db2dd9e",
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "95bfb752cabce4f7d783a8dfed78070ea8d425df06473c765a98c7e4f9de7d85",
+    "executedBuild": "f73240197d49a747ba299f9d080ca08f11892b77c9396de75e58fb241f5cedb4",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "inputDigest": "8bfe388a5b715785e1849cf0d092893fbf5ae1acc48ce78025df03b7d060f2b4",
+  "auditToolSha256": "bd50a53f139f6b264a66475cb86b597c3349878215176370bdbbe9a1a373e3ad",
+  "platform": "linux-arm64",
+  "node": "v24.18.0",
+  "procedure": "Single unmodified test pass, four independent recovery-policy faults and all five individual ASCII guard removals. Only private compiled copies are mutated through the test-only DSHLINE_TEST_RENDERER_LIB seam; the verified root stays byte-identical. No overlapping builds/tests/timing; scratch removed in finally. Mocked native throws test the JS boundary, not a real Rust panic. Guard faults must fail the explicit native-call counter even when auto recovers its throw.",
+  "results": [
+    {
+      "name": "unmodified",
+      "status": 0,
+      "compiledSha256": "7812c02e6bbdc95d790ebb4c8b42901709e06aef2121f07c8a253205ba950d40",
+      "transcriptSha256": "56236202b4f66551844d7950f5085be81f3eb638329c11894648ba3a2adb78f7",
+      "witness": null,
+      "summary": [
+        " Test Files  2 passed (2)",
+        "      Tests  5 passed | 51 skipped (56)"
+      ]
+    },
+    {
+      "name": "remove-auto-recovery",
+      "status": 1,
+      "compiledSha256": "4a2d8cf94c4e140673b5095df6549dabcaa05973648097438839c924516e3cad",
+      "transcriptSha256": "8c09ad828e00d3e32cf187328eb9332fdf15ec75093e44a1402b7dc1f91b0c1d",
+      "witness": "recovers admitted panic/backend failures",
+      "summary": [
+        "Error: renderer: BACKEND_FAILURE",
+        "  code: 'BACKEND_FAILURE',",
+        " FAIL  |repo| tools/renderer-native.spec.mjs > renderer Phase 4 selection and native boundary > recovers admitted panic/backend failures once in auto with exact TS outputs, but not forced rust",
+        "        if(kind==='typed')throw Object.assign(Error('native failed'),{code:'BACKEND_FAILURE'})",
+        "        throw Error(kind==='panic'?'simulated caught panic':'BACKEND_FAILURE')",
+        "        throws(()=>m[op](source,80),e=>e.code==='BACKEND_FAILURE'&&e.fallbackEligible===false)",
+        "Error: renderer: BACKEND_FAILURE",
+        "  code: 'BACKEND_FAILURE',",
+        " FAIL  |repo| tools/renderer-native.spec.mjs > renderer Phase 4 selection and native boundary > runs a recovery oracle only once under TS and restores auto even when that oracle throws",
+        "      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},displayWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')},fitToWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')}}}",
+        "Error: renderer: BACKEND_FAILURE",
+        "  code: 'BACKEND_FAILURE',"
+      ]
+    },
+    {
+      "name": "remove-TS-only-scope",
+      "status": 1,
+      "compiledSha256": "63724f114e9045321e9a40c03bedc141ccf436b4f8e11d8abdfc5b400333e969",
+      "transcriptSha256": "07564339142baae5b7cdddc6113008305bf6992cc07fa0f444b8875e0123885f",
+      "witness": "recovery oracle only once",
+      "summary": [
+        " Test Files  1 failed | 1 passed (2)",
+        "      Tests  2 failed | 2 passed | 52 skipped (56)",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-native.spec.mjs > renderer Phase 4 selection and native boundary > recovers admitted panic/backend failures once in auto with exact TS outputs, but not forced rust",
+        "        if(kind==='typed')throw Object.assign(Error('native failed'),{code:'BACKEND_FAILURE'})",
+        "        throw Error(kind==='panic'?'simulated caught panic':'BACKEND_FAILURE')",
+        "        throws(()=>m[op](source,80),e=>e.code==='BACKEND_FAILURE'&&e.fallbackEligible===false)",
+        " FAIL  |repo| tools/renderer-native.spec.mjs > renderer Phase 4 selection and native boundary > runs a recovery oracle only once under TS and restores auto even when that oracle throws",
+        "      Module._extensions['.node']=m=>{m.exports={unicodeVersion:()=> '17.0',execute(){throw Error('no composite')},displayWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')},fitToWidth(){nativeCalls++;throw Error('BACKEND_FAILURE')}}}"
+      ]
+    },
+    {
+      "name": "retry-terminal-errors",
+      "status": 1,
+      "compiledSha256": "9efb29e702c2cda29fb1d66f66c077503cc9a3ff4a87d8ed806291f1571a27dd",
+      "transcriptSha256": "b220ee18d9351d88b06c037c262434735aa7af86d023dc5ba9dea73e781094ac",
+      "witness": "never retries terminal native codes",
+      "summary": [
+        " Test Files  1 failed | 1 passed (2)",
+        "      Tests  1 failed | 3 passed | 52 skipped (56)",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-native.spec.mjs > renderer Phase 4 selection and native boundary > never retries terminal native codes from messages or typed errors in auto or forced rust"
+      ]
+    },
+    {
+      "name": "retry-forced-rust",
+      "status": 1,
+      "compiledSha256": "105535bf681ab59688bd1f77dd43fe5a6fba1dc1ec6cfc298f8821621dd41459",
+      "transcriptSha256": "e2c3e27ebc8415545cd5c97d80de107802a58a4691bfa0054e264ad14c5d3b9f",
+      "witness": "recovers admitted panic/backend failures",
+      "summary": [
+        " Test Files  1 failed | 1 passed (2)",
+        "      Tests  1 failed | 3 passed | 52 skipped (56)",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-native.spec.mjs > renderer Phase 4 selection and native boundary > recovers admitted panic/backend failures once in auto with exact TS outputs, but not forced rust",
+        "        if(kind==='typed')throw Object.assign(Error('native failed'),{code:'BACKEND_FAILURE'})",
+        "        throw Error(kind==='panic'?'simulated caught panic':'BACKEND_FAILURE')",
+        "        throws(()=>m[op](source,80),e=>e.code==='BACKEND_FAILURE'&&e.fallbackEligible===false)"
+      ]
+    },
+    {
+      "name": "remove-ascii-short-width",
+      "status": 1,
+      "compiledSha256": "90806d20e0e042d7cc2f88bfa1a17e3233baf8e956e490e01bd8bebf4deee0c3",
+      "transcriptSha256": "f6e37053b2c381ec592e77d4e463e4a2de080b2e18e8b95cf721280ceb174a3c",
+      "witness": "must stay TS:",
+      "summary": [
+        " Test Files  1 failed | 1 skipped (2)",
+        "      Tests  1 failed | 55 skipped (56)",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 3 native transformations",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > defaults to TS even with an available addon, and gates every recorded ASCII regression in auto",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 3 native transformations"
+      ]
+    },
+    {
+      "name": "remove-ascii-dominant-width",
+      "status": 1,
+      "compiledSha256": "e33cfc7a71c417083f447b2e5bdaaa513ba308beb1a182ead1e0332f185e25c4",
+      "transcriptSha256": "5bf99b0c823aeb73a29f0597a9e91791b9a7bb3b562788a27a9fd5ef9b5c8d95",
+      "witness": "must stay TS:",
+      "summary": [
+        " Test Files  1 failed | 1 skipped (2)",
+        "      Tests  1 failed | 55 skipped (56)",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 3 native transformations",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > defaults to TS even with an available addon, and gates every recorded ASCII regression in auto",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 3 native transformations"
+      ]
+    },
+    {
+      "name": "remove-ascii-tail",
+      "status": 1,
+      "compiledSha256": "27220bbb2e0ce17abc1dde5cf0322e79ff9160ba8d8d58a781c999a5dd1a481c",
+      "transcriptSha256": "64bb3b55fb47de4b1bfc2cb8c48b242dacda59bf2049194701da7bb4a91d3547",
+      "witness": "must stay TS:",
+      "summary": [
+        " Test Files  1 failed | 1 skipped (2)",
+        "      Tests  1 failed | 55 skipped (56)",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 3 native transformations",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > defaults to TS even with an available addon, and gates every recorded ASCII regression in auto",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 3 native transformations"
+      ]
+    },
+    {
+      "name": "remove-ascii-chunk",
+      "status": 1,
+      "compiledSha256": "bf3561588409b960a4960da4d9dae1d0399a7be09d4eb5455eee1d3be89945f4",
+      "transcriptSha256": "c714ccfb5b603a33cb11448fe022f5c5870e7c721f72528e5492771871eb5989",
+      "witness": "must stay TS:",
+      "summary": [
+        " Test Files  1 failed | 1 skipped (2)",
+        "      Tests  1 failed | 55 skipped (56)",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 2 native transformations",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > defaults to TS even with an available addon, and gates every recorded ASCII regression in auto",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 2 native transformations"
+      ]
+    },
+    {
+      "name": "remove-ascii-wrap",
+      "status": 1,
+      "compiledSha256": "6095517fe0f49deba361cb551a3f3b00108b0d37be992d3e7ed89d33ed2f6e55",
+      "transcriptSha256": "3c5f02f5a97f9aa2e1a8cb868983caf2f8267655730a2335b80ecdb0e022c92e",
+      "witness": "must stay TS:",
+      "summary": [
+        " Test Files  1 failed | 1 skipped (2)",
+        "      Tests  1 failed | 55 skipped (56)",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 8 native transformations",
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+        " FAIL  |repo| tools/renderer-leaf.spec.mjs > cycle-free native host leaves > defaults to TS even with an available addon, and gates every recorded ASCII regression in auto",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "      if(calls!==0)throw Error('must stay TS: '+calls+' native transformations')",
+        "Error: must stay TS: 8 native transformations"
+      ]
+    }
+  ]
+}

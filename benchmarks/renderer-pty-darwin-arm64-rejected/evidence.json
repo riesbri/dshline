@@ -1,0 +1,7 @@
+{
+  "run": "https://github.com/riesbri/dshline/actions/runs/38921228772",
+  "job": 117041366372,
+  "status": "rejected",
+  "sourceCommit": "f5a663d",
+  "finding": "Producing renderer write hashes/lengths and emulator state match; PTY transcripts differ only in CR bytes (first difference offset 90047). Strict raw-byte comparison rejected both timings; disable output post-processing only on the private PTY and verify exact producing/received bytes in the new run."
+}

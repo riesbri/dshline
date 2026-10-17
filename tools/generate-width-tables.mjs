@@ -263,6 +263,9 @@ const dshlinePath = join(root, 'packages', 'dshline', 'src', 'width-stable-table
 
 const rendererSource = `${header('Unicode code-point ranges for terminal display width.')}
 /** Inclusive code-point ranges a terminal advances two cells for (East_Asian_Width W or F). */
+/** Unicode major.minor shared by native admission and these generated tables. */
+export const WIDTH_UNICODE_VERSION = '${UNICODE_VERSION.split('.').slice(0, 2).join('.')}'
+
 export const WIDE_RANGES: readonly (readonly [number, number])[] = [
 ${emitRanges(wide)}
 ]

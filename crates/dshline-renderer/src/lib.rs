@@ -12,6 +12,9 @@
 //! Narrow CSI/OSC recognition and full-reset replay deliberately mirror TS,
 //! including malformed escapes and non-scalar UTF-16 values.
 mod tables;
+mod lookup;
+/// Unicode release of the generated lookup used by every native width scanner.
+pub const UNICODE_VERSION: &str = lookup::UNICODE_VERSION;
 pub type Text = Vec<u16>;
 pub fn text(s: &str) -> Text {
     s.encode_utf16().collect()
@@ -37,17 +40,35 @@ fn ranges(r: &[(u32, u32)], c: u32) -> bool {
     })
     .is_ok()
 }
+// Keep the compact lookup out of the ASCII scanner's hot loop. Automatic
+// inlining grew that loop and regressed plain ASCII despite faster Unicode.
+#[inline(never)]
 pub fn code_point_width(c: u32) -> i32 {
     if c < 32 || (127..160).contains(&c) {
         0
     } else if c < 127 {
         1
-    } else if ranges(tables::ZERO_WIDTH_RANGES, c) {
-        0
-    } else if ranges(tables::WIDE_RANGES, c) {
-        2
+    } else if c <= 0x10ffff {
+        lookup::PAGES[lookup::INDEX[(c >> 8) as usize] as usize][(c & 255) as usize] as i32
     } else {
         1
+    }
+}
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+    #[test]
+    fn every_codepoint_matches_original_range_policy() {
+        for c in 0..=0x10ffff {
+            let expected = if c < 32 || (127..160).contains(&c) { 0 }
+                else if c < 127 { 1 }
+                else if ranges(tables::ZERO_WIDTH_RANGES, c) { 0 }
+                else if ranges(tables::WIDE_RANGES, c) { 2 }
+                else { 1 };
+            assert_eq!(code_point_width(c), expected, "code point {c:x}");
+        }
+        assert_eq!(code_point_width(0x110000), 1);
+        assert_eq!(code_point_width(u32::MAX), 1);
     }
 }
 fn point(s: &[u16], i: usize) -> (u32, usize) {
@@ -172,8 +193,11 @@ pub fn strip_ansi(s: &[u16]) -> Text {
     out
 }
 pub fn truncate(s: &[u16], n: i32) -> Text {
+    truncate_measured(s, n).0
+}
+fn truncate_measured(s: &[u16], n: i32) -> (Text, i32) {
     if n <= 0 {
-        return vec![];
+        return (vec![], 0);
     }
     let mut out = vec![];
     let mut used = 0;
@@ -187,12 +211,12 @@ pub fn truncate(s: &[u16], n: i32) -> Text {
             if open {
                 append(&mut out, &reset())
             }
-            return out;
+            return (out, used);
         }
         used += t.w;
         append(&mut out, t.v)
     }
-    out
+    (out, used)
 }
 pub fn tail(s: &[u16], n: i32) -> Text {
     if n <= 0 {
@@ -257,7 +281,11 @@ pub fn chunk(s: &[u16], n: i32) -> Vec<Text> {
     let budget = n.max(1);
     let mut out = vec![];
     for p in s.split(|c| *c == 10) {
-        let mut row = vec![];
+        // Plain rows previously grew through several allocations per break.
+        // This is only a capacity hint: zero-width text/style replay may still
+        // grow it, and huge direct-library budgets cannot reserve past input.
+        let capacity = p.len().min(budget as usize);
+        let mut row = Vec::with_capacity(capacity);
         let mut used = 0;
         let mut open = vec![];
         for t in tokens(p) {
@@ -277,7 +305,8 @@ pub fn chunk(s: &[u16], n: i32) -> Vec<Text> {
                     append(&mut row, &reset())
                 }
                 out.push(row);
-                row = open.clone();
+                row = Vec::with_capacity(capacity.saturating_add(open.len()));
+                append(&mut row, &open);
                 used = 0
             }
             append(&mut row, t.v);
@@ -379,12 +408,22 @@ pub fn wrap(s: &[u16], n: i32) -> Vec<Text> {
     out
 }
 pub fn fit(s: &[u16], n: i32) -> Text {
-    let mut out = if display_width(s) > n {
-        truncate(s, n)
+    if n <= 0 {
+        // At zero columns the original fit preserves an entirely zero-width
+        // source; truncate(0) does not. Negative budgets always produce empty.
+        return if n == 0 && display_width(s) == 0 { s.to_vec() } else { vec![] };
+    }
+    // Short/already-fitted rows benefit from a cheap scan plus one clone. Long
+    // inputs commonly need only a prefix; do not scan their entire suffix just
+    // to discard it, or remeasure a prefix whose exact width we already know.
+    const PREFIX_SCAN_RATIO: usize = 4;
+    let (mut out, used) = if s.len() > (n as usize).saturating_mul(PREFIX_SCAN_RATIO) {
+        truncate_measured(s, n)
     } else {
-        s.to_vec()
+        let used = display_width(s);
+        if used > n { truncate_measured(s, n) } else { (s.to_vec(), used) }
     };
-    let pad = (n - display_width(&out)).max(0) as usize;
+    let pad = (n - used).max(0) as usize;
     out.extend(std::iter::repeat_n(32, pad));
     out
 }

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n.md): the git blob hash of each side
+# as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-docs --write docs/renderer-guard-review.md
+renderer-guard-review.md: fc0f01adff121a5c1b51f8c51dd94cdf909ee631
+renderer-guard-review.zh.md: 2f18b55a9b5baa0550fc78103cdbbdc2df110197

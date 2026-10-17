@@ -185,14 +185,14 @@ class TokenScan {
       return true
     }
     // A surrogate pair is one token and one code point, so a supplementary-plane
-    // character is never half a token. `codePointAt` reads the pair — or a lone
-    // surrogate, exactly as iterating the string does — and the pair test is what
-    // decides how many units the token spans.
+    // character is never half a token. Derive the value from the same bounded
+    // units as its span: codePointAt on a sliced trailing high surrogate showed
+    // representation-dependent results on Node 24.18 during native parity.
     const first = source.charCodeAt(at)
-    const paired = first >= 0xd800 && first <= 0xdbff
-      && source.charCodeAt(at + 1) >= 0xdc00 && source.charCodeAt(at + 1) <= 0xdfff
+    const second = first >= 0xd800 && first <= 0xdbff && at + 1 < source.length ? source.charCodeAt(at + 1) : 0
+    const paired = second >= 0xdc00 && second <= 0xdfff
     this.end = at + (paired ? 2 : 1)
-    this.width = codePointWidth(source.codePointAt(at) ?? 0)
+    this.width = codePointWidth(paired ? 0x10000 + ((first - 0xd800) << 10) + second - 0xdc00 : first)
     this.escape = false
     this.index = this.end
     return true

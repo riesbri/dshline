@@ -6,15 +6,11 @@ import { createRequire } from 'node:module'
 import { cpus } from 'node:os'
 import { resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import * as width from '../packages/renderer/lib/width.js'
-import * as text from '../packages/renderer/lib/text.js'
-import * as box from '../packages/renderer/lib/box.js'
-import * as markdown from '../packages/renderer/lib/markdown.js'
 import * as api from '../packages/renderer/lib/index.js'
-import { rendererIdentity } from './renderer-identity.mjs'
+import { rendererIdentity, loadVerifiedRenderer } from './renderer-identity.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const identity = rendererIdentity()
+const { identity, renderer: oracle } = await loadVerifiedRenderer(undefined, { referenceOnly: true })
 const args = process.argv.slice(2)
 const options = {}
 for (let i = 0; i < args.length; i += 2) {
@@ -50,7 +46,7 @@ function measure(call) {
 const rows = []
 const directOps = ['displayWidth', 'stripAnsi', 'escapeControls', 'sanitizePasted', 'truncateToWidth', 'tailToWidth', 'fitToWidth', 'chunkToWidth', 'wrapToWidth']
 for (const op of [...directOps, 'renderInline', 'renderMarkdown']) {
-  const reference = width[op] ?? text[op] ?? box[op] ?? markdown[op]
+  const reference = oracle[op]
   for (const [kind, seed] of Object.entries(seeds)) for (const length of [24, 96, 192, 512, 2048]) {
     const source = seed.repeat(Math.ceil(length / seed.length)).slice(0, length)
     // Several inputs prevent an accidentally added one-key memo from passing as
@@ -79,13 +75,13 @@ for (const op of ['chunkToWidth', 'wrapToWidth']) for (const columns of [1, 8, 3
   const source = seeds.ascii.repeat(12)
   const restore = api.setRendererBackend('auto')
   try {
-    deepStrictEqual(api[op](source, columns), width[op](source, columns))
-    rows.push({ op, kind: 'narrow-width', length: source.length, columns, reference: measure(() => width[op](source, columns)), auto: measure(() => api[op](source, columns)) })
+    deepStrictEqual(api[op](source, columns), oracle[op](source, columns))
+    rows.push({ op, kind: 'narrow-width', length: source.length, columns, reference: measure(() => oracle[op](source, columns)), auto: measure(() => api[op](source, columns)) })
   } finally { restore() }
 }
 for (const method of ['line', 'partial']) {
   const source = '**Hello** world 你好 `code` '.repeat(4)
-  const reference = markdown.createMarkdownRenderer()
+  const reference = oracle.createMarkdownRenderer()
   const result = { op: `stream.${method}`, kind: 'markdown', length: source.length, reference: measure(() => reference[method](source)) }
   for (const [variant, target] of [['auto', api], ...(baseline ? [['baselineAuto', baseline]] : [])]) {
     const restore = target.setRendererBackend('auto')

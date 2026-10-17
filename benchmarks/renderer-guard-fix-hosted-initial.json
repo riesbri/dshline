@@ -1,0 +1,35 @@
+{
+  "run": "https://github.com/riesbri/dshline/actions/runs/39005270464",
+  "source": "4ba66c1e273a1dd3d44a23d039ac7194377caf1c",
+  "files": [
+    {
+      "file": "renderer-guard-fix-darwin-arm64-initial.json",
+      "artifactId": 12091395097,
+      "attempt": 1,
+      "sha256": "064273865a2d6602720fe32a579ef34419ae2fe8d1d2d355023d376bb9f05da6"
+    },
+    {
+      "file": "renderer-pty-guard-fix-darwin-arm64-initial.json",
+      "artifactId": 12091395097,
+      "attempt": 1,
+      "sha256": "881d3097e5c7aeb3a870edfc9d82ac5c82dc8ba2b6e7e6bdf9a120afdeaf3dc3"
+    },
+    {
+      "file": "renderer-guard-fix-darwin-x64-initial.json",
+      "artifactId": 12090764147,
+      "attempt": 2,
+      "sha256": "7970af75c45306c1640eb7d2cd74163027e123d4d15b26cd5f7b10ac0191d999"
+    },
+    {
+      "file": "renderer-pty-guard-fix-darwin-x64-initial.json",
+      "artifactId": 12090764147,
+      "attempt": 2,
+      "sha256": "4f2b517e0fff0ee69d258aaf3f4dd98ab0742c8366783ff6835dd48cb00fdc2d"
+    }
+  ],
+  "discardedAttempt": {
+    "job": 117316338990,
+    "reason": "CreateArtifact ETIMEDOUT after all tests/benchmarks/PTY passed; no performance artifact created; raw timing values unavailable and not used"
+  },
+  "initialAcceptance": "11/12; Intel chunk still slower than TS by ratio of medians, including no-guards. Preserve all observations; repeat all three machines with prespecified per-batch interleaving and eleven passes, unchanged production source and acceptance metric."
+}

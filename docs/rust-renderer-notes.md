@@ -158,12 +158,14 @@ unknown option fields and caller-owned objects are not traversed by an alternate
 native path. `rust` requires an addon and uses it for every admitted pure
 operation, irrespective of the auto performance thresholds. Public host-only
 features, inputs outside the bounded native subset and Unicode-incompatible
-markdown select unchanged TS before normalization/admission, even in rust mode.
+operations select unchanged TS before normalization/admission, even in rust mode.
 Raw normalized/native rejection remains strict and is never retried. This is
 necessary for ordinary dshline callback frames and full-theme streaming to work
 with the same public API. Rust is not a promise that every operation is faster.
-`typescript` never invokes native operations. Native markdown requires host
-Unicode 17.0 to preserve flanking properties; other hosts use the TS formatter.
+`typescript` never invokes native operations. Every native operation now requires agreement between the host runtime Unicode
+version, the generated TS width policy and the compiled addon lookup release.
+Missing or mismatching version metadata selects TS, including in forced mode.
+The current tables are Unicode 17.0; see the [follow-up report](renderer-leaf-followup.md).
 Arbitrary border callbacks remain a TS-only host feature.
 
 Streaming markdown keeps explicit native fence state in TypeScript and lazily
@@ -177,7 +179,9 @@ preselect TS for proxy/accessor/custom-iterator arrays before cloning: an unused
 role must not execute behavior that the original formatter never reads.
 
 The dshline composition-time `renderer` field accepts `auto`, `rust` or
-`typescript`. The reviewer approved only the existing argument/option plumbing
+`typescript`, defaulting to `typescript`. `auto` is an explicit opt-in to admitted
+leaf acceleration; the additional named regression exclusions and existing
+thresholds remain in effect. The reviewer approved only the existing argument/option plumbing
 through `run` into `createWindow`; inject dependencies, callbacks, error handling
 and ownership are unchanged. Selection is disposed with the window and is not a
 volatile setting or Harness capability.

@@ -1,0 +1,82 @@
+{
+  "finding": "M1: auto admitted native backend errors escaped instead of recovering",
+  "baselineProductionHead": "f877d65296ee263307c6a714d656971816b46500",
+  "implementationCommit": "d875f10cf814f16d4290077eb65e35556db2dd9e",
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "95bfb752cabce4f7d783a8dfed78070ea8d425df06473c765a98c7e4f9de7d85",
+    "executedBuild": "f73240197d49a747ba299f9d080ca08f11892b77c9396de75e58fb241f5cedb4",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "nativeProof": {
+    "schema": 1,
+    "platform": "linux-arm64",
+    "commit": "d875f10cf814f16d4290077eb65e35556db2dd9e",
+    "inputDigest": "8bfe388a5b715785e1849cf0d092893fbf5ae1acc48ce78025df03b7d060f2b4",
+    "cleanInputs": true,
+    "binarySha256": "8a68290ceb77beeb4bd9517ad65a2752728d1086d2b8bd340486e11bf21bb56a"
+  },
+  "faultAuditSha256": "b6a1aaf770840f0f9575918b788141b8cf64a5719bf56e7c300a70da64fc530f",
+  "classification": "Exact RESOURCE_LIMIT/INVALID_INPUT typed code takes precedence, then exact Error.message or literal terminal-code throw. Other native throws and invalid return shapes normalize to BACKEND_FAILURE. Only auto retries BACKEND_FAILURE; forced rust and caller errors throw.",
+  "retry": "One native attempt, then one synchronous TS oracle call under TS-only selection, restored in finally. TS errors propagate unchanged without further retry. No permanent addon disable.",
+  "testCoverage": {
+    "baselineNewTestsFailed": 3,
+    "focusedPassed": 58,
+    "autoRecoveryScenarios": 20,
+    "forcedRustFailureScenarios": 20,
+    "terminalScenarios": 60,
+    "oracleCountAndRestorationScenarios": 4,
+    "hostWritesAndCallbackOrderExact": true,
+    "policyMutantsRejected": 4,
+    "individualGuardRemovalsRejected": 5,
+    "fullSuite": {
+      "passed": 5615,
+      "skipped": 26,
+      "failed": 3,
+      "failureScope": "Same three previously baseline-reproduced launcher-bootstrap pnpm prerequisite failures; launcher production/tests unchanged."
+    }
+  },
+  "invariants": {
+    "goldenRequestsOutputsUnchanged": 86,
+    "publicSignaturesUnchanged": true,
+    "normalizedSchemasAndErrorEnvelopeUnchanged": true,
+    "guardAndAdmissionPrefixByteIdentical": true,
+    "RustCompilerAndWorkflowDiffEmpty": true,
+    "productionFilesChanged": [
+      "packages/renderer/src/native-primitives.ts"
+    ],
+    "TSDefaultKept": true,
+    "draftNoMergeReleaseProfileInstall": true
+  },
+  "logs": {
+    "beforeNewTests": {
+      "exitStatus": 1,
+      "sha256": "4005786ecea301ac8dab9450a68711ee13f1ab8c6fd8e9900b1ca19fc6e9e9b2"
+    },
+    "nativeBuild": {
+      "exitStatus": 0,
+      "sha256": "69fede64822714f058eb9205eeae59f1a9e2b5dd2c84b7b3fc20b245244f1696"
+    },
+    "focused": {
+      "exitStatus": 0,
+      "sha256": "65f0700fcb91d3dd08aee9f292dee5c74cb32579e4742b3beda1d0970787cdea"
+    },
+    "typecheck": {
+      "exitStatus": 0,
+      "sha256": "14e2e466e9de0683d1f211e37e6ff4629303cbbf48f8a6a9805290cde8ffe0c8"
+    },
+    "security": {
+      "exitStatus": 0,
+      "sha256": "325a7cca78d7a25dc09e9801d71f386b4392eafeb7218fecc58e26a2a7532b02"
+    },
+    "fullSuite": {
+      "exitStatus": 1,
+      "sha256": "411748e758e7909ba694b1d4fee2c082b8132833ca88705b40d97324f9af1e80"
+    }
+  },
+  "limitations": [
+    "Failure injection uses mocked addon throws at the real JS loader boundary, not a real Rust panic.",
+    "Earlier performance timings remain tied to their measured commits; this correctness fix makes no fresh timing claim.",
+    "Source-commit provenance is retained, not relabeled to a later evidence head. Exact-head hosted CI is tracked on PR302."
+  ]
+}

@@ -1,0 +1,530 @@
+{
+  "identity": {
+    "algorithm": "sha256-name-NUL-bytes-NUL-sorted",
+    "source": "2aab8234934fdec67ea56eb27f977665da59dd085696528ed9aadce92e010063",
+    "executedBuild": "5beb095d5381348004b5e2fde0d80baee3b80064add5b46aee33b1ad76836adb",
+    "compilerAndConfig": "ac15774aeb2bcb69d90bc5f88b1a46a86bf9aedda4977dae8b21f7e716783543"
+  },
+  "toolSha256": "90277b7a23a815f90b090b259c58a90bd670754caf3c4ce3969cb6910eee8086",
+  "procedure": "Recomputed all medians from raw samples; checked current compiler-verified production identity, exact producing/received bytes/hash, emulator snapshot/cursor, input, actual TTY geometry, version, TS=0/native>0/no composites, and all 41 historical observations in each 120-case platform archive. Mac records are revalidated retained hosted runs, not fresh hardware measurements. Fresh Linux review file is a separate five-pair replication.",
+  "publicChecks": [
+    {
+      "platform": "linux-arm64",
+      "fileSha256": "ae90ffa4b0c863d02f0f6db30f983eef284661ee01bb32168888b775dbbf25e3",
+      "historicalObservationsGated": 41,
+      "historicalAsciiFamilyObservationsGated": 29,
+      "controls": [
+        {
+          "op": "displayWidth",
+          "reviewedUs": 49.294,
+          "currentUs": 8.691,
+          "reviewedSpeedup": 5.671844436773674
+        },
+        {
+          "op": "fitToWidth",
+          "reviewedUs": 51.045,
+          "currentUs": 1.621,
+          "reviewedSpeedup": 31.4898210980876
+        }
+      ]
+    },
+    {
+      "platform": "darwin-arm64",
+      "fileSha256": "e1bf716ed29527196a7d4dc6f9dc647cecf72afb344644d1f5c2a6f03dd78e48",
+      "historicalObservationsGated": 41,
+      "historicalAsciiFamilyObservationsGated": 29,
+      "controls": [
+        {
+          "op": "displayWidth",
+          "reviewedUs": 23.944,
+          "currentUs": 4.95,
+          "reviewedSpeedup": 4.837171717171717
+        },
+        {
+          "op": "fitToWidth",
+          "reviewedUs": 22.963,
+          "currentUs": 0.61,
+          "reviewedSpeedup": 37.644262295081965
+        }
+      ]
+    },
+    {
+      "platform": "darwin-x64",
+      "fileSha256": "7202341828a2cb2f8b50110476355cd540e038b367b1810f7c1bce561ce6c47c",
+      "historicalObservationsGated": 41,
+      "historicalAsciiFamilyObservationsGated": 29,
+      "controls": [
+        {
+          "op": "displayWidth",
+          "reviewedUs": 40.208,
+          "currentUs": 14.26,
+          "reviewedSpeedup": 2.8196353436185135
+        },
+        {
+          "op": "fitToWidth",
+          "reviewedUs": 35.674,
+          "currentUs": 2.277,
+          "reviewedSpeedup": 15.667105841018884
+        }
+      ]
+    }
+  ],
+  "ptyChecks": [
+    {
+      "file": "renderer-pty-linux-arm64.json",
+      "fileSha256": "e217b6d18ccc56e076d4cc479f5e9241b2c9ecd1c4d429bc46f9be235e86f39d",
+      "platform": "linux-arm64",
+      "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "kind": "ascii",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 537.3366430000005,
+          "ptyDrainedMs": 129.0352299999995,
+          "firstByteMs": 2.1502059999993435,
+          "renderMs": 125.13091400000121,
+          "throughputUnitsPerSecond": 121964.50931413575
+        },
+        "admittedRust": {
+          "visibleMs": 550.0542480000004,
+          "ptyDrainedMs": 118.81653800000095,
+          "firstByteMs": 1.489144000000124,
+          "renderMs": 113.84539799999948,
+          "throughputUnitsPerSecond": 119144.61207833442
+        }
+      },
+      "visibleChangePercent": 2.3667853599181887,
+      "visibleRanges": {
+        "typescript": [
+          408.610674,
+          558.2626409999993
+        ],
+        "admittedRust": [
+          518.7978889999999,
+          614.3139430000001
+        ]
+      },
+      "nativeCalls": [
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        }
+      ]
+    },
+    {
+      "file": "renderer-pty-linux-arm64.json",
+      "fileSha256": "e217b6d18ccc56e076d4cc479f5e9241b2c9ecd1c4d429bc46f9be235e86f39d",
+      "platform": "linux-arm64",
+      "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "kind": "cjk",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 540.7413239999987,
+          "ptyDrainedMs": 185.2397920000003,
+          "firstByteMs": 3.486403999999311,
+          "renderMs": 180.1864830000004,
+          "throughputUnitsPerSecond": 121196.581602482
+        },
+        "admittedRust": {
+          "visibleMs": 524.015625,
+          "ptyDrainedMs": 126.39855599999919,
+          "firstByteMs": 4.01248299999952,
+          "renderMs": 121.38374900000053,
+          "throughputUnitsPerSecond": 125064.9730148791
+        }
+      },
+      "visibleChangePercent": -3.093105382861172,
+      "visibleRanges": {
+        "typescript": [
+          479.4552309999999,
+          576.7889869999999
+        ],
+        "admittedRust": [
+          499.3405899999989,
+          568.4734250000001
+        ]
+      },
+      "nativeCalls": [
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        }
+      ]
+    },
+    {
+      "file": "renderer-pty-darwin-arm64.json",
+      "fileSha256": "56996dde4e0607f8a1800714de43454c7fe3513a83d99c55759049cba71e89cc",
+      "platform": "darwin-arm64",
+      "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "kind": "ascii",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 762.2052089999997,
+          "ptyDrainedMs": 91.76458300000013,
+          "firstByteMs": 2.2878749999981665,
+          "renderMs": 84.81504199999836,
+          "throughputUnitsPerSecond": 85982.0940950825
+        },
+        "admittedRust": {
+          "visibleMs": 798.0027499999997,
+          "ptyDrainedMs": 74.03074999999808,
+          "firstByteMs": 1.7681249999986903,
+          "renderMs": 69.81191699999908,
+          "throughputUnitsPerSecond": 82125.03027088569
+        }
+      },
+      "visibleChangePercent": 4.696575223746602,
+      "visibleRanges": {
+        "typescript": [
+          733.0554169999996,
+          948.8002500000002
+        ],
+        "admittedRust": [
+          715.0602920000001,
+          834.8682499999995
+        ]
+      },
+      "nativeCalls": [
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        }
+      ]
+    },
+    {
+      "file": "renderer-pty-darwin-arm64.json",
+      "fileSha256": "56996dde4e0607f8a1800714de43454c7fe3513a83d99c55759049cba71e89cc",
+      "platform": "darwin-arm64",
+      "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "kind": "cjk",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 1489.8534999999974,
+          "ptyDrainedMs": 103.14833399999952,
+          "firstByteMs": 2.4705419999991136,
+          "renderMs": 97.89545799999905,
+          "throughputUnitsPerSecond": 43988.2176334788
+        },
+        "admittedRust": {
+          "visibleMs": 1374.7401250000003,
+          "ptyDrainedMs": 90.95387500000015,
+          "firstByteMs": 1.503499999998894,
+          "renderMs": 87.605458,
+          "throughputUnitsPerSecond": 47671.555378511985
+        }
+      },
+      "visibleChangePercent": -7.726489550818072,
+      "visibleRanges": {
+        "typescript": [
+          1326.2621669999971,
+          1654.7707499999997
+        ],
+        "admittedRust": [
+          1304.2578329999997,
+          1489.593291000001
+        ]
+      },
+      "nativeCalls": [
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        }
+      ]
+    },
+    {
+      "file": "renderer-pty-darwin-x64.json",
+      "fileSha256": "b1436e611ec6303a465864ec0362b8bf37a98c8a6c76bd5063195fb9d8a65001",
+      "platform": "darwin-x64",
+      "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "kind": "ascii",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 735.5802100000001,
+          "ptyDrainedMs": 123.92408199999772,
+          "firstByteMs": 1.318065999999817,
+          "renderMs": 119.32585900000049,
+          "throughputUnitsPerSecond": 89094.29469289283
+        },
+        "admittedRust": {
+          "visibleMs": 717.9089190000004,
+          "ptyDrainedMs": 111.75980600000003,
+          "firstByteMs": 0.9473609999986365,
+          "renderMs": 107.21361100000104,
+          "throughputUnitsPerSecond": 91287.34615985453
+        }
+      },
+      "visibleChangePercent": -2.4023608519864403,
+      "visibleRanges": {
+        "typescript": [
+          698.4148409999998,
+          768.1618250000029
+        ],
+        "admittedRust": [
+          701.6719439999997,
+          826.3890900000006
+        ]
+      },
+      "nativeCalls": [
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        }
+      ]
+    },
+    {
+      "file": "renderer-pty-darwin-x64.json",
+      "fileSha256": "b1436e611ec6303a465864ec0362b8bf37a98c8a6c76bd5063195fb9d8a65001",
+      "platform": "darwin-x64",
+      "commit": "2c74b500ca4d511ff620f311f558be75d6b322a7",
+      "kind": "cjk",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 1367.1923260000003,
+          "ptyDrainedMs": 241.50591399999757,
+          "firstByteMs": 2.434132000002137,
+          "renderMs": 234.75842600000033,
+          "throughputUnitsPerSecond": 47934.73365355913
+        },
+        "admittedRust": {
+          "visibleMs": 1342.250985999999,
+          "ptyDrainedMs": 228.88408999999956,
+          "firstByteMs": 1.0118769999971846,
+          "renderMs": 221.58626300000105,
+          "throughputUnitsPerSecond": 48825.44373858262
+        }
+      },
+      "visibleChangePercent": -1.824274429112116,
+      "visibleRanges": {
+        "typescript": [
+          1249.980952,
+          1456.8384399999995
+        ],
+        "admittedRust": [
+          1307.5357059999988,
+          1363.772245
+        ]
+      },
+      "nativeCalls": [
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        }
+      ]
+    },
+    {
+      "file": "renderer-pty-linux-arm64-review.json",
+      "fileSha256": "393ab3deb8701038622baafd88ea96abba65e0eb1f3afd0dd74696a7608a0821",
+      "platform": "linux-arm64",
+      "commit": "6928a8ba32452bfa09144fba656dfa4c432cef2d",
+      "kind": "ascii",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 560.5593159999999,
+          "ptyDrainedMs": 128.97342299999946,
+          "firstByteMs": 1.2962680000000546,
+          "renderMs": 119.45834399999967,
+          "throughputUnitsPerSecond": 116911.80242556172
+        },
+        "admittedRust": {
+          "visibleMs": 541.0756030000002,
+          "ptyDrainedMs": 122.4084899999998,
+          "firstByteMs": 1.079544000000169,
+          "renderMs": 118.08020400000032,
+          "throughputUnitsPerSecond": 121121.70579607517
+        }
+      },
+      "visibleChangePercent": -3.4757629467350837,
+      "visibleRanges": {
+        "typescript": [
+          454.5646099999999,
+          596.6385550000014
+        ],
+        "admittedRust": [
+          521.1343419999998,
+          564.1469480000014
+        ]
+      },
+      "nativeCalls": [
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        },
+        {
+          "wrapToWidth": 1958,
+          "displayWidth": 32
+        }
+      ]
+    },
+    {
+      "file": "renderer-pty-linux-arm64-review.json",
+      "fileSha256": "393ab3deb8701038622baafd88ea96abba65e0eb1f3afd0dd74696a7608a0821",
+      "platform": "linux-arm64",
+      "commit": "6928a8ba32452bfa09144fba656dfa4c432cef2d",
+      "kind": "cjk",
+      "measuredTurns": 10,
+      "medians": {
+        "typescript": {
+          "visibleMs": 571.3707459999987,
+          "ptyDrainedMs": 166.82342099999914,
+          "firstByteMs": 1.5785470000000714,
+          "renderMs": 161.59137100000044,
+          "throughputUnitsPerSecond": 114699.60696937772
+        },
+        "admittedRust": {
+          "visibleMs": 503.2954890000001,
+          "ptyDrainedMs": 131.3983800000001,
+          "firstByteMs": 1.271508000000722,
+          "renderMs": 126.13416600000164,
+          "throughputUnitsPerSecond": 130213.7639465312
+        }
+      },
+      "visibleChangePercent": -11.914375644285913,
+      "visibleRanges": {
+        "typescript": [
+          560.166631,
+          628.7688719999987
+        ],
+        "admittedRust": [
+          459.0249050000002,
+          569.6665670000002
+        ]
+      },
+      "nativeCalls": [
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        },
+        {
+          "displayWidth": 512,
+          "wrapToWidth": 2019
+        }
+      ]
+    }
+  ]
+}

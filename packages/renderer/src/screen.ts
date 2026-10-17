@@ -13,7 +13,7 @@
  * @module @dshline/renderer/screen
  */
 
-import { wrapToWidth } from './width.ts'
+import { wrapToWidth } from './native-primitives.ts'
 
 /** Cursor placement inside the live region, in rendered rows and columns. */
 export interface LiveCursor {

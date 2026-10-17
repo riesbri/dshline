@@ -1,0 +1,27 @@
+{
+  "run": "https://github.com/riesbri/dshline/actions/runs/39006823214",
+  "source": "ad4a81f5ae9c846cc2582640de3d956276761b38",
+  "files": [
+    {
+      "file": "renderer-guard-fix-darwin-arm64-guard-only.json",
+      "artifactId": 12091383224,
+      "sha256": "31bd0f94dad1737f162e6b87857f99da0a93261cd45ae22c46378a602588c4bd"
+    },
+    {
+      "file": "renderer-pty-guard-fix-darwin-arm64-guard-only.json",
+      "artifactId": 12091383224,
+      "sha256": "0e8793355dea8cb0868645c017d65a36e9d8d75e022f59b257f10c30b26fb513"
+    },
+    {
+      "file": "renderer-guard-fix-darwin-x64-guard-only.json",
+      "artifactId": 12090469814,
+      "sha256": "2336efb1372a9b0886176ba09279c7de70ba4f651fc3a68b0f599f9c30a61049"
+    },
+    {
+      "file": "renderer-pty-guard-fix-darwin-x64-guard-only.json",
+      "artifactId": 12090469814,
+      "sha256": "56f3b42eb5a29c1abef30d98bb38d58af48a4e6ee1722f43fe131834c481e273"
+    }
+  ],
+  "acceptance": "11/12 again; Intel chunk74.685us guarded,69.785us without guards,62.793us TS. Predicate probe0.030us: no remaining full-suffix scan. Capacity-only existing-leaf optimization is tested next, without changing any guard, threshold or compiler policy."
+}

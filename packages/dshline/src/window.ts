@@ -330,7 +330,7 @@ export function createModelCompletionCatalog(ctx: Context): ModelCompletionCatal
  * @returns the window, ready to attach a session.
  */
 export async function createWindow(ctx: Context, options: WindowOptions): Promise<Window> {
-  const restoreRenderer = setRendererBackend(options.renderer ?? 'auto')
+  const restoreRenderer = setRendererBackend(options.renderer ?? 'typescript')
   ctx.effect(() => restoreRenderer)
   const exit = ctx.get('appExit')
   const startup = ctx.tuiStartup.options
