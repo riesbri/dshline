@@ -26,10 +26,18 @@ changes, installed-profile changes, merge, or release.
 - Screen height-change/CJK work belongs to the parallel owner. This branch does
   not edit Screen or duplicate that implementation.
 
-## Measurement protocol (not yet run)
+## Current dispatch scope (2026-10-17)
 
-The four-core host is reserved by the parallel latency experiment. Do not
-install/build, run timing, or run heavy tests until the coordinator clears it.
+The coordinator cleared the host for implementation and focused local tests
+only. No live provider timing runs, no provider-submitting PTY turns, and no
+full local build/test matrix. The concrete deliverable is attachment-admission
+feedback plus deterministic regression evidence, stacked on PR #303 at
+`781b1cf6406242460271d7b9d69eaee936e46e9b`.
+
+## Deferred measurement protocol (not run)
+
+The protocol below remains future research, not a requirement or authorization
+for this restricted dispatch. No performance improvement is quantified.
 
 1. Build exact baseline and candidate independently and retain compiled hashes.
    Use private scratch homes/workspaces and existing authorized credential
@@ -62,8 +70,9 @@ install/build, run timing, or run heavy tests until the coordinator clears it.
 
 Run focused held-read/command/cancellation feedback cases and status layout tests;
 deliberately remove the candidate feedback and require the named cases to fail.
-Then build/typecheck/full tests/security/docs, preserving known baseline-host
-exceptions rather than quietly filtering them. Open a draft PR against the TS
-fast-path branch, bind evidence to exact sources, and obtain exact-head CI.
+The current dispatch permits only focused local checks; full build/typecheck,
+full tests/security/docs, live PTY and provider measurements were not run locally.
+Open a draft PR against the TS fast-path branch and record exact-head CI status
+without claiming pending checks have passed. Evidence is recorded in RESULTS.md.
 
 No performance samples or passing test results are claimed by this plan.
