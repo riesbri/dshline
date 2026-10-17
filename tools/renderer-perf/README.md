@@ -96,6 +96,16 @@ The final shipping-palette arms run sequentially; repository checks and unrelate
 processes can still run on this shared machine. Bytes and exact terminal parity are deterministic;
 latency tails are evidence of this host run, not a latency guarantee.
 
+## Subsequent live Harness/provider/PTY evidence
+
+The follow-up in [live-turn-perf](../live-turn-perf/README.md) measures real
+Harness sessions, the configured provider/model, and a real controlling PTY:
+30 turns per arm per workload, with raw captures and renderer/provider-await
+accounting. It compares the same stock base and candidate production code.
+That covers the live-path gap at a PTY-receipt endpoint; it does not turn the
+replay timings above into end-to-end results or establish a general whole-turn
+speedup. Live CJK whole-turn and several tail results regress; keep the PR draft.
+
 ## Results
 
 Measured 2026-10-17 on Node 24.18.0, Linux arm64 (4-core Cortex-A76),
