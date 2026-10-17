@@ -30,13 +30,23 @@ def main():
  counts=collections.Counter((d['workload'],d['arm']) for d in records if not d['warmup'])
  expected=json.loads((root/'metadata.json').read_text())['samplesPerWorkloadPerArm']
  workloads=json.loads((root/'metadata.json').read_text()).get('workloads',['latin','cjk','styled','long'])
- if set(counts)!={(w,a) for w in workloads for a in ['stock','candidate']} or any(n!=expected for n in counts.values()): raise ValueError(f'incomplete live sample set: {counts}')
+ amendment=root/'quota-amendment.json'
+ if amendment.exists():
+  plan=json.loads(amendment.read_text())
+  expectedCounts=collections.Counter({tuple(k.split('/')):v for k,v in plan['savedCountsAtIntervention'].items()})
+  for arm in ['stock','candidate']:expectedCounts['cjk',arm]=expected
+  if counts!=expectedCounts:raise ValueError(f'incomplete amended live sample set: {counts}; expected {expectedCounts}')
+ else:
+  if set(counts)!={(w,a) for w in workloads for a in ['stock','candidate']} or any(n!=expected for n in counts.values()): raise ValueError(f'incomplete live sample set: {counts}')
  if len({d['run'] for d in records})!=len(records): raise ValueError('duplicate run identities')
  # Independently recompute overlap using endpoint coverage, not the analysis
  # script's two-pointer interval intersection.
- summary={row['run']:row for row in json.loads((root/'summary.json').read_text())['perTurn']}
+ report=json.loads((root/'summary.json').read_text())
+ excluded=set(report.get('excludedWorkloads',[]))
+ if excluded and (not amendment.exists() or excluded!={'styled'}):raise ValueError('unauthorized workload exclusion')
+ summary={row['run']:row for row in report['perTurn']}
  for record in records:
-  if record['warmup']:continue
+  if record['warmup'] or record['workload'] in excluded:continue
   r=record['result'];points={}
   for dimension,spans in [(0,[(x[1],x[1]+x[2]) for x in r['screens']]+[(x[0],x[0]+x[1]) for x in r['compositions']]),(1,[(x[0],x[1]) for x in r['providerCalls'][0]['waits']])]:
    for begin,end in spans:

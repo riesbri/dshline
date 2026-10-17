@@ -11,6 +11,7 @@ P.add_argument('--output', required=True)
 P.add_argument('--timeout', type=int, default=180)
 P.add_argument('--workloads', default='latin,cjk,styled,long')
 P.add_argument('--pilot', action='store_true')
+P.add_argument('--resume', action='store_true', help='Skip saved attempts, preserve original metadata and warmups')
 P.add_argument('--seed', type=int, default=303)
 P.add_argument('--continue-on-failure', action='store_true')
 args = P.parse_args()
@@ -30,11 +31,20 @@ meta['adapterVersion']=json.loads((pathlib.Path(args.profile)/'node_modules/@dee
 meta['profilePackageSha256']=hashlib.sha256((pathlib.Path(args.profile)/'package.json').read_bytes()).hexdigest()
 meta['profileLockSha256']=hashlib.sha256((pathlib.Path(args.profile)/'pnpm-lock.yaml').read_bytes()).hexdigest()
 meta['profileWorkspaceConfig']=(pathlib.Path(args.profile)/'pnpm-workspace.yaml').read_text()
-(out/'metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
+if args.resume:
+ original=json.loads((out/'metadata.json').read_text())
+ if meta['builds']!=original['builds']: raise RuntimeError('resume compiled identities differ')
+ if meta['observerSha256']!=original['observerSha256']: raise RuntimeError('resume observer differs')
+ if meta['samplesPerWorkloadPerArm']!=original['samplesPerWorkloadPerArm']: raise RuntimeError('resume sample target differs')
+ (out/'resume-metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
+else:
+ if (out/'metadata.json').exists(): raise RuntimeError('existing dataset requires --resume')
+ (out/'metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
 
 def run(arm, workload, n, warmup):
  root = pathlib.Path(args.stock if arm=='stock' else args.candidate).resolve()
  runid=f'{workload}-{n:03d}-{arm}'+('-warmup' if warmup else '')
+ if args.resume and (out/f'{runid}.json').exists(): return
  home = private/runid; profile=home/'profiles/dshline'; profile.mkdir(parents=True)
  for name in ['package.json','cordis.yml']:
   shutil.copy2(pathlib.Path(args.profile)/name,profile/name)

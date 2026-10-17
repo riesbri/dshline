@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Recompute descriptive per-turn statistics; do not imply causal turn gains."""
 import argparse, gzip, hashlib, io, json, math, pathlib, statistics, tarfile
-p=argparse.ArgumentParser();p.add_argument('directory');p.add_argument('--archive',action='store_true');a=p.parse_args();root=pathlib.Path(a.directory)
+p=argparse.ArgumentParser();p.add_argument('directory');p.add_argument('--archive',action='store_true');p.add_argument('--exclude-workloads',default='');a=p.parse_args();root=pathlib.Path(a.directory)
 
 def quantile(xs,p):
  xs=sorted(xs); x=(len(xs)-1)*p; lo=math.floor(x); hi=math.ceil(x)
@@ -63,8 +63,9 @@ if (root/'raw.jsonl.gz').exists():
 else:
  files=sorted(root.glob('*warmup.json'))+sorted(p for p in root.glob('*.json') if ('-stock' in p.name or '-candidate' in p.name) and not p.name.endswith('warmup.json'))
  records=[json.loads(f.read_text()) for f in files]
-measured=[d for d in records if not d['warmup'] and not d['failure']]
-summary={'quantile':'linear interpolation (n-1)*p; per-turn distribution, not batch averages','warmups':sum(d['warmup'] for d in records),'failures':[{'run':d['run'],'failure':d['failure']} for d in records if d['failure']],'workloads':{},'perTurn':[]}
+excluded=set(filter(None,a.exclude_workloads.split(',')))
+measured=[d for d in records if not d['warmup'] and not d['failure'] and d['workload'] not in excluded]
+summary={'excludedWorkloads':sorted(excluded),'quantile':'linear interpolation (n-1)*p; per-turn distribution, not batch averages','warmups':sum(d['warmup'] for d in records),'failures':[{'run':d['run'],'failure':d['failure']} for d in records if d['failure']],'workloads':{},'perTurn':[]}
 for workload in sorted({d['workload'] for d in measured}):
  byarm={arm:[metrics(d) for d in measured if d['workload']==workload and d['arm']==arm] for arm in ['stock','candidate']}
  summary['workloads'][workload]={arm:{metric:stats([row[metric] for row in rows]) for metric in rows[0]} for arm,rows in byarm.items() if rows}
