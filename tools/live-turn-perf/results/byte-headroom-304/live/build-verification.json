@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "2240303a66b7a99ccc591911a1a596bed1da5fff",
+  "baselineCommit": "2393f1fedfaa00165d481f600c58c3d1b7a6924e",
+  "moduleCounts": {
+    "stock": 163,
+    "candidate": 163
+  },
+  "allCompiledModulesUnchanged": true,
+  "differingModules": [
+    "packages/renderer/lib/screen.js"
+  ],
+  "screenSourceUnchangedFromProducingCommit": true,
+  "screenSourceSha256": "074c106ea219508f0d7146ff604810269fe58534cfdf23e60d0593e5f7e31ee5",
+  "mainCallsObserved": 186,
+  "titleCallsObserved": 186,
+  "titlesCompletedAtMeasurementEndpoint": 185,
+  "titlesRightCensored": 1,
+  "generatedCredentialCopiesRemaining": 0
+}

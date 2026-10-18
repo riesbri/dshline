@@ -60,13 +60,23 @@ describe('Screen compact padding runs', () => {
   it('leaves short runs, clusters, OSC payloads and unknown or incomplete escapes literal', () => {
     const writes: string[] = []
     const screen = new Screen({ columns: () => 200, write: chunk => { writes.push(chunk) } })
-    for (const row of ['     ', '─'.repeat(5), '界'.repeat(8), 'e\u0301'.repeat(8),
+    for (const row of ['     ', ' '.repeat(6), '─'.repeat(5), '界'.repeat(8), 'e\u0301'.repeat(8),
       `\u001b]8;;https://example.com/${'─'.repeat(10)}\u0007${' '.repeat(10)}\u001b]8;;\u0007`,
       `\u009d${' '.repeat(10)}\u009c`, `\u001bP${' '.repeat(10)}`, `\u001b[?${' '.repeat(10)}`]) {
       screen.setLive([row])
       expect(writes.at(-1)).toContain(row)
       expect(writes.at(-1)).not.toMatch(/\u001b\[\d+b/u)
     }
+  })
+
+  it('uses no extra bytes at the short-run boundary and saves bytes above it', () => {
+    const writes: string[] = []
+    const screen = new Screen({ columns: () => 20, write: chunk => { writes.push(chunk) } })
+    screen.setLive([' '.repeat(6)])
+    expect(writes[0]).toContain(' '.repeat(6))
+    expect(writes[0]).not.toMatch(/\u001b\[\d+b/u)
+    screen.setLive([' '.repeat(7)])
+    expect(writes[1]).toContain(` ${CSI}5b `)
   })
 
   it('keeps combining marks attached to only the final repeated glyph', async () => {
