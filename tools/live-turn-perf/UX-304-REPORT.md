@@ -353,3 +353,9 @@ The first CI secret scan flagged 16 compiled-module SHA-256 values beside
 rehashed against its compiled module. The existing `.gitleaksignore` convention
 now covers only those exact historical commit/file/rule/line fingerprints; no
 file, rule or future finding is excluded. No credential was present.
+
+## Emitted-byte follow-up
+
+The separately authorized compact-chrome follow-up is recorded in
+[BYTE-HEADROOM-304.md](BYTE-HEADROOM-304.md). It uses unchanged production
+scheduling in both arms; the private pacing prototype above remains unpromoted.

@@ -47,11 +47,36 @@ const CLEAR_BELOW = `${CSI}0J`
 const CLEAR_LINE = `${CSI}0K`
 
 /**
+ * Encode long ASCII padding runs without changing their cells.
+ *
+ * REP follows a literal seed immediately, before any SGR reset, so the terminal
+ * repeats the same character with the same attributes. Keep the last glyph
+ * literal too: REP clears some terminals' preceding-character state, so a
+ * following combining mark must see a normal print, not the REP control.
+ * Restrict this to ASCII spaces: tmux 3.3a repeats spaces correctly but not
+ * Unicode border glyphs. Unicode clusters and terminal control payloads must
+ * never be interpreted as repeated standalone characters. Unknown escapes retain
+ * the literal path rather than risking a rewrite inside an OSC/DCS payload.
+ * @param row - one already-wrapped row, possibly containing SGR styling.
+ * @returns equivalent terminal output, shorter only when a run pays for REP.
+ */
+function encodeRow(row: string): string {
+  // Seven spaces pay for REP plus its two literal endpoints; shorter runs
+  // retain their literal bytes.
+  if (!/ {7}/u.test(row)) return row
+  if (row.replace(/\u001b\[[0-9;:]*m/gu, '').match(/[\u0000-\u001f\u007f-\u009f]/u)) return row
+  return row.replace(/( )\1{6,}/gu, (run, seed: string) =>
+    `${seed}${CSI}${String(run.length - 2)}b${seed}`)
+}
+
+/**
  * Owns the boundary between committed scrollback and the redrawn live region.
  */
 export class Screen {
   /** Rendered rows currently occupied by the live region, as they were drawn. */
   private liveRows: readonly string[] = []
+  /** Encoded sink strings for only the current frame; comparisons stay literal. */
+  private liveEncoded = new Map<string, string>()
   /** Pure wrap results for only the last live frame, at liveColumns. */
   private liveWraps = new Map<string, readonly string[]>()
   /**
@@ -140,9 +165,9 @@ export class Screen {
    * @param cursor - requested placement, clamped into the drawn region.
    * @returns the escape sequence that draws and positions.
    */
-  private drawLive(rows: readonly string[], cursor: LiveCursor | undefined): string {
+  private drawLive(rows: readonly string[], cursor: LiveCursor | undefined, encoded = this.liveEncoded): string {
     if (rows.length === 0) return ''
-    let out = rows.map(row => `${CLEAR_LINE}${row}`).join('\r\n')
+    let out = rows.map(row => `${CLEAR_LINE}${encoded.get(row) ?? encodeRow(row)}`).join('\r\n')
     if (cursor === undefined) return out
     const row = Math.min(Math.max(cursor.row, 0), rows.length - 1)
     out += csi(rows.length - 1 - row, 'A')
@@ -162,7 +187,7 @@ export class Screen {
    * @param cursor - clamped placement for the replacement frame.
    * @returns row damage and final cursor placement.
    */
-  private drawDamage(rows: readonly string[], cursor: LiveCursor | undefined): string {
+  private drawDamage(rows: readonly string[], cursor: LiveCursor | undefined, encoded: ReadonlyMap<string, string>): string {
     let row = this.cursor?.row ?? Math.max(0, rows.length - 1)
     let out = ''
     const move = (next: number): void => {
@@ -172,14 +197,14 @@ export class Screen {
     for (let index = 0; index < rows.length; index += 1) {
       if (rows[index] === this.liveRows[index]) continue
       move(index)
-      out += `${CLEAR_LINE}${rows[index] ?? ''}`
+      out += `${CLEAR_LINE}${encoded.get(rows[index] ?? '') ?? ''}`
     }
     const destination = cursor?.row ?? Math.max(0, rows.length - 1)
     move(destination)
     // With no explicit cursor, preserve the hidden cursor's end-of-row position.
     // Re-emitting its row avoids measuring ANSI/Unicode text a second time and
     // preserves pending-wrap semantics exactly as drawLive does.
-    if (cursor === undefined) out += rows[destination] ?? ''
+    if (cursor === undefined) out += encoded.get(rows[destination] ?? '') ?? ''
     else out += csi(cursor.column, 'C')
     return out
   }
@@ -247,13 +272,15 @@ export class Screen {
     // region's top and CLEAR_BELOW over the committed rows above it, which is
     // worse than the stale row it was meant to remove. Climbing only the cached
     // count can never leave the old region, so committed scrollback is safe.
+    const encoded = new Map(rows.map(row => [row, this.liveEncoded.get(row) ?? encodeRow(row)]))
     const tail = placed === undefined ? '' : SHOW_CURSOR
     const stable = this.current && columns === this.liveColumns && rows.length === this.liveRows.length
     const body = stable && rows.length > 0
-      ? this.drawDamage(rows, placed)
-      : `${this.eraseLive()}${this.drawLive(rows, placed)}`
+      ? this.drawDamage(rows, placed, encoded)
+      : `${this.eraseLive()}${this.drawLive(rows, placed, encoded)}`
     this.target.write(`${BEGIN_SYNC}${HIDE_CURSOR}${body}${tail}${END_SYNC}`)
     this.liveRows = rows
+    this.liveEncoded = encoded
     this.liveWraps = wraps
     this.liveColumns = columns
     this.cursor = placed
@@ -268,7 +295,7 @@ export class Screen {
    */
   commit(lines: readonly string[]): void {
     if (lines.length === 0) return
-    const committed = this.wrap(lines).map(row => `${CLEAR_LINE}${row}`).join('\r\n')
+    const committed = this.wrap(lines).map(row => `${CLEAR_LINE}${this.liveEncoded.get(row) ?? encodeRow(row)}`).join('\r\n')
     const live = this.liveRows
     const cursor = this.cursor
     const tail = cursor === undefined ? '' : SHOW_CURSOR
@@ -294,6 +321,7 @@ export class Screen {
       // must forget that geometry rather than climb it again on a retry.
       this.liveRows = []
       this.liveWraps.clear()
+      this.liveEncoded.clear()
       this.liveColumns = undefined
       this.cursor = undefined
       this.current = false

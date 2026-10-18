@@ -37,7 +37,7 @@ const { Screen } = await load(pathToFileURL(`${root}/packages/renderer/lib/scree
 const { TuiSlots } = await load(pathToFileURL(`${root}/packages/dshline/lib/slots.js`))
 const { RedrawScheduler } = await load(pathToFileURL(`${root}/packages/dshline/lib/redraw.js`))
 // Private experimental policy only. The source-linked production modules stay intact.
-const paced = process.env.DSH_UX_ARM === 'candidate'
+const paced = process.env.DSH_UX_ARM === 'candidate' && process.env.DSH_UX_PACED !== '0'
 const pending = new Map()
 let urgent = false
 process.stdin.prependListener('data', data => {

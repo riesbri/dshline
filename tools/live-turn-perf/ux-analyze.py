@@ -6,7 +6,7 @@ source=pathlib.Path(__file__).with_name('summarize.py').read_text().split("if (r
 source=source.replace("p=argparse.ArgumentParser();p.add_argument('directory');p.add_argument('--archive',action='store_true');p.add_argument('--exclude-workloads',default='');a=p.parse_args();root=pathlib.Path(a.directory)", '')
 ns={};exec(compile(source,'summarize.py','exec'),ns)
 from verify import verify_record
-p=argparse.ArgumentParser();p.add_argument('directory');p.add_argument('--interrupt',action='store_true');a=p.parse_args();root=pathlib.Path(a.directory)
+p=argparse.ArgumentParser();p.add_argument('directory');p.add_argument('--unpaced',action='store_true');p.add_argument('--interrupt',action='store_true');a=p.parse_args();root=pathlib.Path(a.directory)
 archive=None
 if (root/'raw.jsonl.gz').exists():
  records=[json.loads(line) for line in gzip.decompress((root/'raw.jsonl.gz').read_bytes()).decode().splitlines()]
@@ -46,6 +46,6 @@ for w in sorted({d['workload'] for d in rows}):
  for arm in ['stock','candidate']:
   own=[d for d in rows if d['workload']==w and d['arm']==arm]
   summary[w][arm]={k:ns['stats']([d[k] for d in own]) for k in own[0] if k not in ['run','arm','workload','sample']}
-report={'endpoint':'Actual PTY probes; interrupt observations separate' if a.interrupt else 'Current TS vs private 16ms trailing scheduler, natural EOF turns with unsubmitted typing','workloads':summary,'perTurn':rows,'quantile':'linear (n-1)*p; SD and sample variance; p99 near observed max, not bounded population tail'}
+report={'endpoint':'Actual PTY probes; interrupt observations separate' if a.interrupt else ('Separately built TS sources, production scheduling, natural EOF turns with unsubmitted typing' if a.unpaced else 'Current TS vs private 16ms trailing scheduler, natural EOF turns with unsubmitted typing'),'workloads':summary,'perTurn':rows,'quantile':'linear (n-1)*p; SD and sample variance; p99 near observed max, not bounded population tail'}
 (root/'ux-summary.json').write_text(json.dumps(report,indent=2)+'\n')
 print(json.dumps({w:{arm:{k:round(s[k]['median'],3) for k in (['sendToCancelMs','sendToSettlementMs'] if a.interrupt else ['wholeTurnMs','rendererMs','bytes','sendToEchoReceiptMs'])} for arm,s in arms.items()} for w,arms in summary.items()},indent=2))

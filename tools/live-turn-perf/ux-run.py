@@ -2,6 +2,7 @@
 """Run actual dsh + provider in a private controlling PTY. Stdlib only."""
 import argparse, fcntl, hashlib, json, os, pathlib, pty, random, select, shutil, signal, struct, subprocess, tempfile, termios, time
 P = argparse.ArgumentParser()
+P.add_argument('--unpaced', action='store_true', help='Observe production scheduling in both arms; compare separately built sources')
 P.add_argument('--stock', required=True)
 P.add_argument('--candidate', required=True)
 P.add_argument('--profile', default=str(pathlib.Path.home()/'.dsh/profiles/dshline'))
@@ -26,7 +27,7 @@ prompts = {
  'long': 'Do not use tools. Output one single line, with no spaces or newlines, consisting of the string https://example.com/abcdefghijklmnopqrstuvwxyz0123456789/ repeated exactly 48 times. No introduction or conclusion.'}
 
 def git(root, *argv): return subprocess.check_output(['git','-C',root,*argv], text=True).strip()
-meta = {'schema':1,'started':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'host':os.uname()._asdict() if hasattr(os.uname(),'_asdict') else list(os.uname()),'cpu':subprocess.check_output(['lscpu'],text=True),'node':subprocess.check_output(['node','--version'],text=True).strip(),'launcher':subprocess.check_output(['dsh','--version'],text=True).strip(),'terminal':{'columns':90,'rows':24,'TERM':'xterm-256color','OPOST':False},'arms':{arm:{'root':root,'commit':git(root,'rev-parse','HEAD'),'tree':git(root,'rev-parse','HEAD^{tree}')} for arm,root in [('stock',args.stock),('candidate',args.candidate)]},'prompts':prompts,'experiment':'current TS vs private 16ms trailing scheduler; urgent input bypass; synchronous commits unchanged','interruptProbes':args.interrupt_probes,'samplesPerWorkloadPerArm':args.samples,'privatePath':str(private),'runnerSha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'scheduleSeed':args.seed,'workloads':args.workloads.split(','),'observerSha256':hashlib.sha256((ROOT/'ux-observer.mjs').read_bytes()).hexdigest()}
+meta = {'schema':1,'started':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'host':os.uname()._asdict() if hasattr(os.uname(),'_asdict') else list(os.uname()),'cpu':subprocess.check_output(['lscpu'],text=True),'node':subprocess.check_output(['node','--version'],text=True).strip(),'launcher':subprocess.check_output(['dsh','--version'],text=True).strip(),'terminal':{'columns':90,'rows':24,'TERM':'xterm-256color','OPOST':False},'arms':{arm:{'root':root,'commit':git(root,'rev-parse','HEAD'),'tree':git(root,'rev-parse','HEAD^{tree}')} for arm,root in [('stock',args.stock),('candidate',args.candidate)]},'prompts':prompts,'experiment':('separately built TS sources; unchanged production scheduling and synchronous commits' if args.unpaced else 'current TS vs private 16ms trailing scheduler; urgent input bypass; synchronous commits unchanged'),'interruptProbes':args.interrupt_probes,'samplesPerWorkloadPerArm':args.samples,'privatePath':str(private),'runnerSha256':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'scheduleSeed':args.seed,'workloads':args.workloads.split(','),'observerSha256':hashlib.sha256((ROOT/'ux-observer.mjs').read_bytes()).hexdigest()}
 meta['builds']={arm:{str(path.relative_to(pathlib.Path(root))):hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(pathlib.Path(root).glob('packages/*/lib/**/*.js'))} for arm,root in [('stock',args.stock),('candidate',args.candidate)]}
 meta['adapterVersion']=json.loads((pathlib.Path(args.profile)/'node_modules/@deepseek-ai/dsh-llm-pi-ai/package.json').read_text())['version']
 meta['profilePackageSha256']=hashlib.sha256((pathlib.Path(args.profile)/'package.json').read_bytes()).hexdigest()
@@ -36,6 +37,7 @@ if args.resume:
  original=json.loads((out/'metadata.json').read_text())
  if meta['builds']!=original['builds']: raise RuntimeError('resume compiled identities differ')
  if meta['observerSha256']!=original['observerSha256']: raise RuntimeError('resume observer differs')
+ if meta['experiment']!=original['experiment']: raise RuntimeError('resume experiment differs')
  if meta['samplesPerWorkloadPerArm']!=original['samplesPerWorkloadPerArm']: raise RuntimeError('resume sample target differs')
  (out/'resume-metadata.json').write_text(json.dumps(meta,indent=2)+'\n')
 else:
@@ -84,7 +86,7 @@ def run(arm, workload, n, warmup):
     - id: live-turn-observer
       name: {json.dumps(str(ROOT/'ux-observer.mjs'))}
 ''')
- env={**os.environ,'DSH_HOME':str(home),'DSH_LIVE_ROOT':str(root),'DSH_UX_ARM':arm,'TERM':'xterm-256color','COLORTERM':'truecolor','NODE_OPTIONS':f'--import={ROOT}/ux-observer.mjs'}
+ env={**os.environ,'DSH_HOME':str(home),'DSH_LIVE_ROOT':str(root),'DSH_UX_ARM':arm,'DSH_UX_PACED':'0' if args.unpaced else '1','TERM':'xterm-256color','COLORTERM':'truecolor','NODE_OPTIONS':f'--import={ROOT}/ux-observer.mjs'}
  master,slave=pty.openpty(); fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,90,0,0))
  r,w=os.pipe()
  # fd 3 side channel must survive exec without stealing a PTY descriptor.
