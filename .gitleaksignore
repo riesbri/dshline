@@ -37,3 +37,10 @@ ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/seg
 ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/segment1-metadata.json:generic-api-key:206
 ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/segment1-metadata.json:generic-api-key:284
 ea4bffa1bee462973e162dee8a51ebc1ecc4d909:tools/live-turn-perf/results/ux-304/segment1-metadata.json:generic-api-key:371
+
+# Padding-byte study: four verified compiled keys/status-keys SHA-256 digests.
+# Exact historical finding identities only; no file or rule exclusions.
+4a6fc5239c78b933c4fb73a241c405a5b8756098:tools/live-turn-perf/results/byte-headroom-304/live/metadata.json:generic-api-key:119
+4a6fc5239c78b933c4fb73a241c405a5b8756098:tools/live-turn-perf/results/byte-headroom-304/live/metadata.json:generic-api-key:206
+4a6fc5239c78b933c4fb73a241c405a5b8756098:tools/live-turn-perf/results/byte-headroom-304/live/metadata.json:generic-api-key:284
+4a6fc5239c78b933c4fb73a241c405a5b8756098:tools/live-turn-perf/results/byte-headroom-304/live/metadata.json:generic-api-key:371
