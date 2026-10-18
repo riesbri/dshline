@@ -1,0 +1,11 @@
+{
+  "archiveOnlyCommand": "python3 tools/live-turn-perf/byte-archive-recompute.py tools/live-turn-perf/results/byte-headroom-304/live",
+  "bootstrapReplicates": 3000,
+  "bootstrapSeed": 303,
+  "samplesPerArmPerWorkload": 30,
+  "unpaced": true,
+  "quantiles": "linear interpolation (n-1)p",
+  "variance": "sample; denominator n-1",
+  "admission": "natural EOF, one prepared main call, positive renderer counters, fixed 90x24 controlling PTY, complete byte/hash equality, exit zero",
+  "endpoint": "final measured PTY receipt; startup and teardown excluded from active bytes; physical display not measured"
+}

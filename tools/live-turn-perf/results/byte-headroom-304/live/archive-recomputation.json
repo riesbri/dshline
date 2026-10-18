@@ -1,0 +1,18 @@
+{
+  "archiveOnly": true,
+  "originalPerTurnFilesRequired": false,
+  "resultsMatch": {
+    "summary.json": true,
+    "ux-summary.json": true,
+    "padding-effect.json": true,
+    "verification.json": true,
+    "input-cell-verification.json": true,
+    "confidence.json": true,
+    "delivery-confidence.json": true
+  },
+  "inputsSha256": {
+    "raw.jsonl.gz": "f87ac250aa7e7fffe37a672a0288561adc4ca38510b63f9f841b0ef4c7656bfb",
+    "pty.tar.gz": "f5b4983ec83e1f8ff8d711f3381b02cec7d195d7c7989ee008f999473cb13571",
+    "metadata.json": "b9c78959ecbe1d289832487b42735bdbfcad77984b797375969fa692b84bc886"
+  }
+}

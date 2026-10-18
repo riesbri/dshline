@@ -1,0 +1,1 @@
+{"run": "cjk-011-stock", "arm": "stock", "workload": "cjk", "sample": 11, "warmup": false, "interruptProbe": false, "failure": "Tool transport timeout killed runner and controlling PTY; no completed capture; never replace", "result": null, "exitCode": null}

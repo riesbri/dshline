@@ -1,0 +1,1676 @@
+[
+  {
+    "run": "cjk--01-candidate-warmup",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk--01-stock-warmup",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 16
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin--01-candidate-warmup",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin--01-stock-warmup",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled--01-candidate-warmup",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled--01-stock-warmup",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-000-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-000-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 17
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-001-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-001-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-002-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-002-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-003-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-003-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 17
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-004-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-004-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-005-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-005-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 18
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-006-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-006-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-007-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 17
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-007-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-008-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-008-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 18
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-009-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-009-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-010-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-010-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 18
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-011-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-011-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-012-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-012-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-013-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-013-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-014-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-014-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-015-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-015-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-016-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-016-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-017-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-017-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-018-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-018-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-019-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-019-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-020-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-020-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-021-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-021-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-022-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-022-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-023-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 17
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-023-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 14
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-024-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-024-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-025-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-025-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-026-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 17
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-026-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-027-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-027-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-028-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-028-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-029-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "cjk-029-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-000-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 18
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-000-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-001-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-001-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-002-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-002-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-003-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-003-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-004-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-004-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-005-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-005-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-006-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-006-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-007-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-007-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 18
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-008-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-008-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-009-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 17
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-009-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-010-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-010-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-011-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-011-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-012-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-012-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-013-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-013-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-014-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-014-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 19
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-015-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-015-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-016-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-016-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-017-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-017-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-018-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-018-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-019-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-019-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 18
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-020-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-020-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-021-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-021-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-022-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 18
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-022-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-023-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-023-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-024-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-024-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-025-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-025-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-026-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-026-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-027-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-027-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-028-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-028-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-029-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "latin-029-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-000-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-000-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-001-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-001-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-002-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-002-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-003-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-003-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-004-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-004-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-005-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-005-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 20
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-006-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-006-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-007-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-007-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-008-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-008-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-009-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-009-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-010-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-010-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-011-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-011-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-012-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-012-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-013-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-013-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-014-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-014-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-015-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-015-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-016-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-016-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-017-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-017-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-018-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-018-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-019-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-019-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-020-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-020-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-021-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-021-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-022-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-022-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-023-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-023-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-024-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-024-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-025-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-025-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-026-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-026-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-027-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-027-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-028-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-028-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-029-candidate",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  },
+  {
+    "run": "styled-029-stock",
+    "markerVisible": true,
+    "cursor": {
+      "x": 14,
+      "y": 21
+    },
+    "markerNotCommitted": true
+  }
+]

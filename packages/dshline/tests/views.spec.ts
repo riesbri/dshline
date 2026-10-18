@@ -1369,6 +1369,28 @@ describe('the status line', () => {
     expect(status()).not.toContain('tools')
   })
 
+  it('animates attachment admission without claiming a turn, including narrow layouts', () => {
+    const frames = new Set<string>()
+    for (let tick = 0; tick < CYCLE; tick += 1) {
+      const raw = createStatusView(() => ({ ...STATUS_DEFAULTS, sendingAttachments: true, tick })).render(80)[0] ?? ''
+      expect(stripAnsi(raw)).toMatch(/^ {2}sending/u)
+      expect(stripAnsi(raw)).not.toContain('ready')
+      expect(stripAnsi(raw)).not.toContain('turn ')
+      frames.add(raw)
+    }
+    expect(frames.size).toBeGreaterThan(1)
+    const narrow = status({ sendingAttachments: true }, 16)
+    expect(narrow).toContain('sending')
+    expect(displayWidth(narrow)).toBeLessThanOrEqual(16)
+  })
+
+  it('keeps the running turn visible during attachment admission', () => {
+    const line = status({ busy: true, sendingAttachments: true, elapsedMs: 4_000, activityWord: 'thinking' })
+    expect(line).toContain('thinking')
+    expect(line).toContain('turn 4s')
+    expect(line).not.toContain('sending')
+  })
+
   it('reports an in-flight compaction instead of ready', () => {
     const line = status({ compacting: true })
     expect(line).toContain('compacting')

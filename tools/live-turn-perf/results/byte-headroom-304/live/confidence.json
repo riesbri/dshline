@@ -1,0 +1,1165 @@
+{
+  "seed": 303,
+  "replicates": 3000,
+  "method": "Adjacent AB/BA pair block bootstrap, percentile 95% pointwise quantile and variance CIs; no multiplicity adjustment. Quantile difference exact conservative 95% bounds use Bonferroni of two 97.5% marginal order-statistic intervals. null bound means unbounded. Exchangeability/local stationarity are assumptions, not proved.",
+  "workloads": {
+    "cjk": {
+      "wholeTurnMs": {
+        "stockVarianceBootstrap95": [
+          522473.28140699776,
+          1842181.6611118668
+        ],
+        "candidateVarianceBootstrap95": [
+          168405.65211290302,
+          1587249.5255981013
+        ],
+        "varianceDeltaBootstrap95": [
+          -1409692.3589342677,
+          550511.8192512047
+        ],
+        "pairs": 30,
+        "stockVariance": 1210320.5345457997,
+        "candidateVariance": 700257.0920339348,
+        "quantiles": {
+          "median": {
+            "stock": 4410.194373488426,
+            "candidate": 4265.320138454437,
+            "delta": -144.87423503398895,
+            "deltaPercent": -3.2849852583570973,
+            "bootstrap95Delta": [
+              -592.8160630464554,
+              324.1862440109253
+            ],
+            "conservative95Delta": [
+              -1056.4259339571,
+              782.8228310346603
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 7116.743397921322,
+            "candidate": 5432.2222602427,
+            "delta": -1684.521137678622,
+            "deltaPercent": -23.669831037755856,
+            "bootstrap95Delta": [
+              -2473.703029334544,
+              1545.0150455534467
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 7658.088874551058,
+            "candidate": 7371.395863678457,
+            "delta": -286.693010872601,
+            "deltaPercent": -3.7436626235211703,
+            "bootstrap95Delta": [
+              -2412.830508866311,
+              1499.1844409048554
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "rendererMs": {
+        "stockVarianceBootstrap95": [
+          2754.2698842041564,
+          7057.198078360493
+        ],
+        "candidateVarianceBootstrap95": [
+          4231.499548020472,
+          12183.470855006315
+        ],
+        "varianceDeltaBootstrap95": [
+          -1584.4203277265817,
+          8189.3439463074865
+        ],
+        "pairs": 30,
+        "stockVariance": 4919.661911031141,
+        "candidateVariance": 8495.13278165308,
+        "quantiles": {
+          "median": {
+            "stock": 343.780096411705,
+            "candidate": 334.36461985111237,
+            "delta": -9.415476560592651,
+            "deltaPercent": -2.7388079353252732,
+            "bootstrap95Delta": [
+              -66.61053164750338,
+              50.709237456321716
+            ],
+            "conservative95Delta": [
+              -82.66058933734894,
+              106.67263531684875
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 474.82563864588735,
+            "candidate": 547.5943360686301,
+            "delta": 72.76869742274278,
+            "deltaPercent": 15.325351350079853,
+            "bootstrap95Delta": [
+              -21.186943644285293,
+              141.18528293967256
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 511.13496806621555,
+            "candidate": 582.730055243969,
+            "delta": 71.59508717775344,
+            "deltaPercent": 14.007080644202489,
+            "bootstrap95Delta": [
+              -0.4641457270681796,
+              130.762045634985
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "bytes": {
+        "stockVarianceBootstrap95": [
+          43574114.99160919,
+          142294870.82954022
+        ],
+        "candidateVarianceBootstrap95": [
+          110841834.0329023,
+          456536652.6088506
+        ],
+        "varianceDeltaBootstrap95": [
+          1692975.4017528812,
+          378826097.32037365
+        ],
+        "pairs": 30,
+        "stockVariance": 93292587.93678162,
+        "candidateVariance": 253959035.95517242,
+        "quantiles": {
+          "median": {
+            "stock": 72587.5,
+            "candidate": 69995.5,
+            "delta": -2592.0,
+            "deltaPercent": -3.570862751851214,
+            "bootstrap95Delta": [
+              -8012.5,
+              10767.5125
+            ],
+            "conservative95Delta": [
+              -10387,
+              19651
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 94223.15,
+            "candidate": 95407.09999999999,
+            "delta": 1183.949999999997,
+            "deltaPercent": 1.2565383347935164,
+            "bootstrap95Delta": [
+              -4359.0,
+              41425.90000000001
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 97700.16,
+            "candidate": 121538.88000000003,
+            "delta": 23838.72000000003,
+            "deltaPercent": 24.39987815782495,
+            "bootstrap95Delta": [
+              -4049.4400000000023,
+              40782.37999999999
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "providerAwaitNonRendererMs": {
+        "stockVarianceBootstrap95": [
+          448212.14824579936,
+          1712950.1021065882
+        ],
+        "candidateVarianceBootstrap95": [
+          126496.57873741111,
+          1399843.7814672624
+        ],
+        "varianceDeltaBootstrap95": [
+          -1336753.3815705967,
+          488750.4452235232
+        ],
+        "pairs": 30,
+        "stockVariance": 1095590.127081232,
+        "candidateVariance": 606036.3890970292,
+        "quantiles": {
+          "median": {
+            "stock": 3900.0831514000893,
+            "candidate": 3760.4653730392456,
+            "delta": -139.61777836084366,
+            "deltaPercent": -3.5798667090142,
+            "bootstrap95Delta": [
+              -598.4392535224556,
+              117.82225425690424
+            ],
+            "conservative95Delta": [
+              -1083.262343287468,
+              440.7081390619278
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 6473.688596177099,
+            "candidate": 4861.900887656211,
+            "delta": -1611.7877085208875,
+            "deltaPercent": -24.897516841831024,
+            "bootstrap95Delta": [
+              -2529.6517724513997,
+              1473.4650382041937
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 7112.32608827591,
+            "candidate": 6713.294213818313,
+            "delta": -399.03187445759613,
+            "deltaPercent": -5.610427158498366,
+            "bootstrap95Delta": [
+              -2499.3570598959923,
+              1448.1137473869321
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "timeToFirstContentPaintMs": {
+        "stockVarianceBootstrap95": [
+          84084.41798646777,
+          1226038.6416122902
+        ],
+        "candidateVarianceBootstrap95": [
+          37285.97383249503,
+          206659.07246811283
+        ],
+        "varianceDeltaBootstrap95": [
+          -1146365.7574264465,
+          49315.1657665895
+        ],
+        "pairs": 30,
+        "stockVariance": 531417.8850605562,
+        "candidateVariance": 109282.37910784448,
+        "quantiles": {
+          "median": {
+            "stock": 2006.4446814656258,
+            "candidate": 1878.3773250579834,
+            "delta": -128.06735640764236,
+            "deltaPercent": -6.382800263104907,
+            "bootstrap95Delta": [
+              -221.4575070142746,
+              -13.000838196277583
+            ],
+            "conservative95Delta": [
+              -322.60033094882965,
+              61.50878310203552
+            ],
+            "bootstrapVerdict": "improvement"
+          },
+          "p95": {
+            "stock": 3128.192180454731,
+            "candidate": 2256.168892365694,
+            "delta": -872.0232880890371,
+            "deltaPercent": -27.876269672225675,
+            "bootstrap95Delta": [
+              -3219.654408097267,
+              111.09084392190107
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 4751.029968311788,
+            "candidate": 2808.7351627278335,
+            "delta": -1942.2948055839547,
+            "deltaPercent": -40.88155239050453,
+            "bootstrap95Delta": [
+              -3227.8479280018805,
+              42.38602120995483
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "chunkToScreenP95Ms": {
+        "stockVarianceBootstrap95": [
+          0.1663615506302486,
+          8.562566249867832
+        ],
+        "candidateVarianceBootstrap95": [
+          0.06352528251058297,
+          0.2955154090562082
+        ],
+        "varianceDeltaBootstrap95": [
+          -8.410603608549557,
+          0.014604343604358775
+        ],
+        "pairs": 30,
+        "stockVariance": 3.3309531202823424,
+        "candidateVariance": 0.17201886972912284,
+        "quantiles": {
+          "median": {
+            "stock": 2.1662108808755876,
+            "candidate": 2.2636855900287634,
+            "delta": 0.0974747091531758,
+            "deltaPercent": 4.499779315750472,
+            "bootstrap95Delta": [
+              -0.16945993036031864,
+              0.37171329468488473
+            ],
+            "conservative95Delta": [
+              -0.30018907785415605,
+              0.47991870045662033
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 4.463519341051581,
+            "candidate": 3.142391733825206,
+            "delta": -1.3211276072263756,
+            "deltaPercent": -29.598339477904556,
+            "bootstrap95Delta": [
+              -8.870005406029508,
+              0.4221227091550839
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 9.601794444620605,
+            "candidate": 3.5312862372398373,
+            "delta": -6.070508207380768,
+            "deltaPercent": -63.22264283403571,
+            "bootstrap95Delta": [
+              -8.822149917066081,
+              0.19355845808982908
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      }
+    },
+    "latin": {
+      "wholeTurnMs": {
+        "stockVarianceBootstrap95": [
+          358958.48245844804,
+          2134536.5540688
+        ],
+        "candidateVarianceBootstrap95": [
+          62376.26312011355,
+          1372122.813284692
+        ],
+        "varianceDeltaBootstrap95": [
+          -1726985.1397062768,
+          534051.8393756725
+        ],
+        "pairs": 30,
+        "stockVariance": 1194781.4403277186,
+        "candidateVariance": 628379.7400640018,
+        "quantiles": {
+          "median": {
+            "stock": 3487.46847897768,
+            "candidate": 3495.942453980446,
+            "delta": 8.473975002765656,
+            "deltaPercent": 0.24298355824135576,
+            "bootstrap95Delta": [
+              -340.56539074182507,
+              229.79708498716354
+            ],
+            "conservative95Delta": [
+              -584.1972550153732,
+              426.0587400197983
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 6072.400503510235,
+            "candidate": 5119.50387576222,
+            "delta": -952.8966277480149,
+            "deltaPercent": -15.69225592411403,
+            "bootstrap95Delta": [
+              -3440.669069427252,
+              1341.8804132580763
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 7256.726424212457,
+            "candidate": 6570.242267713547,
+            "delta": -686.4841564989092,
+            "deltaPercent": -9.459970189980126,
+            "bootstrap95Delta": [
+              -3430.8047649419304,
+              1305.8897244381906
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "rendererMs": {
+        "stockVarianceBootstrap95": [
+          2275.8564877061817,
+          128094.20316390217
+        ],
+        "candidateVarianceBootstrap95": [
+          667.9111950320615,
+          2664.2398233647273
+        ],
+        "varianceDeltaBootstrap95": [
+          -126709.6960767868,
+          -503.67129850445616
+        ],
+        "pairs": 30,
+        "stockVariance": 47667.86069879971,
+        "candidateVariance": 1643.405816506994,
+        "quantiles": {
+          "median": {
+            "stock": 230.13862526416779,
+            "candidate": 222.82711678743362,
+            "delta": -7.311508476734161,
+            "deltaPercent": -3.177001891073932,
+            "bootstrap95Delta": [
+              -40.75852656364441,
+              16.225740455091003
+            ],
+            "conservative95Delta": [
+              -89.9236763715744,
+              35.75062823295593
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 391.40929480791084,
+            "candidate": 308.2957624912261,
+            "delta": -83.11353231668471,
+            "deltaPercent": -21.234429897091164,
+            "bootstrap95Delta": [
+              -1106.6873861321808,
+              -3.649285566806725
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "improvement"
+          },
+          "p99": {
+            "stock": 1114.5751644611369,
+            "candidate": 347.04103037118915,
+            "delta": -767.5341340899477,
+            "deltaPercent": -68.863380287235,
+            "bootstrap95Delta": [
+              -1110.3944694638253,
+              -8.382925479411995
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "improvement"
+          }
+        }
+      },
+      "bytes": {
+        "stockVarianceBootstrap95": [
+          61165683.74816092,
+          171318939.49712646
+        ],
+        "candidateVarianceBootstrap95": [
+          12571278.652988506,
+          45528507.78824713
+        ],
+        "varianceDeltaBootstrap95": [
+          -141238348.1814655,
+          -31556267.11896551
+        ],
+        "pairs": 30,
+        "stockVariance": 118761654.43678162,
+        "candidateVariance": 29254733.247126438,
+        "quantiles": {
+          "median": {
+            "stock": 63521.5,
+            "candidate": 59035.0,
+            "delta": -4486.5,
+            "deltaPercent": -7.062962933809811,
+            "bootstrap95Delta": [
+              -11247.9125,
+              304.0875000000003
+            ],
+            "conservative95Delta": [
+              -14709,
+              1965
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 85895.55,
+            "candidate": 70108.29999999999,
+            "delta": -15787.250000000015,
+            "deltaPercent": -18.37959009517957,
+            "bootstrap95Delta": [
+              -27139.0,
+              -9043.322500000013
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "improvement"
+          },
+          "p99": {
+            "stock": 92453.56000000001,
+            "candidate": 73454.25,
+            "delta": -18999.310000000012,
+            "deltaPercent": -20.550111861565966,
+            "bootstrap95Delta": [
+              -27139.0,
+              -10677.270000000004
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "improvement"
+          }
+        }
+      },
+      "providerAwaitNonRendererMs": {
+        "stockVarianceBootstrap95": [
+          305920.82171978493,
+          1381637.7186574752
+        ],
+        "candidateVarianceBootstrap95": [
+          59807.32079607364,
+          1296364.785648446
+        ],
+        "varianceDeltaBootstrap95": [
+          -1064439.6205330968,
+          585428.9546658888
+        ],
+        "pairs": 30,
+        "stockVariance": 860521.2179885495,
+        "candidateVariance": 590118.1729858343,
+        "quantiles": {
+          "median": {
+            "stock": 3128.753972709179,
+            "candidate": 3130.819626033306,
+            "delta": 2.0656533241271973,
+            "deltaPercent": 0.0660215965251673,
+            "bootstrap95Delta": [
+              -307.9059000223875,
+              219.21794962882996
+            ],
+            "conservative95Delta": [
+              -612.1721103191376,
+              411.5246822834015
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 5590.542366373536,
+            "candidate": 4651.284692144389,
+            "delta": -939.2576742291476,
+            "deltaPercent": -16.80083277570122,
+            "bootstrap95Delta": [
+              -2509.4087187051773,
+              1430.712364339829
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 5986.293146367073,
+            "candidate": 6112.428637597562,
+            "delta": 126.1354912304887,
+            "deltaPercent": 2.1070717411665196,
+            "bootstrap95Delta": [
+              -2328.414680185377,
+              1376.7762422847745
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "timeToFirstContentPaintMs": {
+        "stockVarianceBootstrap95": [
+          72259.17974862191,
+          815658.1048008121
+        ],
+        "candidateVarianceBootstrap95": [
+          15247.512316663519,
+          1186402.6177938075
+        ],
+        "varianceDeltaBootstrap95": [
+          -564863.9453062809,
+          867304.5080963898
+        ],
+        "pairs": 30,
+        "stockVariance": 391808.9297669493,
+        "candidateVariance": 512570.42068420147,
+        "quantiles": {
+          "median": {
+            "stock": 1927.7281075716019,
+            "candidate": 1986.7913269996643,
+            "delta": 59.06321942806244,
+            "deltaPercent": 3.063877068352008,
+            "bootstrap95Delta": [
+              -149.8418425321579,
+              111.53249204009774
+            ],
+            "conservative95Delta": [
+              -230.34310007095337,
+              141.10812497138977
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 3263.369763684271,
+            "candidate": 3417.8413989722676,
+            "delta": 154.47163528799638,
+            "deltaPercent": 4.733500843422701,
+            "bootstrap95Delta": [
+              -2323.49346491307,
+              2312.2108596310027
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 4332.839821015597,
+            "candidate": 4900.031512064935,
+            "delta": 567.1916910493374,
+            "deltaPercent": 13.090529871385606,
+            "bootstrap95Delta": [
+              -2338.819904797077,
+              2294.758546746969
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "chunkToScreenP95Ms": {
+        "stockVarianceBootstrap95": [
+          0.09584419371115063,
+          0.42967691600390673
+        ],
+        "candidateVarianceBootstrap95": [
+          0.16099657718051186,
+          2.76249786795662
+        ],
+        "varianceDeltaBootstrap95": [
+          -0.13938707979893833,
+          2.533225017287382
+        ],
+        "pairs": 30,
+        "stockVariance": 0.2622043133783674,
+        "candidateVariance": 1.1690367381131401,
+        "quantiles": {
+          "median": {
+            "stock": 2.193365091085433,
+            "candidate": 2.114141118526459,
+            "delta": -0.07922397255897407,
+            "deltaPercent": -3.611982924364334,
+            "bootstrap95Delta": [
+              -0.28587009906768746,
+              0.12641232937574473
+            ],
+            "conservative95Delta": [
+              -0.40498737692832654,
+              0.5591141521930689
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 3.4764647281169885,
+            "candidate": 3.757360288798804,
+            "delta": 0.2808955606818153,
+            "deltaPercent": 8.079919764753694,
+            "bootstrap95Delta": [
+              -0.633921853005893,
+              4.156601061224938
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 3.6949287556409813,
+            "candidate": 6.415494229495527,
+            "delta": 2.720565473854546,
+            "deltaPercent": 73.62971396136143,
+            "bootstrap95Delta": [
+              -0.4055033683776892,
+              4.144970169425011
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      }
+    },
+    "styled": {
+      "wholeTurnMs": {
+        "stockVarianceBootstrap95": [
+          924894.9923985935,
+          22006920.75749847
+        ],
+        "candidateVarianceBootstrap95": [
+          1415109.6958083936,
+          11355262.070205212
+        ],
+        "varianceDeltaBootstrap95": [
+          -18643183.380941577,
+          8288141.9436530415
+        ],
+        "pairs": 30,
+        "stockVariance": 8771202.824759725,
+        "candidateVariance": 5959497.48776991,
+        "quantiles": {
+          "median": {
+            "stock": 6742.575554013252,
+            "candidate": 6499.317140042782,
+            "delta": -243.25841397047043,
+            "deltaPercent": -3.607796635303263,
+            "bootstrap95Delta": [
+              -957.6083271503448,
+              1141.2834618121394
+            ],
+            "conservative95Delta": [
+              -1635.0007030963898,
+              1956.8028720617294
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 10231.023376601932,
+            "candidate": 12268.55160107612,
+            "delta": 2037.5282244741884,
+            "deltaPercent": 19.915194692389807,
+            "bootstrap95Delta": [
+              -10908.914912837747,
+              6708.963361912967
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 18427.56310768844,
+            "candidate": 15247.937906702758,
+            "delta": -3179.62520098568,
+            "deltaPercent": -17.254724254120507,
+            "bootstrap95Delta": [
+              -10715.803432372808,
+              6577.314613114595
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "rendererMs": {
+        "stockVarianceBootstrap95": [
+          9790.171338139582,
+          26913.332968085437
+        ],
+        "candidateVarianceBootstrap95": [
+          16945.863122412175,
+          57001.496685245846
+        ],
+        "varianceDeltaBootstrap95": [
+          -1548.6044711299865,
+          37550.54742926542
+        ],
+        "pairs": 30,
+        "stockVariance": 18678.231102679823,
+        "candidateVariance": 34766.60987670235,
+        "quantiles": {
+          "median": {
+            "stock": 601.1370582580566,
+            "candidate": 591.604798913002,
+            "delta": -9.532259345054626,
+            "deltaPercent": -1.5857048262299296,
+            "bootstrap95Delta": [
+              -112.45939123183489,
+              88.26520200073726
+            ],
+            "conservative95Delta": [
+              -164.97701919078827,
+              197.57290983200073
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 902.1844761073588,
+            "candidate": 865.7981736123562,
+            "delta": -36.38630249500261,
+            "deltaPercent": -4.033133295753216,
+            "bootstrap95Delta": [
+              -70.84014088511469,
+              315.6176606416702
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 924.0577730154992,
+            "candidate": 1104.68662498951,
+            "delta": 180.6288519740108,
+            "deltaPercent": 19.54735485688957,
+            "bootstrap95Delta": [
+              -68.69467949867249,
+              315.6176606416702
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "bytes": {
+        "stockVarianceBootstrap95": [
+          707389850.9388505,
+          1310284118.3410347
+        ],
+        "candidateVarianceBootstrap95": [
+          670610157.3328449,
+          3418990279.249226
+        ],
+        "varianceDeltaBootstrap95": [
+          -404671298.8988505,
+          2476709690.6233625
+        ],
+        "pairs": 30,
+        "stockVariance": 1040423600.8609196,
+        "candidateVariance": 1877529266.7,
+        "quantiles": {
+          "median": {
+            "stock": 135172.5,
+            "candidate": 126125.0,
+            "delta": -9047.5,
+            "deltaPercent": -6.693299302742791,
+            "bootstrap95Delta": [
+              -35115.875,
+              17926.950000000015
+            ],
+            "conservative95Delta": [
+              -57773,
+              38582
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 176891.1,
+            "candidate": 206563.44999999998,
+            "delta": 29672.349999999977,
+            "deltaPercent": 16.774360044117525,
+            "bootstrap95Delta": [
+              -13227.243750000016,
+              109389.0
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 181395.89,
+            "candidate": 264243.86000000004,
+            "delta": 82847.97000000003,
+            "deltaPercent": 45.6724625899738,
+            "bootstrap95Delta": [
+              -1784.7900000000081,
+              109389.0
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "providerAwaitNonRendererMs": {
+        "stockVarianceBootstrap95": [
+          770828.6970436574,
+          21205043.56270861
+        ],
+        "candidateVarianceBootstrap95": [
+          1124715.597472537,
+          6991793.363324184
+        ],
+        "varianceDeltaBootstrap95": [
+          -18706155.184890207,
+          5003744.27999849
+        ],
+        "pairs": 30,
+        "stockVariance": 8330689.921038955,
+        "candidateVariance": 4110005.6722576013,
+        "quantiles": {
+          "median": {
+            "stock": 5921.803371787071,
+            "candidate": 5705.808270573616,
+            "delta": -215.9951012134552,
+            "deltaPercent": -3.6474547980182694,
+            "bootstrap95Delta": [
+              -855.8585666418076,
+              1029.3935099303733
+            ],
+            "conservative95Delta": [
+              -1264.2074792385101,
+              1594.8971623182297
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 9220.16064557433,
+            "candidate": 11182.9532546699,
+            "delta": 1962.7926090955698,
+            "deltaPercent": 21.288052177677717,
+            "bootstrap95Delta": [
+              -10971.828895896677,
+              4578.84073741436
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 17398.32432945014,
+            "candidate": 12448.802873214483,
+            "delta": -4949.521456235658,
+            "deltaPercent": -28.44826526114129,
+            "bootstrap95Delta": [
+              -10788.557323879002,
+              4592.469610686007
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "timeToFirstContentPaintMs": {
+        "stockVarianceBootstrap95": [
+          76176.30951148036,
+          25359942.95536828
+        ],
+        "candidateVarianceBootstrap95": [
+          37139.62538511002,
+          206561.5588527897
+        ],
+        "varianceDeltaBootstrap95": [
+          -25284181.531686045,
+          90826.01790607866
+        ],
+        "pairs": 30,
+        "stockVariance": 9079181.697069371,
+        "candidateVariance": 110525.01484518172,
+        "quantiles": {
+          "median": {
+            "stock": 2031.377281486988,
+            "candidate": 1984.276981472969,
+            "delta": -47.10030001401901,
+            "deltaPercent": -2.3186387109508844,
+            "bootstrap95Delta": [
+              -157.39204110056158,
+              155.3420454263687
+            ],
+            "conservative95Delta": [
+              -331.8378369808197,
+              335.70867788791656
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 2367.4686021029947,
+            "candidate": 2474.8028021931636,
+            "delta": 107.3342000901689,
+            "deltaPercent": 4.533711661258155,
+            "bootstrap95Delta": [
+              -16085.686194896698,
+              788.4966500997543
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 13704.493413540138,
+            "candidate": 2974.632688028813,
+            "delta": -10729.860725511326,
+            "deltaPercent": -78.2944717599714,
+            "bootstrap95Delta": [
+              -16081.708084011078,
+              772.8897596025467
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      },
+      "chunkToScreenP95Ms": {
+        "stockVarianceBootstrap95": [
+          0.043191638253205954,
+          0.1423864418441957
+        ],
+        "candidateVarianceBootstrap95": [
+          0.03901236876338649,
+          0.16002941627318454
+        ],
+        "varianceDeltaBootstrap95": [
+          -0.08016242920979433,
+          0.09414126792314566
+        ],
+        "pairs": 30,
+        "stockVariance": 0.08972950399012,
+        "candidateVariance": 0.09531386177929732,
+        "quantiles": {
+          "median": {
+            "stock": 2.026688012480735,
+            "candidate": 2.0466858446598053,
+            "delta": 0.01999783217907014,
+            "deltaPercent": 0.9867247477618478,
+            "bootstrap95Delta": [
+              -0.2344827353954302,
+              0.18227859437465646
+            ],
+            "conservative95Delta": [
+              -0.34116330146789564,
+              0.26235556006431593
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p95": {
+            "stock": 2.5988554069399807,
+            "candidate": 2.6083244898915283,
+            "delta": 0.00946908295154758,
+            "deltaPercent": 0.36435589784107847,
+            "bootstrap95Delta": [
+              -0.6056558975577366,
+              0.5518761172890669
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          },
+          "p99": {
+            "stock": 2.9230163838267322,
+            "candidate": 2.963579883575438,
+            "delta": 0.040563499748705656,
+            "deltaPercent": 1.387727416553206,
+            "bootstrap95Delta": [
+              -0.5859197534918792,
+              0.5512513067722309
+            ],
+            "conservative95Delta": [
+              null,
+              null
+            ],
+            "bootstrapVerdict": "inconclusive"
+          }
+        }
+      }
+    }
+  }
+}

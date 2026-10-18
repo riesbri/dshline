@@ -1,0 +1,17 @@
+[
+  {
+    "fault": "unsupported-tail",
+    "expectedAssertion": "test_small_tail_is_unbounded_not_sample_maximum",
+    "rejected": true
+  },
+  {
+    "fault": "broken-paired-variance",
+    "expectedAssertion": "test_identical_paired_arms_have_zero_resampling_delta",
+    "rejected": true
+  },
+  {
+    "fault": "composer-marker-cell",
+    "expectedAssertion": "marker not visible",
+    "rejected": true
+  }
+]

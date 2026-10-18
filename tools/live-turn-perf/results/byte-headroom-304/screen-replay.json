@@ -1,0 +1,87 @@
+{
+  "endpoint": "Unpaced reconstructed prewrapped Screen operations; full buffer cells/styles/wrap flags and cursor after each call. Not original logical lines, PTY transport, provider or latency evidence.",
+  "sourceScreenSha256": {
+    "stock": "388d72cf5c580f475f51ff8fb561858998a9c2ab3ef1d3bfc398f225fbbe8908",
+    "candidate": "8f5625b40fc968f6c4bed37cbb1deaaecd94d644bf0c0d8d20cf5af49197eb7d"
+  },
+  "results": [
+    {
+      "run": "cjk-000-stock",
+      "workload": "cjk",
+      "operations": 237,
+      "bytes": {
+        "stock": 70346,
+        "candidate": 67676
+      },
+      "commitBytes": {
+        "stock": 39817,
+        "candidate": 37577
+      }
+    },
+    {
+      "run": "cjk-001-stock",
+      "workload": "cjk",
+      "operations": 246,
+      "bytes": {
+        "stock": 74305,
+        "candidate": 71443
+      },
+      "commitBytes": {
+        "stock": 41261,
+        "candidate": 38957
+      }
+    },
+    {
+      "run": "latin-000-stock",
+      "workload": "latin",
+      "operations": 156,
+      "bytes": {
+        "stock": 59922,
+        "candidate": 57188
+      },
+      "commitBytes": {
+        "stock": 39943,
+        "candidate": 37639
+      }
+    },
+    {
+      "run": "latin-001-stock",
+      "workload": "latin",
+      "operations": 189,
+      "bytes": {
+        "stock": 70930,
+        "candidate": 67812
+      },
+      "commitBytes": {
+        "stock": 44558,
+        "candidate": 41998
+      }
+    },
+    {
+      "run": "styled-000-stock",
+      "workload": "styled",
+      "operations": 400,
+      "bytes": {
+        "stock": 155502,
+        "candidate": 148608
+      },
+      "commitBytes": {
+        "stock": 49746,
+        "candidate": 47186
+      }
+    },
+    {
+      "run": "styled-001-stock",
+      "workload": "styled",
+      "operations": 408,
+      "bytes": {
+        "stock": 168869,
+        "candidate": 160951
+      },
+      "commitBytes": {
+        "stock": 81032,
+        "candidate": 76424
+      }
+    }
+  ]
+}

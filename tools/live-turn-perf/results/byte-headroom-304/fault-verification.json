@@ -1,0 +1,27 @@
+{
+  "faults": [
+    {
+      "fault": "wrong repeat count",
+      "rejected": true,
+      "exitCode": 1,
+      "target": "complete compact-padding test file",
+      "assertionFailure": true
+    },
+    {
+      "fault": "missing final literal glyph",
+      "rejected": true,
+      "exitCode": 1,
+      "target": "keeps combining marks",
+      "assertionFailure": true
+    },
+    {
+      "fault": "lost control-payload guard",
+      "rejected": true,
+      "exitCode": 1,
+      "target": "leaves short runs",
+      "assertionFailure": true
+    }
+  ],
+  "sourceRestored": true,
+  "sourceSha256": "074c106ea219508f0d7146ff604810269fe58534cfdf23e60d0593e5f7e31ee5"
+}

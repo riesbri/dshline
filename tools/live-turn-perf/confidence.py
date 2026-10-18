@@ -21,9 +21,9 @@ def order_bounds(xs,p,alpha):
   if tail<=alpha/2:u=k
  return [xs[l-1] if l else None,xs[u-1] if u<=n else None]
 
-def analyze(summary,repetitions,seed):
- rng=random.Random(seed);result={'seed':seed,'replicates':repetitions,'method':'Adjacent AB/BA pair block bootstrap, percentile 95% pointwise CIs; no multiplicity adjustment. Quantile difference exact conservative 95% bounds use Bonferroni of two 97.5% marginal order-statistic intervals. null bound means unbounded. Exchangeability/local stationarity are assumptions, not proved.','workloads':{}}
- metrics=['wholeTurnMs','rendererMs','screenMs','providerAwaitNonRendererMs','timeToFirstContentPaintMs','firstContentPaintToDrainMs','frameP99Ms','bytes']
+def analyze(summary,repetitions,seed,metrics=None):
+ rng=random.Random(seed);result={'seed':seed,'replicates':repetitions,'method':'Adjacent AB/BA pair block bootstrap, percentile 95% pointwise quantile and variance CIs; no multiplicity adjustment. Quantile difference exact conservative 95% bounds use Bonferroni of two 97.5% marginal order-statistic intervals. null bound means unbounded. Exchangeability/local stationarity are assumptions, not proved.','workloads':{}}
+ metrics=metrics or ['wholeTurnMs','rendererMs','screenMs','providerAwaitNonRendererMs','timeToFirstContentPaintMs','firstContentPaintToDrainMs','frameP99Ms','bytes']
  for workload,arms in summary['workloads'].items():
   paired={}
   for row in summary['perTurn']:
@@ -44,14 +44,18 @@ def analyze(summary,repetitions,seed):
     sb=order_bounds(stock,p,.025);cb=order_bounds(candidate,p,.025)
     exact=[None if cb[0] is None or sb[1] is None else cb[0]-sb[1],None if cb[1] is None or sb[0] is None else cb[1]-sb[0]]
     observations[label]={'stock':quantile(stock,p),'candidate':quantile(candidate,p),'delta':delta,'deltaPercent':delta/quantile(stock,p)*100,'bootstrap95Delta':[lo,hi],'conservative95Delta':exact,'bootstrapVerdict':'regression' if lo>0 else 'improvement' if hi<0 else 'inconclusive'}
-   own[metric]={'pairs':n,'stockVariance':statistics.variance(stock),'candidateVariance':statistics.variance(candidate),'quantiles':observations}
+   stockVars=[statistics.variance([stock[i] for i in indices]) for indices in schedule]
+   candidateVars=[statistics.variance([candidate[i] for i in indices]) for indices in schedule]
+   varianceDeltas=[c-s for s,c in zip(stockVars,candidateVars)]
+   own[metric]={'stockVarianceBootstrap95':[quantile(stockVars,.025),quantile(stockVars,.975)],'candidateVarianceBootstrap95':[quantile(candidateVars,.025),quantile(candidateVars,.975)],'varianceDeltaBootstrap95':[quantile(varianceDeltas,.025),quantile(varianceDeltas,.975)],'pairs':n,'stockVariance':statistics.variance(stock),'candidateVariance':statistics.variance(candidate),'quantiles':observations}
   result['workloads'][workload]=own
  return result
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('directory');p.add_argument('--replicates',type=int,default=10000);p.add_argument('--seed',type=int,default=303);a=p.parse_args();root=pathlib.Path(a.directory)
- result=analyze(json.loads((root/'summary.json').read_text()),a.replicates,a.seed)
+ p=argparse.ArgumentParser();p.add_argument('directory');p.add_argument('--replicates',type=int,default=10000);p.add_argument('--seed',type=int,default=303);p.add_argument('--metrics',default='');p.add_argument('--summary',default='summary.json');a=p.parse_args();root=pathlib.Path(a.directory)
+ result=analyze(json.loads((root/a.summary).read_text()),a.replicates,a.seed,a.metrics.split(',') if a.metrics else None)
  (root/'confidence.json').write_text(json.dumps(result,indent=2,allow_nan=False)+'\n')
  for w,metrics in result['workloads'].items():
-  for label,obs in metrics['wholeTurnMs']['quantiles'].items():print(w,label,json.dumps(obs))
+  endpoint='wholeTurnMs' if 'wholeTurnMs' in metrics else next(iter(metrics))
+  for label,obs in metrics[endpoint]['quantiles'].items():print(w,label,json.dumps(obs))
 if __name__=='__main__':main()

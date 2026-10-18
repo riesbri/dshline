@@ -103,6 +103,7 @@ function commit(n) {
   screen.commit(lines)
 }
 commit(${COMMITTED})
+screen.commit(['CHROME ' + '─'.repeat(80), 'PADDING ' + ' '.repeat(70) + '|END'])
 
 let tick = 0
 const streaming = setInterval(() => {
@@ -214,6 +215,9 @@ try {
     `TERM=xterm-256color tmux -L ${INNER} attach-session -t app`])
   await waitFor(() => tmux(OUTER, ['display-message', '-p', '-t', 'pty', '#{pane_current_command}']).trim() === 'tmux', 20000, 'the client to attach')
   await waitFor(() => screen().includes('TALL REGION COLLAPSED'), 20000, 'the streaming turn to finish')
+
+  check('literal Unicode borders survive tmux', history().includes('CHROME ' + '─'.repeat(80)))
+  check('REP-encoded padding preserves the next column', history().includes('PADDING ' + ' '.repeat(70) + '|END'))
 
   // Read tmux's metadata, not captured cells: OSC titles are not screen text.
   check('the standard terminal title becomes pane_title without controls', await waitFor(
