@@ -117,7 +117,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           languages: javascript-typescript
           # `security-extended` over the default pack. The default set is tuned
@@ -133,7 +133,7 @@ jobs:
               - 'tests/**'
               - '**/tests/**'
 
-      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:javascript-typescript
 
@@ -156,13 +156,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
         with:
           results_file: scorecard.sarif
           results_format: sarif
           publish_results: true
 
-      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: scorecard.sarif
 
