@@ -1077,7 +1077,7 @@ async function main(args) {
     const install = source === undefined
       ? installArguments()
       : ['plugin', '--profile', PROFILE, 'add', ...source]
-    process.stdout.write(`dshline: installing ${source?.[0] ?? `${PACKAGE}@${ownVersion()}`} into the "${PROFILE}" profile\n`)
+    process.stdout.write(escapeDiagnostic(`dshline: installing ${source?.[0] ?? `${PACKAGE}@${ownVersion()}`} into the "${PROFILE}" profile\n`))
     // No question here, and no terminal requirement: the user asked for this exact
     // mutation by name, which is what makes `--setup` the scriptable path and the
     // answer to a first run that went wrong.

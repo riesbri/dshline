@@ -532,6 +532,16 @@ async function initializeEmptyProfile(fix: Fixture): Promise<void> {
 }
 
 describe('terminal-safe launcher diagnostics', () => {
+  it('escapes a setup source announcement without changing the installed argument', async () => {
+    const fix = await fixture()
+    const spec = './source-\u001b]52;c;AUDIT\u0007-\u009b2J'
+    const run = await runWrapper(fix, ['--setup', spec])
+    expect(run.code).toBe(0)
+    expect(run.calls[0]?.argv).toEqual(['plugin', '--profile', 'dshline', 'add', spec])
+    expect(run.stdout).toContain('^[]52;c;AUDIT^G')
+    expect(run.stdout).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u)
+  })
+
   it('displays control bytes in a missing launcher path instead of executing them', async () => {
     const fix = await fixture()
     const run = await runWrapper(fix, [], {
