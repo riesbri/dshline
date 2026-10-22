@@ -113,8 +113,13 @@ describe('redacting what the child echoed back', () => {
     }
   })
 
-  it('redacts signed URL diagnostics in both the headline and output without changing argv', async () => {
-    const spec = 'https://example.invalid/p.tgz?auth=private-sentinel'
+  it.each([
+    'https://example.invalid/p.tgz?auth=private-sentinel',
+    'https://example.invalid/p.tgz?auth=<private-sentinel>',
+    'https://example.invalid/p.tgz?auth=>private-sentinel',
+    'https://example.invalid/p.tgz#<private-sentinel>',
+    'https://user:<private-sentinel>@example.invalid/p.tgz',
+  ])('redacts echoed URL %s in both the headline and output without changing argv', async spec => {
     const outcome = await runProfileOperation({
       profile: 'dshline',
       resolved: resolveOperation('add', spec),

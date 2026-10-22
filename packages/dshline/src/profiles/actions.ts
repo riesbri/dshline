@@ -146,7 +146,7 @@ export interface ProfileOperationSpec {
 }
 
 /** Bound failed scheme searches on long plain-text diagnostics as well as URLs. */
-const OUTPUT_URL = /\b[a-z][a-z\d+.-]{0,31}:\/\/[^\s<>]+/giu
+const OUTPUT_URL = /\b[a-z][a-z\d+.-]{0,31}:\/\/\S+/giu
 
 /**
  * One line of child output, safe to commit.
@@ -161,6 +161,8 @@ const OUTPUT_URL = /\b[a-z][a-z\d+.-]{0,31}:\/\/[^\s<>]+/giu
 export function redactOutputLine(line: string): string {
   // Query/fragment names are not a credential vocabulary: signed downloads use
   // vendor-specific names, and a new spelling must not silently leak a key.
+  // Raw angle brackets can occur in URL fields echoed before normalization;
+  // treating them as markup delimiters exposes the remainder of a credential.
   return line.replace(OUTPUT_URL, url => url
     .replace(/^([a-z][a-z\d+.-]*:\/\/)[^/?#]*@/iu, '$1<redacted>@')
     .replace(/([?#]).*$/u, '$1<redacted>'))
