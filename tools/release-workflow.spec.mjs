@@ -39,6 +39,18 @@ describe('version workflow recovery boundaries', () => {
 })
 
 describe('publish workflow state machine', () => {
+  it('runs a protected-main provenance guard before executing tagged source', async () => {
+    const preflight = extractJob(await readWorkflow(), 'release-preflight')
+    const trusted = preflight.indexOf('ref: main')
+    const guard = preflight.indexOf('run: node tools/check-release-source.mjs')
+    const tagged = preflight.indexOf('ref: ${{ github.sha }}')
+    expect(trusted).toBeGreaterThan(-1)
+    expect(preflight).toContain('fetch-depth: 0')
+    expect(guard).toBeGreaterThan(trusted)
+    expect(tagged).toBeGreaterThan(guard)
+    expect(preflight).toContain('RELEASE_COMMIT: ${{ github.sha }}')
+  })
+
   it('puts accepted npm publication and registry visibility in different jobs', async () => {
     const workflow = await readWorkflow()
     const preflight = extractJob(workflow, 'release-preflight')

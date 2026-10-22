@@ -531,6 +531,19 @@ async function initializeEmptyProfile(fix: Fixture): Promise<void> {
   await writeFile(fix.manifest, `${JSON.stringify({ name: 'dsh-profile-dshline', dependencies: {} })}\n`, 'utf8')
 }
 
+describe('terminal-safe launcher diagnostics', () => {
+  it('displays control bytes in a missing launcher path instead of executing them', async () => {
+    const fix = await fixture()
+    const run = await runWrapper(fix, [], {
+      env: { DSH_BIN: join(fix.root, 'missing-\u001b]52;c;AUDIT\u0007-\u009b2J') },
+    })
+    expect(run.code).toBe(127)
+    expect(run.stderr).toContain('does not exist')
+    expect(run.stderr).toContain('^[]52;c;AUDIT^G')
+    expect(run.stderr).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u)
+  })
+})
+
 describe('the bootstrap decision', () => {
   /**
    * The plan for one profile state.
@@ -941,16 +954,21 @@ describe('a profile recording a different release', () => {
 
 describe('the pnpm prerequisite', () => {
   /**
-   * A PATH that resolves no pnpm at all.
-   *
-   * Only the system folders: deliberately not the folder Node lives in, because some
-   * installs (nvm on Windows, for one) put a global `pnpm` beside `node`, and a PATH
-   * built from `process.execPath`'s directory would find it and prove nothing. Nothing
-   * is spawned in the cases that use this, so a PATH without node is still faithful.
-   * @returns the PATH value.
+   * Isolate the prerequisite, not assumptions about system installation paths.
+   * @param fix - scratch installation owning the executable directory.
+   * @returns a PATH containing only the PTY harness tools, never pnpm.
    */
-  function noPnpmPath(): string {
-    return (process.platform === 'win32' ? [systemFolder()] : ['/bin', '/usr/bin']).join(delimiter)
+  async function noPnpmPath(fix: Fixture): Promise<string> {
+    const bin = join(fix.root, 'without-pnpm')
+    await mkdir(bin, { recursive: true })
+    if (process.platform !== 'win32') {
+      for (const name of ['bash', 'script', 'cat']) {
+        const source = ['/bin', '/usr/bin', ...(process.env.PATH ?? '').split(delimiter)]
+          .map(directory => join(directory, name)).find(path => existsSync(path))
+        if (source !== undefined) await symlink(source, join(bin, name))
+      }
+    }
+    return bin
   }
 
   it('is checked before --setup can create anything', async () => {
@@ -958,7 +976,7 @@ describe('the pnpm prerequisite', () => {
     // did the machine say `'pnpm' is not recognized`. The profile was left half made
     // and the next launch hung on it. Nothing here may create anything at all.
     const fix = await fixture()
-    const run = await runWrapper(fix, ['--setup'], { env: { PATH: noPnpmPath() }, cwd: fix.root })
+    const run = await runWrapper(fix, ['--setup'], { env: { PATH: await noPnpmPath(fix) }, cwd: fix.root })
     expect(run.code).toBe(1)
     expect(run.stderr).toContain('pnpm is not available')
     expect(run.stderr).toContain('npm install -g pnpm')
@@ -975,7 +993,7 @@ describe('the pnpm prerequisite', () => {
     // answer is `dshline --setup`, which then meets the check above. Nothing is created
     // on either path, which is the property that matters.
     const fix = await fixture()
-    const run = await runWrapper(fix, [], { env: { PATH: noPnpmPath() }, cwd: fix.root })
+    const run = await runWrapper(fix, [], { env: { PATH: await noPnpmPath(fix) }, cwd: fix.root })
     expect(run.code).toBe(1)
     expect(run.stderr).toContain('is not set up')
     expect(run.calls).toEqual([])
@@ -985,7 +1003,7 @@ describe('the pnpm prerequisite', () => {
   terminalCase('is checked before the first-run question is even asked', async fix => {
     // Agreeing to a setup that cannot run is how the half-made profile happened, so
     // the check belongs before the question rather than after the answer.
-    const run = await runOnTerminal(fix, [], [], { env: { PATH: noPnpmPath() }, cwd: fix.root })
+    const run = await runOnTerminal(fix, [], [], { env: { PATH: await noPnpmPath(fix) }, cwd: fix.root })
     expect(run.code).toBe(1)
     expect(run.output).toContain('pnpm is not available')
     expect(run.output).not.toContain('Set it up now?')
@@ -1007,7 +1025,7 @@ describe('the pnpm prerequisite', () => {
       'utf8',
     )
     const run = await runWrapper(fix, ['--setup'], {
-      env: { DSH_BIN: undefined, DSH_HARNESS: checkout, PATH: noPnpmPath() },
+      env: { DSH_BIN: undefined, DSH_HARNESS: checkout, PATH: await noPnpmPath(fix) },
       cwd: fix.root,
     })
     expect(run.code).toBe(1)

@@ -50,8 +50,18 @@
 | 版本 PR 的 token 与只读任务 token 分离，且仅限 Contents 与 Pull requests 写入，以便在不把那些作用域授予任务的情况下触发必需的 PR 检查 | `.github/workflows/version.yml` 中的 `VERSION_TOKEN` |
 | 触发标签的 token 是独立的、细粒度且仅限 Contents，而不是宽泛的发布凭据 | `.github/workflows/version.yml` 中的 `RELEASE_TOKEN` |
 | 发布构建不恢复任何分支可能写入过的缓存 | `package-manager-cache: false` |
+| 在执行任何 tag 源码脚本之前，tag 源码必须已进入受保护的 main | 完整历史的受保护 main checkout 在 release checkout 之前运行 `tools/check-release-source.mjs` |
 | 与要发布的版本不一致的标签在创建前被拒绝，并在发布前再次校验 | `tools/check-release-tag.mjs` |
 | 只发布了一半的发布会直接失败，而不是事后才发现 | `tools/verify-published.mjs` |
+
+## 发布源码与 tag 权限
+
+发布器先使用从 main 检出的代码，检查 tag 与事件的身份及受保护 main 的祖先关系，
+之后才检出或执行 tag 对应的源码。这是纵深防御，不能替代 tag 创建策略：较早的
+源码树可能包含旧工作流。应把 `v*` tag 的创建权限限定给专用发布身份。创建者的
+绕过权限应与更新和删除限制分开，避免创建发布的权限同时允许重写发布。PAT 的
+secret 名称不是身份；修改规则前，应确认它实际代表的 actor。不要在尚未允许预期
+发布 actor 时启用创建限制。
 
 ## 校验你安装的内容
 
@@ -63,4 +73,4 @@ npm audit signatures
 
 npm 上每个版本页面都链接到对应的提交与工作流运行。没有该证明的版本不是由这套流水线发布的。
 
-已发布的包除彼此之外不声明任何运行时依赖，这是它们界面（攻击面）如此之小的最大原因：`@dshline/renderer` 完全没有运行时依赖，而 Harness 提供的一切都是宿主已具备的 peer（对等）依赖。
+`@dshline/renderer` 不声明运行时依赖。前端 bundle 除渲染器之外，还声明了运行时 Harness 服务、`@deepseek-ai/schemastery` 和 `yaml` 依赖；其他 Harness 能力由宿主通过 peer（对等）依赖提供。除了本工作区，还应审计完整的已安装 profile：依赖审计通过并不涵盖 Node 可执行文件或 profile 中的其他插件。请在受支持的 Node 版本线内使用已应用当前安全补丁的版本，并在更新后重启长时间运行的进程。

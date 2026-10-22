@@ -68,6 +68,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The guard must come from protected main, not from code in the tag
+          # it is deciding whether to trust. No tagged-tree code runs first.
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: the tagged source must already belong to protected main
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: node tools/check-release-source.mjs
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           ref: ${{ github.sha }}
           persist-credentials: false
 

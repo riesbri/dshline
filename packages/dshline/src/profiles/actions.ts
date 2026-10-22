@@ -145,8 +145,8 @@ export interface ProfileOperationSpec {
   readonly run?: (launcher: Launcher, args: readonly string[]) => Promise<ChildResult>
 }
 
-/** Userinfo or a token-ish query parameter inside a URL the child echoed back. */
-const OUTPUT_SECRET = /(?<scheme>[a-z+]+:\/\/)(?<userinfo>[^/\s@]*@)|(?<query>[?&](?:token|access_token|password|key)=)[^\s&]+/giu
+/** Bound failed scheme searches on long plain-text diagnostics as well as URLs. */
+const OUTPUT_URL = /\b[a-z][a-z\d+.-]{0,31}:\/\/[^\s<>]+/giu
 
 /**
  * One line of child output, safe to commit.
@@ -159,8 +159,11 @@ const OUTPUT_SECRET = /(?<scheme>[a-z+]+:\/\/)(?<userinfo>[^/\s@]*@)|(?<query>[?
  * @returns the line with any embedded credential replaced.
  */
 export function redactOutputLine(line: string): string {
-  return line.replace(OUTPUT_SECRET, (_match, scheme?: string, _userinfo?: string, query?: string) =>
-    scheme !== undefined ? `${scheme}<redacted>@` : `${query ?? ''}<redacted>`)
+  // Query/fragment names are not a credential vocabulary: signed downloads use
+  // vendor-specific names, and a new spelling must not silently leak a key.
+  return line.replace(OUTPUT_URL, url => url
+    .replace(/^([a-z][a-z\d+.-]*:\/\/)[^/?#]*@/iu, '$1<redacted>@')
+    .replace(/([?#]).*$/u, '$1<redacted>'))
 }
 
 /**
@@ -188,12 +191,14 @@ export function pluginCommand(profile: string, args: readonly string[]): string 
  */
 class OutputTail {
   private held = ''
+  private clipped = false
 
   /**
    * Add a chunk, dropping whatever no longer fits.
    * @param chunk - the text just read.
    */
   push(chunk: string): void {
+    if (this.held.length + chunk.length > OUTPUT_TAIL_BYTES) this.clipped = true
     this.held = this.held.length + chunk.length <= OUTPUT_TAIL_BYTES
       ? this.held + chunk
       : (this.held + chunk).slice(-OUTPUT_TAIL_BYTES)
@@ -201,7 +206,11 @@ class OutputTail {
 
   /** The retained text. */
   text(): string {
-    return this.held
+    // Dropping a URL prefix must not turn its remaining signed suffix into
+    // ordinary-looking text that the display redactor cannot recognise.
+    if (!this.clipped) return this.held
+    const firstCompleteLine = this.held.indexOf('\n')
+    return firstCompleteLine < 0 ? '' : this.held.slice(firstCompleteLine + 1)
   }
 }
 
