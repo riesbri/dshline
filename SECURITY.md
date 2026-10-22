@@ -50,8 +50,20 @@ Not a promise of safety, just what is actually wired up and where to look.
 | The version-PR token is separate from the read-only job token and limited to Contents and Pull requests write, so required PR checks are triggered without granting the job those scopes | `VERSION_TOKEN` in `.github/workflows/version.yml` |
 | The tag-triggering token is distinct and fine-grained Contents-only rather than the broad release credential | `RELEASE_TOKEN` in `.github/workflows/version.yml` |
 | A release build restores no cache any branch could have written | `package-manager-cache: false` |
+| Tagged source must already be in protected main before any tagged-tree script executes | a full-history protected-main checkout runs `tools/check-release-source.mjs` before the release checkout |
 | A tag that disagrees with the versions it would publish is refused before tag creation and rechecked before publishing | `tools/check-release-tag.mjs` |
 | A release that only half-landed fails rather than being discovered later | `tools/verify-published.mjs` |
+
+## Release source and tag authority
+
+The publisher checks tag/event identity and protected-main ancestry using code
+checked out from main, before checking out or executing the tagged tree. This is
+defense in depth, not a substitute for tag-creation policy: an older tagged tree
+may contain an older workflow. Restrict creation of `v*` tags to a dedicated release
+identity. Keep that creator bypass separate from the update/deletion restrictions,
+so permission to create a release does not also permit rewriting one. A PAT's
+secret name is not an identity; establish its actual actor before changing rules.
+Do not enable a creation restriction without allowing the intended release actor.
 
 ## Verifying what you installed
 
@@ -63,4 +75,4 @@ npm audit signatures
 
 npm's page for each version links the commit and the workflow run. A version without that attestation was not published by this pipeline.
 
-The published packages declare no runtime dependencies beyond each other, which is the largest single reason the surface is small: `@dshline/renderer` has none at all, and everything the harness provides is a peer the host already has.
+`@dshline/renderer` declares no runtime dependencies. The frontend bundle also declares runtime Harness services, `@deepseek-ai/schemastery`, and `yaml`, in addition to the renderer; other Harness capabilities are host-provided peers. Audit the complete installed profile as well as this workspace: a clean dependency audit does not cover the Node executable or a profile’s other plugins. Run a currently security-patched release within a supported Node line, and restart long-running processes after updating it.

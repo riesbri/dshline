@@ -32,6 +32,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { escapeControls } from '@dshline/renderer'
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -197,7 +198,7 @@ export function apply(ctx: Context, config?: Config): void {
       const message = error instanceof Error ? error.message : String(error)
       // Carriage return included: raw mode may already be on, where a bare
       // newline leaves the next line indented to the cursor column.
-      process.stderr.write(`dshline: ${message}\r\n`)
+      process.stderr.write(`dshline: ${escapeControls(message)}\r\n`)
       hostCtx.get('appExit')?.(1)
     })
   })

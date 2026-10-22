@@ -2,5 +2,5 @@
 # as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-docs --write docs/design.md
-design.md: b11e7e372ff1146197ad46e7a69dc17bf6221ad0
-design.zh.md: 0cca519153c482905e31db07ae654fc689120f99
+design.md: a0fa5fb398563edbd9d05a484a36df32cbccb948
+design.zh.md: a125e7bf555173c6b584cbd7f8255e38d6395ac3

@@ -139,6 +139,10 @@ const REPLAYED_COMMAND: SessionEvent[] = [
 
 /** What one assembled fixture exposes to a test. */
 interface Fixture {
+  readonly context: RealContext
+  readonly done: ReturnType<typeof attachSession>
+  readonly exit: () => void
+  readonly disposals: () => number
   /** The window's current input route. */
   dispatch: () => ((key: Key) => void) | undefined
   /** The fake Agent the attachment drives. */
@@ -244,6 +248,8 @@ async function fixture(options: {
   const commits: string[][] = []
   const frames: Array<{ lines: string[] }> = []
   let dispatch: ((key: Key) => void) | undefined
+  let exitHook: (() => void) | undefined
+  let disposals = 0
   const compose = (): void => { frames.push(ctx.tuiSlots.compose(80, 24)) }
   const window = {
     ctx,
@@ -274,9 +280,9 @@ async function fixture(options: {
     commit: lines => { commits.push([...lines]) },
     clear: () => {},
     refreshModelInfo: () => {},
-    requestExit: () => {},
+    requestExit: () => { exitHook?.() },
     setDispatch: handler => { dispatch = handler },
-    setExit: () => {},
+    setExit: handler => { exitHook = handler },
   } as unknown as Window
 
   const agent = {
@@ -289,14 +295,18 @@ async function fixture(options: {
   }
   const outcome = {
     target: { kind: 'resume', id: SessionId('resumed-session') },
-    attached: { handle: { agent, dispose: async () => {} }, reopened: true },
+    attached: { handle: { agent, dispose: async () => { disposals += 1 } }, reopened: true },
   } as unknown as AttachOutcome
 
-  // The replay is synchronous, so this runs the whole pre-input block — status
-  // paint, snapshot, projection, flood commit, ready paint — before returning.
-  void attachSession(window, outcome)
+  // Small histories settle before input; large histories return at the first
+  // cooperative yield so a test can drive the real attachment's race boundary.
+  const done = attachSession(window, outcome)
 
   return {
+    context: ctx,
+    done,
+    exit: () => { exitHook?.() },
+    disposals: () => disposals,
     dispatch: () => dispatch,
     agent: agent as unknown as Fixture['agent'],
     session,
@@ -372,6 +382,79 @@ function typeText(dispatch: ((key: Key) => void) | undefined, text: string): voi
 }
 
 describe('replaying a resumed transcript from its live Session', () => {
+  it('preserves draft edits, refuses early submission and orders live appends after history', async () => {
+    const events = Array.from({ length: 160 }, (_, seq) => ({
+      type: 'user/message', seq, time: seq, surfaceOp: 'append',
+      data: createUserMessage({ content: [{ type: 'text', text: `historical-${String(seq).padStart(3, '0')}` }], source: { kind: 'user' } }),
+    }) as SessionEvent)
+    const f = await fixture({ session: overEvents(events) })
+    expect(status(f.frames)).toContain('replaying')
+    typeText(f.dispatch(), 'draft-kept')
+    press(f.dispatch(), { kind: 'key', name: 'enter' })
+    expect(f.agent.followup).not.toHaveBeenCalled()
+    expect(latest(f.frames)).toContain('draft-kept')
+    const appended = {
+      type: 'user/message', seq: events.length, time: 200, surfaceOp: 'append',
+      data: createUserMessage({ content: [{ type: 'text', text: 'live-after-prefix' }], source: { kind: 'user' } }),
+    } as SessionEvent
+    events.push(appended)
+    f.context.emit('session/event', f.session as Session, appended)
+    await vi.waitFor(() => { expect(status(f.frames)).toContain('● ready') })
+    const transcript = stripAnsi(f.commits.flat().join('\n'))
+    for (let seq = 0; seq < 160; seq += 1) {
+      expect(transcript.split(`historical-${String(seq).padStart(3, '0')}`)).toHaveLength(2)
+    }
+    expect(transcript.indexOf('historical-159')).toBeLessThan(transcript.indexOf('live-after-prefix'))
+    expect(transcript.split('live-after-prefix')).toHaveLength(2)
+    press(f.dispatch(), { kind: 'key', name: 'enter' })
+    await flush()
+    expect(f.agent.followup).toHaveBeenCalledOnce()
+    typeText(f.dispatch(), '/new')
+    press(f.dispatch(), { kind: 'key', name: 'enter' })
+    await f.done
+  })
+
+  it('quits during a replay yield without stale commits, submissions or a second handle disposal', async () => {
+    const events = Array.from({ length: 500 }, (_, seq) => ({
+      type: 'turn/end', seq, time: seq, data: { reason: { kind: 'completed' } },
+    }) as SessionEvent)
+    const f = await fixture({ session: overEvents(events) })
+    const committed = f.commits.length
+    f.exit()
+    expect(await f.done).toBeUndefined()
+    await flush()
+    expect(f.commits).toHaveLength(committed)
+    expect(f.dispatch()).toBeUndefined()
+    expect(f.disposals()).toBe(1)
+    expect(f.agent.followup).not.toHaveBeenCalled()
+  })
+
+  it('does not show a mid-replay attempt suffix again when its assembled reply arrives', async () => {
+    const events = Array.from({ length: 160 }, (_, seq) => ({
+      type: 'turn/end', seq, time: seq, data: { reason: { kind: 'completed' } },
+    }) as SessionEvent)
+    const f = await fixture({ session: overEvents(events) })
+    const frame = (value: unknown): void => { f.context.emit('agent/assistant-stream', { agent: f.agent, frame: value } as never) }
+    frame({ type: 'start', attemptId: 'during-replay', revision: 1, turn: 1, step: 1 })
+    frame({ type: 'chunk', attemptId: 'during-replay', revision: 2, index: 0, time: 2, chunk: { type: 'text-delta', index: 0, text: 'complete ' } })
+    expect(latest(f.frames)).not.toContain('complete ')
+    await vi.waitFor(() => { expect(status(f.frames)).toContain('● ready') })
+    frame({ type: 'chunk', attemptId: 'during-replay', revision: 3, index: 1, time: 3, chunk: { type: 'text-delta', index: 0, text: 'answer\n' } })
+    const reply = {
+      type: 'assistant/message', seq: events.length, time: 4, surfaceOp: 'append',
+      data: { turn: 1, step: 1, message: { content: [{ type: 'text', text: 'complete answer' }] } },
+    } as SessionEvent
+    events.push(reply)
+    f.context.emit('session/event', f.session as Session, reply)
+    frame({ type: 'end', attemptId: 'during-replay', revision: 5, index: 2, outcome: { kind: 'completed' } })
+    const shown = stripAnsi(f.commits.flat().join('\n'))
+    expect(shown.split('complete answer')).toHaveLength(2)
+    expect(shown.split('answer')).toHaveLength(2)
+    typeText(f.dispatch(), '/new')
+    press(f.dispatch(), { kind: 'key', name: 'enter' })
+    await f.done
+  })
+
   it('replays the Session log with no sessionQuery service mounted', async () => {
     const { commits, frames, dispatch } = await fixture()
 
