@@ -9,10 +9,11 @@
  * The seams are recorders. A test that ends with `mutations` empty is the
  * whole point of several of these.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Model } from '@deepseek-ai/dsh-agent'
 import type { Key } from '@dshline/renderer'
 import { displayWidth, stripAnsi } from '@dshline/renderer'
 import { gatherSetupFacts, runSetup, setupNeeded } from '../src/setup/index.ts'
@@ -91,7 +92,7 @@ interface Harness {
   readonly credentialReads: string[]
   /** Every credential reference a write was attempted against, in call order. */
   readonly credentialWrites: string[]
-  readonly selection: ModelSelectionRef
+  readonly selection: Model
 }
 
 /**
@@ -201,7 +202,7 @@ function harness(environment: Environment): Harness {
     ctx,
     committed,
     mutations,
-    selection: { current: environment.selected, assembled: undefined },
+    selection: new WindowModel(environment.selected),
     press: async (...keys) => {
       for (const key of keys) stack.at(-1)?.handleKey(key)
       await settle()
@@ -360,7 +361,7 @@ describe('the report reads Harness once', () => {
     // a second SNAPSHOT, and the `Models` row and the reason beside it would
     // then describe two different moments.
     const h = harness(SETTLED_MISSING)
-    const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current)
+    const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current())
     expect(h.described).toBe(1)
     expect(h.credentialReads).toEqual(['OPENAI_API_KEY'])
     // And it reached the same verdict the narrow startup read reaches.
@@ -378,7 +379,7 @@ describe('the report reads Harness once', () => {
       diagnostics: { openai: 'broken override for another-model' },
       models: { openai: [{ id: 'usable', name: 'Usable' }] },
     })
-    const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current)
+    const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current())
     expect(facts.reason).toBeUndefined()
     if (facts.connect.kind !== 'ready') throw new Error('expected a ready Connect reading')
     expect(facts.connect.providers[0]?.error).toBe('broken override for another-model')
@@ -397,7 +398,7 @@ describe('the report reads Harness once', () => {
       {},
     ]) {
       const h = harness(environment)
-      const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current)
+      const facts = await gatherSetupFacts(h.ctx, '0.17.0', h.selection.current())
       expect(await setupNeeded(h.ctx, h.selection)).toBe(facts.reason !== undefined)
     }
   })
@@ -476,7 +477,7 @@ describe('the guided flow', () => {
     expect(h.text()).toContain('openai/gpt-x')
     await h.press(ENTER)
     await running
-    expect(h.selection.current).toEqual({ provider: 'openai', model: 'gpt-x' })
+    expect(h.selection.current()).toEqual({ provider: 'openai', model: 'gpt-x' })
     const transcript = h.committed.join('\n')
     expect(transcript).toContain('model set to openai / gpt-x')
     expect(transcript).toContain('Ready.')
@@ -499,7 +500,7 @@ describe('the guided flow', () => {
     // reader at a composer that still cannot send.
     expect(h.text()).toContain('Choose a model')
     expect(h.text()).toContain('Not now')
-    expect(h.selection.current).toBeUndefined()
+    expect(h.selection.current()).toBeUndefined()
     // `Choose a model`, `Not now`.
     await h.press(DOWN, ENTER)
     await running
@@ -549,7 +550,7 @@ describe('the guided flow', () => {
     expect(h.text()).toContain('Select a model')
     await h.press(ENTER)
     await running
-    expect(h.selection.current).toEqual({ provider: 'openai', model: 'gpt-x' })
+    expect(h.selection.current()).toEqual({ provider: 'openai', model: 'gpt-x' })
     expect(h.committed.join('\n')).toContain('Ready.')
   })
 
@@ -570,7 +571,7 @@ describe('the guided flow', () => {
     expect(transcript).toContain('Setup')
     expect(transcript).toContain('openai/gpt-x')
     expect(transcript).toContain('Ready.')
-    expect(h.selection.current).toEqual({ provider: 'openai', model: 'gpt-x' })
+    expect(h.selection.current()).toEqual({ provider: 'openai', model: 'gpt-x' })
     expect(h.mutations).toEqual([])
     await running
   })
@@ -686,11 +687,11 @@ describe('a retired attachment cannot drive the guided flow', () => {
   it('admits no selection when the attachment retires with the picker up', async () => {
     // The path the review found open: `/setup` → choose a model, then retire
     // while the roster is in flight. `pickModel` must refuse the selection
-    // outright rather than merely stop presenting it — `selection.current` and
+    // outright rather than merely stop presenting it — `selection.current()` and
     // the stored default are window state this epoch no longer owns.
     const controller = new AbortController()
     const h = harness({ configurable: ['openai'], models: { openai: [{ id: 'gpt-x', name: 'GPT X' }] } })
-    const before = h.selection.current
+    const before = h.selection.current()
     const running = run(h, () => {}, {
       mayAct: () => !controller.signal.aborted,
       signal: controller.signal,
@@ -708,7 +709,7 @@ describe('a retired attachment cannot drive the guided flow', () => {
     controller.abort()
     await settle()
     // Withdrawn, and nothing admitted: no selection written, no default saved.
-    expect(h.selection.current).toEqual(before)
+    expect(h.selection.current()).toEqual(before)
     expect(h.mutations).toEqual([])
     await running
   })
@@ -744,7 +745,7 @@ describe('a retired attachment cannot drive the guided flow', () => {
     release()
     await settle()
     expect(h.mounted()).toBe(false)
-    expect(h.selection.current).toBeUndefined()
+    expect(h.selection.current()).toBeUndefined()
     await running
   })
 

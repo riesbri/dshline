@@ -574,6 +574,8 @@ agent 的预设实际组合的那些行，并通过与官方 Web 界面所做变
 header 与其后每一次选择折叠在一起；dshline 不从原始日志重建任何东西，因此恢复路径与
 `/plugins` 不可能对一个会话实际运行什么产生分歧。
 
+模型选择也由 Session 拥有：`/model` 和 `/reasoning` 通过窗口绑定的原生模型视图调用 `agent.model.select()`。Harness 将完整选择记录到 `model/selection`，并在恢复会话时还原；窗口默认值只用于初始化新 Agent。已准备的步骤保留 Harness 捕获的固定路由，而不使用前端拥有的组装引用。预设与回合事实来自 `agentPresets.presetForSession()` 和 `agents.turnBoundaryOf()`，即拥有这些投影的服务所保留的句柄，而不是已弃用的注册表按键状态读取。
+
 **提供某个动作与授权某个动作是两件事。**切换一个会话的预设是 Harness 的完整操作——
 `ctx.agentPresets.select()` 按会话串行化各次选择，在该队列内部重新读取权威的 `turnBoundary`
 投影，拒绝已开始的会话，重新组合，并且只有在重新组合已提交之后才记录这次切换。`/plugins`
@@ -664,7 +666,7 @@ seam 能重新链接一个已组合 Host 的 bundle 层，而发明一个正是�
 
 所以 `src/setup/` 在已组合的 Host 内运行，而 `dshline --setup` 保留它既有的含义（把这个包安装进 profile）。该流程在第一次附着之前自动打开；`/setup` 则随时按需打开它。
 
-**触发条件问的是这次启动能不能发送一个回合，而不是有没有路由存在。**只看路由注册是错的问题：一条已注册的路由只是 `/model` 从中提供选项的来源，而输入框打开时用的是 `selection.current` 解析出来的东西。因此 `setupReason` 读取窗口已经持有的两样东西——`ctx.llm.listProviders()` 与 `/model` 写入的那个 selection ref——并给出三种状态之一：什么都没注册、什么都没选中，或者选中的东西所指的路由没有被任何适配器注册（一个其提供方已离开该 profile 的、被记住的默认值）。
+**触发条件问的是这次启动能不能发送一个回合，而不是有没有路由存在。**只看路由注册是错的问题：一条已注册的路由只是 `/model` 从中提供选项的来源，而输入框打开时用的是 `selection.current()` 解析出来的东西。因此 `setupReason` 读取窗口已经持有的两样东西——`ctx.llm.listProviders()` 与 `/model` 通过其选择的原生模型视图——并给出三种状态之一：什么都没注册、什么都没选中，或者选中的东西所指的路由没有被任何适配器注册（一个其提供方已离开该 profile 的、被记住的默认值）。
 
 只看拓扑仍然会说一次全新安装是健康的，而它不是：`dsh-base` 组合了一个默认选择（`deepseek-official/deepseek-flash`），而 `llm-deepseek` 无条件调用 `registerAdapter`，因此三项检查全部通过，而第一个请求会以 `MISSING_CREDENTIAL` 失败。所以当拓扑看起来完整时，还会再问一个问题——问 Connect，而不是问第二套算法。`readinessOf` 从 `providerReadiness` 中被提取出来，而 `readRouteReadiness` 只读一条路由：目录条目、该命名空间的 descriptor，以及一次 `credentials.describe()`。只有肯定的 `missing` 才会打开 setup；`ready` 与两种 `unknown`（路由没有命名引用、存储无法回答）都放过这次启动，因为不确定不是失败。
 

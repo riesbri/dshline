@@ -78,7 +78,7 @@ export interface StatusState {
    */
   attention: AttentionNotice | undefined
   /**
-   * The route-qualified identity of the live selection — `selection.current`,
+   * The route-qualified identity of the live selection — `selection.current()`,
    * the same mutable ref `/model` writes, and the model selected for subsequent
    * model work. It is deliberately only the selected configuration: the route a
    * model step in progress has privately captured is Harness execution state

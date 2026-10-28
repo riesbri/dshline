@@ -15,6 +15,7 @@
  * not that dshline now tolerates it — it must NOT — but that a known-incompatible
  * Host never reaches the code that would call it.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -22,7 +23,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Model } from '@deepseek-ai/dsh-agent'
 import { stripAnsi } from '@dshline/renderer'
 import { permissionPicker } from '../src/permission.ts'
 import { adoptedGeneration, readHarnessGeneration, runSetup } from '../src/setup/index.ts'
@@ -72,7 +73,7 @@ interface HostOptions {
 /** A Host under test, and the observations the assertions read. */
 interface Host {
   readonly ctx: Context
-  readonly selection: ModelSelectionRef
+  readonly selection: Model
   readonly spec: SetupSpec
   readonly committed: string[]
   readonly overlays: string[]
@@ -131,10 +132,7 @@ async function host(options: HostOptions): Promise<Host> {
     },
     on: () => (): void => {},
   } as unknown as Context
-  const selection: ModelSelectionRef = {
-    current: options.selected,
-    assembled: undefined,
-  }
+  const selection: Model = new WindowModel(options.selected)
   return {
     ctx,
     selection,

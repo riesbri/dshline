@@ -156,7 +156,7 @@ with both values before it spends anything on a build.
 commit against one exact target:
 
 - **Core** — dshline's own correctness: build, typecheck, and the full suite
-  on Node 22.19, 24, and 26, against the adopted generation's published
+  on Node 24.9, 24, and 26, against the adopted generation's published
   packages. Blocking. `Windows launcher` and `Docs` sit beside it.
 - **Harness target** — the adopted upstream revision, checked out from source
   at the exact commit `HARNESS_TARGET` names, built, and linked with
@@ -276,7 +276,7 @@ Commit messages here are long and explanatory, and that convention is worth keep
 - Credit review findings when a reviewer found the problem.
 - If an AI agent co-authored the change, end with its `Co-Authored-By` line.
 
-Every check must pass before a merge: build, type-check, and the full test suite on Node 22.19, 24, and 26 (Core); the Harness target lane against the adopted upstream revision; the Harness published consumer path; dependency advisories, dependency review, a secret scan, the workflow check, and CodeQL. Scorecard grades the repository's own supply-chain posture; it does not run on a pull request and does not block a merge. `harness-sync` proposes the next adopted Harness generation on its own schedule and blocks nothing — the pull request it opens is what gets checked.
+Every check must pass before a merge: build, type-check, and the full test suite on Node 24.9, 24, and 26 (Core); the Harness target lane against the adopted upstream revision; the Harness published consumer path; dependency advisories, dependency review, a secret scan, the workflow check, and CodeQL. Scorecard grades the repository's own supply-chain posture; it does not run on a pull request and does not block a merge. `harness-sync` proposes the next adopted Harness generation on its own schedule and blocks nothing — the pull request it opens is what gets checked.
 
 ## Releases
 

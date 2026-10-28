@@ -24,13 +24,15 @@ packages:
 #
 # Remove this once an ordinary update resolves 1.2.2 on its own.
 
-# Harness 0.2.1-alpha.2 fs-local still requests chokidar 4.0.3, whose release
-# lacks the provenance carried by earlier 4.x releases and fails no-downgrade.
-# Use the attested 5.0.0 only on that edge; its ESM/Node 20.19 floor fits this
-# ESM-only workspace's Node 22.19 floor. Keep the policy and all other edges.
-# Revisit this pin on the next Harness adoption; verify fs watch/close semantics.
+# Patched transitive releases for the adopted graph's audited advisories.
+# Keep exact patched floors here until upstream's ordinary resolution supplies
+# them; trust and minimum-release-age admission remain unchanged.
 overrides:
-  '@deepseek-ai/dsh-fs-local>chokidar': '5.0.0'
+  'vite': '7.3.7'
+  'launch-editor': '2.14.2'
+  'zod': '4.6.6'
+  'undici': '8.12.2'
+  'fast-uri': '3.1.9'
   'source-map-js': '1.2.2'
 
 # esbuild arrives transitively through vitest and links a platform binary from a
@@ -75,8 +77,8 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   # `@types/node@22` pins `undici-types@~6.21.0`, which predates undici's move to
   # provenance; 7.16.0 and later carry attestations, but only `@types/node@24`
-  # and later depend on that line, and this package's floor is Node 22 — typing
-  # against a newer Node would let a call compile that the floor cannot run.
+  # and later depend on that line. Transitive declaration packages still use
+  # the older Node 22 typings even though Harness now requires Node 24.9.
   # It is also a declaration-only devDependency: it ships no JavaScript, so it
   # cannot execute anything, and it never reaches a published tarball.
   - undici-types

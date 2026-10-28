@@ -9,7 +9,7 @@
 
 ## 环境要求
 
-- **Node.js** `^22.19 || >=24`。
+- **Node.js** `>=24.9.0`。
 - **一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 安装。**`npm install -g @deepseek-ai/dsh` 就够了。Harness 源码检出同样可以——见[开发与源码检出](#开发与源码检出)。
 - **PATH 上有 pnpm。**Harness 用 pnpm 安装配置文件的插件，所以没有它，配置流程根本无法开始。可以 `npm install -g pnpm`，或者在你的 Harness 检出已经声明了自己的 pnpm 时用 `corepack enable pnpm`。`dshline` 会在改动任何东西**之前**检查，并在缺失时告诉你，而不是先创建一个配置文件再停下。
 - **真实终端。**本界面在输入和输出两端都需要终端。如果任一端被重定向，它会报错退出，而不是空屏等待。脚本化运行请改用 `--profile headless`。

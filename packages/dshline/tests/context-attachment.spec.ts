@@ -18,6 +18,7 @@
  * - bare `/usage` inspects while `/usage cost` still changes the preference
  *   without opening anything.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
@@ -133,7 +134,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: { provider: 'deepseek-official', model: 'deepseek-v4-pro' } },
+    selection: new WindowModel({ provider: 'deepseek-official', model: 'deepseek-v4-pro' }),
     modelInfo: { contextWindow: 1_000_000, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact' },

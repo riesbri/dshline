@@ -19,6 +19,7 @@
  * registry, and the skill adjudication, and only the assembled seam covers that
  * whole route.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
@@ -59,7 +60,7 @@ async function fixture(options: { busyEnter?: BusyEnter } = {}) {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: undefined, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: {

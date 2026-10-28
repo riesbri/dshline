@@ -10,6 +10,7 @@
  * is the generic seam, never a provider-specific integration.
  * @module
  */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
@@ -36,7 +37,7 @@ function probeParent(ctx: Context): Agent {
   const session = ctx.sessions.create(SessionId('capability-probe-parent'), { meta: { cwd: '/tmp' } })
   const inbox = createInboxStub()
   return {
-    id: session.id, session, ctx, options: {}, status: 'idle', inbox,
+    id: session.id, session, ctx, options: {}, status: 'idle', inbox, model: { current: () => undefined, select: () => {} },
     send: (message, target) => { inbox.append(target, message) },
     followup: message => { inbox.append('next-turn', message) },
     steer: message => { inbox.append('next-step', message) },
@@ -52,7 +53,7 @@ function createProbeProvider(): { readonly provider: SubagentProvider, settle: (
   let settle: ((result: SubagentResult) => void) | undefined
   const provider: SubagentProvider = {
     name: PROBE_PROVIDER_NAME,
-    capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+    capabilities: { agentPreset: false, agentOptions: false, outputSchema: false, depthLimit: false },
     inheritsParentContext: false,
     start: async request => {
       void request
@@ -79,7 +80,8 @@ describe('capability: subagents', () => {
     const ctx = new Context()
     try {
       await ctx.plugin(SessionStore)
-      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
       await ctx.plugin(ProbeWorkingDirectory)
       await ctx.plugin(SubagentRuntime)
       // The human prompt operation is a public instance method on the same

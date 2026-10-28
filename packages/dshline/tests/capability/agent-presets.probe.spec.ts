@@ -36,6 +36,7 @@
  * assignment above, and their behavior is upstream's own test territory.
  * @module
  */
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 
 import { pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -69,6 +70,7 @@ async function mounted(): Promise<{ ctx: Context }> {
   // A bare test context supplies the base URL a composition resolves its
   // package names against; upstream normally supplies the profile's own.
   ctx.baseUrl = `${pathToFileURL(tmpdir()).href}/`
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentPresetRegistry, { default: 'shipped' })
   await ctx.plugin(AgentPreset, { id: 'shipped', name: 'shipped', plugins: [] })
   return { ctx }

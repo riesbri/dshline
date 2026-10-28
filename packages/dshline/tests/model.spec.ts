@@ -1,8 +1,9 @@
+import { WindowModel } from '../src/window-model.ts'
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { stripAnsi } from '@dshline/renderer'
 import type { TuiOverlay } from '../src/slots.ts'
-import type { ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { ModelSelection, Model } from '@deepseek-ai/dsh-agent'
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import type { ModelOption } from '../src/model.ts'
 import { modelCompletionValues, pickModel, resolveModel } from '../src/model.ts'
@@ -130,15 +131,12 @@ async function settled(): Promise<void> {
  * @param effort - the reasoning effort it starts on, if any.
  * @returns the ref.
  */
-function selectionOn(effort?: string): ModelSelectionRef {
-  return {
-    current: {
+function selectionOn(effort?: string): Model {
+  return new WindowModel({
       provider: 'deepseek-official',
       model: 'deepseek-v4-flash',
       ...effort === undefined ? {} : { reasoningEffort: effort },
-    },
-    assembled: undefined,
-  } as unknown as ModelSelectionRef
+    })
 }
 
 describe('resolveModel()', () => {
@@ -257,7 +255,7 @@ describe('provider catalog reads', () => {
       kind: 'failed',
       message: 'no provider route advertises a model; configure one first',
     })
-    expect(selection.current?.model).toBe('deepseek-v4-flash')
+    expect(selection.current()?.model).toBe('deepseek-v4-flash')
   })
 })
 
@@ -301,18 +299,15 @@ describe('what the picker offers', () => {
     // model id with a direct route, so a first-row fallback would switch the
     // route out from under the user on a bare Enter.
     const { ctx, overlay, saved } = llmContext()
-    const selection = {
-      current: { provider: 'opencode', model: 'deepseek-v4-pro' },
-      assembled: undefined,
-    } as unknown as ModelSelectionRef
+    const selection = new WindowModel({ provider: 'opencode', model: 'deepseek-v4-pro' })
     const running = pickModel(ctx, selection, '')
     await vi.waitFor(() => { expect(overlay()).toBeDefined() })
     expect(stripAnsi(overlay()?.render(80, 24).join('\n') ?? ''))
       .toContain('❯ opencode/deepseek-v4-pro')
     overlay()?.handleKey({ kind: 'key', name: 'enter' })
     await running
-    expect(selection.current?.provider).toBe('opencode')
-    expect(selection.current?.model).toBe('deepseek-v4-pro')
+    expect(selection.current()?.provider).toBe('opencode')
+    expect(selection.current()?.model).toBe('deepseek-v4-pro')
     expect(saved).toEqual([{ provider: 'opencode', model: 'deepseek-v4-pro' }])
   })
 })
@@ -354,7 +349,7 @@ describe('pickModel() with an argument', () => {
     const outcome = await pickModel(ctx, selection, ' deepseek-v4-pro ')
     expect(outcome).toMatchObject({ kind: 'done' })
     expect(outcome?.message).toContain('deepseek-v4-pro')
-    expect(selection.current?.model).toBe('deepseek-v4-pro')
+    expect(selection.current()?.model).toBe('deepseek-v4-pro')
     expect(pushed()).toBe(false)
   })
 
@@ -365,7 +360,7 @@ describe('pickModel() with an argument', () => {
     const { ctx } = llmContext({ 'deepseek-official/deepseek-v4-pro': ['high', 'max'] })
     const selection = selectionOn('max')
     await pickModel(ctx, selection, 'deepseek-v4-pro')
-    expect(selection.current?.reasoningEffort).toBe('max')
+    expect(selection.current()?.reasoningEffort).toBe('max')
   })
 
   it('stores the switch as the default every surface reads', async () => {
@@ -389,7 +384,7 @@ describe('pickModel() with an argument', () => {
     const selection = selectionOn()
     const outcome = await pickModel(ctx, selection, 'deepseek-v4-flash')
     expect(outcome).toMatchObject({ kind: 'done' })
-    expect(selection.current?.model).toBe('deepseek-v4-flash')
+    expect(selection.current()?.model).toBe('deepseek-v4-flash')
   })
 
   it('stays done when the switch landed but the default could not be saved', async () => {
@@ -400,7 +395,7 @@ describe('pickModel() with an argument', () => {
     const { ctx, saved } = llmContext({}, { saveSelectionError: failure })
     const selection = selectionOn()
     const outcome = await pickModel(ctx, selection, 'deepseek-v4-pro')
-    expect(selection.current).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    expect(selection.current()).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
     expect(saved).toEqual([])
     expect(outcome).toMatchObject({ kind: 'done' })
     expect(outcome?.message).toContain('model set to deepseek-official / deepseek-v4-pro')
@@ -421,7 +416,7 @@ describe('pickModel() with an argument', () => {
     expect(outcome).toMatchObject({ kind: 'failed' })
     expect(outcome?.message).toContain('no model named gpt-9')
     expect(outcome?.message).toContain('3')
-    expect(selection.current?.model).toBe('deepseek-v4-flash')
+    expect(selection.current()?.model).toBe('deepseek-v4-flash')
     expect(pushed()).toBe(false)
   })
 
@@ -441,7 +436,7 @@ describe('reasoning effort across a model switch', () => {
     const { ctx, saved } = llmContext({ 'deepseek-official/deepseek-v4-pro': ['off', 'high'] })
     const selection = selectionOn('max')
     const outcome = await pickModel(ctx, selection, 'deepseek-v4-pro')
-    expect(selection.current?.reasoningEffort).toBeUndefined()
+    expect(selection.current()?.reasoningEffort).toBeUndefined()
     expect(saved).toEqual([{ provider: 'deepseek-official', model: 'deepseek-v4-pro' }])
     expect(outcome?.message).toContain('reasoning reset to provider default')
   })
@@ -455,7 +450,7 @@ describe('reasoning effort across a model switch', () => {
     const { ctx, saved } = llmContext()
     const selection = selectionOn('high')
     await pickModel(ctx, selection, 'deepseek-v4-pro')
-    expect(selection.current?.reasoningEffort).toBeUndefined()
+    expect(selection.current()?.reasoningEffort).toBeUndefined()
     expect(saved).toEqual([{ provider: 'deepseek-official', model: 'deepseek-v4-pro' }])
   })
 
@@ -466,7 +461,7 @@ describe('reasoning effort across a model switch', () => {
     const { ctx, saved } = llmContext({ 'deepseek-official/deepseek-v4-pro': 'fail' })
     const selection = selectionOn('max')
     await pickModel(ctx, selection, 'deepseek-v4-pro')
-    expect(selection.current?.reasoningEffort).toBe('max')
+    expect(selection.current()?.reasoningEffort).toBe('max')
     expect(saved).toEqual([{ provider: 'deepseek-official', model: 'deepseek-v4-pro', reasoningEffort: 'max' }])
   })
 })

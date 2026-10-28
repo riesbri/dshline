@@ -16,6 +16,7 @@
  *
  * @module
  */
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -80,6 +81,7 @@ async function activated(preset: PresetDefinition): Promise<Context> {
   await ctx.plugin(SessionProjectionRegistry)
   ctx.provide('loader', {} as never)
   ctx.baseUrl = `${pathToFileURL(tmpdir()).href}/`
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentPresetRegistry, { default: preset.id })
   await ctx.plugin(AgentPreset, preset as never)
   return ctx

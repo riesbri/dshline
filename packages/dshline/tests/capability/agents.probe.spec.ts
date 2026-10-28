@@ -20,6 +20,7 @@
  * policy, or lifecycle behavior. Those are owned by the installed provider.
  * @module
  */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, {
@@ -66,6 +67,7 @@ async function localHandle(ctx: Context, id: SessionId, source: SessionStartSour
 /** Mount the real registry without an agent loop or persistence plugin. */
 async function mounted(): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   return ctx
 }

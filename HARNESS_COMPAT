@@ -38,12 +38,12 @@
 # behavior, the reasoning, and the removal condition are written down. This
 # file holds no second copy of them.
 
-# Reconfirmed against 0.2.1-alpha.2 at d743267388641bc76f17c45ce8b4c231aed1d32c.
+# Reconfirmed against 0.2.2-alpha.2 at f3803c96974ad4a94195fb97e5c637e9c2a3afe3.
 # subagent-codex/src/run.ts:261 still forwards child stderr with
 # writeFileSync(process.stderr.fd, bytes), not a Host-owned diagnostic sink.
-shim packages/dshline/src/stderr.ts 0.2.1-alpha.2
+shim packages/dshline/src/stderr.ts 0.2.2-alpha.2
 
 # At the same revision, subprocess-local/src/output.ts:261-271 independently
 # decodes retained byte slices; bash-local/src/index.ts:343-346 advances its
 # cursor through incomplete UTF-8. Both behaviors remain, so retain the adapter.
-shim packages/dshline/src/shell-output.ts 0.2.1-alpha.2
+shim packages/dshline/src/shell-output.ts 0.2.2-alpha.2

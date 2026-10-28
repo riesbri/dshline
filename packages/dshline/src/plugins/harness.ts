@@ -39,25 +39,16 @@
  * with `plugin_manager`, which is Harness's operation and not a frontend's.
  * And there is no `copy`, because the registry "writes no declarations".
  *
- * The type-only imports below are a different thing from a runtime
- * dependency, and are the Harness-native way to reach a projection key: they
- * carry nothing but the `declare module` augmentations that put `agentPreset`
- * in `SessionProjectionStateMap`/`SessionProjectionMap` and `turnBoundary` in
- * `SessionProjectionStateMap`, so {@link sessionFacts} can name them without
- * the optional packages being installed, let alone mounted. Nothing here
- * imports a value from either.
+ * Type-only imports expose the owning services without requiring optional
+ * packages to be mounted. Session facts come from those services' retained
+ * projection handles, never the deprecated registry-level keyed reads.
  * @module dshline/plugins/harness
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
-// The `turnBoundary` projection key, which `dsh-agent` declares and
-// `dsh-agent-loop` registers.
 import type {} from '@deepseek-ai/dsh-agent'
-// The `agentPreset` projection key, which `dsh-agent-preset-registry`
-// declares and registers. `/types` is its client-safe, path-free module: no
-// service, no filesystem, nothing but the declarations.
-import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 
 /**
  * The Harness Agent surface `/plugins` reads, and hands back to the Harness
@@ -96,36 +87,19 @@ export interface PluginsSessionFacts {
 }
 
 /**
- * Read one Session's preset and turn facts through `ctx.sessionProjections`.
+ * Read Session facts from their owning Harness services.
  *
- * `agentPreset` folds the creation header and every later
- * `agent-preset/selected` into the preset the Session actually runs; upstream
- * states outright that reconstruction reads the projection, never the header
- * alone. `turnBoundary` is the same fact `AgentPresets.select` re-checks
- * inside its own serialized switch, tested the same way — an open turn, or any
- * turn at all — so what this frontend OFFERS and what Harness ACCEPTS cannot
- * drift apart.
- *
- * Every absence answers the same way a mounted-but-empty projection would.
- * The registry is optional, but so is the preset roster, and a deployment
- * mounting `agentPresets` necessarily mounts `ctx.sessionProjections` too —
- * the roster registers its projection against it unconditionally at
- * construction. So "no registry" and "no roster" are one case, and `/plugins`
- * already reports that case as unavailable.
- * @param ctx - a context that may carry the projection registry.
- * @param session - the session to read, or undefined before one exists.
- * @returns the facts, defaulted to "nothing recorded, nothing started".
+ * The owners retain ready projection handles throughout their lifecycle. A
+ * registry-level keyed read is deprecated and loses both the state type and
+ * that ownership guarantee. Optional owners still default to no recorded fact.
+ * @param ctx - context that may carry the owning services.
+ * @param session - exact Session to read, or undefined before attachment.
+ * @returns the recorded preset and whether any turn has started.
  */
 export function sessionFacts(ctx: Context, session: Session | undefined): PluginsSessionFacts {
-  const projections = ctx.get('sessionProjections')
-  if (projections === undefined || session === undefined) {
-    return { presetId: undefined, started: false }
-  }
-  const boundary = projections.stateOf(session, 'turnBoundary')
-  // `agentPreset` is `string | null` in the adopted generation, and null is the
-  // registered unit's own answer for "this deployment composes none" — not a
-  // missing row. Both collapse to the same dshline fact, an unknown preset.
-  const preset = projections.stateOf(session, 'agentPreset')
+  if (session === undefined) return { presetId: undefined, started: false }
+  const boundary = ctx.get('agents')?.turnBoundaryOf(session)
+  const preset = ctx.get('agentPresets')?.presetForSession(session)
   return {
     presetId: preset ?? undefined,
     started: boundary !== undefined && (boundary.openTurnStartSeq !== null || boundary.lastTurn > 0),

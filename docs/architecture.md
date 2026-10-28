@@ -1310,6 +1310,15 @@ header with every later selection; dshline reconstructs nothing from the raw
 log, so the resume path and `/plugins` cannot disagree about what a session
 runs.
 
+Model choices are Session-owned too: `/model` and `/reasoning` call
+`agent.model.select()` through the window's bound native model view. Harness
+records the complete choice in `model/selection` and restores it on resume;
+window defaults only seed a fresh Agent. An already-prepared step keeps the
+fixed route Harness captured, not a frontend-owned assembly ref. Preset and
+turn facts come from `agentPresets.presetForSession()` and
+`agents.turnBoundaryOf()`, the owning services' retained projection handles,
+rather than deprecated registry-level keyed state reads.
+
 **Offering an action and authorizing it are different jobs.** Switching a
 session's preset is Harness's whole operation — `ctx.agentPresets.select()`
 serializes selections per session, re-reads the authoritative `turnBoundary`
@@ -1494,8 +1503,8 @@ automatically before the first attachment, and `/setup` opens it on demand.
 **The trigger asks whether this launch could send a turn, not whether a route
 exists.** Route registration alone is the wrong question: a registered route is
 only what `/model` offers FROM, and the composer opens on whatever
-`selection.current` resolved to. So `setupReason` reads two things the window
-already holds — `ctx.llm.listProviders()` and the selection ref `/model` writes
+`selection.current()` resolved to. So `setupReason` reads two things the window
+already holds — `ctx.llm.listProviders()` and the native model view `/model` selects through
 — and names one of three states: nothing registered, nothing selected, or a
 selection whose route no adapter registered (a remembered default whose
 provider has left the profile).

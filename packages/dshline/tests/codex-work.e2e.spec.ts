@@ -1,4 +1,5 @@
 /** Opt-in real-product proof that generic Work observes a Codex delegation. */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -98,7 +99,8 @@ describe.skipIf(!runRealCodex)('real Codex through generic Harness Work', () => 
     let activeAtStart: WorkSnapshot | undefined
     try {
       await ctx.plugin(SessionStore)
-      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
       await ctx.plugin(AcceptanceWorkingDirectory)
       await ctx.plugin(SubagentRuntime)
       await ctx.plugin(LocalSubprocessRuntime)

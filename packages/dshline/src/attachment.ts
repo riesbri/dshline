@@ -1167,7 +1167,7 @@ async function runSessionEpoch(
         // once post-picker and pre-new-route while `/model` can run against an
         // in-flight turn, and an informational note is not worth that race, so
         // the note depends on the real provider/model move alone.
-        const before = selection.current
+        const before = selection.current()
         // The editor's module graph belongs to the BARE picker only: a named
         // route must not load it, and it is loaded BEFORE the picker opens so
         // `ctrl-k` can push the editor synchronously. Loading it inside the
@@ -1248,9 +1248,9 @@ async function runSessionEpoch(
         // route is a successful operation but not a state transition, and a
         // refusal never reaches here. A default-persistence failure still earns
         // the notice, because the route really did change for this session.
-        attention.show(modelRouteAttention(before, selection.current))
+        attention.show(modelRouteAttention(before, selection.current()))
         const lines = [selectionOutcomeLine(outcome)]
-        const note = cacheTransitionNote(before, selection.current)
+        const note = cacheTransitionNote(before, selection.current())
         if (note !== undefined) lines.push(paint(`· ${note}`, 'muted'))
         commit(lines)
         draw()
@@ -1305,7 +1305,7 @@ async function runSessionEpoch(
       execute: async rawInput => {
         // The levels are a short fixed set a person learns by heart, so
         // `/reasoning max` should not cost a picker.
-        const before = selection.current?.reasoningEffort
+        const before = selection.current()?.reasoningEffort
         let outcome: SelectionOutcome | undefined
         try {
           outcome = await pickReasoning(ctx, selection, w.modelInfo.reasoning, rawInput, {
@@ -1324,7 +1324,7 @@ async function runSessionEpoch(
         // reselected level, or clearing an already-absent one, quiet while
         // either real transition speaks.
         if (outcome?.kind === 'done') {
-          attention.show(reasoningAttention(before, selection.current?.reasoningEffort))
+          attention.show(reasoningAttention(before, selection.current()?.reasoningEffort))
         }
         draw()
       },
@@ -1463,7 +1463,7 @@ async function runSessionEpoch(
         // against the last route seen here decides whether it was a transition.
         // `seen` advances on every acknowledgement so two successful picks in
         // one pass each compare against their real predecessor.
-        let seen = selection.current
+        let seen = selection.current()
         await runSetup({
           ctx,
           commit,
@@ -1480,8 +1480,8 @@ async function runSessionEpoch(
           signal: attachmentAbort.signal,
           onModelChanged: () => {
             w.refreshModelInfo()
-            attention.show(modelRouteAttention(seen, selection.current))
-            seen = selection.current
+            attention.show(modelRouteAttention(seen, selection.current()))
+            seen = selection.current()
           },
         })
         if (attachmentMayAct()) draw()
@@ -1814,7 +1814,7 @@ async function runSessionEpoch(
    *
    * `get()` is the whole read because alpha.5 publishes no activation-only
    * accessor; it resolves its own durable half through
-   * `sessionProjections.stateOf(session, 'goal')` before combining it with the
+   * `goal` projection through its retained handle before combining it with the
    * process-local runtime state. That inner read is the service's, not a second
    * dshline snapshot, and `.activation` is the only field taken from what it
    * returns.
@@ -1840,7 +1840,7 @@ async function runSessionEpoch(
     // naming the five fields below leaves the rest unviewed. Same registry, same
     // cut, same `asOfSeq` — see `./projections/status-keys.ts`.
     const projected = projections.snapshot(STATUS_PROJECTION_KEYS)
-    const selected = selection.current
+    const selected = selection.current()
     return {
       busy: agent.status === 'running',
       tick,
@@ -1987,7 +1987,7 @@ async function runSessionEpoch(
       // agree, which matters more here than a total nothing on screen accounts for.
       const reported = event.data.usage
       if (reported !== undefined) {
-        const route = requestRoute ?? selection.current
+        const route = requestRoute ?? selection.current()
         // Priced by the event's OWN timestamp, not by the clock now. Peak and
         // off-peak rates differ by half, so a replayed session priced at the
         // moment it was reopened would bill a night's work at the morning rate.
@@ -2223,7 +2223,7 @@ async function runSessionEpoch(
         && !w.modelInfo.inputModalities.includes('image')
       ) {
         if (composer.isEmpty) composer.set(line)
-        commit([paint(escapeControls(`✗ model ${selection.current?.model ?? 'selected'} does not support image input; nothing was sent`), 'error')])
+        commit([paint(escapeControls(`✗ model ${selection.current()?.model ?? 'selected'} does not support image input; nothing was sent`), 'error')])
         draw()
         return
       }
@@ -2983,9 +2983,10 @@ async function runSessionEpoch(
   w.setDispatch(onKey)
   scope.own(() => { w.setDispatch(undefined) })
 
-  const model = selection.current === undefined
+  const selectedModel = selection.current()
+  const model = selectedModel === undefined
     ? undefined
-    : `${selection.current.provider} / ${selection.current.model}`
+    : `${selectedModel.provider} / ${selectedModel.model}`
   // A `/clear` wipe is the fresh session's first paint, not the old one's
   // last: it happens only now, when create has already succeeded (which is
   // why this attachment exists), so a failed or resumed transition leaves

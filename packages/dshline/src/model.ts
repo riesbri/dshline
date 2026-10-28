@@ -10,7 +10,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Model } from '@deepseek-ai/dsh-agent'
 import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LocalCommandChoice } from './local-commands.ts'
 import { readModelCatalog } from './model-catalog.ts'
@@ -178,7 +178,7 @@ function pricingKeyOf(option: ModelOption): string {
  *   or no longer offered.
  */
 function currentModelChoiceValue(
-  current: ModelSelectionRef['current'],
+  current: ReturnType<Model['current']>,
   options: readonly ModelOption[],
 ): string | undefined {
   const index = current === undefined
@@ -287,7 +287,7 @@ async function promptModelPicker(
 /**
  * Prompt for a model and apply the choice to `selection`.
  * @param ctx - context carrying the llm registry and the slot registry.
- * @param selection - the agent's mutable selection ref.
+ * @param selection - the agent's native model authority.
  * @param argument - the text after `/model`; empty opens the picker.
  * @param options - the gesture's authority, cancellation, and auxiliary picker key;
  *   window-owned callers may omit attachment lifetime options.
@@ -296,7 +296,7 @@ async function promptModelPicker(
  */
 export async function pickModel(
   ctx: Context,
-  selection: ModelSelectionRef,
+  selection: Model,
   argument = '',
   options: PickModelOptions = {},
 ): Promise<SelectionOutcome | undefined> {
@@ -312,7 +312,7 @@ export async function pickModel(
         : `no models available: ${failed.join(', ')} could not be listed`,
     }
   }
-  const current = selection.current
+  const current = selection.current()
   const named = argument.trim()
   if (named !== '') {
     const wanted = resolveModel(named, models)
@@ -375,7 +375,7 @@ async function stillSupported(
 /**
  * Point the selection at one model, and remember it.
  * @param ctx - context carrying the default-model service and the llm registry.
- * @param selection - the agent's mutable selection ref.
+ * @param selection - the agent's native model authority.
  * @param chosen - the model to select.
  * @param current - the selection being replaced, for what it carries forward.
  * @param options - the initiating gesture's authority and window refresh callback.
@@ -384,9 +384,9 @@ async function stillSupported(
  */
 async function apply(
   ctx: Context,
-  selection: ModelSelectionRef,
+  selection: Model,
   chosen: ModelOption,
-  current: ModelSelectionRef['current'],
+  current: ReturnType<Model['current']>,
   options: PickModelOptions,
 ): Promise<SelectionOutcome | undefined> {
   // Preserve the reasoning effort across the switch, but only when the target
@@ -403,9 +403,9 @@ async function apply(
     model: chosen.model,
     ...reasoningEffort === undefined ? {} : { reasoningEffort },
   }
-  // Once admitted, the ref is written FIRST. The turn about to run reads it,
+  // Once admitted, Harness records the selection FIRST. The turn about to run reads it,
   // and a storage failure is no reason for that turn to use the old model.
-  selection.current = next
+  selection.select(next)
   options.onApplied?.()
   const said = [`model set to ${chosen.provider} / ${chosen.model}`]
   if (wanted !== undefined && reasoningEffort === undefined) said.push('reasoning reset to provider default')

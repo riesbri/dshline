@@ -20,6 +20,7 @@
  * not part of the contract dshline consumes, and `ctx.skills.register()` plus
  * an ordinary provider exercise the same registry paths.
  */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -128,6 +129,7 @@ async function consumer(): Promise<{ ctx: Context; agent: Agent }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
   // The adopted consumer resolves the effective execution directory rather
@@ -272,7 +274,7 @@ describe('capability: skills · the human /name gesture', () => {
   ): Promise<PreStepDecision> {
     return await agentEvents(ctx, agent).waterfall(
       'agent/pre-step',
-      { messages, turn: 1, step: 1, signal: new AbortController().signal },
+      { messages, turn: 1, step: 1, modelSelection: { provider: 'probe', model: 'probe' }, signal: new AbortController().signal },
       async () => ({ kind: 'enter' as const, messages }),
     )
   }
