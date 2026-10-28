@@ -138,6 +138,7 @@ import { goalInspection, goalReading } from './goals/model.ts'
 import { createGoalOverlay } from './goals/overlay.ts'
 import { todoReading, todoSummary } from './todos/model.ts'
 import { createTodosPresenter } from './todos/presenter.ts'
+import type {} from '@deepseek-ai/dsh-working-directory'
 import { SkillCatalog } from './skills/catalog.ts'
 import { slashCandidates } from './skills/model.ts'
 import { pendingUserInput } from './steering.ts'
@@ -534,10 +535,10 @@ async function runSessionEpoch(
   w.setExit(requestAttachmentExit)
   scope.own(() => { w.setExit(undefined) })
 
-  // A resumed session keeps the workspace it was created in: the header is the
-  // authority, and resuming into the directory that happens to be current would
-  // silently re-root the conversation.
+  // Original project identity stays immutable for banners, session grouping,
+  // and new-session gestures. Execution paths follow Harness's committed cwd.
   const workspace = agent.session.header.cwd ?? startup.cwd
+  const executionCwd = (): string => ctx.get('workingDirectory')?.get(agent.session) ?? workspace
   // Whether this is a delegated child conversation, from the one durable fact
   // Harness itself guards generic file intake with: its own staged-upload
   // service refuses a file outright when `agent.session.header.origin` says the
@@ -607,6 +608,7 @@ async function runSessionEpoch(
   const skills = new SkillCatalog({
     ctx,
     scope: agent,
+    session: agent.session,
     cwd: workspace,
     changed: () => { skillsChanged() },
   })
@@ -1165,7 +1167,7 @@ async function runSessionEpoch(
         // once post-picker and pre-new-route while `/model` can run against an
         // in-flight turn, and an informational note is not worth that race, so
         // the note depends on the real provider/model move alone.
-        const before = selection.current
+        const before = selection.current()
         // The editor's module graph belongs to the BARE picker only: a named
         // route must not load it, and it is loaded BEFORE the picker opens so
         // `ctrl-k` can push the editor synchronously. Loading it inside the
@@ -1246,9 +1248,9 @@ async function runSessionEpoch(
         // route is a successful operation but not a state transition, and a
         // refusal never reaches here. A default-persistence failure still earns
         // the notice, because the route really did change for this session.
-        attention.show(modelRouteAttention(before, selection.current))
+        attention.show(modelRouteAttention(before, selection.current()))
         const lines = [selectionOutcomeLine(outcome)]
-        const note = cacheTransitionNote(before, selection.current)
+        const note = cacheTransitionNote(before, selection.current())
         if (note !== undefined) lines.push(paint(`· ${note}`, 'muted'))
         commit(lines)
         draw()
@@ -1303,7 +1305,7 @@ async function runSessionEpoch(
       execute: async rawInput => {
         // The levels are a short fixed set a person learns by heart, so
         // `/reasoning max` should not cost a picker.
-        const before = selection.current?.reasoningEffort
+        const before = selection.current()?.reasoningEffort
         let outcome: SelectionOutcome | undefined
         try {
           outcome = await pickReasoning(ctx, selection, w.modelInfo.reasoning, rawInput, {
@@ -1322,7 +1324,7 @@ async function runSessionEpoch(
         // reselected level, or clearing an already-absent one, quiet while
         // either real transition speaks.
         if (outcome?.kind === 'done') {
-          attention.show(reasoningAttention(before, selection.current?.reasoningEffort))
+          attention.show(reasoningAttention(before, selection.current()?.reasoningEffort))
         }
         draw()
       },
@@ -1461,7 +1463,7 @@ async function runSessionEpoch(
         // against the last route seen here decides whether it was a transition.
         // `seen` advances on every acknowledgement so two successful picks in
         // one pass each compare against their real predecessor.
-        let seen = selection.current
+        let seen = selection.current()
         await runSetup({
           ctx,
           commit,
@@ -1478,8 +1480,8 @@ async function runSessionEpoch(
           signal: attachmentAbort.signal,
           onModelChanged: () => {
             w.refreshModelInfo()
-            attention.show(modelRouteAttention(seen, selection.current))
-            seen = selection.current
+            attention.show(modelRouteAttention(seen, selection.current()))
+            seen = selection.current()
           },
         })
         if (attachmentMayAct()) draw()
@@ -1775,7 +1777,7 @@ async function runSessionEpoch(
       const fs = ctx.get('fs')
       if (fs === undefined) return []
       try {
-        const target = await fs.resolve(directory === '' ? '.' : directory, { cwd: workspace })
+        const target = await fs.resolve(directory === '' ? '.' : directory, { cwd: executionCwd() })
         return (await fs.listDir(target)).map(entry => ({
           name: entry.name,
           directory: entry.type === 'directory',
@@ -1812,7 +1814,7 @@ async function runSessionEpoch(
    *
    * `get()` is the whole read because alpha.5 publishes no activation-only
    * accessor; it resolves its own durable half through
-   * `sessionProjections.stateOf(session, 'goal')` before combining it with the
+   * `goal` projection through its retained handle before combining it with the
    * process-local runtime state. That inner read is the service's, not a second
    * dshline snapshot, and `.activation` is the only field taken from what it
    * returns.
@@ -1838,7 +1840,7 @@ async function runSessionEpoch(
     // naming the five fields below leaves the rest unviewed. Same registry, same
     // cut, same `asOfSeq` — see `./projections/status-keys.ts`.
     const projected = projections.snapshot(STATUS_PROJECTION_KEYS)
-    const selected = selection.current
+    const selected = selection.current()
     return {
       busy: agent.status === 'running',
       tick,
@@ -1985,7 +1987,7 @@ async function runSessionEpoch(
       // agree, which matters more here than a total nothing on screen accounts for.
       const reported = event.data.usage
       if (reported !== undefined) {
-        const route = requestRoute ?? selection.current
+        const route = requestRoute ?? selection.current()
         // Priced by the event's OWN timestamp, not by the clock now. Peak and
         // off-peak rates differ by half, so a replayed session priced at the
         // moment it was reopened would bill a night's work at the morning rate.
@@ -2221,7 +2223,7 @@ async function runSessionEpoch(
         && !w.modelInfo.inputModalities.includes('image')
       ) {
         if (composer.isEmpty) composer.set(line)
-        commit([paint(escapeControls(`✗ model ${selection.current?.model ?? 'selected'} does not support image input; nothing was sent`), 'error')])
+        commit([paint(escapeControls(`✗ model ${selection.current()?.model ?? 'selected'} does not support image input; nothing was sent`), 'error')])
         draw()
         return
       }
@@ -2253,7 +2255,7 @@ async function runSessionEpoch(
       // deadline on a streamed transfer is a size policy in everything but name.
       const admissionSignal = AbortSignal.any([attachmentAbort.signal, admission.signal])
       try {
-        blocks = await admitAttachmentBatch(batch, fs, attachments, workspace, admissionSignal)
+        blocks = await admitAttachmentBatch(batch, fs, attachments, executionCwd(), admissionSignal)
         // Durable publication cannot be interrupted. Honour a reader
         // cancellation that arrived while it ran before any of those blocks can
         // reach an Agent inbox.
@@ -2385,7 +2387,7 @@ async function runSessionEpoch(
             shell: ctx.get('shell'),
             sandboxPolicy: ctx.get('sandboxPolicy'),
             session: agent.session,
-            workdir: workspace,
+            workdir: executionCwd(),
             signal: AbortSignal.any([attachmentAbort.signal, abort.signal]),
             output: run.output,
             changed: present,
@@ -2589,7 +2591,7 @@ async function runSessionEpoch(
           inputs = await readImageDrafts(
             batch,
             fs,
-            workspace,
+            executionCwd(),
             attachments.imageLimits.maxImageBytes,
             attachments.imageLimits.maxMessageImageBytes,
             // Image-only, so the image deadline is the right one here. A command
@@ -2981,9 +2983,10 @@ async function runSessionEpoch(
   w.setDispatch(onKey)
   scope.own(() => { w.setDispatch(undefined) })
 
-  const model = selection.current === undefined
+  const selectedModel = selection.current()
+  const model = selectedModel === undefined
     ? undefined
-    : `${selection.current.provider} / ${selection.current.model}`
+    : `${selectedModel.provider} / ${selectedModel.model}`
   // A `/clear` wipe is the fresh session's first paint, not the old one's
   // last: it happens only now, when create has already succeeded (which is
   // why this attachment exists), so a failed or resumed transition leaves

@@ -24,7 +24,7 @@
  * @module dshline/attention
  */
 
-import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Model } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Type-only: activates the `permission/preset` SessionEventMap merge. The
 // permission-preset backend is an optional per-agent plugin — the shipped
@@ -130,8 +130,8 @@ export function createAttentionController(draw: () => void): AttentionController
  * @returns the notice, or undefined when the route is unchanged.
  */
 export function modelRouteAttention(
-  before: ModelSelectionRef['current'],
-  after: ModelSelectionRef['current'],
+  before: ReturnType<Model['current']>,
+  after: ReturnType<Model['current']>,
 ): AttentionNotice | undefined {
   if (after === undefined) return undefined
   if (

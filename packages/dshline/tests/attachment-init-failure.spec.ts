@@ -14,6 +14,7 @@
  * fail at without contrivance.
  * @module dshline/tests/attachment-init-failure
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -96,7 +97,7 @@ async function mount(failure: Failure = 'none', sessionId = 'probe', fate: Fate 
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: 1_000_000, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },

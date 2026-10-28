@@ -38,22 +38,12 @@
 # behavior, the reasoning, and the removal condition are written down. This
 # file holds no second copy of them.
 
-# A subagent backend forwards a delegated child process's stderr straight to
-# file descriptor 2 for the life of the run, which on an interactive launch is
-# the terminal the live region is drawn on. Read the module header before
-# touching this record. Reconfirmed against 0.2.0-rc.2 at
-# revision 639ed015397290b3745d163aafe02ffee4aa3f84,
-# `packages/subagent/subagent-codex/src/run.ts:261`
-# (`writeFileSync(process.stderr.fd, bytes)`), whose git blob is byte-identical
-# to 0.2.0-rc.1's (`12abd405e3b24858a3ae5fc00e8c0be341821bab`); it still publishes
-# no Host-owned diagnostic seam to route it through, the subprocess seam offering
-# only `pipe | inherit | collect` with no Host-owned sink behind it. The
-# `'inherit'` backends (`subagent-acp`, `subagent-claude-code`) reach the same
-# descriptor and are NOT contained by this shim — see the module header.
-shim packages/dshline/src/stderr.ts 0.2.0-rc.2
+# Reconfirmed against 0.2.2-alpha.2 at f3803c96974ad4a94195fb97e5c637e9c2a3afe3.
+# subagent-codex/src/run.ts:261 still forwards child stderr with
+# writeFileSync(process.stderr.fd, bytes), not a Host-owned diagnostic sink.
+shim packages/dshline/src/stderr.ts 0.2.2-alpha.2
 
-# Observed retained-byte reads decode slices independently and report total-byte
-# nextOffset even through incomplete UTF-8. Confirmed at revision
-# 639ed015397290b3745d163aafe02ffee4aa3f84, subprocess-local/src/output.ts:261-271
-# and bash-local/src/index.ts:342-362. See the module header for removal criteria.
-shim packages/dshline/src/shell-output.ts 0.2.0-rc.2
+# At the same revision, subprocess-local/src/output.ts:261-271 independently
+# decodes retained byte slices; bash-local/src/index.ts:343-346 advances its
+# cursor through incomplete UTF-8. Both behaviors remain, so retain the adapter.
+shim packages/dshline/src/shell-output.ts 0.2.2-alpha.2

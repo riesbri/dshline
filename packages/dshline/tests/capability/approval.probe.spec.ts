@@ -17,6 +17,7 @@
  * - a withdrawn request settles `cancelled` through the real service.
  * @module
  */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -50,6 +51,7 @@ async function mounted(): Promise<{
   const ctx = new Context()
   await ctx.plugin(TuiSlots)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(ApprovalService, { policy: 'ask' })
   const session = ctx.sessions.create(OWNED)
   // The real service requires an open turn: the audit pair must sit inside

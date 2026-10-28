@@ -31,7 +31,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { AssistantStreamAccumulator } from '@deepseek-ai/dsh-llm'
 import type { AssistantStreamRecord, ReasoningEffortId, TokenUsage } from '@deepseek-ai/dsh-llm'
@@ -48,11 +48,21 @@ import type { SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 /** A fixed origin, so every asserted duration is an exact arithmetic claim. */
 const ORIGIN = 1_800_000_000_000
 
+/** Non-driving directory collaborator; these projection tests never launch a child. */
+class ProbeWorkingDirectory extends Service {
+  constructor(ctx: Context) { super(ctx, 'workingDirectory') }
+  async ensure(agent: Agent, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted()
+    return agent.session.header.cwd ?? '/tmp'
+  }
+}
+
 /** Mount the real store, registry, subagent runtime, and token meter. */
 async function harness(): Promise<{ ctx: Context; child: Session }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(ProbeWorkingDirectory)
   await ctx.plugin(SubagentRuntime)
   await ctx.plugin(TokenMeter)
   return { ctx, child: ctx.sessions.create() }
@@ -148,7 +158,7 @@ describe('capability: subagent telemetry projections', () => {
     const { ctx, child } = await harness()
     try {
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
-        mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
+        mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
       const snapshot = ctx.sessionProjections.snapshot(child, ['subagentTiming', 'tokenUsage'])
       // The keys, by name: this is what "Work may show active time and tokens"
@@ -171,7 +181,7 @@ describe('capability: subagent telemetry projections', () => {
       const { projection, start } = work(ctx, child)
       start(edge(child))
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
-        mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
+        mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 1 })
       vi.setSystemTime(ORIGIN + 42_000)
@@ -211,7 +221,7 @@ describe('capability: subagent telemetry projections', () => {
       const { projection, start } = work(ctx, child)
       start(edge(child))
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
-        mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
+        mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 1 })
       vi.setSystemTime(ORIGIN + 8_000)
@@ -243,7 +253,7 @@ describe('capability: subagent telemetry projections', () => {
       // under it. Every descriptor resets the accumulation, so the child's own
       // descriptor is its authoritative timing origin.
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
-        mode: 'one-shot', provider: 'spawn', label: 'ancestor',
+        mode: 'continuable', provider: 'spawn', label: 'ancestor',
       }))
       child.append('turn/start', { turn: 1 })
       vi.setSystemTime(ORIGIN + 600_000)
@@ -251,7 +261,7 @@ describe('capability: subagent telemetry projections', () => {
       expect(projection.snapshot().subagents[0]?.timing?.settledMs).toBe(600_000)
 
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
-        mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
+        mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 2 })
       vi.setSystemTime(ORIGIN + 600_000 + 5_000)
@@ -271,7 +281,7 @@ describe('capability: subagent telemetry projections', () => {
       const { projection, start } = work(ctx, child)
       start(edge(child))
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
-        mode: 'one-shot', provider: 'spawn', label: 'Fix OAuth flow',
+        mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 1 })
       // `reasoningTokens` is already inside `outputTokens` by upstream's
@@ -316,7 +326,7 @@ describe('capability: subagent telemetry projections', () => {
       const { projection, start } = work(ctx, child)
       start(edge(child))
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
-        mode: 'one-shot', provider: 'fork', label: 'Fix OAuth flow',
+        mode: 'continuable', provider: 'fork', label: 'Fix OAuth flow',
       }))
       child.append('turn/start', { turn: 2 })
       reportUsage(child, 2, { inputTokens: 14_000, outputTokens: 1_000 })

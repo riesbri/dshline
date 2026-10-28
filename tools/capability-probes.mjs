@@ -39,7 +39,7 @@ export const CAPABILITY_PROBES = [
   },
   {
     name: 'agents',
-    files: ['packages/dshline/tests/capability/agents.probe.spec.ts'],
+    files: ['packages/dshline/tests/capability/agents.probe.spec.ts', 'packages/dshline/tests/capability/model-selection.probe.spec.ts'],
     note: 'real AgentRegistry get/create/resume dispatch over entered agents, the awaited enter/announce publication seam, and the `agent/created` source each path reports (startup vs resume) through the published AgentFactory; local factory behavior does not prove AgentLoop creation, persistence, setup, or lifecycle policy',
   },
   {

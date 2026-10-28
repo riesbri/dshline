@@ -1,3 +1,4 @@
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 /**
  * The Sessions catalog against the real `ctx.sessionQuery` engine.
  *
@@ -137,6 +138,7 @@ describe('the Sessions catalog over the real session-query engine', () => {
     const ctx = await harness()
     // dsh-session-title now injects `sessionProjections` alongside `sessions`.
     await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
     await ctx.plugin(SessionTitleService, {
       fallbackMaxWords: 5,
       fallbackMaxBytes: 40,
@@ -279,18 +281,20 @@ describe('the Sessions catalog over the real session-query engine', () => {
     parent.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
 
     const child = ctx.sessions.fork(parent, undefined, SessionId('dshline-int-fork-child'))
-    // Harness fills its own header: the fork is seeded, and the inherited cut
+    // Ordinary forks are independent Sessions, not delegated children. Harness
+    // preserves the inherited cut without inventing a parentSession relation.
+    // The fork is seeded, and the inherited cut
     // is exactly the parent prefix — NOT the child's log length, which the
     // constructor's own `session/end-seed` marker already exceeds.
     expect(child.header.isSeeded).toBe(true)
-    expect(child.header.parentSession).toBe(parent.id)
+    expect(child.header.parentSession).toBeUndefined()
     expect(child.inheritedEventCount).toBe(parent.seq)
     expect(child.seq).toBeGreaterThan(child.inheritedEventCount)
     expect(child.ownEvents().map(event => event.type)).toEqual(['session/end-seed'])
 
     const trace = await ctx.sessionQuery.traceSession(child.id)
     expect(trace.target.header).toMatchObject({ id: child.id, isSeeded: true })
-    expect(trace.ancestors.map(record => record.header.id)).toEqual([parent.id])
+    expect(trace.ancestors).toEqual([])
     await ctx.fiber.dispose()
   })
 

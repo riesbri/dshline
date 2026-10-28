@@ -11,6 +11,7 @@
  * A fresh session is attached rather than a resumed one, so no replay gate
  * stands between a keystroke and the decision under test.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
@@ -140,7 +141,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: undefined, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },

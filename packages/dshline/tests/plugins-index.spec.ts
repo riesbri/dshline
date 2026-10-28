@@ -268,7 +268,8 @@ interface FakeAgent {
 
 /** The two projection reads `/plugins` makes, answered for one exact session. */
 interface FakeProjections {
-  stateOf(session: Session, key: 'agentPreset' | 'turnBoundary'): unknown
+  presetForSession(session: Session): string | null
+  turnBoundaryOf(session: Session): { openTurnStartSeq: null; lastTurn: number } | undefined
 }
 
 /**
@@ -288,17 +289,10 @@ function fakeAgent(presetId: string | undefined, blank: boolean): FakeAgent {
   const session = Session.create(id)
   let started = !blank
   const projections: FakeProjections = {
-    stateOf: (target, key) => {
-      // Session ids are durable names, not identity: only THIS session's facts.
-      if (target !== session) return undefined
-      if (key === 'agentPreset') return presetId ?? null
-      return {
-        openTurnStartSeq: null,
-        lastStepStartSeq: null,
-        lastStepBoundary: null,
-        lastTurn: started ? 1 : 0,
-      }
-    },
+    presetForSession: target => target === session ? presetId ?? null : null,
+    turnBoundaryOf: target => target === session
+      ? { openTurnStartSeq: null, lastTurn: started ? 1 : 0 }
+      : undefined,
   }
   return {
     agent: { id, ctx: {}, session },
@@ -348,10 +342,10 @@ function harness(
       invalidate: (): void => {},
     },
     get: (name: string): unknown => {
-      if (name === 'agentPresets') return agentPresets
+      if (name === 'agentPresets') return agentPresets === undefined ? undefined : Object.assign(agentPresets, { presetForSession: projections?.presetForSession })
       if (name === 'settings') return settings
       if (name === 'configEditor') return configEditor
-      if (name === 'sessionProjections') return projections
+      if (name === 'agents') return projections
       return undefined
     },
   } as unknown as Context

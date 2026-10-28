@@ -333,7 +333,7 @@ ctx.sessionQuery             → one child's bounded session window (no resume)
 ctx.subagents.prompt         → human queue / steer
 ```
 
-发现使用 `listChildren(parentSessionId)`，其行都是 Harness 事实：持久 id、label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及该子级是否有子级。diagnostic 行被保留而非丢弃，因此损坏或不可读的候选会诚实降级。打开一个子级会通过 `ctx.sessionQuery.listEvents` 与一个有界的 `readEvent` 窗口读取它自己的日志，并用 Harness 的 `extractSessionEventText` 呈现每个事件；为了检视它，子级绝不会被恢复或发布，移动光标也绝不会读取 transcript。`[` 较旧与 `]` 较新两个方向的翻页都会**替换**该窗口而不是向其追加，因此检视器最多只保留一页 24 条完整事件正文和一个轻量级 seq 索引，后者是元数据，不是正文。两个方向都限于已捕获的索引；读取较新页面时，以目标片段的最后一个 seq 为锚点，只请求之前的上下文并设定 `after: 0`，因此新追加的事件不会混入翻页结果。只有 `r` 会通过 `listEvents` 和一次最新的有界读取进行刷新。翻页保留过期提示；读取失败时保留已加载的页面，翻页与刷新竞态时以最后发起的读取为准。
+发现使用 `listChildren(parentSessionId)`，其行都是 Harness 事实：持久 id、label、`one-shot` 还是 `continuable`、会话存储驻留状态，以及该子级是否有子级。`external` 描述符则暴露父级拥有的结果，没有本地子会话；它们会被列出，但绝不通过本地对话 seam 检视或跟进。diagnostic 行被保留而非丢弃，因此损坏或不可读的候选会诚实降级。打开一个子级会通过 `ctx.sessionQuery.listEvents` 与一个有界的 `readEvent` 窗口读取它自己的日志，并用 Harness 的 `extractSessionEventText` 呈现每个事件；为了检视它，子级绝不会被恢复或发布，移动光标也绝不会读取 transcript。`[` 较旧与 `]` 较新两个方向的翻页都会**替换**该窗口而不是向其追加，因此检视器最多只保留一页 24 条完整事件正文和一个轻量级 seq 索引，后者是元数据，不是正文。两个方向都限于已捕获的索引；读取较新页面时，以目标片段的最后一个 seq 为锚点，只请求之前的上下文并设定 `after: 0`，因此新追加的事件不会混入翻页结果。只有 `r` 会通过 `listEvents` 和一次最新的有界读取进行刷新。翻页保留过期提示；读取失败时保留已加载的页面，翻页与刷新竞态时以最后发起的读取为准。
 
 人类跟进是本前端必须谨慎选择调用哪个 Harness 操作的唯一之处。`SubagentRuntime.sendMessage(sender: Agent, …)` 是**模型撰写**的相邻 Agent 消息：它接受一个精确的存活 `Agent` 发送者并打上 `agent-message` 来源，所以终端调用它就是在冒充父 Agent。人类路径是 `ctx.subagents.prompt`，它携带持久的父/子地址、由客户端铸造的请求身份、人类 `kind: 'user'` 来源、`queue`/`steer` 选择、冷物化，以及一条被接受的 `MessageId` 回执。dshline 的 `HumanSubagentSeam` 是 `SubagentRuntime` 的一个只含 `listChildren` 与 `prompt` 的 `Pick`，因此伸手去拿 `sendMessage` 会在类型检查阶段失败，而不是被发布出去；一个能识别注释与字符串的源码扫描则为绕过类型转换提供兜底。
 
@@ -574,6 +574,8 @@ agent 的预设实际组合的那些行，并通过与官方 Web 界面所做变
 header 与其后每一次选择折叠在一起；dshline 不从原始日志重建任何东西，因此恢复路径与
 `/plugins` 不可能对一个会话实际运行什么产生分歧。
 
+模型选择也由 Session 拥有：`/model` 和 `/reasoning` 通过窗口绑定的原生模型视图调用 `agent.model.select()`。Harness 将完整选择记录到 `model/selection`，并在恢复会话时还原；窗口默认值只用于初始化新 Agent。已准备的步骤保留 Harness 捕获的固定路由，而不使用前端拥有的组装引用。预设与回合事实来自 `agentPresets.presetForSession()` 和 `agents.turnBoundaryOf()`，即拥有这些投影的服务所保留的句柄，而不是已弃用的注册表按键状态读取。
+
 **提供某个动作与授权某个动作是两件事。**切换一个会话的预设是 Harness 的完整操作——
 `ctx.agentPresets.select()` 按会话串行化各次选择，在该队列内部重新读取权威的 `turnBoundary`
 投影，拒绝已开始的会话，重新组合，并且只有在重新组合已提交之后才记录这次切换。`/plugins`
@@ -664,7 +666,7 @@ seam 能重新链接一个已组合 Host 的 bundle 层，而发明一个正是�
 
 所以 `src/setup/` 在已组合的 Host 内运行，而 `dshline --setup` 保留它既有的含义（把这个包安装进 profile）。该流程在第一次附着之前自动打开；`/setup` 则随时按需打开它。
 
-**触发条件问的是这次启动能不能发送一个回合，而不是有没有路由存在。**只看路由注册是错的问题：一条已注册的路由只是 `/model` 从中提供选项的来源，而输入框打开时用的是 `selection.current` 解析出来的东西。因此 `setupReason` 读取窗口已经持有的两样东西——`ctx.llm.listProviders()` 与 `/model` 写入的那个 selection ref——并给出三种状态之一：什么都没注册、什么都没选中，或者选中的东西所指的路由没有被任何适配器注册（一个其提供方已离开该 profile 的、被记住的默认值）。
+**触发条件问的是这次启动能不能发送一个回合，而不是有没有路由存在。**只看路由注册是错的问题：一条已注册的路由只是 `/model` 从中提供选项的来源，而输入框打开时用的是 `selection.current()` 解析出来的东西。因此 `setupReason` 读取窗口已经持有的两样东西——`ctx.llm.listProviders()` 与 `/model` 通过其选择的原生模型视图——并给出三种状态之一：什么都没注册、什么都没选中，或者选中的东西所指的路由没有被任何适配器注册（一个其提供方已离开该 profile 的、被记住的默认值）。
 
 只看拓扑仍然会说一次全新安装是健康的，而它不是：`dsh-base` 组合了一个默认选择（`deepseek-official/deepseek-flash`），而 `llm-deepseek` 无条件调用 `registerAdapter`，因此三项检查全部通过，而第一个请求会以 `MISSING_CREDENTIAL` 失败。所以当拓扑看起来完整时，还会再问一个问题——问 Connect，而不是问第二套算法。`readinessOf` 从 `providerReadiness` 中被提取出来，而 `readRouteReadiness` 只读一条路由：目录条目、该命名空间的 descriptor，以及一次 `credentials.describe()`。只有肯定的 `missing` 才会打开 setup；`ready` 与两种 `unknown`（路由没有命名引用、存储无法回答）都放过这次启动，因为不确定不是失败。
 
@@ -700,7 +702,7 @@ Harness 的更早一代让 `ctx.jobs.kill()` 自身认领该任务的终端交�
 
 所采用的那一代把这两个权威分开了。注册表拥有取消，而 `dsh-tool-jobs` 拥有一份私有账本，记录它自己的工具已经交付过的任务，因此人类的 kill 不进入任何账本，并让拥有该任务的 agent 的通常完成通知继续到期，理由会并入该任务的终端 `detail`。dshline 现在直接调用那个通用操作——`jobs.kill(id, sessionId, 'cancelled by the user')`——按 id 寻址，因此每一种已注册的任务种类都一次性获得该控制，并且它只出现在详情阶段、置于绑定到该任务自身标识的两次按键确认之后。dshline 不认领任何交付，不抑制任何通知，也绝不进入模型的工具路径。
 
-`ctx.subagents.interrupt(..., { kind: 'user', parentSessionId })` 仍然是这一节的另一半：seam 明确建模人类停止活动可续子级的权威，而且它仍然不需要确认，因为它结束的是一轮，而不是一个生产者。工作流运行依旧得不到控制，因为 `ctx.workflowEngine` 只发布了 `start()`。这条规则适用于每一个未来能力，而不仅仅是 Work。同样，Work 呈现生命周期与任务状态，而不是提供方推理、命令、工具活动或 diff，除非 Harness 通过通用约定暴露这些事实；它绝不能刮取提供方输出。它现在划出的唯一例外是进度与输出，因为所采用的那一代把两者都作为通用事实发布：`JobView.progress` 是生产者自己的那一行，输出环则以非消费方式读取。两者都不被解析，也都不从任务的文本中推断。
+`ctx.subagents.interrupt(..., { kind: 'user', parentSessionId })` 仍然是这一节的另一半：seam 明确建模人类停止活动可续或外部子级的权威。可续子级中断会保留收件箱与后代；外部中断会结束 activation。两者仍由 Harness 拥有，并且不需要额外确认。工作流运行依旧得不到控制，因为 `ctx.workflowEngine` 只发布了 `start()`。这条规则适用于每一个未来能力，而不仅仅是 Work。同样，Work 呈现生命周期与任务状态，而不是提供方推理、命令、工具活动或 diff，除非 Harness 通过通用约定暴露这些事实；它绝不能刮取提供方输出。它现在划出的唯一例外是进度与输出，因为所采用的那一代把两者都作为通用事实发布：`JobView.progress` 是生产者自己的那一行，输出环则以非消费方式读取。两者都不被解析，也都不从任务的文本中推断。
 
 ## 上游兼容性
 

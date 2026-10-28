@@ -19,6 +19,8 @@
  * touches (`tools.get`, `commands.list/execute`, and `userQuestions`) are
  * minimal doubles.
  */
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
@@ -212,6 +214,7 @@ async function fixture(options: {
   if (options.turnOutline === true) {
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
     await ctx.plugin(SessionTurnOutline)
   }
 
@@ -222,6 +225,7 @@ async function fixture(options: {
     const { config, preset } = options.resumedPermission
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
     ctx.provide('shell', { sandboxMode: 'workspace-write' } as never)
     await ctx.plugin(ApprovalService)
     await ctx.plugin(PermissionPresetService, config)
@@ -253,7 +257,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: undefined, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: {

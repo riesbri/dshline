@@ -5,6 +5,7 @@
  * the production composer, local-command registry, optional Harness services,
  * durable admission, and final inbox delivery together.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
@@ -117,7 +118,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: options.model === undefined ? undefined : { provider: 'fixture', model: options.model } },
+    selection: new WindowModel(options.model === undefined ? undefined : { provider: 'fixture', model: options.model }),
     modelInfo: { contextWindow: undefined, reasoning: undefined, inputModalities: options.inputModalities },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: {
@@ -680,7 +681,7 @@ describe('image attachment submission', () => {
       // text, without submitting, to observe that the refused image is still staged.
       f.dispatch()?.({ kind: 'key', name: 'ctrl-u' })
       expect((await emulator.screen()).join('\n')).toContain('1 image')
-      expect(f.window.selection.current?.model).toBe(model)
+      expect(f.window.selection.current()?.model).toBe(model)
       expect(f.reads).not.toHaveBeenCalled()
       expect(f.saves).not.toHaveBeenCalled()
       expect(f.agent.followup).not.toHaveBeenCalled()

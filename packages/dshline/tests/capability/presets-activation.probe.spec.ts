@@ -16,6 +16,7 @@
  *
  * @module
  */
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -80,6 +81,7 @@ async function activated(preset: PresetDefinition): Promise<Context> {
   await ctx.plugin(SessionProjectionRegistry)
   ctx.provide('loader', {} as never)
   ctx.baseUrl = `${pathToFileURL(tmpdir()).href}/`
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentPresetRegistry, { default: preset.id })
   await ctx.plugin(AgentPreset, preset as never)
   return ctx
@@ -126,7 +128,7 @@ describe('shipped preset declarations activate', () => {
     const preset = declaration('../../presets/standard.patch.yml')
     const rows = rowsOf(preset)
     const names = rows.map(row => row.name)
-    // The rows the adopted generation's own standard declaration carries and a
+    // The rows the previous generation's standard declaration carried and a
     // terminal session has always had. Each was verified against
     // `packages/bundle/web-app/presets/standard.patch.yml` at 0.2.0-rc.2 (git blob
     // 0b898bf7, byte-identical to 0.2.0-rc.1's and to 0.1.7-rc.2's).
@@ -156,6 +158,10 @@ describe('shipped preset declarations activate', () => {
     ]) {
       expect(names, `standard must compose ${name}`).toContain(name)
     }
+    // Discovery is registered by the control plugin itself in this generation;
+    // its old subpath now exports a helper, not an independently loadable plugin.
+    expect(names).toContain('@deepseek-ai/dsh-tool-subagent-control')
+    expect(names).not.toContain('@deepseek-ai/dsh-tool-subagent-control/list-agents')
     // The optional delegation providers stay OFF by default, each as its own
     // row so a profile can enable one without editing the other.
     const byName = new Map(rows.map(row => [row.name, row.id]))

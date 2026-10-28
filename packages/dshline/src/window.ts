@@ -23,8 +23,9 @@
 
 import { posix, win32 } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent, ModelSelectionRef, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
+import type { Agent, Model, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import { WindowModel } from './window-model.ts'
 import type { LlmModelReasoningInfo, ModelModality } from '@deepseek-ai/dsh-llm'
 // Carries the Context merges this module reads but does not otherwise import
 // from: the launcher's settlement await and exit request, and the default model
@@ -62,7 +63,7 @@ const BEL = '\x07'
  * The reader's settings are not facts about a session: reopening one should not
  * silently put the usage meter back to cost or re-expand tool cards they had
  * folded away. The model route is not here because it already has an owner —
- * {@link ModelSelectionRef} — which the agent reads per step.
+ * {@link Model} — which the agent reads per step.
  */
 export interface WindowPrefs {
   /** What the status line reports. */
@@ -135,12 +136,10 @@ export interface Window {
   /** Version reported in each attachment's banner. */
   readonly version: string
   /**
-   * The live model selection. `current` is the selected route; Harness's
-   * `installModelSelection` captures it when a step's `system-prompt/assemble`
-   * starts, publishes it into `assembled` after the downstream assembly
-   * returns, and routes that step's request from `assembled`.
+   * Window defaults delegate to the attached Agent's durable native model.
+   * Harness alone captures the fixed route used by an already-prepared step.
    */
-  readonly selection: ModelSelectionRef
+  readonly selection: WindowModel
   /** Metadata for that route, refreshed when it changes. */
   readonly modelInfo: ModelInfo
   /**
@@ -502,10 +501,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   const modelCompletions = createModelCompletionCatalog(ctx)
 
   await ctx.get('loader')?.await()
-  const selection: ModelSelectionRef = {
-    current: ctx.get('agentDefaultModel')?.currentSelection(),
-    assembled: undefined,
-  }
+  const selection = new WindowModel(ctx.get('agentDefaultModel')?.currentSelection())
   const modelInfo: ModelInfo = { contextWindow: undefined, reasoning: undefined, inputModalities: undefined }
   let modelInfoGeneration = 0
   // Resolved once per selection: the context window and the reasoning levels are
@@ -513,7 +509,7 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
   // in the render path.
   const refreshModelInfo = (): void => {
     const generation = ++modelInfoGeneration
-    const current = selection.current
+    const current = selection.current()
     modelInfo.contextWindow = undefined
     modelInfo.reasoning = undefined
     modelInfo.inputModalities = undefined
@@ -574,11 +570,13 @@ export async function createWindow(ctx: Context, options: WindowOptions): Promis
  * @returns the per-agent options shared by the create and resume paths.
  */
 export function attachOptions(w: Window): Omit<ResumeAgentOptions, 'resumeSessionId'> {
-  const current = w.selection.current
+  const current = w.selection.current()
   return {
-    ...current === undefined ? {} : { agentOptions: { provider: current.provider, model: current.model } },
+    ...current === undefined ? {} : { agentOptions: { ...current } },
     setup: async (agentCtx, agent) => {
-      installModelSelection(agentCtx, w.selection)
+      agentCtx.effect(() => w.selection.bind(agent.model), 'dshline: attached model')
+      installModelSelection(agentCtx)
+      w.refreshModelInfo()
       await mountAgentPreset(agentCtx, agent, w.commit)
     },
   }

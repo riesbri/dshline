@@ -24,7 +24,15 @@ packages:
 #
 # Remove this once an ordinary update resolves 1.2.2 on its own.
 
+# Patched transitive releases for the adopted graph's audited advisories.
+# Keep exact patched floors here until upstream's ordinary resolution supplies
+# them; trust and minimum-release-age admission remain unchanged.
 overrides:
+  'vite': '7.3.7'
+  'launch-editor': '2.14.2'
+  'zod': '4.6.6'
+  'undici': '8.12.2'
+  'fast-uri': '3.1.9'
   'source-map-js': '1.2.2'
 
 # esbuild arrives transitively through vitest and links a platform binary from a
@@ -69,8 +77,8 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   # `@types/node@22` pins `undici-types@~6.21.0`, which predates undici's move to
   # provenance; 7.16.0 and later carry attestations, but only `@types/node@24`
-  # and later depend on that line, and this package's floor is Node 22 — typing
-  # against a newer Node would let a call compile that the floor cannot run.
+  # and later depend on that line. Transitive declaration packages still use
+  # the older Node 22 typings even though Harness now requires Node 24.9.
   # It is also a declaration-only devDependency: it ships no JavaScript, so it
   # cannot execute anything, and it never reaches a published tarball.
   - undici-types

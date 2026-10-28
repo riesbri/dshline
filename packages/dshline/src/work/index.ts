@@ -87,7 +87,7 @@ const JOB_STOP_REASON = 'cancelled by the user'
 
 /** Discovery facts retained only when the direct-child projection served them. */
 interface DiscoveredSubagent {
-  readonly mode?: 'one-shot' | 'continuable'
+  readonly mode?: SubagentWorkItem['mode']
   readonly label?: string
   readonly residency?: 'resident' | 'stored'
   readonly hasChildren?: boolean
@@ -367,9 +367,9 @@ export class HarnessWork {
   /**
    * Interrupt a subagent only where the owning generic seam exposes authority.
    *
-   * The operation is Harness `interrupt()` on a live continuable child: it
-   * cancels the current turn, keeps the Activation, inbox, and descendants, and
-   * is a fire-and-return signal rather than a deletion of the durable child. A
+   * Harness `interrupt()` cancels a continuable child’s current turn while
+   * keeping its Activation, inbox, and descendants. For an external child it
+   * ends the external activation; settlement remains Harness-owned. A
    * Job stop is deliberately NOT this method — see {@link stopJob} — and a
    * workflow run has no authority here at all, because `ctx.workflowEngine`
    * publishes `start()` alone.
@@ -605,7 +605,7 @@ export class HarnessWork {
     // (`unsupported`). None of the three yields a mode, a residency, or a
     // lineage, and none is recoverable by choosing one, so the row keeps its
     // lifecycle edge alone — which is also what keeps the two controls honest,
-    // since interrupt is authorized only for a PROVEN continuable child and
+    // since interrupt requires a PROVEN continuable or external descriptor and
     // the durable-conversation target refuses a session whose descriptor the
     // catalog would not return.
     if (entry.kind === 'diagnostic') return
@@ -613,6 +613,10 @@ export class HarnessWork {
     // observes are scoped to the direct delegating parent, so a grandchild has
     // no row here for a deeper row to enrich.
     if (entry.depth !== DIRECT_CHILD_DEPTH) return
+    if (entry.mode === 'external') {
+      this.discovered.set(String(entry.id), { mode: entry.mode, ...entry.label === undefined ? {} : { label: entry.label } })
+      return
+    }
     this.discovered.set(String(entry.id), {
       mode: entry.mode,
       residency: entry.activity === 'running' ? 'resident' : 'stored',
@@ -706,7 +710,7 @@ export class HarnessWork {
       local: run.local,
       state: 'running',
       startedAt: run.startedAt,
-      interruptible: discovered?.mode === 'continuable',
+      interruptible: discovered?.mode === 'continuable' || discovered?.mode === 'external',
       ...discovered?.label === undefined ? {} : { label: discovered.label },
       ...discovered?.mode === undefined ? {} : { mode: discovered.mode },
       ...discovered?.residency === undefined ? {} : { residency: discovered.residency },

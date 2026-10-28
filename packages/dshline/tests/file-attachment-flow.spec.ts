@@ -7,6 +7,7 @@
  * local-command registry, optional Harness services, durable admission, and
  * final inbox delivery are the production ones.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
@@ -214,7 +215,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: undefined, reasoning: undefined, inputModalities: options.inputModalities },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: {

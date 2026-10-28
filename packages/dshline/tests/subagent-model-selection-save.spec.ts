@@ -6,11 +6,12 @@
  * revision-fenced mutation, and that saving it can never reach the current
  * Agent's model selection or the default-model setting.
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { getEventListeners } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Model } from '@deepseek-ai/dsh-agent'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import { stripAnsi } from '@dshline/renderer'
 import type { Key, KeyName } from '@dshline/renderer'
@@ -581,11 +582,8 @@ describe('catalog failures', () => {
 
 describe('the /model seam', () => {
   /** A selection ref on a known route. */
-  function selectionOn(): ModelSelectionRef {
-    return {
-      current: { provider: 'deepseek-official', model: 'deepseek-chat' },
-      assembled: undefined,
-    } as unknown as ModelSelectionRef
+  function selectionOn(): Model {
+    return new WindowModel({ provider: 'deepseek-official', model: 'deepseek-chat' })
   }
 
   it('opens the editor on ctrl-k and leaves the picker mounted beneath it', async () => {
@@ -623,7 +621,7 @@ describe('the /model seam', () => {
     // Enabling with one route selected is valid, so this writes.
     stack.top()?.handleKey({ kind: 'text', text: 's' })
     await vi.waitFor(() => { expect(settings.writes.length).toBe(1) })
-    expect(selection.current).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
+    expect(selection.current()).toEqual({ provider: 'deepseek-official', model: 'deepseek-chat' })
     expect(savedDefaults).toEqual([])
     // Closing the editor reveals the picker again; escape then closes /model.
     await vi.waitFor(() => { expect(stack.depth()).toBe(1) })

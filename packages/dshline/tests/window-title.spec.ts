@@ -45,6 +45,7 @@ async function fixture(cwd: string) {
   ctx.provide('tuiStartup', { options: { cwd, resume: undefined, task: undefined } } as never)
   const exit = vi.fn()
   ctx.provide('appExit', exit)
+  ctx.provide('llm', { resolveModelInfo: async () => ({}) } as never)
   ctx.provide('tools', { get: () => undefined } as never)
   ctx.provide('commands', { list: () => [] } as never)
   ctx.provide('userQuestions', {} as never)
@@ -131,7 +132,7 @@ describe('window terminal title', () => {
     await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2))
     expect(create.mock.calls[1]?.[0].meta?.cwd).toBe('/another/workspace')
     w.draw()
-    w.selection.current = undefined
+    w.selection.select({ provider: 'probe', model: 'changed' })
     w.refreshModelInfo()
     expect(terminal.setTitle.mock.calls).toEqual([['dshline · portfolio']])
     expect(terminal.close).not.toHaveBeenCalled()

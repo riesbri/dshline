@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import type {
   SkillCandidate,
@@ -20,11 +20,18 @@ import type {
   SkillProviderControl,
   SkillProviderObservation,
 } from '@deepseek-ai/dsh-skill'
+import SessionStore, { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { SkillCatalog } from '../src/skills/catalog.ts'
 
 /** A workspace the providers below key on, so a wrong cwd is visible. */
 const CWD = '/work/project'
+
+/** A second directory, so a committed change is distinguishable from the first. */
+const OTHER = '/work/other'
 
 /**
  * One provider candidate with the fields the registry validates.
@@ -43,6 +50,19 @@ function candidate(name: string, over: Partial<SkillCandidate> = {}): SkillCandi
     locator: name,
     ...over,
   }
+}
+
+
+/**
+ * A minimal `ctx.fs`, so the real WorkingDirectory service can be composed.
+ *
+ * `WorkingDirectory` declares `fs` as an injection and only reaches it from
+ * `ensure`/`set`; this spec drives the committed state through the real
+ * projection and the real `working-directory/change` event instead, so the
+ * filesystem is never consulted and a stub is faithful here.
+ */
+class ProbeFileSystem extends Service {
+  constructor(ctx: Context) { super(ctx, 'fs') }
 }
 
 /** A provider whose every discovery this spec drives by hand. */
@@ -102,9 +122,11 @@ interface Harness {
  * @param scope - the viewing scope.
  * @returns the catalog and its teardown.
  */
-function install(ctx: Context, scope: object = {}): Harness {
+function install(ctx: Context, scope: object = {}, session = Session.create(SessionId('skill-catalog-test'), undefined, {
+  version: SESSION_FORMAT_VERSION, id: SessionId('skill-catalog-test'), createdAt: 0, cwd: CWD, isSeeded: false,
+})): Harness {
   let changes = 0
-  const catalog = new SkillCatalog({ ctx, scope, cwd: CWD, changed: () => { changes += 1 } })
+  const catalog = new SkillCatalog({ ctx, scope, session, cwd: CWD, changed: () => { changes += 1 } })
   const stop = catalog.install()
   return { catalog, changes: () => changes, dispose: stop }
 }
@@ -121,6 +143,45 @@ async function settle(): Promise<void> {
     await new Promise<void>(resolve => { setTimeout(resolve, 0) })
   }
 }
+
+
+describe('the committed execution directory', () => {
+  it('re-resolves providers from the working directory and follows a native change', async () => {
+    // The migration this covers: skill discovery reads the SESSION's committed
+    // working directory through `ctx.get('workingDirectory')`, not the header's
+    // original project, and re-resolves when Harness commits a change. Both
+    // halves are real here — the store, the projection registry, and the
+    // WorkingDirectory service are the adopted packages, and the change is a
+    // real `working-directory/change` append rather than a synthetic callback.
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ProbeFileSystem)
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: CWD })
+    const provider = driven()
+    provider.answer = () => [candidate('review-pr')]
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(provider.plugin)
+
+    const session = ctx.sessions.create()
+    const { catalog, dispose } = install(ctx, {}, session)
+    try {
+      await settle()
+      // The header carries no cwd, so the service's own committed default is
+      // what the provider must be asked about.
+      expect(provider.seen).toEqual([CWD])
+
+      session.append('working-directory/change', { cwd: OTHER })
+      await settle()
+      // The change is observed through the projection, and the catalog must not
+      // keep serving a reading taken in the previous directory.
+      expect(provider.seen.at(-1)).toBe(OTHER)
+    } finally {
+      dispose()
+    }
+  })
+})
 
 describe('the registry lifecycle', () => {
   it('reports unavailable while no registry is mounted, and follows a late mount', async () => {

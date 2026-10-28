@@ -15,6 +15,7 @@
  * scheduler does. So "the reader saw the reply once" is a claim about cells.
  * @module dshline/tests/assistant-stream
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context as RealContext } from '@deepseek-ai/cordis'
@@ -77,7 +78,7 @@ async function attach(reasoningVisible = true): Promise<Attached> {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: undefined, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: {
