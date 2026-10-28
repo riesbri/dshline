@@ -77,7 +77,6 @@ const EXPECTED_DISABLED = [
   'command-compact',
   'tool-result-pruner',
   'tool-subagent-control',
-  'tool-subagent-list-agents',
   'tool-subagent',
   'tool-subagent-fork',
   'tool-workflow',

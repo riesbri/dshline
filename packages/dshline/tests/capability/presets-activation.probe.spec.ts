@@ -158,6 +158,10 @@ describe('shipped preset declarations activate', () => {
     ]) {
       expect(names, `standard must compose ${name}`).toContain(name)
     }
+    // Discovery is registered by the control plugin itself in this generation;
+    // its old subpath now exports a helper, not an independently loadable plugin.
+    expect(names).toContain('@deepseek-ai/dsh-tool-subagent-control')
+    expect(names).not.toContain('@deepseek-ai/dsh-tool-subagent-control/list-agents')
     // The optional delegation providers stay OFF by default, each as its own
     // row so a profile can enable one without editing the other.
     const byName = new Map(rows.map(row => [row.name, row.id]))
