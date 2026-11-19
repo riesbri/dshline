@@ -859,10 +859,7 @@ Changed files
 
 **`standard` 预设还自带 DeepSeek 自己的技能。** 除了你自己写的那些，`standard` 还暴露来自已安装的 `@deepseek-ai/dsh-agent-preset` 包本身的第一方技能：
 
-- `agent-experience` —— 编写或修改面向模型的工具定义，以及设计技能、上下文加载与多步骤工作流，让信息易于发现、上下文得到高效利用
-- `cordis-composition-reference` —— Cordis bundle patch 与 agent preset 的方言，以及每个可安装插件包提供什么
-- `editing-cordis-compositions` —— 创建、修改与校验一个 preset
-- `cordis-plugin-development` —— 在本配置文件中添加、启用、禁用或配置插件、bundle、工具、页面或 MCP 连接
+- `dsh-doc` —— 查阅已安装 Harness 的文档，以及使用其插件、bundle、预设、工具和技能
 
 它们就是普通的 Harness 技能，文件从已安装的包中读取，绝不会被复制进本界面，因此改写或新增的技能会随下一次 Harness 发布到来，而不是随本界面的更新到来。
 

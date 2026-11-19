@@ -78,7 +78,7 @@ async function harness(): Promise<{ ctx: Context; child: Session }> {
 function work(ctx: Context, child: Session, options: Agent['options'] = {}): {
   readonly projection: HarnessWork
   readonly agent: Agent
-  readonly start: (info: SubagentRunInfo) => void
+  readonly start: () => void
 } {
   const childAgent = { status: 'running', options, session: child } as unknown as Agent
   const parent = { session: ctx.sessions.create(), ctx } as unknown as Agent
@@ -98,7 +98,7 @@ function work(ctx: Context, child: Session, options: Agent['options'] = {}): {
   return {
     projection,
     agent: childAgent,
-    start: info => { started?.(info) },
+    start: () => { started?.(edge(parent.session, child)) },
   }
 }
 
@@ -121,8 +121,8 @@ function reportUsage(session: Session, turn: number, usage: TokenUsage): void {
 }
 
 /** The lifecycle edge for a local child of the exact session under test. */
-function edge(child: Session): SubagentRunInfo {
-  return { runId: 'run-1' as SubagentRunInfo['runId'], provider: 'spawn', id: child.id, local: true }
+function edge(parent: Session, child: Session): SubagentRunInfo {
+  return { runId: 'run-1' as SubagentRunInfo['runId'], provider: 'spawn', id: child.id, parentSessionId: parent.id, local: true }
 }
 
 /**
@@ -179,7 +179,7 @@ describe('capability: subagent telemetry projections', () => {
     const { ctx, child } = await harness()
     try {
       const { projection, start } = work(ctx, child)
-      start(edge(child))
+      start()
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
         mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
@@ -219,7 +219,7 @@ describe('capability: subagent telemetry projections', () => {
     const { ctx, child } = await harness()
     try {
       const { projection, start } = work(ctx, child)
-      start(edge(child))
+      start()
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
         mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
@@ -248,7 +248,7 @@ describe('capability: subagent telemetry projections', () => {
     const { ctx, child } = await harness()
     try {
       const { projection, start } = work(ctx, child)
-      start(edge(child))
+      start()
       // A fork seed can carry an ancestor's descriptor AND completed turns
       // under it. Every descriptor resets the accumulation, so the child's own
       // descriptor is its authoritative timing origin.
@@ -279,7 +279,7 @@ describe('capability: subagent telemetry projections', () => {
     const { ctx, child } = await harness()
     try {
       const { projection, start } = work(ctx, child)
-      start(edge(child))
+      start()
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
         mode: 'continuable', provider: 'spawn', label: 'Fix OAuth flow',
       }))
@@ -324,7 +324,7 @@ describe('capability: subagent telemetry projections', () => {
       expect(child.inheritedEventCount).toBe(seed.length)
 
       const { projection, start } = work(ctx, child)
-      start(edge(child))
+      start()
       child.append('subagent/descriptor', snapshotSubagentDescriptor({
         mode: 'continuable', provider: 'fork', label: 'Fix OAuth flow',
       }))
@@ -356,7 +356,7 @@ describe('capability: subagent telemetry projections', () => {
     const { ctx, child } = await harness()
     try {
       const { projection, start } = work(ctx, child, { provider: 'created-with', model: 'created-model' })
-      start(edge(child))
+      start()
       // Before any request, creation-time options are all the child has.
       expect(projection.snapshot().subagents[0]?.route)
         .toEqual({ provider: 'created-with', model: 'created-model' })

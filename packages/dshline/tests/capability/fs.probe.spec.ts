@@ -184,6 +184,18 @@ class MemoryFileSystem extends FileSystem {
     throw new Error('capability probe: the drafting path never writes')
   }
 
+  override async patchText(): Promise<never> {
+    throw new Error('capability probe: the drafting path never patches')
+  }
+
+  override async deleteFile(): Promise<never> {
+    throw new Error('capability probe: the drafting path never deletes')
+  }
+
+  override async moveFile(): Promise<never> {
+    throw new Error('capability probe: the drafting path never moves files')
+  }
+
   override async editText(_target: FsTarget, _edit: FsEditRequest): Promise<never> {
     throw new Error('capability probe: the drafting path never edits')
   }

@@ -10,8 +10,8 @@
  *
  * It is deliberately not a `Pick` of the whole runtime: `listDescendants` is
  * absent because this PR browses direct children only, and `interrupt` is
- * absent because the durable view must not offer it — `listChildren().activity`
- * is session-store residency, not proof a turn is executing, so a durable
+ * absent because the durable view must not offer it — session-store
+ * residency is not proof a turn is executing, so a durable
  * inspector cannot tell a real cancellation from Harness's accepted no-op.
  * Interrupt stays on `/work`, where an open lifecycle epoch is the premise.
  *
@@ -29,12 +29,12 @@ import type { SubagentRuntime } from '@deepseek-ai/dsh-subagent'
 /**
  * The human-authoritative subset of `ctx.subagents` a terminal may call.
  *
- * `listChildren` is the durable direct-child discovery; `prompt` is Harness's
- * browser/human control operation, which owns direct-parent authorization,
+ * `prompt` is Harness's browser/human control operation, which owns
+ * target-session authorization,
  * continuable-child validation, Queue versus Steer scheduling, human
  * provenance, cold materialization, and the accepted `MessageId` receipt.
  */
-export type HumanSubagentSeam = Pick<SubagentRuntime, 'listChildren' | 'prompt'>
+export type HumanSubagentSeam = Pick<SubagentRuntime, 'prompt'>
 
 /**
  * The bounded session reads the conversation inspector performs.

@@ -1418,14 +1418,7 @@ type the line that invokes one.
 you have written yourself, `standard` exposes the first-party skills that come
 from the installed `@deepseek-ai/dsh-agent-preset` package itself:
 
-- `agent-experience` — writing or changing model-facing tool definitions and
-  designing skills, context loading, and multi-step workflows for discoverability
-  and efficient context use
-- `cordis-composition-reference` — the Cordis bundle-patch and agent-preset
-  dialect, and what each installable plugin package provides
-- `editing-cordis-compositions` — creating, changing, and validating a preset
-- `cordis-plugin-development` — adding, enabling, disabling, or configuring a
-  plugin, bundle, tool, page, or MCP connection in this profile
+- `dsh-doc` — finding documentation for the installed Harness and working with its plugins, bundles, presets, tools, and skills
 
 They are ordinary Harness skills whose files are read from the installed
 package and never copied into this interface, so reworded or additional skills

@@ -596,7 +596,7 @@ describe('generic Harness Work capability projection', () => {
     expect(row.residency).toBeUndefined()
     expect(row.hasChildren).toBeUndefined()
     expect(work.interruptSubagent(row).kind).toBe('requested')
-    expect(calls).toEqual([[SessionId('child'), { kind: 'user', parentSessionId: agent.session.id }]])
+    expect(calls).toEqual([[SessionId('child'), { kind: 'user' }]])
     work.dispose()
   })
 
@@ -748,7 +748,7 @@ describe('generic Harness Work capability projection', () => {
     const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
     expect(work.interruptSubagent(subagentItem({ id: 'child', interruptible: true }))).toEqual(INTERRUPT_REQUESTED)
     // The authority is the exact parent SESSION, not a loose provider name.
-    expect(calls).toEqual([['child', { kind: 'user', parentSessionId: ROOT }]])
+    expect(calls).toEqual([['child', { kind: 'user' }]])
     expect(work.interruptSubagent(subagentItem({ id: 'one-shot', interruptible: false }))).toEqual({
       kind: 'unsupported', message: 'This subagent cannot be interrupted here.',
     })

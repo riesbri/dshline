@@ -388,7 +388,7 @@ export class HarnessWork {
         return { kind: 'unsupported', message: 'This subagent cannot be interrupted here.' }
       }
       subagents.interrupt(item.id as Parameters<SubagentRuntime['interrupt']>[0], {
-        kind: 'user', parentSessionId: agent.session.id,
+        kind: 'user',
       })
       this.capabilities.invalidate()
       return { kind: 'requested', message: 'Interrupt requested.' }

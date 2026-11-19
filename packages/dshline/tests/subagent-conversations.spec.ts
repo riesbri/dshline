@@ -1063,9 +1063,7 @@ describe('subagent conversation presenter', () => {
     slots.top()?.handleKey(key('enter'))
     const call = subagents.promptCalls[0]
     expect(call?.request).toMatchObject({
-      parentSessionId: 'parent',
       childSessionId: 'c',
-      mode: 'continuable',
       delivery: 'queue',
       content: [{ type: 'text', text: 'hi' }],
     })
@@ -1536,7 +1534,6 @@ describe('subagent conversation presenter', () => {
     slots.top()?.handleKey(key('enter'))
     expect(subagents.promptCalls[0]?.request).toMatchObject({
       childSessionId: 'c',
-      mode: 'continuable',
       delivery: 'queue',
       content: [{ type: 'text', text: 'h' }],
     })

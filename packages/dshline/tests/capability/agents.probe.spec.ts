@@ -56,7 +56,7 @@ function localAgent(ctx: Context, id: SessionId): Agent {
  */
 async function localHandle(ctx: Context, id: SessionId, source: SessionStartSource): Promise<AgentHandle> {
   const agent = localAgent(ctx, id)
-  const detach = ctx.agents.enter(agent, undefined)
+  const detach = ctx.agents.enter(agent)
   await ctx.agents.announce(agent, source)
   return {
     agent,
@@ -77,7 +77,7 @@ describe('capability: agents', () => {
     const ctx = await mounted()
     const id = SessionId('capability-probe-entered')
     const agent = localAgent(ctx, id)
-    const detach = ctx.agents.enter(agent, undefined)
+    const detach = ctx.agents.enter(agent)
     try {
       expect(ctx.agents.get(id)).toBe(agent)
       // Publication is an awaited edge: `announce` runs serial `agent/created`

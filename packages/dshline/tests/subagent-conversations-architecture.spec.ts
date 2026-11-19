@@ -2,7 +2,7 @@
  * Architectural guards for the human subagent-conversation path.
  *
  * The load-bearing guarantee is the TYPE: `HumanSubagentSeam` is a `Pick` of
- * `SubagentRuntime` with only `listChildren` and `prompt`, so a call to the
+ * `SubagentRuntime` with only `prompt`, so a call to the
  * model-authored `sendMessage` is a `pnpm typecheck` failure in `src`. These
  * tests are the anti-cast backstop and the packaging check that the seam stays
  * optional and provider-neutral.

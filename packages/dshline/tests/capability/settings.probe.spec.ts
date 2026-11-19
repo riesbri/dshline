@@ -125,8 +125,6 @@ async function mounted(options: { runtime?: typeof Probe | typeof Inert | typeof
   const row = await ctx.plugin(runtime, patch)
   // A row's resolved config is where the service reads the values in force from,
   // so the editor keeps it in step with the raw section it persists.
-  let resolved: Record<string, unknown> = { ...patch }
-  row.config = resolved
   const entry: ProfileEntry = { id: NS, options: { id: NS, name: 'probe-llm', config: patch }, fiber: row }
   const persisted: Record<string, unknown>[] = []
   const editor: ConfigurationEditor = {
@@ -136,8 +134,7 @@ async function mounted(options: { runtime?: typeof Probe | typeof Inert | typeof
     edit: async (_row, change) => {
       const next = change(entry.options.config, {})
       entry.options.config = next
-      resolved = { ...resolved, ...next }
-      row.config = resolved
+      await row.update(next, true)
       persisted.push(next)
     },
   }

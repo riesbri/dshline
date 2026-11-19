@@ -645,10 +645,10 @@ Harness operation it calls. `SubagentRuntime.sendMessage(sender: Agent, …)` is
 **model-authored** adjacent-Agent messaging: it takes an exact live `Agent`
 sender and stamps `agent-message` provenance, so a terminal calling it would
 impersonate the parent Agent. The human path is `ctx.subagents.prompt`, which
-carries a durable parent/child address, a client-minted request identity, human
+carries a durable child address, a client-minted request identity, human
 `kind: 'user'` provenance, the `queue`/`steer` choice, cold materialization, and
 an accepted `MessageId` receipt. dshline's `HumanSubagentSeam` is a `Pick` of
-`SubagentRuntime` with only `listChildren` and `prompt`, so reaching for
+`SubagentRuntime` with only `prompt`, so reaching for
 `sendMessage` fails type-check rather than shipping; a comment- and string-aware
 source scan backstops that against a cast.
 
@@ -657,7 +657,7 @@ Harness defines: a queued later turn, or the nearest step (starting a turn when
 the child is idle). The terminal inserts no optimistic row — the message appears
 in the child's transcript only when its own session log records it.
 
-The durable inspector deliberately offers **no interrupt**. `listChildren()`
+The durable inspector deliberately offers **no interrupt**. The catalog
 reports session-store residency, not proof that a turn is executing, and
 Harness's `interrupt()` treats an absent or already-settled target as an
 accepted no-op; offering the action here could therefore claim a cancellation

@@ -80,7 +80,7 @@ export type SubagentCatalogSeam = HumanSubagentSeam & Pick<SubagentRuntime, 'lis
 export interface SubagentsPresenterDeps {
   /** Live-region registry that owns the overlay stack. */
   readonly slots: Pick<TuiSlots, 'pushOverlay'>
-  /** The attached session, which is the durable direct parent Harness authorizes. */
+  /** The attached session whose direct children the presenter lists. */
   readonly parentSessionId: SessionId
   /** Redraw after a read or action changes presentation state. */
   readonly invalidate: () => void
@@ -267,7 +267,6 @@ export function createSubagentsPresenter(deps: SubagentsPresenterDeps): Subagent
       childLabel: subagentRowLabel(state.child),
       delivery,
       submit: (text, signal) => deliverHumanPrompt(deps.subagents, {
-        parentSessionId: deps.parentSessionId,
         childId: state.child.id as SessionId,
         text,
         delivery,

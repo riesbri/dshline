@@ -6,7 +6,7 @@
  * `SubagentRuntime.sendMessage`: `sendMessage` takes an exact live `Agent`
  * sender and stamps `agent-message` provenance, so calling it here would
  * impersonate the parent Agent and record the human's words as the model's.
- * `prompt` instead carries a durable parent/child address, a client-minted
+ * `prompt` instead carries the durable child address, a client-minted
  * request identity, human `kind: 'user'` provenance, the Queue versus Steer
  * choice, cold materialization, and the accepted `MessageId` receipt.
  *
@@ -42,8 +42,6 @@ export type SubagentPromptOutcome =
 
 /** One human follow-up addressed to a durable direct child. */
 export interface HumanPromptInput {
-  /** The attached session, which is the durable direct parent Harness authorizes. */
-  readonly parentSessionId: SessionId
   /** The durable direct child the message is addressed to. */
   readonly childId: SessionId
   /** The typed message body. Text-only for this PR. */
@@ -72,9 +70,7 @@ export async function deliverHumanPrompt(
   try {
     const receipt = await seam.prompt({
       requestId: randomUUID() as SubagentPromptRequestId,
-      parentSessionId: input.parentSessionId,
       childSessionId: input.childId,
-      mode: 'continuable',
       delivery: input.delivery,
       content: [{ type: 'text', text: input.text }],
     }, signal)

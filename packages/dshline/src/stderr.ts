@@ -42,8 +42,8 @@
  * spawned. Nothing here branches on a provider either: what is contained is a
  * WRITE SHAPE, not a vendor.
  *
- * Reconfirmed against `0.2.2-alpha.2` at revision
- * `f3803c96974ad4a94195fb97e5c637e9c2a3afe3`:
+ * Reconfirmed against `0.2.2-rc.5` at revision
+ * `9c2670d3bce5275e0d1610272958121af87787bb`:
  * `packages/subagent/subagent-codex/src/run.ts:261` still calls
  * `writeFileSync(process.stderr.fd, bytes)`; the forwarding body is unchanged.
  * The subprocess seam still offers `pipe | inherit | collect`, not a Host-owned

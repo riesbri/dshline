@@ -81,7 +81,7 @@ describe('capability: subagents', () => {
     try {
       await ctx.plugin(SessionStore)
       await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(AgentRegistry)
+      await ctx.plugin(AgentRegistry)
       await ctx.plugin(ProbeWorkingDirectory)
       await ctx.plugin(SubagentRuntime)
       // The human prompt operation is a public instance method on the same
@@ -106,7 +106,8 @@ describe('capability: subagents', () => {
       await expect(ctx.subagents.startActivation({
         provider: PROBE_PROVIDER_NAME,
         label: 'unauthorized probe',
-        request: { parent: { ...parent }, prompt: [{ type: 'text', text: 'probe' }] },
+        parent: { ...parent },
+        prompt: [{ type: 'text', text: 'probe' }],
         signal: controller.signal,
         delivery: 'caller',
       })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
@@ -115,7 +116,8 @@ describe('capability: subagents', () => {
       const run = await ctx.subagents.startActivation({
         provider: PROBE_PROVIDER_NAME,
         label: 'capability probe',
-        request: { parent, prompt: [{ type: 'text', text: 'probe' }] },
+        parent,
+        prompt: [{ type: 'text', text: 'probe' }],
         signal: controller.signal,
         delivery: 'caller',
       })
