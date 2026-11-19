@@ -103,6 +103,36 @@ describe('redacting what the child echoed back', () => {
   it('leaves ordinary output untouched', () => {
     expect(redactOutputLine('Progress: resolved 12, added 3')).toBe('Progress: resolved 12, added 3')
   })
+
+  it('withholds every URL query and fragment, not only known credential names', () => {
+    for (const suffix of ['?auth=private-sentinel', '?X-Amz-Signature=private-sentinel', '?tenant=one&sig=private-sentinel#fragment', '#private-sentinel']) {
+      const shown = redactOutputLine(`GET https://example.invalid/package.tgz${suffix} failed`)
+      expect(shown, suffix).not.toContain('private-sentinel')
+      expect(shown, suffix).toContain('<redacted>')
+      expect(shown, suffix).toContain('example.invalid/package.tgz')
+    }
+  })
+
+  it.each([
+    'https://example.invalid/p.tgz?auth=private-sentinel',
+    'https://example.invalid/p.tgz?auth=<private-sentinel>',
+    'https://example.invalid/p.tgz?auth=>private-sentinel',
+    'https://example.invalid/p.tgz#<private-sentinel>',
+    'https://user:<private-sentinel>@example.invalid/p.tgz',
+  ])('redacts echoed URL %s in both the headline and output without changing argv', async spec => {
+    const outcome = await runProfileOperation({
+      profile: 'dshline',
+      resolved: resolveOperation('add', spec),
+      launcher: FOUND,
+      run: async (_launcher, args) => {
+        expect(args.at(-1)).toBe(spec)
+        return { code: 1, output: `ERR_PNPM_FETCH_401 GET ${spec}\n` }
+      },
+    })
+    expect(JSON.stringify(outcome)).not.toContain('private-sentinel')
+    expect(outcome.message).toContain('ERR_PNPM_FETCH_401')
+    expect(outcome.output).toHaveLength(1)
+  })
 })
 
 describe('running one operation', () => {
@@ -334,6 +364,14 @@ describe('the timeout is a bound, not a request', () => {
     expect(result.code).toBe(0)
     expect(result.output.length).toBeLessThanOrEqual(16_384)
   }, 25_000)
+
+  it('does not display a signed URL suffix after its prefix left the retained window', async () => {
+    const source = "process.stdout.write('https://example.invalid/' + 'x'.repeat(20000) + '?auth=private-sentinel\\ncomplete diagnostic\\n')"
+    const result = await spawnCaptured(processContext.subprocess, nodeProgram(source), [], { timeoutMs: 5_000 })
+    expect(result.code).toBe(0)
+    expect(result.output).toBe('complete diagnostic\n')
+    expect(redactOutputLine(result.output)).not.toContain('private-sentinel')
+  })
 })
 
 describe('the environment the launcher child runs with', () => {

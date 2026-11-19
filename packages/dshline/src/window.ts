@@ -200,14 +200,10 @@ export interface Window {
   /**
    * Repaint the live region synchronously, outside the turn's coalescing.
    *
-   * The one frame that cannot wait for the check phase: a resumed session's
-   * transcript replay takes one stable snapshot of the Session it already owns
-   * and then projects the whole historical log in one event-loop block. That
-   * projection is synchronous but can be slow on a large transcript, so a
-   * coalesced paint scheduled around it has no guaranteed slot of its own. This
-   * repaint is issued at the moment the replay begins — the composer and status
-   * are on screen before the projection, and stay behind the flood when it
-   * commits.
+   * The frame that must precede the first replay batch: a scheduled repaint
+   * has no guaranteed slot before synchronous projection starts. Later batches
+   * yield to input and ordinary paints; this first one puts the composer and
+   * replay status on screen before historical output begins.
    */
   readonly paintNow: () => void
   /** Write finished rows into the terminal's own scrollback. */
