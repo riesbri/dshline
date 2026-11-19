@@ -17,7 +17,7 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
-import SubagentRuntime, { type SubagentProvider, type SubagentResult } from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime, { SubagentRunId, type SubagentProvider, type SubagentResult } from '@deepseek-ai/dsh-subagent'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHarnessWork } from '../../src/work/index.ts'
 
@@ -101,6 +101,17 @@ describe('capability: subagents', () => {
       const controller = new AbortController()
       const work = createHarnessWork(ctx, parent, () => {})
       expect(work.snapshot()).toEqual({ available: true, workflows: [], subagents: [], jobs: [] })
+
+      // rc.5 also emits nested start events on the tree root. Work must
+      // neither list nor expose interrupt for somebody else's direct child.
+      await parent.ctx.serial('subagent/start', {
+        runId: SubagentRunId('nested'),
+        parentSessionId: SessionId('nested-parent'),
+        id: SessionId('nested-child'),
+        provider: PROBE_PROVIDER_NAME,
+        local: false,
+      })
+      expect(work.snapshot().subagents).toEqual([])
 
       // A lookalike with the same durable id is not the live host owner.
       await expect(ctx.subagents.startActivation({

@@ -100,7 +100,7 @@ interface DiscoveredSubagent {
  */
 interface LiveSubagent {
   readonly runId: string
-  /** Durable child session id, stable across Activations. */
+  /** Durable child session id for a local run, or execution id for an external run. */
   readonly id: string
   readonly provider: string
   /** Snapshot of whether `SubagentRun.localAgent` was present at start. */
@@ -147,6 +147,8 @@ export interface WorkCapabilities {
   readonly projections?: Pick<SessionProjectionRegistry, 'snapshot'>
   /** Ask the scoped parent context for lifecycle starts. */
   readonly onSubagentStart?: (listener: (info: SubagentRunInfo) => void) => () => void
+  /** Observe direct-child catalog changes for the attached session. */
+  readonly onSubagentCatalogChange?: (listener: () => void) => () => void
   /** Ask the scoped parent context for lifecycle ends. */
   readonly onSubagentEnd?: (listener: (info: SubagentRunEndInfo) => void) => () => void
   /**
@@ -262,6 +264,9 @@ export class HarnessWork {
         this.refreshSubagents()
         capabilities.invalidate()
       }))
+      if (capabilities.onSubagentCatalogChange !== undefined) {
+        this.disposers.push(capabilities.onSubagentCatalogChange(() => this.refreshSubagents()))
+      }
       // A local child can publish after its lifecycle start reaches this UI
       // (the start edge and Agent publication are separate events). Attach on
       // `agent/created` instead of polling; a run whose child never appears
@@ -377,7 +382,7 @@ export class HarnessWork {
    * @returns the outcome as one short user-facing sentence.
    */
   interruptSubagent(item: SubagentWorkItem | WorkflowWorkItem): WorkInterruptResult {
-    const { agent, subagents } = this.capabilities
+    const { subagents } = this.capabilities
     // A workflow run handle reaches only its caller, so there is no authority
     // here to cancel one from the terminal.
     if (item.source === 'workflow') return { kind: 'unsupported', message: 'Workflow runs cannot be stopped from Work.' }
@@ -605,12 +610,12 @@ export class HarnessWork {
     // (`unsupported`). None of the three yields a mode, a residency, or a
     // lineage, and none is recoverable by choosing one, so the row keeps its
     // lifecycle edge alone — which is also what keeps the two controls honest,
-    // since interrupt requires a PROVEN continuable or external descriptor and
+    // since interrupt requires a proven continuable or external descriptor and
     // the durable-conversation target refuses a session whose descriptor the
     // catalog would not return.
     if (entry.kind === 'diagnostic') return
     // A deeper row is some other parent's branch. The lifecycle edges Work
-    // observes are scoped to the direct delegating parent, so a grandchild has
+    // observes are filtered to the direct delegating parent, so a grandchild has
     // no row here for a deeper row to enrich.
     if (entry.depth !== DIRECT_CHILD_DEPTH) return
     if (entry.mode === 'external') {
@@ -898,10 +903,16 @@ export function createHarnessWork(ctx: Context, agent: Agent, invalidate: () => 
       ? {}
       : {
         subagents,
-        // Register on the parent agent's context: Harness scopes these lifecycle
-        // edges by the delegating parent, so another session cannot leak into this UI.
-        onSubagentStart: (listener: (info: SubagentRunInfo) => void) => agent.ctx.on('subagent/start', listener),
+        // Harness broadcasts lifecycle edges to the tree root too. Work only
+        // owns rows and controls for direct children of the attached session.
+        onSubagentStart: (listener: (info: SubagentRunInfo) => void) => agent.ctx.on('subagent/start', info => {
+          if (info.parentSessionId === agent.session.id) listener(info)
+        }),
         onSubagentEnd: (listener: (info: SubagentRunEndInfo) => void) => agent.ctx.on('subagent/end', listener),
+        // An external start can arrive before Harness appends its catalog row.
+        onSubagentCatalogChange: (listener: () => void) => ctx.on('session/event', (session, event) => {
+          if (session === agent.session && event.type === 'subagent/catalog') listener()
+        }),
       },
   })
 }

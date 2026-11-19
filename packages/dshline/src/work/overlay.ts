@@ -1043,7 +1043,7 @@ function subagentRows(
   }
   rows.push(blank())
   if (item.interruptible) rows.push(fact('interrupt', 'available', width))
-  rows.push(fact('session', item.id, width))
+  rows.push(fact(item.local ? 'session' : 'execution', item.id, width))
   if (item.agentStatus !== undefined) rows.push(fact('agent status', item.agentStatus, width))
   if (item.residency !== undefined) {
     rows.push(fact('residency', item.residency === 'resident' ? 'live session' : 'stored session', width))

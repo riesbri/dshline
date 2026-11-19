@@ -1635,7 +1635,7 @@ registered job kind gains the control at once, from a detail stage and behind a
 two-press confirmation bound to the job's own identity. dshline claims no
 delivery, suppresses no notice, and never enters the model's tool path.
 
-`ctx.subagents.interrupt(..., { kind: 'user', parentSessionId })` remains the
+`ctx.subagents.interrupt(..., { kind: 'user' })` remains the
 other half of this section: the seam explicitly models human authority to stop a
 live continuable or external child. Continuable interruption preserves the
 inbox and descendants; external interruption ends the activation. Both remain
