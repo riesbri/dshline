@@ -24,15 +24,15 @@ packages:
 #
 # Remove this once an ordinary update resolves 1.2.2 on its own.
 
-# Vite 7.3.7 and launch-editor 2.14.2 fix the October 2026 development-tool
-# advisories. They are transitive through Vitest and Changesets respectively;
-# updating those parents alone left the vulnerable resolutions unchanged. Keep
-# these narrow pins until ordinary parent resolution no longer needs them.
-
+# Keep these patched transitive versions until their parents resolve safe versions
+# on their own. The audit covers the development graph as well as shipped code.
 overrides:
-  'source-map-js': '1.2.2'
-  'vite': '7.3.7'
+  'fast-uri': '3.1.9'
   'launch-editor': '2.14.2'
+  'source-map-js': '1.2.2'
+  'undici': '8.12.2'
+  'vite': '7.3.7'
+  'zod': '4.6.6'
 
 # esbuild arrives transitively through vitest and links a platform binary from a
 # postinstall script. Approving it here keeps a fresh clone's first install silent
