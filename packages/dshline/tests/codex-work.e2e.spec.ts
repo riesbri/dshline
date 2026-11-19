@@ -1,12 +1,15 @@
 /** Opt-in real-product proof that generic Work observes a Codex delegation. */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { Context, Service } from '@deepseek-ai/cordis'
+import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { createScope, scopeTarget, type Scope } from '@deepseek-ai/dsh-scope'
-import SubagentRuntime, { type SubagentRun } from '@deepseek-ai/dsh-subagent'
+import SubagentRuntime, { type SubagentActivation, SubagentRunId } from '@deepseek-ai/dsh-subagent'
 import * as Codex from '@deepseek-ai/dsh-subagent-codex'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -15,6 +18,33 @@ import { stripAnsi } from '@dshline/renderer'
 import { createHarnessWork } from '../src/work/index.ts'
 import { createWorkOverlay } from '../src/work/overlay.ts'
 import type { WorkSnapshot } from '../src/work/model.ts'
+
+/** Directory selection for the temporary workspace; no parent model is driven. */
+class AcceptanceWorkingDirectory extends Service {
+  constructor(ctx: Context) { super(ctx, 'workingDirectory') }
+  async ensure(agent: Agent, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted()
+    const cwd = agent.session.header.cwd
+    if (cwd === undefined) throw new Error('acceptance parent must own a workspace')
+    return cwd
+  }
+}
+
+/** Fully typed, non-driving parent over the real host-owned Session lifecycle. */
+function acceptanceParent(ctx: Context, id: SessionId, cwd: string): Agent {
+  const session = ctx.sessions.create(id, { meta: { cwd } })
+  const inbox = createInboxStub()
+  return {
+    id: session.id, session, ctx, options: {}, status: 'idle', inbox,
+    send: (message, target) => { inbox.append(target, message) },
+    followup: message => { inbox.append('next-turn', message) },
+    steer: message => { inbox.append('next-step', message) },
+    inject: message => { inbox.append('next-step', message) },
+    cancel: (_cause, options) => { if (!options?.keepInbox) inbox.clear() },
+    whenIdle: () => Promise.resolve(),
+    runMaintenance: task => task(new AbortController().signal),
+  }
+}
 
 /** Environment gate that keeps credentials and a live Codex run out of normal CI. */
 const REAL_CODEX_ENV = 'DSHLINE_CODEX_E2E'
@@ -64,10 +94,14 @@ describe.skipIf(!runRealCodex)('real Codex through generic Harness Work', () => 
     const handles: SubprocessHandle[] = []
     let parentScope: Scope | undefined
     let otherScope: Scope | undefined
-    let run: SubagentRun | undefined
+    let run: SubagentActivation | undefined
     let work: ReturnType<typeof createHarnessWork> | undefined
     let activeAtStart: WorkSnapshot | undefined
     try {
+      await ctx.plugin(SessionStore)
+      await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
+      await ctx.plugin(AcceptanceWorkingDirectory)
       await ctx.plugin(SubagentRuntime)
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(Codex, { permissionMode: 'never' })
@@ -80,18 +114,16 @@ describe.skipIf(!runRealCodex)('real Codex through generic Harness Work', () => 
 
       // A real Agent owns a scope minted with itself as the dispatch key. Use
       // that same mechanism instead of an unscoped stand-in for `agent.ctx`.
-      const parent = {
-        id: 'dshline-codex-parent',
-        session: { id: 'dshline-codex-parent', header: { cwd: workspace } },
-      } as unknown as Agent
+      const parent = acceptanceParent(ctx, SessionId('dshline-codex-parent'), workspace)
       parentScope = createScope(ctx, parent)
       Object.assign(parent, { ctx: parentScope.ctx })
-      const other = {
-        id: 'dshline-other-parent',
-        session: { id: 'dshline-other-parent', header: { cwd: workspace } },
-      } as unknown as Agent
+      await ctx.agents.register(parent)
+      expect(ctx.agents.get(parent.id)).toBe(parent)
+      const other = acceptanceParent(ctx, SessionId('dshline-other-parent'), workspace)
       otherScope = createScope(ctx, other)
       Object.assign(other, { ctx: otherScope.ctx })
+      await ctx.agents.register(other)
+      expect(ctx.agents.get(other.id)).toBe(other)
       const starts: Array<{ readonly runId: string; readonly provider: string }> = []
       const ends: Array<{ readonly runId: string; readonly provider: string }> = []
       parent.ctx.on('subagent/start', info => { starts.push({ runId: String(info.runId), provider: info.provider }) })
@@ -104,16 +136,17 @@ describe.skipIf(!runRealCodex)('real Codex through generic Harness Work', () => 
       // The service routes lifecycle by the exact delegator. This generic edge
       // must not reach the Work projection owned by the other parent scope.
       ctx.emit(scopeTarget(ctx.subagents, other), 'subagent/start', {
-        runId: 'other-run', provider: 'other-provider', id: 'other-child', local: false,
+        runId: SubagentRunId('other-run'), provider: 'other-provider', id: SessionId('other-child'), local: false,
       })
       expect(starts).toEqual([])
       expect(work.snapshot().subagents).toEqual([])
 
-      const starting = ctx.subagents.start('codex', {
+      const starting = ctx.subagents.startActivation({
+        provider: 'codex',
         label: 'dshline Work acceptance',
-        prompt: [{ type: 'text', text: `Reply with exactly ${CODEX_SENTINEL}. Do not run commands.` }],
-        parent,
+        request: { parent, prompt: [{ type: 'text', text: `Reply with exactly ${CODEX_SENTINEL}. Do not run commands.` }] },
         signal: controller.signal,
+        delivery: 'caller',
       })
       // A timeout must not leave a late rejection unobserved after the test has
       // aborted the request and disposed the process-owning service.
@@ -127,11 +160,12 @@ describe.skipIf(!runRealCodex)('real Codex through generic Harness Work', () => 
       // so this is the active generic state even if the remote turn settles
       // before the asynchronous provider start call returns to this test.
       expect(activeAtStart?.subagents).toEqual([expect.objectContaining({
-        id: String(run.id), source: 'subagent', provider: 'codex', state: 'running', interruptible: false,
+        id: String(run.childId), source: 'subagent', provider: 'codex', state: 'running', interruptible: false,
       })])
       const overlay = createWorkOverlay({
         snapshot: () => activeAtStart!,
-        interrupt: item => work!.interrupt(item),
+        interruptSubagent: item => work!.interruptSubagent(item),
+        stopJob: item => work!.stopJob(item),
         close: () => {},
         invalidate: () => {},
       })

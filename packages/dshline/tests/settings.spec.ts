@@ -78,18 +78,14 @@ const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
 /**
  * One field of the row under test.
- * @param initial - the value the row's own schema and composition resolved to.
+ * @param reference - the activated row's actual volatile reference.
  * @returns the reference and the in-place write.
  */
-function field<T>(initial: VolatileSnapshot<T>): Field<T> {
-  let current: VolatileSnapshot<T> = initial
-  const reference: Volatile<T> = { get: () => current }
-  // Attached rather than written into the literal: `Volatile` declares the
-  // reader, and the writer is the protocol's own hidden half.
-  Object.defineProperty(reference, VOLATILE_WRITE, {
-    value: (value: VolatileSnapshot<T>): void => { current = value },
-  })
-  return { reference, write: value => { current = value } }
+function field<T>(reference: Volatile<T> | undefined): Field<T> {
+  if (reference === undefined) throw new Error('expected a volatile field')
+  const write = Reflect.get(reference, VOLATILE_WRITE)
+  if (typeof write !== 'function') throw new Error('volatile field has no writer')
+  return { reference, write: value => write.call(reference, value) }
 }
 
 /**
@@ -187,7 +183,7 @@ async function mount(options: MountOptions = {}): Promise<Mounted> {
   })
 
   const composed = options.composed ?? {}
-  const row = await ctx.plugin(ROW, composed)
+  const row = await ctx.plugin(ROW, { ...composed, ...options.patch })
   // The runtime is the plugin module the fiber was created from; a null here
   // would mean the row never loaded, which the await above already rules out.
   if (row.runtime === null) throw new Error('the dshline test row mounted without a runtime')
@@ -199,21 +195,12 @@ async function mount(options: MountOptions = {}): Promise<Mounted> {
    * in the schema moves this fixture with it and the assertions below keep
    * meaning "the default this row declares".
    */
-  const declared: RowConfig = row.config
+  const declared = row.effectiveConfig as RowConfig
   const live: Fields = {
-    theme: field(declared.theme?.get() ?? FALLBACK_THEME.id),
-    busyEnter: field(declared.busyEnter?.get() ?? DEFAULT_BUSY_ENTER),
-    attentionBell: field(declared.attentionBell?.get() ?? true),
+    theme: field(declared.theme),
+    busyEnter: field(declared.busyEnter),
+    attentionBell: field(declared.attentionBell),
   }
-  // The row's resolved config IS where Harness keeps a volatile field, so
-  // pointing it at the live references is what makes the service's own
-  // `describe()` agree with what a consumer reads.
-  row.config = {
-    theme: live.theme.reference,
-    busyEnter: live.busyEnter.reference,
-    attentionBell: live.attentionBell.reference,
-  }
-
   const entry: ProfileEntry = {
     id: NS,
     options: { id: NS, name: 'dshline', config: options.patch ?? {} },
@@ -229,7 +216,6 @@ async function mount(options: MountOptions = {}): Promise<Mounted> {
    * synthesised one.
    */
   const other = await ctx.plugin(ROW, {})
-  other.config = { theme: live.theme.reference }
   const otherEntry: ProfileEntry = {
     id: OTHER_NS,
     options: { id: OTHER_NS, name: 'another-plugin', config: {} },

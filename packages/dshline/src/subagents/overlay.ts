@@ -422,6 +422,13 @@ function catalogLine(row: SubagentCatalogRow, width: number): CatalogLine {
       markRole: 'warning',
     }
   }
+  if (row.kind === 'external') {
+    return {
+      key: subagentRowKey(row),
+      text: fitFacts(subagentRowLabel(row), ['external', 'parent result only'], width - GUTTER_COLUMNS),
+      role: 'subdued',
+    }
+  }
   return {
     key: subagentRowKey(row),
     text: fitFacts(subagentRowLabel(row), subagentChildFacts(row), width - GUTTER_COLUMNS),

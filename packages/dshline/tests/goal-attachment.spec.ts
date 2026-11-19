@@ -1,4 +1,5 @@
 /** Read-only goal inspection through the real attachment and Harness registries. */
+import { WindowModel } from '../src/window-model.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
@@ -117,7 +118,7 @@ async function fixture(options: { resumed?: boolean; registered?: boolean; goals
     ctx, terminal: { columns: () => 100, rows: () => 40 }, exit: vi.fn(),
     startup: { cwd: '/scratch', task: undefined, resume: undefined },
     pricing: pricingFrom(undefined), peakHours: [], version: 'test',
-    selection: { current: undefined }, modelInfo: { inputModalities: ['text', 'image'] },
+    selection: new WindowModel(undefined), modelInfo: { inputModalities: ['text', 'image'] },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true, busyEnter: 'queue' },
     colorDepth: 0, palette: () => ({}), setPalette: () => {}, themeSettings: {},

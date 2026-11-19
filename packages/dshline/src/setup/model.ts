@@ -104,7 +104,7 @@ export interface SetupStep {
  *
  * Route registration alone is NOT the question, which is what the first
  * version of this got wrong: a registered route is only what `/model` offers
- * FROM, and a launch reaches the composer with whatever `selection.current`
+ * FROM, and a launch reaches the composer with whatever `selection.current()`
  * resolved to, which may be nothing or may name a route nothing registered.
  *
  * The selection is checked at PROVIDER granularity and no finer. Exact model

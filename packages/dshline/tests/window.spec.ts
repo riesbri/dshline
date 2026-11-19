@@ -101,22 +101,16 @@ function composing(
   facts: Facts,
 ): [Context, { readonly session: Session }] {
   const session = Session.create(SessionId('window-spec'))
-  const projections = {
-    stateOf: (target: Session, key: 'agentPreset' | 'turnBoundary'): unknown => {
-      if (target !== session) return undefined
-      if (key === 'agentPreset') return facts.presetId ?? null
-      return {
-        openTurnStartSeq: null,
-        lastStepStartSeq: null,
-        lastStepBoundary: null,
-        lastTurn: facts.started === true ? 1 : 0,
-      }
-    },
+  const owners = {
+    presetForSession: (target: Session) => target === session ? facts.presetId ?? null : null,
+    turnBoundaryOf: (target: Session) => target === session
+      ? { openTurnStartSeq: null, lastTurn: facts.started === true ? 1 : 0 }
+      : undefined,
   }
   const agentCtx = {
     get: (name: string) => {
-      if (name === 'agentPresets') return agentPresets
-      if (name === 'sessionProjections') return projections
+      if (name === 'agentPresets') return agentPresets === undefined ? undefined : Object.assign(agentPresets, { presetForSession: owners.presetForSession })
+      if (name === 'agents') return owners
       return undefined
     },
   } as unknown as Context

@@ -16,6 +16,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { Session } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-working-directory'
 // Type-only: the `ctx.skills` service merge, the `skills/change` event merge,
 // and the summary shape read below. Never a runtime import — a profile that
 // composes no skills must not have to resolve the package, and this frontend
@@ -67,7 +69,9 @@ export interface SkillCatalogSpec {
    * skill a preset's own composition contributes.
    */
   readonly scope: object
-  /** The session's workspace, for cwd-sensitive providers. */
+  /** The attached Session whose committed execution directory selects providers. */
+  readonly session: Session
+  /** Original project fallback for compositions without working-directory capability. */
   readonly cwd: string
   /** Ask the runner to redraw, and recompute anything already on screen. */
   readonly changed: () => void
@@ -113,6 +117,15 @@ export class SkillCatalog {
    * @returns a disposer that stops following and abandons work in flight.
    */
   install(): () => void {
+    const offDirectory = this.spec.ctx.on('session/event', (session, event) => {
+      if (session.id !== this.spec.session.id || event.type !== 'working-directory/change') return
+      // Last-good is meaningful within one directory, not across projects. An
+      // incomplete refresh in the new directory must not advertise the old one.
+      this.complete = undefined
+      this.partial = undefined
+      this.settled = false
+      this.invalidate()
+    })
     const fiber = this.spec.ctx.inject(['skills'], skillCtx => {
       skillCtx.effect(() => {
         this.attach(skillCtx.skills)
@@ -127,6 +140,7 @@ export class SkillCatalog {
       }, 'skills: catalog')
     })
     return () => {
+      offDirectory()
       this.disposed = true
       this.generation += 1
       this.lifetime.abort()
@@ -209,7 +223,7 @@ export class SkillCatalog {
     let observed: { skills: readonly SkillSummary[]; complete: boolean }
     try {
       observed = await service.snapshot({
-        cwd: this.spec.cwd,
+        cwd: this.spec.ctx.get('workingDirectory')?.get(this.spec.session) ?? this.spec.cwd,
         scope: this.spec.scope,
         signal: signal === undefined
           ? this.lifetime.signal
@@ -246,7 +260,7 @@ export class SkillCatalog {
    *
    * Called by `skills/change` and by the one lifecycle event that changes the
    * effective catalog without a registry mutation: re-parenting this agent's
-   * scope onto another preset's composition.
+   * scope onto another preset's composition, or changing its execution directory.
    */
   invalidate(): void {
     this.changes += 1

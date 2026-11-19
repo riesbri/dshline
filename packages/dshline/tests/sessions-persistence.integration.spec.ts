@@ -16,7 +16,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId, snapshotSessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionTitleObservationResult } from '@deepseek-ai/dsh-session-query'
 import { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
-import JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { SessionCatalog, TITLE_BATCH_SIZE } from '../src/sessions/catalog.ts'
 
 /** Let real filesystem and service microtasks settle without a timing threshold. */

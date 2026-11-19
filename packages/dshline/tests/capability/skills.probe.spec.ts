@@ -20,11 +20,12 @@
  * not part of the contract dshline consumes, and `ctx.skills.register()` plus
  * an ordinary provider exercise the same registry paths.
  */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
-import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { provideWorkingDirectoryFixture, unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
@@ -128,8 +129,13 @@ async function consumer(): Promise<{ ctx: Context; agent: Agent }> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
+  // The adopted consumer resolves the effective execution directory rather
+  // than reading the original Session header directly. Use Harness's own
+  // non-driving collaborator; discovery and directory mutations are not tested.
+  provideWorkingDirectoryFixture(ctx, CWD)
   await ctx.plugin(toolSkill)
   ctx.skills.register({
     name: 'review-pr',
@@ -268,7 +274,7 @@ describe('capability: skills · the human /name gesture', () => {
   ): Promise<PreStepDecision> {
     return await agentEvents(ctx, agent).waterfall(
       'agent/pre-step',
-      { messages, turn: 1, step: 1, signal: new AbortController().signal },
+      { messages, turn: 1, step: 1, modelSelection: { provider: 'probe', model: 'probe' }, signal: new AbortController().signal },
       async () => ({ kind: 'enter' as const, messages }),
     )
   }

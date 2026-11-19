@@ -81,7 +81,7 @@ pnpm typecheck
 pnpm security     # the dependency and workflow checks that CI runs
 ```
 
-All of these must pass. CI runs them on Node 22.19, 24, and 26, plus the
+All of these must pass. CI runs them on Node 24.9, 24, and 26, plus the
 Harness target lane (the adopted upstream revision in `HARNESS_TARGET`) and
 the Harness published consumer path, and every check is required before a
 merge.

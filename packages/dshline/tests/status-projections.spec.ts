@@ -16,6 +16,7 @@
  * fails loudly instead of quietly returning a value nobody would have drawn.
  * @module dshline/tests/status-projections
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -160,7 +161,7 @@ async function fixture(cut: Cut): Promise<Fixture> {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: 1_000_000, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },

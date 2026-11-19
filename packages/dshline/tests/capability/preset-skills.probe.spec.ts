@@ -58,12 +58,7 @@ import type { SkillView } from '../../src/skills/model.ts'
 const JS_EXPR_TAG = { tag: 'tag:yaml.org,2002:js', resolve: (source: string) => source }
 
 /** The explicit skill catalog the adopted `@deepseek-ai/dsh-agent-preset` ships. */
-const PACKAGED_SKILLS = [
-  'agent-experience',
-  'cordis-composition-reference',
-  'editing-cordis-compositions',
-  'cordis-plugin-development',
-] as const
+const PACKAGED_SKILLS = ['dsh-doc'] as const
 
 /**
  * The `config` block the shipped `standard` declaration puts on one named row.
@@ -404,7 +399,7 @@ describe('capability: skills · the authoring provider the standard preset decla
   it('reads a packaged skill body from the installed package, not a fixture', async () => {
     const ctx = await catalogWith()
     try {
-      const loaded = await ctx.skills.get('cordis-composition-reference', { cwd: project })
+      const loaded = await ctx.skills.get('dsh-doc', { cwd: project })
       if (loaded === undefined) throw new Error('the packaged skill was not loadable')
       // Proof the bytes are the published ones, two ways: the file the provider
       // located is INSIDE the installed package's `skills/` directory, and the
@@ -412,8 +407,8 @@ describe('capability: skills · the authoring provider the standard preset decla
       // off. A fixture copied into this repository could not satisfy the first.
       expect(loaded.path?.startsWith(packagedRoot())).toBe(true)
       expect(loaded.source).toBe('bundled')
-      expect(loaded.content).toContain('# Cordis composition reference')
-      expect(loaded.content).toContain('## Loader patch dialect')
+      expect(loaded.content).toContain('# DeepSeek Harness documentation')
+      expect(loaded.content).toContain('## Find facts in this order')
     } finally {
       await ctx.fiber.dispose()
     }

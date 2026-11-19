@@ -9,7 +9,7 @@ English | [中文](install.zh.md)
 
 ## Requirements
 
-- **Node.js** `^22.19 || >=24`.
+- **Node.js** `>=24.9.0`.
 - **A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) installation.** `npm install -g @deepseek-ai/dsh` is enough. A harness source checkout works too — see [Development and source checkouts](#development-and-source-checkouts).
 - **pnpm on your `PATH`.** The harness installs a profile's plugins with pnpm, so profile setup cannot begin without it. `npm install -g pnpm`, or `corepack enable pnpm` where your harness checkout declares its own. `dshline` checks for this *before* it changes anything and tells you so if it is missing, rather than creating a profile and stopping.
 - **A real terminal.** This interface needs a terminal for both input and output. If either is redirected, it exits with an error instead of waiting with nothing on screen. For scripts, use `--profile headless` instead.

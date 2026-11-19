@@ -624,7 +624,9 @@ ctx.subagents.prompt         → human queue / steer
 
 Discovery is `listChildren(parentSessionId)`, whose rows are Harness facts:
 durable id, label, `one-shot` versus `continuable`, session-store residency, and
-whether the child has children. A diagnostic row is kept rather than dropped, so
+whether the child has children. `external` descriptors instead expose a parent-owned
+result without a local child session; they are listed but never inspected or
+followed up through the local conversation seams. A diagnostic row is kept rather than dropped, so
 a corrupt or unreadable candidate degrades honestly. Opening a child reads its
 own log through `ctx.sessionQuery.listEvents` and one bounded `readEvent` window
 and renders each event with Harness's `extractSessionEventText`; the child is
@@ -643,10 +645,10 @@ Harness operation it calls. `SubagentRuntime.sendMessage(sender: Agent, …)` is
 **model-authored** adjacent-Agent messaging: it takes an exact live `Agent`
 sender and stamps `agent-message` provenance, so a terminal calling it would
 impersonate the parent Agent. The human path is `ctx.subagents.prompt`, which
-carries a durable parent/child address, a client-minted request identity, human
+carries a durable child address, a client-minted request identity, human
 `kind: 'user'` provenance, the `queue`/`steer` choice, cold materialization, and
 an accepted `MessageId` receipt. dshline's `HumanSubagentSeam` is a `Pick` of
-`SubagentRuntime` with only `listChildren` and `prompt`, so reaching for
+`SubagentRuntime` with only `prompt`, so reaching for
 `sendMessage` fails type-check rather than shipping; a comment- and string-aware
 source scan backstops that against a cast.
 
@@ -655,7 +657,7 @@ Harness defines: a queued later turn, or the nearest step (starting a turn when
 the child is idle). The terminal inserts no optimistic row — the message appears
 in the child's transcript only when its own session log records it.
 
-The durable inspector deliberately offers **no interrupt**. `listChildren()`
+The durable inspector deliberately offers **no interrupt**. The catalog
 reports session-store residency, not proof that a turn is executing, and
 Harness's `interrupt()` treats an absent or already-settled target as an
 accepted no-op; offering the action here could therefore claim a cancellation
@@ -1308,6 +1310,15 @@ header with every later selection; dshline reconstructs nothing from the raw
 log, so the resume path and `/plugins` cannot disagree about what a session
 runs.
 
+Model choices are Session-owned too: `/model` and `/reasoning` call
+`agent.model.select()` through the window's bound native model view. Harness
+records the complete choice in `model/selection` and restores it on resume;
+window defaults only seed a fresh Agent. An already-prepared step keeps the
+fixed route Harness captured, not a frontend-owned assembly ref. Preset and
+turn facts come from `agentPresets.presetForSession()` and
+`agents.turnBoundaryOf()`, the owning services' retained projection handles,
+rather than deprecated registry-level keyed state reads.
+
 **Offering an action and authorizing it are different jobs.** Switching a
 session's preset is Harness's whole operation — `ctx.agentPresets.select()`
 serializes selections per session, re-reads the authoritative `turnBoundary`
@@ -1492,8 +1503,8 @@ automatically before the first attachment, and `/setup` opens it on demand.
 **The trigger asks whether this launch could send a turn, not whether a route
 exists.** Route registration alone is the wrong question: a registered route is
 only what `/model` offers FROM, and the composer opens on whatever
-`selection.current` resolved to. So `setupReason` reads two things the window
-already holds — `ctx.llm.listProviders()` and the selection ref `/model` writes
+`selection.current()` resolved to. So `setupReason` reads two things the window
+already holds — `ctx.llm.listProviders()` and the native model view `/model` selects through
 — and names one of three states: nothing registered, nothing selected, or a
 selection whose route no adapter registered (a remembered default whose
 provider has left the profile).
@@ -1624,10 +1635,11 @@ registered job kind gains the control at once, from a detail stage and behind a
 two-press confirmation bound to the job's own identity. dshline claims no
 delivery, suppresses no notice, and never enters the model's tool path.
 
-`ctx.subagents.interrupt(..., { kind: 'user', parentSessionId })` remains the
+`ctx.subagents.interrupt(..., { kind: 'user' })` remains the
 other half of this section: the seam explicitly models human authority to stop a
-live continuable child, and it still needs no confirmation because it ends a
-turn rather than a producer. A workflow run still gets no control, because
+live continuable or external child. Continuable interruption preserves the
+inbox and descendants; external interruption ends the activation. Both remain
+Harness-owned and need no additional confirmation. A workflow run still gets no control, because
 `ctx.workflowEngine` publishes `start()` alone. The rule applies to every future
 capability, not only Work. Likewise, Work presents lifecycle and job state,
 not provider reasoning, commands, tool activity, or diffs unless Harness

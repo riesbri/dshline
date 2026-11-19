@@ -57,12 +57,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 22.19 rather than the newest Node 22 patch: engines declares the
-        # floor as `^22.19`, and testing the newest 22.x would let code that
-        # only works from 22.20 onward pass silently. 24 and 26 track their
-        # latest patch, because nothing here promises a floor inside those
-        # majors the way `^22.19` names one inside 22.
-        node: ['22.19', '24', '26']
+        # Exercise the adopted Harness generation's exact Node floor as well
+        # as current supported majors; a latest-only lane cannot prove 24.9.
+        node: ['24.9', '24', '26']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

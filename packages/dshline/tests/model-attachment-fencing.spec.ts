@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { ModelSelection, Model } from '@deepseek-ai/dsh-agent'
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { stripAnsi, type Key } from '@dshline/renderer'
 import { attachSession } from '../src/attachment.ts'
@@ -92,9 +92,9 @@ async function fixture({ delaySave = false } = {}) {
   const stateWrites = vi.fn()
   let current: ModelSelection | undefined = { ...INITIAL }
   const selection = {
-    get current() { return current },
-    set current(next: ModelSelection | undefined) { stateWrites(next); current = next },
-  } as ModelSelectionRef
+    current: () => current,
+    select: (next: ModelSelection) => { stateWrites(next); current = next },
+  } as Model
   let dispatch: ((key: Key) => void) | undefined
   let exitHandler: (() => void) | undefined
   const exit = vi.fn()
@@ -145,7 +145,7 @@ async function fixture({ delaySave = false } = {}) {
     frame: () => ctx.tuiSlots.compose(COLUMNS, ROWS).lines.map(stripAnsi),
     snapshot: () => ({
       opened: pushOverlay.mock.calls.length,
-      selection: { ...selection.current }, writes: stateWrites.mock.calls.length,
+      selection: { ...selection.current() }, writes: stateWrites.mock.calls.length,
       saves: saveSelection.mock.calls.length, refreshes: refreshModelInfo.mock.calls.length,
       commits: [...commits], draws: draw.mock.calls.length, invalidations: invalidate.mock.calls.length,
     }),
@@ -214,9 +214,9 @@ describe('attachment authority for window model selection', () => {
       await chooseNext(f)
       f.info.release(INFO)
       await flush()
-      expect(f.selection.current).toEqual({ ...INITIAL, model: 'next' })
+      expect(f.selection.current()).toEqual({ ...INITIAL, model: 'next' })
       expect(f.stateWrites).toHaveBeenCalledOnce()
-      expect(f.saveSelection).toHaveBeenCalledExactlyOnceWith(f.selection.current)
+      expect(f.saveSelection).toHaveBeenCalledExactlyOnceWith(f.selection.current())
       expect(f.refreshModelInfo).toHaveBeenCalledOnce()
       expect(f.commits.join('\n')).toContain('model set to route / next')
       expect(f.frame()).toHaveLength(5)
@@ -231,7 +231,7 @@ describe('attachment authority for window model selection', () => {
       f.press(key)
       await flush()
       expect(f.ctx.tuiSlots.activeOverlay).toBeUndefined()
-      expect(f.selection.current).toEqual(INITIAL)
+      expect(f.selection.current()).toEqual(INITIAL)
       expect(f.stateWrites).not.toHaveBeenCalled()
       expect(f.saveSelection).not.toHaveBeenCalled()
       expect(f.refreshModelInfo).not.toHaveBeenCalled()
@@ -250,9 +250,9 @@ describe('attachment authority for window model selection', () => {
       f.press('down')
       f.press('enter')
       await flush()
-      expect(f.selection.current).toEqual({ ...INITIAL, reasoningEffort: 'low' })
+      expect(f.selection.current()).toEqual({ ...INITIAL, reasoningEffort: 'low' })
       expect(f.stateWrites).toHaveBeenCalledOnce()
-      expect(f.saveSelection).toHaveBeenCalledExactlyOnceWith(f.selection.current)
+      expect(f.saveSelection).toHaveBeenCalledExactlyOnceWith(f.selection.current())
       expect(f.commits.join('\n')).toContain('reasoning effort set to low')
     } finally { await f.stop() }
   })
@@ -378,7 +378,7 @@ describe('attachment authority for window model selection', () => {
       expect(f.exit).toHaveBeenCalledOnce()
       await flush()
       expect(f.snapshot()).toEqual(before)
-      expect(f.selection.current).toEqual(INITIAL)
+      expect(f.selection.current()).toEqual(INITIAL)
     } finally { await f.stop() }
   })
 
@@ -406,7 +406,7 @@ describe('attachment authority for window model selection', () => {
       expect(f.saveSelection).not.toHaveBeenCalled()
       expect(f.refreshModelInfo).not.toHaveBeenCalled()
       expect(f.commits).toEqual(commitsBefore)
-      expect(f.selection.current).toEqual(INITIAL)
+      expect(f.selection.current()).toEqual(INITIAL)
       f.startup.release({ commandId: 'hold', result: { kind: 'success' } })
       await epoch
     } finally { await f.stop() }
@@ -473,7 +473,7 @@ describe('attachment authority for window model selection', () => {
     try {
       f.submit('/reasoning low')
       await f.saveRequested.promise
-      expect(f.selection.current).toEqual({ ...INITIAL, reasoningEffort: 'low' })
+      expect(f.selection.current()).toEqual({ ...INITIAL, reasoningEffort: 'low' })
       f.submit('/new')
       await a
       f.start()
@@ -491,7 +491,7 @@ describe('attachment authority for window model selection', () => {
       await chooseNext(f)
       f.info.release(INFO)
       await f.saveRequested.promise
-      expect(f.selection.current).toEqual({ ...INITIAL, model: 'next' })
+      expect(f.selection.current()).toEqual({ ...INITIAL, model: 'next' })
       expect(f.saveSelection).toHaveBeenCalledOnce()
       // The accepted WINDOW change needs its metadata even if persistence waits
       // across retirement; suppressing the entire return path must not lose it.
@@ -503,7 +503,7 @@ describe('attachment authority for window model selection', () => {
       f.saved.release()
       await flush()
       expect(f.snapshot()).toEqual(before)
-      expect(f.selection.current).toEqual({ ...INITIAL, model: 'next' })
+      expect(f.selection.current()).toEqual({ ...INITIAL, model: 'next' })
     } finally { await f.stop() }
   })
 })

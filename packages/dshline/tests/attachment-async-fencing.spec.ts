@@ -20,6 +20,7 @@
  * is written so it would still have gone green under one.
  * @module dshline/tests/attachment-async-fencing
  */
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -110,7 +111,7 @@ async function mount(
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: 1_000_000, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },

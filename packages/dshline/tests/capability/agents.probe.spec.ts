@@ -20,6 +20,7 @@
  * policy, or lifecycle behavior. Those are owned by the installed provider.
  * @module
  */
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, {
@@ -55,7 +56,7 @@ function localAgent(ctx: Context, id: SessionId): Agent {
  */
 async function localHandle(ctx: Context, id: SessionId, source: SessionStartSource): Promise<AgentHandle> {
   const agent = localAgent(ctx, id)
-  const detach = ctx.agents.enter(agent, undefined)
+  const detach = ctx.agents.enter(agent)
   await ctx.agents.announce(agent, source)
   return {
     agent,
@@ -66,6 +67,7 @@ async function localHandle(ctx: Context, id: SessionId, source: SessionStartSour
 /** Mount the real registry without an agent loop or persistence plugin. */
 async function mounted(): Promise<Context> {
   const ctx = new Context()
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(AgentRegistry)
   return ctx
 }
@@ -75,7 +77,7 @@ describe('capability: agents', () => {
     const ctx = await mounted()
     const id = SessionId('capability-probe-entered')
     const agent = localAgent(ctx, id)
-    const detach = ctx.agents.enter(agent, undefined)
+    const detach = ctx.agents.enter(agent)
     try {
       expect(ctx.agents.get(id)).toBe(agent)
       // Publication is an awaited edge: `announce` runs serial `agent/created`

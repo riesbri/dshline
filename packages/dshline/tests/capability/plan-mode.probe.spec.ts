@@ -9,6 +9,7 @@
  * presentation are outside the probe.
  * @module
  */
+import AgentRegistry from '@deepseek-ai/dsh-agent'
 
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -27,6 +28,7 @@ async function mounted(): Promise<{ ctx: Context; agent: Agent }> {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(PlanModeController, { section: 'Probe plan guidance' })
   const session = ctx.sessions.create(SessionId('plan-mode-probe'))
   const agent = { id: session.id, session, ctx } as unknown as Agent

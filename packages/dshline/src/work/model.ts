@@ -14,6 +14,7 @@
  */
 
 import type { WorkflowAgentOutcome, WorkflowStopReason } from '@deepseek-ai/dsh-workflow/types'
+import type { SubagentListEntry } from '@deepseek-ai/dsh-subagent'
 import type { ActivityWord } from '../activity.ts'
 
 /**
@@ -121,7 +122,7 @@ export interface SubagentWorkItem extends WorkItemBase {
   /** An open lifecycle edge is Work's authoritative active-row source. */
   readonly state: 'running'
   /** Durable descriptor mode, when direct-child discovery has resolved it. */
-  readonly mode?: 'one-shot' | 'continuable'
+  readonly mode?: Extract<SubagentListEntry, { readonly kind: 'child' }>['mode']
   /**
    * Durable session-store residency from direct-child discovery, when available.
    * `resident` is deliberately not a claim that a model turn is executing.
@@ -172,7 +173,7 @@ export interface SubagentWorkItem extends WorkItemBase {
    * child-relative.
    */
   readonly tokens?: number
-  /** Continuable children alone expose Harness's human interrupt authority. */
+  /** Continuable and external descriptors expose Harness's human interrupt authority. */
   readonly interruptible: boolean
 }
 
@@ -257,8 +258,8 @@ export interface WorkSnapshot {
  * The outcome of asking Harness to interrupt one subagent, or to stop one Job.
  *
  * Shared because both are one request answered with one short sentence, not
- * because they are the same operation: a subagent interrupt cancels a turn and
- * a Job stop cancels a producer, and the two are separate methods on this
+ * because they are the same operation: a subagent interrupt cancels a local turn
+ * or external activation, while a Job stop cancels a producer, and the two are separate methods on this
  * side rather than one `control(item)` whose meaning has to be rediscovered
  * from `source`.
  */
@@ -591,7 +592,7 @@ export interface WorkConversationTarget {
  * @returns the durable target, or undefined when the selection cannot be opened directly.
  */
 export function directConversationTarget(item: WorkItem | undefined): WorkConversationTarget | undefined {
-  if (item === undefined || item.source !== 'subagent') return undefined
+  if (item === undefined || item.source !== 'subagent' || item.mode === 'external') return undefined
   if (item.mode === undefined || item.residency === undefined || item.hasChildren === undefined) {
     return undefined
   }

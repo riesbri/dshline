@@ -76,8 +76,8 @@ trustPolicy: no-downgrade
 trustPolicyExclude:
   # `@types/node@22` pins `undici-types@~6.21.0`, which predates undici's move to
   # provenance; 7.16.0 and later carry attestations, but only `@types/node@24`
-  # and later depend on that line, and this package's floor is Node 22 — typing
-  # against a newer Node would let a call compile that the floor cannot run.
+  # and later depend on that line. Transitive declaration packages still use
+  # the older Node 22 typings even though Harness now requires Node 24.9.
   # It is also a declaration-only devDependency: it ships no JavaScript, so it
   # cannot execute anything, and it never reaches a published tarball.
   - undici-types

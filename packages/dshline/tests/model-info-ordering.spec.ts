@@ -55,7 +55,7 @@ describe('model metadata ordering', () => {
       version: 'test',
       settings: { theme: { current: () => 'default', watch: () => () => {}, save: async () => {} }, busyEnter: prefs },
     })
-    window.selection.current = { provider: 'test', model: 'b' }
+    window.selection.select({ provider: 'test', model: 'b' })
     window.refreshModelInfo()
 
     resolveB?.({ context: { contextWindow: 200 }, reasoning: { levels: ['low'] }, inputModalities: ['text', 'image'] })

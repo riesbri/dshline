@@ -3,8 +3,8 @@
  *
  * This is the compatibility evidence `tools/capability-probes.mjs` names for the
  * `workspaceChanges` seam, so it mounts the REAL `@deepseek-ai/dsh-workspace-changes`
- * over a real `SessionStore`, a real local subprocess runtime, and a real git
- * repository on disk — never a dshline-shaped fake of a summary.
+ * over a real `SessionStore`, real local subprocess and filesystem runtimes,
+ * and a real git repository on disk — never a dshline-shaped fake of a summary.
  *
  * What it proves is exactly what `/turns` is built on, and the third assertion
  * is the one that would otherwise be a guess:
@@ -40,6 +40,8 @@ import { Context } from '@deepseek-ai/cordis'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import * as WorkspaceChangesPlugin from '@deepseek-ai/dsh-workspace-changes'
 import type { WorkspaceChangesSummary } from '@deepseek-ai/dsh-workspace-changes/types'
 import { WorkspaceChangesAdapter } from '../../src/turns/changes.ts'
@@ -77,7 +79,7 @@ async function repository(): Promise<string> {
 }
 
 /**
- * Mount the real store, subprocess runtime, and the real recorder.
+ * Mount the real store, both runtime collaborators, and the real recorder.
  * @param cwd - the session's working directory.
  * @returns the context and one fresh session.
  */
@@ -85,6 +87,7 @@ async function harness(cwd: string): Promise<{ ctx: Context; session: Session }>
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(LocalFileSystem, { cwd })
   // Only the one bound this probe exercises. The rest are upstream's shipped
   // defaults, applied by the plugin's own validation at load.
   await ctx.plugin(WorkspaceChangesPlugin, { maxFiles: 2 } as never)
@@ -98,83 +101,71 @@ async function harness(cwd: string): Promise<{ ctx: Context; session: Session }>
  * @param turn - the open turn number.
  */
 function settleToolResult(session: Session, turn: number): void {
+  const callId = ToolCallId(`probe-${turn}`)
+  const source = session.append('tool/call', {
+    turn, step: 1, callId, name: 'write', arguments: '{}',
+  })
   session.append('tool/result', {
     turn,
     step: 1,
-    // A literal tool-role message, because a `tool/result` payload is durable
-    // and therefore JSON-checked; the recorder reads only `data.turn` from it.
-    message: {
-      id: 'probe-result',
-      role: 'tool',
-      toolCallId: 'probe-1',
-      content: [],
-      source: { kind: 'tool', callId: 'probe-1' },
-    },
-  } as never, { surfaceOp: 'append' })
+    message: createToolResultMessage({ callId, content: [], isError: false }),
+  }, { surfaceOp: 'append', sourceEventSeqs: [source.seq] })
 }
 
 /**
- * Wait for the recorder's turn-start baseline to be taken.
+ * Wait for the recorder's queued baseline, capture, or turn-end record.
  *
  * The plugin's own documented barrier: every `tools/pre-execute` waits for its
  * queued snapshots before a tool runs, so no mutation can precede the baseline.
  * Using it instead of a sleep is both deterministic and a second probe of a
  * contract the composition row's cost depends on.
  * @param ctx - the context the recorder is mounted on.
- * @param session - the session whose baseline is pending.
+ * @param session - the session whose recorder may have pending work.
+ * @returns the opaque execution actor accepted by filesystem intent hooks.
  */
-async function baseline(ctx: Context, session: Session): Promise<void> {
-  // The execution identity is opaque and the recorder reads none of it: what it
-  // wants from this event is `exec.agent.session`, and the waterfall's own
-  // contract is that a listener which awaits delays the tool.
+async function baseline(ctx: Context, session: Session): Promise<object> {
+  // The identity is opaque: `exec.agent.session` selects the recorder, and
+  // the same actor joins its pre-execution barrier to the filesystem intent.
   const exec = {
     callId: 'probe-barrier',
     rootCallId: 'probe-barrier',
-    name: 'edit',
+    name: 'write',
     arguments: {},
     agent: { session },
     token: {},
   }
-  // `as never` on every argument, not `as unknown`: the waterfall's own type
-  // demands a ToolRuntime-scoped carrier and a branded execution, neither of
-  // which this probe constructs or reads. The recorder consumes only
-  // `exec.agent.session` from the event, and the gate is irrelevant to it.
-  await ctx.waterfall(
-    ctx as never,
-    'tools/pre-execute',
-    exec as never,
-    (() => Promise.resolve({ kind: 'allow' })) as never,
-  )
+  // The recorder needs the execution identity to correlate the filesystem
+  // intent below; the branded ToolExecution itself belongs to upstream.
+  await ctx.waterfall('tools/pre-execute', exec as never, () => Promise.resolve(undefined as never))
+  return exec
+}
+
+/**
+ * Mutate through the native filesystem intent and write seams, as a file tool does.
+ * @param ctx - the context whose recorder observes the intent.
+ * @param session - the session that owns the write.
+ * @param lines - how many lines to add to the tracked file.
+ */
+async function writeTrackedFile(ctx: Context, session: Session, lines: number): Promise<void> {
+  const actor = await baseline(ctx, session)
+  const target = await ctx.fs.resolve('kept.txt', session.header.cwd === undefined ? {} : { cwd: session.header.cwd })
+  const intent = await ctx.waterfall('fs/write-intent', target, actor, () => undefined)
+  await ctx.fs.writeText(target, `one\n${'added\n'.repeat(lines)}`, intent)
 }
 
 /**
  * Run one whole turn, changing a file between its baseline and its end.
  * @param ctx - the context the recorder is mounted on.
  * @param session - the session the turn runs on.
- * @param root - the repository working directory.
  * @param turn - the turn number.
  * @param lines - how many lines to add to the tracked file.
  */
-async function turn(ctx: Context, session: Session, root: string, turn: number, lines: number): Promise<void> {
+async function turn(ctx: Context, session: Session, turn: number, lines: number): Promise<void> {
   session.append('turn/start', { turn })
-  await baseline(ctx, session)
-  await writeFile(join(root, 'kept.txt'), `one\n${'added\n'.repeat(lines)}`)
+  await writeTrackedFile(ctx, session, lines)
   settleToolResult(session, turn)
   session.append('turn/end', { turn, reason: { kind: 'completed' } })
-  await settled(session, turn)
-}
-
-/**
- * Wait until the recorder's announcement for one turn has landed in the log.
- * @param session - the session to read.
- * @param turn - the announced turn number.
- */
-async function settled(session: Session, turn: number): Promise<void> {
-  // The in-turn record is queued behind a `git write-tree` and a `diff-tree`;
-  // yield until the announcement lands, or assert against a race.
-  for (let attempt = 0; attempt < 200 && announcement(session, turn) === undefined; attempt += 1) {
-    await new Promise(resolve => { setTimeout(resolve, 25) })
-  }
+  await baseline(ctx, session)
 }
 
 /**
@@ -212,11 +203,10 @@ describe('capability: workspaceChanges', () => {
     const { ctx, session } = await harness(root)
     try {
       const startSeq = session.append('turn/start', { turn: 1 }).seq
-      await baseline(ctx, session)
-      await writeFile(join(root, 'kept.txt'), `one\n${'added\n'.repeat(ADDED_LINES)}`)
+      await writeTrackedFile(ctx, session, ADDED_LINES)
       settleToolResult(session, 1)
       session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
-      await settled(session, 1)
+      await baseline(ctx, session)
 
       const announced = announcement(session, 1)
       expect(announced).toBeDefined()
@@ -256,7 +246,7 @@ describe('capability: workspaceChanges', () => {
     const root = await repository()
     const { ctx, session } = await harness(root)
     try {
-      await turn(ctx, session, root, 1, ADDED_LINES)
+      await turn(ctx, session, 1, ADDED_LINES)
       const seq = announcement(session, 1)?.seq ?? -1
       const summary = ctx.workspaceChanges.summary(session.id, seq) as WorkspaceChangesSummary
 
@@ -283,15 +273,18 @@ describe('capability: workspaceChanges', () => {
     const root = await repository()
     const { ctx, session } = await harness(root)
     const id = session.id
+    const changes = ctx.workspaceChanges
+    let seq = -1
     try {
-      await turn(ctx, session, root, 1, ADDED_LINES)
-      const seq = announcement(session, 1)?.seq ?? -1
-      expect(ctx.workspaceChanges.summary(id, seq)).toBeDefined()
+      await turn(ctx, session, 1, ADDED_LINES)
+      seq = announcement(session, 1)?.seq ?? -1
+      expect(changes.summary(id, seq)).toBeDefined()
     } finally {
       await ctx.fiber.dispose()
     }
     // The event is durable; the summary is not. This is the whole of section 6,
     // and it is what dshline's `unserved` reading exists to state honestly.
+    expect(changes.summary(id, seq)).toBeUndefined()
     expect(session.snapshotEvents().some(event => event.type === 'workspace/changes')).toBe(true)
   })
 
@@ -299,7 +292,7 @@ describe('capability: workspaceChanges', () => {
     const root = await repository()
     const { ctx, session } = await harness(root)
     try {
-      await turn(ctx, session, root, 1, ADDED_LINES)
+      await turn(ctx, session, 1, ADDED_LINES)
       const seq = announcement(session, 1)?.seq ?? -1
       const controller = new AbortController()
       controller.abort()

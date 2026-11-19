@@ -485,6 +485,17 @@ describe('Work conversation action', () => {
     expect(JSON.stringify(singular)).not.toContain('run-epoch-999')
   })
 
+  it('never opens an external activation as a local child conversation', () => {
+    const singular: WorkConversationTarget[] = []
+    const app = driver(() => ({
+      ...EMPTY,
+      subagents: [subagentItem({ mode: 'external', interruptible: true })],
+    }), { conversation: target => { singular.push(target) } })
+    app.press('enter')
+    app.overlay.handleKey({ kind: 'text', text: 'c' })
+    expect(singular).toEqual([])
+  })
+
   it('still opens a one-shot child directly', () => {
     const singular: WorkConversationTarget[] = []
     const app = driver(() => ({

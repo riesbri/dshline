@@ -44,6 +44,16 @@ export interface SubagentChildRow {
   readonly hasChildren: boolean
 }
 
+/** An external execution recorded by the parent, with no local child Session. */
+export interface SubagentExternalRow {
+  /** External executions cannot be opened as a durable conversation. */
+  readonly kind: 'external'
+  /** Harness-owned external execution identity. */
+  readonly id: string
+  /** Parent-recorded label, when supplied. */
+  readonly label?: string
+}
+
 /**
  * One candidate Harness could not interpret, kept rather than dropped.
  *
@@ -60,7 +70,7 @@ export interface SubagentDiagnosticRow {
 }
 
 /** One catalog row: a durable child or an honest diagnostic. */
-export type SubagentCatalogRow = SubagentChildRow | SubagentDiagnosticRow
+export type SubagentCatalogRow = SubagentChildRow | SubagentExternalRow | SubagentDiagnosticRow
 
 /**
  * What the catalog can truthfully present.
@@ -189,6 +199,9 @@ export function catalogReading(entries: readonly SubagentListEntry[]): SubagentC
 function catalogRow(entry: SubagentListEntry): SubagentCatalogRow {
   if (entry.kind === 'diagnostic') {
     return { kind: 'diagnostic', id: String(entry.id), reason: entry.reason }
+  }
+  if (entry.mode === 'external') {
+    return { kind: 'external', id: String(entry.id), ...entry.label === undefined || entry.label === '' ? {} : { label: entry.label } }
   }
   return {
     kind: 'child',

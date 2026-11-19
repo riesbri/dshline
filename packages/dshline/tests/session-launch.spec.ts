@@ -1,4 +1,5 @@
 /** The real window loop and shared Sessions browser over captured Harness opening seams. */
+import { WindowModel } from '../src/window-model.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { AgentHandle, CreateAgentOptions, ResumeAgentOptions } from '@deepseek-ai/dsh-agent'
@@ -66,7 +67,7 @@ async function fixture(resume: boolean | string | undefined, failure?: string) {
     ctx, terminal: { columns: () => 80, rows: () => 24 }, exit, requestExit,
     startup: { cwd: '/launch', resume, task: undefined },
     pricing: pricingFrom(undefined), peakHours: [], version: 'test',
-    selection: { current: undefined, assembled: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: undefined, reasoning: undefined, inputModalities: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true, busyEnter: 'queue' },

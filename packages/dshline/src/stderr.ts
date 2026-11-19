@@ -42,12 +42,10 @@
  * spawned. Nothing here branches on a provider either: what is contained is a
  * WRITE SHAPE, not a vendor.
  *
- * Reconfirmed against `0.2.0-rc.2`, the adopted generation, at revision
- * `639ed015397290b3745d163aafe02ffee4aa3f84`:
+ * Reconfirmed against `0.2.2-rc.5` at revision
+ * `9c2670d3bce5275e0d1610272958121af87787bb`:
  * `packages/subagent/subagent-codex/src/run.ts:261` still calls
- * `writeFileSync(process.stderr.fd, bytes)`. Its Git blob is unchanged from
- * `0.2.0-rc.1` (`4878cdabd87d4041bdaff61d04c966883b9fd07a`):
- * `12abd405e3b24858a3ae5fc00e8c0be341821bab` at both revisions.
+ * `writeFileSync(process.stderr.fd, bytes)`; the forwarding body is unchanged.
  * The subprocess seam still offers `pipe | inherit | collect`, not a Host-owned
  * diagnostic sink this forward uses, so the containment below remains necessary.
  * Inherited stderr in other backends is NOT contained by this shim; this is

@@ -1,9 +1,10 @@
 /** Harness permission catalog/selection presentation and bare-command decoration tests. */
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { WindowModel } from '../src/window-model.ts'
 
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Agent, Model } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import type { LlmModelReasoningInfo } from '@deepseek-ai/dsh-llm'
 import PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
@@ -31,9 +32,9 @@ import type { Window } from '../src/window.ts'
  */
 const SETUP = vi.hoisted(() => ({ next: undefined as { provider: string; model: string } | undefined }))
 vi.mock('../src/setup/index.ts', () => ({
-  runSetup: async (spec: { selection: { current: unknown }; onModelChanged: () => void }) => {
+  runSetup: async (spec: { selection: Model; onModelChanged: () => void }) => {
     if (SETUP.next === undefined) return
-    spec.selection.current = SETUP.next
+    spec.selection.select(SETUP.next)
     spec.onModelChanged()
   },
 }))
@@ -87,12 +88,11 @@ async function fixture(options: {
   /** What the selected route advertises for reasoning, as the window caches it. */
   readonly reasoning?: LlmModelReasoningInfo
   /** The selection the window opens with. */
-  readonly selected?: ModelSelectionRef['current']
+  readonly selected?: ReturnType<Model['current']>
   /**
-   * A complete ref to open with, when a test needs `assembled` as well as
-   * `current` (the running step's captured selection).
+   * The native model view to present independently of a simulated prepared step.
    */
-  readonly modelSelection?: ModelSelectionRef
+  readonly modelSelection?: Model
   /** The attached Agent's running state, which gates the `next` reading. */
   readonly agentStatus?: 'idle' | 'running'
   /** Mount a default-model service whose save rejects, for applied-but-unsaved. */
@@ -157,7 +157,7 @@ async function fixture(options: {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: options.modelSelection ?? { current: options.selected },
+    selection: options.modelSelection ?? new WindowModel(options.selected),
     modelInfo: { contextWindow: undefined, reasoning: options.reasoning },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true },
@@ -220,6 +220,7 @@ async function permissionContext(config?: Config): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
   await ctx.plugin(CommandRuntime)
   ctx.provide('shell', {
     sandboxMode: 'workspace-write',
@@ -236,8 +237,10 @@ async function permissionContext(config?: Config): Promise<Context> {
 
 /** Mint an agent scope in the addressing shape the real command runtime expects. */
 async function permissionAgent(ctx: Context, session: Session): Promise<Agent> {
-  const agent = { id: session.id, session, inject: vi.fn() } as unknown as Agent
+  const agent = { id: session.id, session, ctx, inject: vi.fn() } as unknown as Agent
   await ctx.plugin(Object.assign((inner: Context) => { createScope(inner, agent) }, { inject: ['commands'] }))
+  ctx.effect(() => ctx.agents.enter(agent, undefined), 'permission probe: entered Agent')
+  await ctx.agents.announce(agent, 'startup')
   return agent
 }
 
@@ -280,7 +283,7 @@ function permissionWindow(ctx: Context): {
     pricing: pricingFrom(undefined),
     peakHours: [],
     version: 'test',
-    selection: { current: undefined },
+    selection: new WindowModel(undefined),
     modelInfo: { contextWindow: undefined, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true, busyEnter: 'queue' },
@@ -1013,46 +1016,19 @@ describe('the live model identity in the persistent status', () => {
 })
 
 describe('the selected-model boundary during assembly', () => {
-  /**
-   * A real `installModelSelection` chain whose downstream `system-prompt/assemble`
-   * leg can be paused.
-   *
-   * Harness captures `selection.current` when the waterfall starts and publishes
-   * it into `selection.assembled` only after the downstream leg returns. A paused
-   * leg is therefore the adopted interval in which the Agent is running while
-   * `assembled` is absent (first assembly) or stale (a later one).
-   * @param initial - the selection the ref starts on.
-   * @returns the ref, pause/release controls, the starter, and the disposer.
-   */
-  function pausable(initial: ModelSelectionRef['current']): {
-    readonly selection: ModelSelectionRef
-    readonly pause: () => void
-    readonly release: () => void
-    readonly start: () => Promise<void>
-    readonly dispose: () => void
-  } {
-    const selection: ModelSelectionRef = { current: initial, assembled: undefined }
-    const ctx = new Context()
-    const dispose = installModelSelection(ctx, selection)
+  /** Model fixed for a simulated prepared step, separate from the live native choice. */
+  function pausable(initial: ReturnType<Model['current']>) {
+    const selection = new WindowModel(initial)
+    let captured: ReturnType<Model['current']>
     let release: () => void = () => {}
-    let gate: Promise<void> = Promise.resolve()
-    ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      await gate
-      return next()
-    })
+    let gate = Promise.resolve()
     return {
       selection,
+      captured: () => captured,
       pause: () => { gate = new Promise<void>(resolve => { release = resolve }) },
       release: () => { release() },
-      start: async () => {
-        await ctx.waterfall(
-          'system-prompt/assemble',
-          {} as never,
-          {} as never,
-          () => Promise.resolve({ variables: {} } as never),
-        )
-      },
-      dispose,
+      start: async () => { const fixed = selection.current(); await gate; captured = fixed },
+      dispose: () => {},
     }
   }
 
@@ -1066,9 +1042,9 @@ describe('the selected-model boundary during assembly', () => {
     try {
       paused.pause()
       const running = paused.start()
-      // Harness has privately captured A; `assembled` is not published yet.
-      expect(paused.selection.assembled).toBeUndefined()
-      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+      // A simulated prepared step captured A; the live model may already change.
+      expect(paused.captured()).toBeUndefined()
+      paused.selection.select({ provider: 'provider-b', model: 'shared-model' })
 
       // The footer reports the live selected configuration. It makes no claim
       // about the privately captured A, and offers no execution-route qualifier.
@@ -1082,31 +1058,31 @@ describe('the selected-model boundary during assembly', () => {
 
       paused.release()
       await running
-      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+      expect(paused.captured()).toEqual({ provider: 'provider-a', model: 'shared-model' })
     } finally {
       paused.dispose()
     }
   })
 
   it('does not infer an in-progress assembly route through the ABA window', async () => {
-    // published assembled = A; current = B; an assembly starts and privately
-    // captures B; current moves back to A. Publicly current === assembled === A,
-    // yet the paused assembly will publish and use B. Neither public field proves
+    // previous fixed route = A; live choice = B; another simulated step privately
+    // captures B; the live choice moves back to A. Both visible choices are A,
+    // yet the prepared step uses B. No live selection read proves
     // the private capture, so the footer must not annotate either way.
     const paused = pausable({ provider: 'provider-a', model: 'shared-model' })
     try {
       await paused.start()
-      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+      expect(paused.captured()).toEqual({ provider: 'provider-a', model: 'shared-model' })
 
-      paused.selection.current = { provider: 'provider-b', model: 'shared-model' }
+      paused.selection.select({ provider: 'provider-b', model: 'shared-model' })
       paused.pause()
       const running = paused.start()
-      paused.selection.current = { provider: 'provider-a', model: 'shared-model' }
+      paused.selection.select({ provider: 'provider-a', model: 'shared-model' })
 
       // The public state is indistinguishable from a settled A, which is exactly
-      // why `current === assembled` cannot drive an execution-confidence label.
-      expect(paused.selection.current).toEqual({ provider: 'provider-a', model: 'shared-model' })
-      expect(paused.selection.assembled).toEqual({ provider: 'provider-a', model: 'shared-model' })
+      // why comparing visible choices cannot prove an in-flight execution route.
+      expect(paused.selection.current()).toEqual({ provider: 'provider-a', model: 'shared-model' })
+      expect(paused.captured()).toEqual({ provider: 'provider-a', model: 'shared-model' })
 
       const mounted = await fixture({ modelSelection: paused.selection, agentStatus: 'running' })
       await flush()
@@ -1120,7 +1096,7 @@ describe('the selected-model boundary during assembly', () => {
       await running
       // The paused assembly published the B it privately captured, which no
       // public ref value before this point could have told the footer.
-      expect(paused.selection.assembled).toEqual({ provider: 'provider-b', model: 'shared-model' })
+      expect(paused.captured()).toEqual({ provider: 'provider-b', model: 'shared-model' })
     } finally {
       paused.dispose()
     }
@@ -1129,7 +1105,7 @@ describe('the selected-model boundary during assembly', () => {
   it('keeps reasoning effort attached to the selected route while running', async () => {
     const paused = pausable({ provider: 'openai', model: 'gpt-x', reasoningEffort: 'low' })
     try {
-      paused.selection.current = { provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' }
+      paused.selection.select({ provider: 'openai', model: 'gpt-x', reasoningEffort: 'max' })
       const mounted = await fixture({
         modelSelection: paused.selection,
         agentStatus: 'running',

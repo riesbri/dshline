@@ -1,4 +1,5 @@
 /** Human shell gestures through the real composer, routing and attachment scope. */
+import { WindowModel } from '../src/window-model.ts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -211,7 +212,7 @@ async function fixture(options: {
     ctx, terminal: { columns: () => 80, rows: () => 24 }, exit, requestExit,
     startup: { cwd: '/startup', task: undefined, resume: undefined },
     pricing: pricingFrom(undefined), peakHours: [], version: 'test',
-    selection: { current: undefined }, modelInfo: { contextWindow: undefined, reasoning: undefined },
+    selection: new WindowModel(undefined), modelInfo: { contextWindow: undefined, reasoning: undefined },
     modelCompletionValues: () => Promise.resolve([]),
     prefs: { usageMode: 'cost', timing: false, cardDetail: 'compact', reasoningVisible: true, busyEnter: options.busyEnter ?? 'queue' },
     colorDepth: 0, palette: () => ({}), setPalette: () => {}, themeSettings: {},

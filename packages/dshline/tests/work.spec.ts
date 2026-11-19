@@ -576,6 +576,61 @@ describe('generic Harness Work capability projection', () => {
     work.dispose()
   })
 
+  it('projects external activation authority without inventing child-session facts', async () => {
+    let started: StartListener | undefined
+    const calls: unknown[][] = []
+    const work = new HarnessWork({
+      agent,
+      subagents: {
+        listDescendants: async () => [{ ...CONTINUABLE_CHILD, mode: 'external' as const }],
+        interrupt: (...args: unknown[]) => { calls.push(args) },
+      } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
+      invalidate: () => {},
+    })
+    await settled()
+    started?.({ runId: SubagentRunId('outside'), provider: 'generic', id: SessionId('child'), local: false })
+    await settled()
+    const row = work.snapshot().subagents[0]!
+    expect(row).toMatchObject({ id: 'child', mode: 'external', interruptible: true })
+    expect(row.residency).toBeUndefined()
+    expect(row.hasChildren).toBeUndefined()
+    expect(work.interruptSubagent(row).kind).toBe('requested')
+    expect(calls).toEqual([[SessionId('child'), { kind: 'user' }]])
+    work.dispose()
+  })
+
+  it('refreshes external interrupt authority when the catalog row follows the start', async () => {
+    let started: StartListener | undefined
+    let catalogChanged: (() => void) | undefined
+    let published = false
+    const calls: unknown[][] = []
+    const work = new HarnessWork({
+      agent,
+      subagents: {
+        listDescendants: async () => published ? [{ ...CONTINUABLE_CHILD, mode: 'external' as const }] : [],
+        interrupt: (...args: unknown[]) => { calls.push(args) },
+      } as never,
+      onSubagentStart: listener => { started = listener; return () => {} },
+      onSubagentCatalogChange: listener => { catalogChanged = listener; return () => {} },
+      invalidate: () => {},
+    })
+    await settled()
+    started?.({ runId: SubagentRunId('outside'), provider: 'generic', id: SessionId('child'), local: false })
+    await settled()
+    expect(work.snapshot().subagents[0]?.interruptible).toBe(false)
+    published = true
+    catalogChanged?.()
+    await settled()
+    const row = work.snapshot().subagents[0]!
+    expect(row).toMatchObject({ id: 'child', mode: 'external', interruptible: true })
+    expect(row.residency).toBeUndefined()
+    expect(row.hasChildren).toBeUndefined()
+    expect(work.interruptSubagent(row).kind).toBe('requested')
+    expect(calls).toEqual([[SessionId('child'), { kind: 'user' }]])
+    work.dispose()
+  })
+
   it('marks a discovered one-shot subagent as non-interruptible', async () => {
     let started: StartListener | undefined
     const work = new HarnessWork({
@@ -724,7 +779,7 @@ describe('generic Harness Work capability projection', () => {
     const work = new HarnessWork({ agent, subagents, invalidate: () => {} })
     expect(work.interruptSubagent(subagentItem({ id: 'child', interruptible: true }))).toEqual(INTERRUPT_REQUESTED)
     // The authority is the exact parent SESSION, not a loose provider name.
-    expect(calls).toEqual([['child', { kind: 'user', parentSessionId: ROOT }]])
+    expect(calls).toEqual([['child', { kind: 'user' }]])
     expect(work.interruptSubagent(subagentItem({ id: 'one-shot', interruptible: false }))).toEqual({
       kind: 'unsupported', message: 'This subagent cannot be interrupted here.',
     })
@@ -1477,7 +1532,7 @@ describe('the Work live-region overlay', () => {
     // The word says WHAT and never moves or is styled; the mark says ALIVE.
     const word = (): string => {
       const line = stripAnsi(overlay.render(90, 14).find(entry => stripAnsi(entry).includes('auth-worker')) ?? '')
-      return line.slice(line.indexOf('auth-worker'))
+      return line.slice(line.indexOf('auth-worker'), line.indexOf('oauth.ts') + 'oauth.ts'.length)
     }
     const first = word()
     for (let tick = 0; tick < 6; tick += 1) {

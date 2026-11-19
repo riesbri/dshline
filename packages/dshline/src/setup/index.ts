@@ -44,7 +44,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { Model } from '@deepseek-ai/dsh-agent'
 import { escapeControls, paint } from '@dshline/renderer'
 import { connectSeams, openConnect, readRouteReadiness } from '../connect/index.ts'
 import { pickModel } from '../model.ts'
@@ -92,7 +92,7 @@ export interface SetupSpec {
   /** This frontend's version, for the report's own row. */
   readonly version: string
   /** The route the next model step will use, which `/model` writes through. */
-  readonly selection: ModelSelectionRef
+  readonly selection: Model
   /** Re-resolve model metadata after the route changes; the window owns it. */
   readonly onModelChanged: () => void
   /**
@@ -113,17 +113,17 @@ export interface SetupSpec {
  * Whether this launch would otherwise reach a composer that cannot send.
  *
  * Two synchronous reads settle it in most cases: the route registry, and the
- * selection ref the window already holds. When those say the topology is fine,
+ * native model view the window already holds. When those say the topology is fine,
  * one more question remains — whether the selected route can authenticate —
  * and it is asked of Connect's own reading for that ONE route. No adapter is
  * asked for a catalog and nothing is contacted; see {@link setupReason}.
  * @param ctx - context carrying the model registry and the credential seams.
- * @param selection - the window's model selection ref, as `/model` writes it.
+ * @param selection - the window's native model view, as `/model` selects it.
  * @returns whether the guided flow should be offered before the first session.
  */
-export async function setupNeeded(ctx: Context, selection: ModelSelectionRef): Promise<boolean> {
+export async function setupNeeded(ctx: Context, selection: Model): Promise<boolean> {
   const registered = ctx.llm.listProviders().map(provider => provider.id)
-  const selected = selection.current
+  const selected = selection.current()
   // Topology first, and it costs nothing: two synchronous reads that settle
   // most launches without touching a seam.
   if (setupReason(registered, selected) !== undefined) return true
@@ -214,7 +214,7 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
     // Re-read every pass. The reader has just been inside `/connect`, so the
     // previous reading is exactly the thing most likely to be out of date, and
     // showing the checklist again is how they see what their own action did.
-    const facts = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
+    const facts = await gatherSetupFacts(ctx, spec.version, spec.selection.current())
     if (retired()) return 'continued'
     const checks = setupChecks(facts)
     commit(reportLines(facts))
@@ -284,7 +284,7 @@ export async function runSetup(spec: SetupSpec): Promise<SetupOutcome> {
       //
       // Only then. A selection that already works is not replaced, because
       // adding a second provider is not a request to change models.
-      const after = await gatherSetupFacts(ctx, spec.version, spec.selection.current)
+      const after = await gatherSetupFacts(ctx, spec.version, spec.selection.current())
       if (retired()) return 'continued'
       if (!needsModelChoice(after)) continue
       if (await chooseModel(spec)) return 'continued'
