@@ -52,6 +52,20 @@ import { delimiter, dirname, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
+/**
+ * Escape diagnostics before the built renderer is available.
+ * @param message - diagnostic text, including untrusted paths or exceptions.
+ * @returns visible controls, preserving the diagnostic's own line breaks.
+ */
+export function escapeDiagnostic(message) {
+  return message.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu, char => {
+    const code = char.codePointAt(0)
+    if (code < 0x20) return `^${String.fromCharCode(code + 0x40)}`
+    if (code === 0x7f) return '^?'
+    return `\\u{${code.toString(16)}}`
+  })
+}
+
 /** The profile this wrapper starts, and installs into with `--setup`. */
 const PROFILE = 'dshline'
 
@@ -690,7 +704,7 @@ function runLauncher(launcher, args) {
   return new Promise(resolvePromise => {
     const plan = spawnPlan(launcher, args)
     if (plan.refuse !== undefined) {
-      process.stderr.write(`dshline: ${plan.refuse}\n`)
+      process.stderr.write(escapeDiagnostic(`dshline: ${plan.refuse}\n`))
       process.exit(1)
     }
     // Installed for exactly as long as this child runs, and removed by name when it
@@ -720,7 +734,7 @@ function runLauncher(launcher, args) {
     })
     child.on('error', (error) => {
       process.off('SIGINT', ignoreSigint)
-      process.stderr.write(`dshline: could not start ${launcher.describe}: ${error.message}\n`)
+      process.stderr.write(escapeDiagnostic(`dshline: could not start ${launcher.describe}: ${error.message}\n`))
       process.exit(127)
     })
     child.on('exit', (code, signal) => settle({ code, signal }))
@@ -768,11 +782,11 @@ async function handOver(launcher, args) {
 function launcherOrExit() {
   const found = findLauncher()
   if (found === undefined) {
-    process.stderr.write(missingLauncherMessage())
+    process.stderr.write(escapeDiagnostic(missingLauncherMessage()))
     process.exit(127)
   }
   if (found.error !== undefined) {
-    process.stderr.write(`dshline: ${found.error}\n`)
+    process.stderr.write(escapeDiagnostic(`dshline: ${found.error}\n`))
     process.exit(127)
   }
   return found
@@ -803,7 +817,7 @@ async function setUpProfile(launcher) {
     // Nothing is launched after a failed setup: the harness has already said what
     // went wrong, and starting the frontend anyway would bury that under a second
     // failure from a profile that was never installed.
-    process.stderr.write(setupFailedMessage())
+    process.stderr.write(escapeDiagnostic(setupFailedMessage()))
     leaveAs(ended)
   }
 }
@@ -920,7 +934,7 @@ function profileProblemMessage(cause, detail) {
 function requirePnpm(launcher) {
   const requirement = pnpmRequirement({ available: pnpmAvailable(), origin: launcher.origin })
   if (requirement.ok) return
-  process.stderr.write(requirement.message)
+  process.stderr.write(escapeDiagnostic(requirement.message))
   process.exit(1)
 }
 
@@ -1063,7 +1077,7 @@ async function main(args) {
     const install = source === undefined
       ? installArguments()
       : ['plugin', '--profile', PROFILE, 'add', ...source]
-    process.stdout.write(`dshline: installing ${source?.[0] ?? `${PACKAGE}@${ownVersion()}`} into the "${PROFILE}" profile\n`)
+    process.stdout.write(escapeDiagnostic(`dshline: installing ${source?.[0] ?? `${PACKAGE}@${ownVersion()}`} into the "${PROFILE}" profile\n`))
     // No question here, and no terminal requirement: the user asked for this exact
     // mutation by name, which is what makes `--setup` the scriptable path and the
     // answer to a first run that went wrong.
@@ -1075,7 +1089,7 @@ async function main(args) {
   const state = profileState()
   const plan = bootstrapPlan({ args, state, wrapperVersion, interactive: hasTerminal() })
   if (plan === 'no-terminal') {
-    process.stderr.write(noTerminalMessage())
+    process.stderr.write(escapeDiagnostic(noTerminalMessage()))
     process.exit(1)
   }
   if (plan === 'incomplete' || plan === 'skew') {
@@ -1086,7 +1100,7 @@ async function main(args) {
     // user can only escape by guessing.
     const detail = { wrapperVersion, version: state.kind === 'registry' ? state.version : undefined }
     if (!hasTerminal()) {
-      process.stderr.write(profileProblemMessage(plan, detail))
+      process.stderr.write(escapeDiagnostic(profileProblemMessage(plan, detail)))
       process.exit(1)
     }
     const answer = await ask(repairQuestion(plan, detail))

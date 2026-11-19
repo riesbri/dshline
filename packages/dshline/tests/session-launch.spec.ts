@@ -86,6 +86,10 @@ async function fixture(resume: boolean | string | undefined, failure?: string) {
     key('enter')
   }
   const browser = async () => {
+    // Startup deliberately lazy-loads the browser. Await that same module load
+    // before polling UI state: a cold loader under suite contention can exceed
+    // waitFor's short default and dispose this context beneath the pending load.
+    await import('../src/sessions/index.ts')
     await vi.waitFor(() => expect(ctx.tuiSlots.activeOverlay).toBeDefined())
     await vi.waitFor(() => expect(listing).toHaveBeenCalled())
     await new Promise<void>(resolve => setImmediate(resolve))

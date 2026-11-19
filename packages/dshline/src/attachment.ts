@@ -78,7 +78,8 @@ import { historyLines, InputHistory } from './history.ts'
 import { HistorySearch } from './history-search.ts'
 import { createHistorySearchOverlay } from './history-search-overlay.ts'
 import { applyHistorySearch, routeInputKey } from './input.ts'
-import { transcriptEvents, resumeBanner } from './resume.ts'
+import { isTranscriptEvent, resumeBanner } from './resume.ts'
+import { replayTranscript } from './transcript-replay.ts'
 import { createToolOutputOverlay } from './tool-output.ts'
 import { pickModel } from './model.ts'
 import type { PickModelOptions } from './model.ts'
@@ -395,10 +396,10 @@ const SKILL_VERIFY_TIMEOUT_MS = 2_500
  * already gone.
  * @param w - the window to attach into.
  * @param outcome - the established Agent and the target it was created for.
- * @returns the target the reader chose next.
+ * @returns the next target, or undefined when the window exits during replay.
  * @throws the initialization failure, carrying any cleanup failure with it.
  */
-export async function attachSession(w: Window, outcome: AttachOutcome): Promise<AttachTarget> {
+export async function attachSession(w: Window, outcome: AttachOutcome): Promise<AttachTarget | undefined> {
   const scope = new SessionScope()
   // ONE release for the Agent handle, whichever path reaches it: the epoch
   // disposes it when the reader switches away, and this catch disposes it when
@@ -449,14 +450,14 @@ export async function attachSession(w: Window, outcome: AttachOutcome): Promise<
  * @param outcome - the agent the loop opened, and the target it came from.
  * @param scope - the teardown stack the caller's attempt owns.
  * @param releaseHandle - disposes the Agent handle exactly once, whoever gets there first.
- * @returns the target to attach next, once the reader has asked for it.
+ * @returns the next target, or undefined when the window exits during replay.
  */
 async function runSessionEpoch(
   w: Window,
   outcome: AttachOutcome,
   scope: SessionScope,
   releaseHandle: () => Promise<void>,
-): Promise<AttachTarget> {
+): Promise<AttachTarget | undefined> {
   const { ctx, terminal, exit, startup, pricing, peakHours, selection, prefs, draw, commit, clear } = w
   const { target, attached } = outcome
   const attachmentAbort = new AbortController()
@@ -748,13 +749,14 @@ async function runSessionEpoch(
   // for the same reason the usage totals do.
   let planActive = false
   let phase: ModelPhase = 'waiting'
-  // A resumed session's transcript is being replayed into the window. Set only
-  // across the replay's own synchronous pre-flood paint, so the status line
-  // reports the history the reader asked to reopen instead of claiming `ready`
-  // before it is on screen. It is never observed by a keystroke: the snapshot,
-  // the projection, and the clearing of this value all run in one
-  // run-to-completion block, so no input can interleave above the flood.
+  // Replay owns a visible status through its cooperative yields. Draft edits
+  // may interleave, but submission and live transcript presentation stay fenced
+  // until the authoritative snapshot is caught up.
   let replaying: string | undefined
+  let replayFence = attached.reopened && target.kind === 'resume'
+  // An attempt observed during replay stays silent through settlement. Showing
+  // only its later suffix would duplicate that suffix when the whole reply lands.
+  let suppressReplayStream = false
 
   // Deliberately NOT registered with `ctx.commands`. That registry is shared by
   // every surface in the process, and a web client or automation server has no
@@ -1947,7 +1949,7 @@ async function runSessionEpoch(
    * Shared by the live listener and the resume replay, which is the point: a
    * replayed session has to read exactly like the one that was watched happen, and
    * two projections would drift the first time either changed. The live path
-   * commits each return immediately; the replay concatenates them and commits once.
+   * commits each return immediately; replay groups their rows into bounded commits.
    *
    * Durable only. Streamed assistant output does not arrive here at all — it is
    * process-local presentation carried by `agent/assistant-stream`, whose
@@ -2067,13 +2069,8 @@ async function runSessionEpoch(
   // in the check phase after the event-loop turn settles, and the status getter
   // then re-reads the authoritative `agent.inbox` — which is why this frontend
   // needs no second inbox listener and keeps no pending count of its own.
-  scope.own(ctx.on('session/event', (session, event: SessionEvent) => {
-    if (session !== agent.session) return
+  const presentLiveEvent = (event: SessionEvent): readonly string[] => {
     const columns = terminal.columns()
-    // Always fold the live feed. Gating observation on the preference made an
-    // enable during a turn either blank or partial; the preference owns only
-    // presentation, and a fresh attachment still starts without invented data.
-    timer.observe(event)
     // The one fold in this listener that needs no timer, no redraw, and no
     // reading: a `workspace/changes` announcement names its turn, and the durable
     // log is the only place that pairing exists. Cheap enough to run for every
@@ -2087,12 +2084,23 @@ async function runSessionEpoch(
     // it ran.
     if (event.type === 'tool/call' && cards.inFlight() === undefined) phase = 'waiting'
     phase = modelPhaseAfter(phase, event)
-    commit(project(event, columns))
+    const lines = project(event, columns)
     // Live only. `project` above is also the replay path, so an event-derived
     // notice raised there would flash a resumed session's old compactions and
     // permission switches as if they had just happened. This listener sees only
     // events appended after it attached, which is exactly "just happened".
     attention.show(liveSessionAttention(event))
+    return lines
+  }
+  scope.own(ctx.on('session/event', (session, event: SessionEvent) => {
+    if (session !== agent.session || !attachmentMayAct()) return
+    // Always observe live timing, even while presentation catches up. The
+    // preference controls display, not observation of the owned live feed.
+    timer.observe(event)
+    // Session already retains these appends. Catch-up reads them there instead
+    // of duplicating bodies in a frontend queue while historical output yields.
+    if (replayFence) return
+    commit(presentLiveEvent(event))
     draw()
   }))
 
@@ -2111,11 +2119,22 @@ async function runSessionEpoch(
   // already narrows it: a subagent's frames reach this process too, and one
   // window projects one Agent.
   scope.own(ctx.on('agent/assistant-stream', ({ agent: source, frame }) => {
-    if (source !== agent) return
+    if (source !== agent || !attachmentMayAct()) return
     // The gate decides what is current; this listener owns only its own buffer.
     const decision = attempt.accept(frame)
     if (!decision.current) return
-    if (decision.reset) stream.reset()
+    if (decision.reset) {
+      stream.reset()
+      suppressReplayStream = false
+    }
+    if (replayFence) suppressReplayStream = true
+    if (suppressReplayStream) {
+      if (frame.type === 'end') {
+        attempt.end()
+        suppressReplayStream = false
+      }
+      return
+    }
     const columns = terminal.columns()
     timer.observeFrame(frame)
     phase = modelPhaseAfterFrame(phase, frame)
@@ -2766,6 +2785,18 @@ async function runSessionEpoch(
   }
 
   const onKey = (key: Key): void => {
+    if (!attachmentMayAct()) return
+    if (replayFence) {
+      if (key.kind === 'key' && key.name === 'ctrl-c') {
+        w.requestExit()
+      } else if (key.kind !== 'key' || (key.name !== 'enter' && key.name !== 'ctrl-enter')) {
+        // Draft edits remain immediate, but no submission, command, overlay or
+        // session transition may race the historical/live presentation boundary.
+        composer.handle(key)
+        draw()
+      }
+      return
+    }
     if (key.kind === 'key' && key.name === 'ctrl-c' && shellRun !== undefined) {
       shellRun.abort.abort(new Error('Human shell interrupted by the reader.'))
       draw()
@@ -2991,61 +3022,42 @@ async function runSessionEpoch(
   if (shouldClearDisplay(outcome.target)) clear()
   commit(bannerLines(workspace, model, w.version, terminal.columns()))
 
-  if (attached.reopened && target.kind === 'resume') {
-    // The transcript is rebuilt from the Session the resumed Agent already owns,
-    // not from a second read of persistence: `agents.resume` has opened the log,
-    // repaired an interrupted final turn, constructed the Session, and published
-    // it, so `agent.session` is the exact repaired state this attachment goes on
-    // from. The whole block is synchronous, which is what makes one snapshot a
-    // fixed boundary: the `session/event` listener above is already registered,
-    // so an append after the snapshot is delivered live exactly once, and an
-    // event already in the snapshot is one this listener did not deliver.
-    // (Constructor-seed events are never published at all; events appended
-    // between resume and this listener belong to the snapshot alone.)
-    //
-    // Replayed through the same projection the live listener uses, so a resumed
-    // session reads exactly like the one that was watched happen. Committed in
-    // ONE write: an event-by-event commit would redraw the live region thousands
-    // of times to produce a screen nobody sees until the end of it.
-    //
-    // Without the early draw, a reopened session's composer and status stayed
-    // invisible — keystroke routing already live — for however long projecting
-    // the log took: on a real transcript that is a multi-hundred-millisecond
-    // blank screen with a live cursor, and `ready` is a claim the reader has no
-    // history to check yet.
+  if (replayFence) {
     replaying = 'resuming session…'
-    // Painted synchronously at the moment the replay begins: the projection and
-    // flood commit that follow are one event-loop block, so a coalesced paint
-    // has no guaranteed slot before the flood.
     w.paintNow()
-    const replayed = transcriptEvents(agent.session)
-    replaying = replayed.length === 0
-      ? 'resuming session…'
-      : `replaying ${String(replayed.length)} events…`
-    w.paintNow()
-    // History is seeded from the same durable events the transcript replays, so
-    // a reopened session navigates what was actually submitted — direct prompts
-    // and recorded slash commands — rather than only what this process has seen.
-    for (const line of historyLines(replayed)) history.record(line)
-    // The THIRD fold of this same durable array, and the reason `/turns` needs
-    // no log read of its own. `workspace/changes` is a non-surface durable event,
-    // so `isTranscriptEvent` already returned it, and the `workspace-changes`
-    // adapter correlates a turn to its announcement by sequence — a pairing no
-    // other fold carries. Folding it here is what makes a reopened session's
-    // earlier turns correct on its FIRST frame: the durable prefix is already in
-    // hand, synchronously, so an unmatched turn is a settled answer rather than
-    // one waiting on a read of its own.
-    for (const event of replayed) turnChanges.observe(event)
-    const columns = terminal.columns()
-    const lines = replayed.flatMap(event => project(event, columns))
-    // Only the cards need clearing. A log can end mid-turn with a call whose
-    // result never landed, but it cannot end mid-reply as far as this buffer is
-    // concerned: the replay feeds it nothing but settled `assistant/message`
-    // events, each of which commits its own remainder and leaves it empty.
-    cards.reset()
-    commit([...lines, ...resumeBanner(replayed.length)])
-    // The replay is over, so the status can honestly say `ready`.
-    replaying = undefined
+    let historicalCount = 0
+    const ready = await replayTranscript({
+      snapshot: () => agent.session.snapshotEvents(),
+      signal: attachmentAbort.signal,
+      project: (event, historical) => {
+        if (!historical) return presentLiveEvent(event)
+        if (!isTranscriptEvent(event)) return []
+        historicalCount += 1
+        replaying = `replaying ${String(historicalCount)} events…`
+        for (const line of historyLines([event])) history.record(line)
+        turnChanges.observe(event)
+        return project(event, terminal.columns())
+      },
+      commit: rows => {
+        commit(rows)
+        draw()
+      },
+      historicalEnd: () => {
+        cards.reset()
+        commit(resumeBanner(historicalCount))
+      },
+      ready: () => {
+        // Synchronous with the caught-up source snapshot, not a later promise
+        // continuation in which a durable append could disappear between paths.
+        replayFence = false
+        replaying = undefined
+      },
+    })
+    if (!ready) {
+      scope.dispose()
+      await releaseHandle()
+      return exitRequested ? undefined : switched
+    }
   }
   draw()
 
