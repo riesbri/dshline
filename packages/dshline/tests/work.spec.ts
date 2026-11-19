@@ -1501,7 +1501,7 @@ describe('the Work live-region overlay', () => {
     // The word says WHAT and never moves or is styled; the mark says ALIVE.
     const word = (): string => {
       const line = stripAnsi(overlay.render(90, 14).find(entry => stripAnsi(entry).includes('auth-worker')) ?? '')
-      return line.slice(line.indexOf('auth-worker'))
+      return line.slice(line.indexOf('auth-worker'), line.indexOf('oauth.ts') + 'oauth.ts'.length)
     }
     const first = word()
     for (let tick = 0; tick < 6; tick += 1) {
