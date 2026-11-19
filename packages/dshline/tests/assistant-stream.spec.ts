@@ -21,10 +21,12 @@ import { Context as RealContext } from '@deepseek-ai/cordis'
 import type { Agent, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { Screen } from '@dshline/renderer'
+import { decodeKeys, Screen } from '@dshline/renderer'
+import type { Key } from '@dshline/renderer'
 import { createEmulator } from '../../../tests/emulator.ts'
 import { attachSession } from '../src/attachment.ts'
 import { TuiSlots } from '../src/slots.ts'
+import { RedrawScheduler } from '../src/redraw.ts'
 import { pricingFrom } from '../src/usage.ts'
 import type { AttachOutcome } from '../src/sessions/reopen.ts'
 import type { Window } from '../src/window.ts'
@@ -47,6 +49,16 @@ interface Attached {
   readonly strayFrame: (frame: AssistantStreamFrame) => void
   /** Every row the terminal holds, blank ones dropped. */
   readonly rows: () => Promise<string[]>
+  /** Decode terminal bytes and dispatch without submitting probe text. */
+  readonly input: (bytes: string) => void
+  /** Read the actual viewport, as distinct from native scrollback. */
+  readonly viewport: () => Promise<string[]>
+  /** Read the actual cursor after queued terminal output has drained. */
+  readonly cursor: () => Promise<{ column: number; row: number }>
+  /** Number of scheduled compositions, excluding synchronous commit writes. */
+  readonly paints: () => number
+  /** Retire the attachment through the local /new transition, never an inbox. */
+  readonly close: () => Promise<void>
   /** Release the emulator. */
   readonly dispose: () => void
 }
@@ -54,9 +66,10 @@ interface Attached {
 /**
  * Attach one live session over a real terminal.
  * @param reasoningVisible - whether reasoning rows are projected.
+ * @param scheduled - use the production check-phase scheduler for redraws.
  * @returns the attachment's two publication routes and the terminal's rows.
  */
-async function attach(reasoningVisible = true): Promise<Attached> {
+async function attach(reasoningVisible = true, scheduled = false): Promise<Attached> {
   const ctx = new RealContext()
   await ctx.plugin(TuiSlots)
   ctx.provide('tools', { get: () => undefined })
@@ -68,7 +81,17 @@ async function attach(reasoningVisible = true): Promise<Attached> {
   // The window's own redraw: finished rows are committed once and the bounded
   // live region is recomposed from the registry. Anything wrong about which of
   // the two a streamed line belongs to shows up as a duplicate row below.
-  const paint = (): void => { screen.setLive(ctx.tuiSlots.compose(COLUMNS, ROWS).lines) }
+  let paints = 0
+  const paint = (): void => {
+    paints += 1
+    const { lines, cursor } = ctx.tuiSlots.compose(COLUMNS, ROWS)
+    if (cursor === undefined) screen.setLive(lines)
+    else screen.setLive(lines, cursor)
+  }
+  const redraws = new RedrawScheduler(paint)
+  const draw = scheduled ? (): void => { redraws.request() } : paint
+  const offRender = scheduled ? ctx.on('tui/render', draw) : (): void => {}
+  let dispatch: ((key: Key) => void) | undefined
   const window = {
     ctx,
     terminal: { columns: () => COLUMNS, rows: () => ROWS },
@@ -90,12 +113,12 @@ async function attach(reasoningVisible = true): Promise<Attached> {
     themeSettings: {},
     busyEnterSettings: { current: () => 'queue', watch: () => () => {}, save: async () => undefined },
     pendingTask: undefined,
-    draw: paint,
-    paintNow: paint,
+    draw,
+    paintNow: () => { redraws.now() },
     commit: (lines: readonly string[]) => { if (lines.length > 0) screen.commit([...lines]) },
     clear: () => {},
     refreshModelInfo: () => {},
-    setDispatch: () => {},
+    setDispatch: (handler: ((key: Key) => void) | undefined) => { dispatch = handler },
     setExit: () => {},
   } as unknown as Window
 
@@ -112,7 +135,7 @@ async function attach(reasoningVisible = true): Promise<Attached> {
     target: { kind: 'new', cwd: '/workspace' },
     attached: { handle: { agent, dispose: async () => {} }, reopened: false },
   } as unknown as AttachOutcome
-  void attachSession(window, outcome)
+  const attached = attachSession(window, outcome)
 
   let seq = 0
   return {
@@ -128,7 +151,24 @@ async function attach(reasoningVisible = true): Promise<Attached> {
       ctx.emit('agent/assistant-stream', { agent: { session: {} } as Agent, frame: one } as never)
     },
     rows: async () => (await emulator.scrollback()).map(row => row.trimEnd()).filter(row => row !== ''),
-    dispose: () => { emulator.dispose() },
+    input: bytes => {
+      expect(dispatch).toBeDefined()
+      for (const key of decodeKeys(bytes)) dispatch?.(key)
+    },
+    viewport: async () => (await emulator.screen()).map(row => row.trimEnd()),
+    cursor: () => emulator.cursor(),
+    paints: () => paints,
+    close: async () => {
+      // Exit requests dispose presentation but do not resolve this fixture's
+      // session loop. /new does; make cleanup independent of the busy-key probe.
+      Object.assign(agent, { status: 'idle' })
+      for (const key of decodeKeys('\u0001\u000b/new\r')) dispatch?.(key)
+      await attached
+      redraws.stop()
+      offRender()
+      emulator.dispose()
+    },
+    dispose: () => { redraws.stop(); offRender(); emulator.dispose() },
   }
 }
 
@@ -455,5 +495,78 @@ describe('a reply streamed through the live agent frames', () => {
     expect(rows.some(row => row.includes('a child was thinking'))).toBe(false)
     expect(rows).toContain('● mine')
     f.dispose()
+  })
+})
+
+/** Advance to the scheduler's check phase without a wall-clock deadline. */
+const nextPaint = (): Promise<void> => new Promise(resolve => { setImmediate(resolve) })
+
+describe('input during a long synthetic turn with production redraw scheduling', () => {
+  it('echoes and edits an unsubmitted marker between stream bursts without losing scrollback', async () => {
+    const f = await attach(true, true)
+    try {
+      f.event('turn/start', { turn: 1 })
+      f.event('step/start', { turn: 1, step: 1 })
+      f.frame(start('typing'))
+      const lines = Array.from({ length: 80 }, (_, index) => `stream row ${String(index).padStart(2, '0')}`)
+      for (let burst = 0; burst < 4; burst += 1) {
+        for (let index = burst * 20; index < (burst + 1) * 20; index += 1) {
+          f.frame(text('typing', `${lines[index]}\n`, index))
+        }
+        // No Enter: the marker must never reach either Harness inbox verb.
+        f.input(burst === 0 ? 'UNSENT-0' : `\u007f${String(burst)}`)
+        await nextPaint()
+        expect((await f.viewport()).some(row => row.includes(`UNSENT-${String(burst)}`))).toBe(true)
+      }
+      // Move and edit in the middle, not just an append-only typing assertion.
+      f.input('\u001b[D!')
+      await nextPaint()
+      const viewport = await f.viewport()
+      const composerRow = viewport.findIndex(row => row.includes('UNSENT-!3'))
+      expect(composerRow).toBeGreaterThanOrEqual(0)
+      const cursor = await f.cursor()
+      // Anchor the cursor to the actual character, not a hardcoded gutter.
+      expect(cursor).toEqual({ column: viewport[composerRow]!.indexOf('3'), row: composerRow })
+      expect(f.agent.followup).not.toHaveBeenCalled()
+      expect(f.agent.steer).not.toHaveBeenCalled()
+      const history = await f.rows()
+      for (const line of lines) expect(occurrences(history, line), line).toBe(1)
+      expect((await f.viewport()).some(row => row.includes('stream row 00'))).toBe(false)
+    } finally {
+      await f.close()
+    }
+  })
+
+  it.each([
+    ['legacy', '\u0003'],
+    ['enhanced', '\u001b[99;5u'],
+  ])('handles %s interrupt before pending repaint and settles the prefix once', async (_encoding, interrupt) => {
+    const f = await attach(true, true)
+    try {
+      f.event('turn/start', { turn: 1 })
+      f.event('step/start', { turn: 1, step: 1 })
+      f.frame(start('interrupt'))
+      f.frame(text('interrupt', 'completed\npartial'))
+      f.input('UNSUBMITTED')
+      // This whole burst and keypress occupy one task: no paint can have run.
+      expect(f.paints()).toBe(0)
+      f.input(interrupt)
+      expect(f.agent.cancel).toHaveBeenCalledExactlyOnceWith({ kind: 'user' })
+      expect(f.paints()).toBe(0)
+      // Harness, not the UI, owns cancellation settlement. Publish its delivered
+      // prefix and terminal frame only after the handler has already returned.
+      f.event(...message([{ type: 'text', text: 'completed\npartial' }], true))
+      f.frame(committed('interrupt', 'assistant/message', 1))
+      f.event('turn/end', { turn: 1, reason: 'aborted' })
+      await nextPaint()
+      const history = await f.rows()
+      expect(occurrences(history, 'completed')).toBe(1)
+      expect(occurrences(history, 'partial')).toBe(1)
+      expect((await f.viewport()).some(row => row.includes('UNSUBMITTED'))).toBe(true)
+      expect(f.agent.followup).not.toHaveBeenCalled()
+      expect(f.agent.steer).not.toHaveBeenCalled()
+    } finally {
+      await f.close()
+    }
   })
 })
