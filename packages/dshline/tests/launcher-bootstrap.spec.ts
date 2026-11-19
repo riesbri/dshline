@@ -531,6 +531,29 @@ async function initializeEmptyProfile(fix: Fixture): Promise<void> {
   await writeFile(fix.manifest, `${JSON.stringify({ name: 'dsh-profile-dshline', dependencies: {} })}\n`, 'utf8')
 }
 
+describe('terminal-safe launcher diagnostics', () => {
+  it('escapes a setup source announcement without changing the installed argument', async () => {
+    const fix = await fixture()
+    const spec = './source-\u001b]52;c;AUDIT\u0007-\u009b2J'
+    const run = await runWrapper(fix, ['--setup', spec])
+    expect(run.code).toBe(0)
+    expect(run.calls[0]?.argv).toEqual(['plugin', '--profile', 'dshline', 'add', spec])
+    expect(run.stdout).toContain('^[]52;c;AUDIT^G')
+    expect(run.stdout).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u)
+  })
+
+  it('displays control bytes in a missing launcher path instead of executing them', async () => {
+    const fix = await fixture()
+    const run = await runWrapper(fix, [], {
+      env: { DSH_BIN: join(fix.root, 'missing-\u001b]52;c;AUDIT\u0007-\u009b2J') },
+    })
+    expect(run.code).toBe(127)
+    expect(run.stderr).toContain('does not exist')
+    expect(run.stderr).toContain('^[]52;c;AUDIT^G')
+    expect(run.stderr).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/u)
+  })
+})
+
 describe('the bootstrap decision', () => {
   /**
    * The plan for one profile state.
@@ -941,21 +964,19 @@ describe('a profile recording a different release', () => {
 
 describe('the pnpm prerequisite', () => {
   /**
-   * A PATH that resolves no pnpm at all.
-   *
-   * Isolate POSIX helpers rather than assuming system directories lack a
-   * global pnpm. Node itself is invoked by absolute path in these cases.
-   * @param fix - scratch installation owning the isolated helper directory.
-   * @returns the PATH value.
+   * Isolate the prerequisite, not assumptions about system installation paths.
+   * @param fix - scratch installation owning the executable directory.
+   * @returns a PATH containing only the PTY harness tools, never pnpm.
    */
   async function noPnpmPath(fix: Fixture): Promise<string> {
-    if (process.platform === 'win32') return systemFolder()
-    // System directories can contain a real global pnpm. Offer only the PTY
-    // helpers this fixture needs, so host package-manager placement is irrelevant.
     const bin = join(fix.root, 'without-pnpm')
     await mkdir(bin, { recursive: true })
-    for (const [name, target] of [['bash', '/bin/bash'], ['sh', '/bin/sh'], ['script', '/usr/bin/script'], ['cat', '/bin/cat']]) {
-      await symlink(target!, join(bin, name!))
+    if (process.platform !== 'win32') {
+      for (const name of ['bash', 'script', 'cat']) {
+        const source = ['/bin', '/usr/bin', ...(process.env.PATH ?? '').split(delimiter)]
+          .map(directory => join(directory, name)).find(path => existsSync(path))
+        if (source !== undefined) await symlink(source, join(bin, name))
+      }
     }
     return bin
   }

@@ -535,6 +535,14 @@ not add another store.
 
 What gets replayed is the record of what was actually said, not the version the model currently sees. Those differ: when history is summarized to save context, the model's view hides the messages that were replaced. Replaying that view would erase parts of the conversation you had already read. They are gone from the model's memory, but they still happened.
 
+Large histories replay in bounded row/text batches, yielding between batches and
+structural-event groups so input can run. Draft edits remain available; Enter does
+not submit or dispatch commands until replay catches up, and Ctrl-C/Ctrl-D can
+leave. Live durable appends are caught up from the owned Session, not copied into
+a frontend event queue. An assistant attempt observed during replay remains silent
+through settlement rather than showing a suffix twice. One event's presenter and
+one terminal row remain indivisible, so this is not a hard per-event latency cap.
+
 A reopened session keeps the folder it was created in. That folder is recorded in the session file and treated as authoritative, so `-C` is ignored when resuming rather than quietly moving an old conversation somewhere new.
 
 Reopening from inside a running window — `/sessions` — draws the same way, and that is the constraint it has to satisfy: the transcript already in your terminal is committed scrollback, so the reopened one is *appended under it* rather than replacing it. Nothing already printed is rewritten, which is why one window can move between sessions without an alternate screen. What changes is who owns the live region: the window keeps the terminal and the keyboard, and the attached session's views, log listener, and capability adapters are torn down and rebuilt around the new agent.
