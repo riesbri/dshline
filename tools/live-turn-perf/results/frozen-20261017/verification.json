@@ -1,0 +1,15 @@
+{
+  "records": 451,
+  "measured": 445,
+  "counts": {
+    "cjk/candidate": 84,
+    "cjk/stock": 84,
+    "latin/candidate": 70,
+    "latin/stock": 69,
+    "styled/candidate": 69,
+    "styled/stock": 69
+  },
+  "corruptByteRejected": true,
+  "zeroRendererRejected": true,
+  "independentAttributionSweep": true
+}

@@ -52,6 +52,8 @@ const CLEAR_LINE = `${CSI}0K`
 export class Screen {
   /** Rendered rows currently occupied by the live region, as they were drawn. */
   private liveRows: readonly string[] = []
+  /** Pure wrap results for only the last live frame, at liveColumns. */
+  private liveWraps = new Map<string, readonly string[]>()
   /**
    * The width `liveRows` was wrapped at, or undefined before the first draw.
    *
@@ -150,6 +152,39 @@ export class Screen {
   }
 
   /**
+   * Repaint only changed rows when the live geometry is unchanged.
+   *
+   * Absolute columns (CR + CUF) cancel pending right-margin wrap as well as
+   * resetting the column. Vertical moves never cross the bounded live region.
+   * A changed row is still replaced in full: cutting an arbitrary styled or
+   * combining-character prefix would require owning the terminal's cell model.
+   * @param rows - wrapped replacement rows, with the same height as liveRows.
+   * @param cursor - clamped placement for the replacement frame.
+   * @returns row damage and final cursor placement.
+   */
+  private drawDamage(rows: readonly string[], cursor: LiveCursor | undefined): string {
+    let row = this.cursor?.row ?? Math.max(0, rows.length - 1)
+    let out = ''
+    const move = (next: number): void => {
+      out += `\r${csi(row - next, 'A')}${csi(next - row, 'B')}`
+      row = next
+    }
+    for (let index = 0; index < rows.length; index += 1) {
+      if (rows[index] === this.liveRows[index]) continue
+      move(index)
+      out += `${CLEAR_LINE}${rows[index] ?? ''}`
+    }
+    const destination = cursor?.row ?? Math.max(0, rows.length - 1)
+    move(destination)
+    // With no explicit cursor, preserve the hidden cursor's end-of-row position.
+    // Re-emitting its row avoids measuring ANSI/Unicode text a second time and
+    // preserves pending-wrap semantics exactly as drawLive does.
+    if (cursor === undefined) out += rows[destination] ?? ''
+    else out += csi(cursor.column, 'C')
+    return out
+  }
+
+  /**
    * Whether `rows` and `cursor` describe exactly what is on screen right now.
    * @param rows - wrapped rows a redraw would draw.
    * @param cursor - cursor placement that redraw would use.
@@ -186,7 +221,16 @@ export class Screen {
    */
   setLive(lines: readonly string[], cursor?: LiveCursor): void {
     const columns = this.columns()
-    const rows = this.wrapAt(lines, columns)
+    // Chrome and completed live rows are usually unchanged while a delta grows
+    // one row. Cache only this frame, keyed by the exact styled string, so rows
+    // may move without re-tokenizing; no transcript or cross-width cache grows.
+    const wraps = new Map<string, readonly string[]>()
+    const rows = lines.flatMap(line => {
+      const wrapped = (columns === this.liveColumns ? this.liveWraps.get(line) : undefined)
+        ?? wraps.get(line) ?? wrapToWidth(line, columns)
+      wraps.set(line, wrapped)
+      return wrapped
+    })
     // Clamp once, before the comparison and before the write: the erase on the
     // next redraw descends from the row this frame actually placed the cursor
     // on, so the cached placement must be the drawn one and not the request.
@@ -204,8 +248,13 @@ export class Screen {
     // worse than the stale row it was meant to remove. Climbing only the cached
     // count can never leave the old region, so committed scrollback is safe.
     const tail = placed === undefined ? '' : SHOW_CURSOR
-    this.target.write(`${BEGIN_SYNC}${HIDE_CURSOR}${this.eraseLive()}${this.drawLive(rows, placed)}${tail}${END_SYNC}`)
+    const stable = this.current && columns === this.liveColumns && rows.length === this.liveRows.length
+    const body = stable && rows.length > 0
+      ? this.drawDamage(rows, placed)
+      : `${this.eraseLive()}${this.drawLive(rows, placed)}`
+    this.target.write(`${BEGIN_SYNC}${HIDE_CURSOR}${body}${tail}${END_SYNC}`)
     this.liveRows = rows
+    this.liveWraps = wraps
     this.liveColumns = columns
     this.cursor = placed
     this.current = true
@@ -244,6 +293,7 @@ export class Screen {
       // A failed write may have erased some or all of the region. Teardown
       // must forget that geometry rather than climb it again on a retry.
       this.liveRows = []
+      this.liveWraps.clear()
       this.liveColumns = undefined
       this.cursor = undefined
       this.current = false

@@ -320,6 +320,7 @@ export function createOracle(columns: number, rows: number, options: OracleOptio
       // uses the CLAMPED placement, matching `Screen`'s own cache.
       const skipping = current && liveColumns === width &&
         JSON.stringify(next) === JSON.stringify(liveRows) && sameCursor(placed, cursor)
+      const stableGeometry = current && liveColumns === width && next.length === liveRows.length
       const before = writes
       screen.setLive(lines, placement)
       liveRows = next
@@ -330,9 +331,10 @@ export function createOracle(columns: number, rows: number, options: OracleOptio
       // The other direction: a frame that changed must not have been swallowed by
       // the skip, or a later assertion could pass because nothing redrew.
       if (!skipping && writes === before) throw new TerminalOracleViolation('setLive', ['a changed frame wrote nothing'])
-      // With a region already on screen, the redraw must erase it first. `Screen`
-      // emits CSI 0J whenever it had a non-empty region to remove.
-      if (previous.length > 0 && !lastChunk.includes('\u001b[0J')) {
+      // Geometry changes and stale frames still require the full erase. Stable
+      // rows may instead be individually replaced; content/cursor/stale-row
+      // assertions below validate the resulting picture independently of bytes.
+      if (!stableGeometry && previous.length > 0 && !lastChunk.includes('\u001b[0J')) {
         throw new TerminalOracleViolation('setLive', ['redraw did not erase the previous live region'])
       }
       await assert(`setLive(${JSON.stringify(lines)})`, 'live')

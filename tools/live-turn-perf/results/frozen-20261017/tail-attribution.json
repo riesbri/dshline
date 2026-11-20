@@ -1,0 +1,120 @@
+{
+  "stock": {
+    "longestFive": [
+      {
+        "run": "cjk-068-stock",
+        "wholeTurnMs": 7635.195,
+        "screenMs": 103.935,
+        "rendererMs": 549.889,
+        "providerAwaitNonRendererMs": 6928.759,
+        "residualMs": 156.547,
+        "changedHeightScreenMs": 7.209,
+        "stableHeightScreenMs": 86.775,
+        "cacheReadTokens": 512
+      },
+      {
+        "run": "cjk-075-stock",
+        "wholeTurnMs": 8180.747,
+        "screenMs": 84.98,
+        "rendererMs": 471.534,
+        "providerAwaitNonRendererMs": 7538.59,
+        "residualMs": 170.622,
+        "changedHeightScreenMs": 3.441,
+        "stableHeightScreenMs": 74.466,
+        "cacheReadTokens": 0
+      },
+      {
+        "run": "cjk-015-stock",
+        "wholeTurnMs": 9181.019,
+        "screenMs": 98.407,
+        "rendererMs": 607.041,
+        "providerAwaitNonRendererMs": 8418.209,
+        "residualMs": 155.769,
+        "changedHeightScreenMs": 7.266,
+        "stableHeightScreenMs": 85.452,
+        "cacheReadTokens": 512
+      },
+      {
+        "run": "cjk-016-stock",
+        "wholeTurnMs": 13365.372,
+        "screenMs": 98.6,
+        "rendererMs": 587.634,
+        "providerAwaitNonRendererMs": 12631.935,
+        "residualMs": 145.803,
+        "changedHeightScreenMs": 5.932,
+        "stableHeightScreenMs": 86.672,
+        "cacheReadTokens": 512
+      },
+      {
+        "run": "cjk-065-stock",
+        "wholeTurnMs": 13776.872,
+        "screenMs": 85.81,
+        "rendererMs": 477.685,
+        "providerAwaitNonRendererMs": 13109.951,
+        "residualMs": 189.236,
+        "changedHeightScreenMs": 1.975,
+        "stableHeightScreenMs": 78.011,
+        "cacheReadTokens": 0
+      }
+    ]
+  },
+  "candidate": {
+    "longestFive": [
+      {
+        "run": "cjk-082-candidate",
+        "wholeTurnMs": 9810.669,
+        "screenMs": 161.273,
+        "rendererMs": 694.475,
+        "providerAwaitNonRendererMs": 8858.415,
+        "residualMs": 257.779,
+        "changedHeightScreenMs": 5.422,
+        "stableHeightScreenMs": 134.42,
+        "cacheReadTokens": 0
+      },
+      {
+        "run": "cjk-079-candidate",
+        "wholeTurnMs": 10826.665,
+        "screenMs": 63.549,
+        "rendererMs": 501.398,
+        "providerAwaitNonRendererMs": 10192.409,
+        "residualMs": 132.858,
+        "changedHeightScreenMs": 1.35,
+        "stableHeightScreenMs": 50.893,
+        "cacheReadTokens": 0
+      },
+      {
+        "run": "cjk-068-candidate",
+        "wholeTurnMs": 13614.004,
+        "screenMs": 114.163,
+        "rendererMs": 572.254,
+        "providerAwaitNonRendererMs": 12874.642,
+        "residualMs": 167.108,
+        "changedHeightScreenMs": 1.407,
+        "stableHeightScreenMs": 95.473,
+        "cacheReadTokens": 0
+      },
+      {
+        "run": "cjk-064-candidate",
+        "wholeTurnMs": 14978.923,
+        "screenMs": 131.792,
+        "rendererMs": 596.44,
+        "providerAwaitNonRendererMs": 14170.811,
+        "residualMs": 211.673,
+        "changedHeightScreenMs": 2.306,
+        "stableHeightScreenMs": 122.461,
+        "cacheReadTokens": 0
+      },
+      {
+        "run": "cjk-026-candidate",
+        "wholeTurnMs": 16596.995,
+        "screenMs": 73.156,
+        "rendererMs": 660.216,
+        "providerAwaitNonRendererMs": 15783.178,
+        "residualMs": 153.601,
+        "changedHeightScreenMs": 4.533,
+        "stableHeightScreenMs": 64.006,
+        "cacheReadTokens": 512
+      }
+    ]
+  }
+}
