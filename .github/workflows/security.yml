@@ -66,7 +66,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
         with:
           fail-on-severity: moderate
           # A licence this project cannot ship under is a defect in the same way
@@ -156,7 +156,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+      - uses: ossf/scorecard-action@23f22cd43608bae7a1f1fa2603d7314dee9538a5 # v2.6.0
         with:
           results_file: scorecard.sarif
           results_format: sarif
